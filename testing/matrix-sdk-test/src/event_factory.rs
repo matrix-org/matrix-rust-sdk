@@ -14,7 +14,10 @@
 
 #![allow(missing_docs)]
 
-use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+use std::{
+    collections::BTreeSet,
+    sync::atomic::{AtomicU64, Ordering::SeqCst},
+};
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::{
@@ -22,6 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     events::{
+        member_hints::MemberHintsEventContent,
         message::TextContentBlock,
         poll::{
             end::PollEndEventContent,
@@ -35,6 +39,7 @@ use ruma::{
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
+            member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, ImageMessageEventContent, MessageType, Relation,
                 RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
@@ -175,6 +180,15 @@ where
         Raw::new(map).unwrap().cast()
     }
 
+    /// Build an event from the [`EventBuilder`] and convert it into a
+    /// serialized and [`Raw`] event.
+    ///
+    /// The generic argument `T` allows you to automatically cast the [`Raw`]
+    /// event into any desired type.
+    pub fn into_raw<T>(self) -> Raw<T> {
+        self.construct_json(true)
+    }
+
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
         self.construct_json(true)
     }
@@ -201,7 +215,10 @@ impl EventBuilder<RoomEncryptedEventContent> {
 
         SyncTimelineEvent::new_utd_event(
             self.into(),
-            UnableToDecryptInfo { session_id, reason: UnableToDecryptReason::MissingMegolmSession },
+            UnableToDecryptInfo {
+                session_id,
+                reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
+            },
         )
     }
 }
@@ -343,6 +360,77 @@ impl EventFactory {
         self.event(RoomMessageEventContent::text_plain(content.into()))
     }
 
+    /// Create a new `m.room.member` event for the given member.
+    ///
+    /// The given member will be used as the `sender` as well as the `state_key`
+    /// of the `m.room.member` event, unless the `sender` was already using
+    /// [`EventFactory::sender()`], in that case only the state key will be
+    /// set to the given `member`.
+    ///
+    /// The `membership` field of the content is set to
+    /// [`MembershipState::Join`].
+    ///
+    /// ```
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     events::{
+    ///         room::member::{MembershipState, RoomMemberEventContent},
+    ///         SyncStateEvent,
+    ///     },
+    ///     room_id,
+    ///     serde::Raw,
+    ///     user_id,
+    /// };
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event: Raw<SyncStateEvent<RoomMemberEventContent>> = factory
+    ///     .member(user_id!("@alice:localhost"))
+    ///     .display_name("Alice")
+    ///     .into_raw();
+    /// ```
+    pub fn member(&self, member: &UserId) -> EventBuilder<RoomMemberEventContent> {
+        let mut event = self.event(RoomMemberEventContent::new(MembershipState::Join));
+
+        if self.sender.is_some() {
+            event.sender = self.sender.clone();
+        } else {
+            event.sender = Some(member.to_owned());
+        }
+
+        event.state_key = Some(member.to_string());
+
+        event
+    }
+
+    /// Create a new `m.member_hints` event with the given service members.
+    ///
+    /// ```
+    /// use std::collections::BTreeSet;
+    ///
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     events::{member_hints::MemberHintsEventContent, SyncStateEvent},
+    ///     owned_user_id, room_id,
+    ///     serde::Raw,
+    ///     user_id,
+    /// };
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event: Raw<SyncStateEvent<MemberHintsEventContent>> = factory
+    ///     .member_hints(BTreeSet::from([owned_user_id!("@alice:localhost")]))
+    ///     .sender(user_id!("@alice:localhost"))
+    ///     .into_raw();
+    /// ```
+    pub fn member_hints(
+        &self,
+        service_members: BTreeSet<OwnedUserId>,
+    ) -> EventBuilder<MemberHintsEventContent> {
+        // The `m.member_hints` event always has an empty state key, so let's set it.
+        self.event(MemberHintsEventContent::new(service_members)).state_key("")
+    }
+
     /// Create a new plain/html `m.room.message`.
     pub fn text_html(
         &self,
@@ -461,5 +549,22 @@ impl EventFactory {
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
     pub fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
+    }
+}
+
+impl EventBuilder<RoomMemberEventContent> {
+    /// Set the `membership` of the `m.room.member` event to the given
+    /// [`MembershipState`].
+    ///
+    /// The default is [`MembershipState::Join`].
+    pub fn membership(mut self, state: MembershipState) -> Self {
+        self.content.membership = state;
+        self
+    }
+
+    /// Set the display name of the `m.room.member` event.
+    pub fn display_name(mut self, display_name: impl Into<String>) -> Self {
+        self.content.displayname = Some(display_name.into());
+        self
     }
 }

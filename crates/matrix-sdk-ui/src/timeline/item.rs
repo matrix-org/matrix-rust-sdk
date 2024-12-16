@@ -26,13 +26,14 @@ use super::{EventTimelineItem, VirtualTimelineItem};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TimelineUniqueId(pub String);
 
+/// The type of timeline item.
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum TimelineItemKind {
     /// An event or aggregation of multiple events.
     Event(EventTimelineItem),
     /// An item that doesn't correspond to an event, for example the user's
-    /// own read marker.
+    /// own read marker, or a date divider.
     Virtual(VirtualTimelineItem),
 }
 
@@ -78,9 +79,9 @@ impl TimelineItem {
     ///
     /// It identifies the item on a best-effort basis. For instance, edits
     /// to an [`EventTimelineItem`] will not change the ID of the
-    /// enclosing `TimelineItem`. For some virtual items like day
+    /// enclosing `TimelineItem`. For some virtual items like date
     /// dividers, identity isn't easy to define though and you might
-    /// see a new ID getting generated for a day divider that you
+    /// see a new ID getting generated for a date divider that you
     /// perceive to be "the same" as a previous one.
     pub fn unique_id(&self) -> &TimelineUniqueId {
         &self.internal_id
@@ -105,10 +106,10 @@ impl TimelineItem {
         matches!(&self.kind, TimelineItemKind::Event(_))
     }
 
-    /// Check whether this item is a day divider.
+    /// Check whether this item is a date divider.
     #[must_use]
-    pub fn is_day_divider(&self) -> bool {
-        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)))
+    pub fn is_date_divider(&self) -> bool {
+        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)))
     }
 
     pub(crate) fn is_read_marker(&self) -> bool {

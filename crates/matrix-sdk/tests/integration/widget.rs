@@ -25,15 +25,20 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_common::{executor::spawn, timeout::timeout};
-use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, ALICE, BOB};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, EventBuilder, JoinedRoomBuilder, ALICE, BOB,
+};
 use once_cell::sync::Lazy;
 use ruma::{
     event_id,
-    events::room::{
-        member::{MembershipState, RoomMemberEventContent},
-        message::RoomMessageEventContent,
-        name::RoomNameEventContent,
-        topic::RoomTopicEventContent,
+    events::{
+        room::{
+            member::{MembershipState, RoomMemberEventContent},
+            message::RoomMessageEventContent,
+            name::RoomNameEventContent,
+            topic::RoomTopicEventContent,
+        },
+        MessageLikeEventType, StateEventType,
     },
     owned_room_id,
     serde::JsonObject,
@@ -43,7 +48,7 @@ use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use tracing::error;
 use wiremock::{
-    matchers::{header, method, path_regex, query_param},
+    matchers::{method, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -240,13 +245,12 @@ async fn test_read_messages() {
             "end": "t47409-4357353_219380_26003_2269",
             "start": "t392-516_47314_0_7_1_1_1_11444_1"
         });
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/messages$"))
-            .and(header("authorization", "Bearer 1234"))
-            .and(query_param("limit", "2"))
+        mock_server
+            .mock_room_messages()
+            .limit(2)
             .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-            .expect(1)
-            .mount(mock_server.server())
+            .mock_once()
+            .mount()
             .await;
 
         // Ask the driver to read messages
@@ -297,51 +301,22 @@ async fn test_read_messages_with_msgtype_capabilities() {
     // No messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
+    let f = EventFactory::new().room(&ROOM_ID).sender(user_id!("@example:localhost"));
+
     {
-        let response_json = json!({
-            "chunk": [
-                {
-                    "content": {
-                        "body": "custom content",
-                        "msgtype": "m.custom.element",
-                    },
-                    "event_id": "$msda7m0df9E9op3",
-                    "origin_server_ts": 152037220,
-                    "sender": "@example:localhost",
-                    "type": "m.room.message",
-                    "room_id": &*ROOM_ID,
-                },
-                {
-                    "content": {
-                        "body": "hello",
-                        "msgtype": "m.text",
-                    },
-                    "event_id": "$msda7m0df9E9op5",
-                    "origin_server_ts": 152037280,
-                    "sender": "@example:localhost",
-                    "type": "m.room.message",
-                    "room_id": &*ROOM_ID,
-                },
-                {
-                    "content": {
-                    },
-                    "event_id": "$msda7m0df9E9op7",
-                    "origin_server_ts": 152037290,
-                    "sender": "@example:localhost",
-                    "type": "m.reaction",
-                    "room_id": &*ROOM_ID,
-                },
-            ],
-            "end": "t47409-4357353_219380_26003_2269",
-            "start": "t392-516_47314_0_7_1_1_1_11444_1"
-        });
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/messages$"))
-            .and(header("authorization", "Bearer 1234"))
-            .and(query_param("limit", "3"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-            .expect(1)
-            .mount(mock_server.server())
+        let start = "t392-516_47314_0_7_1_1_1_11444_1".to_owned();
+        let end = Some("t47409-4357353_219380_26003_2269".to_owned());
+        let chunk2 = vec![
+            f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
+            f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
+            f.reaction(event_id!("$event_id"), "annotation".to_owned()).into_raw_timeline(),
+        ];
+        mock_server
+            .mock_room_messages()
+            .limit(3)
+            .ok(start, end, chunk2, Vec::new())
+            .mock_once()
+            .mount()
             .await;
 
         // Ask the driver to read messages
@@ -508,11 +483,12 @@ async fn test_send_room_message() {
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
         .await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*$"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$foobar" })))
-        .expect(1)
-        .mount(mock_server.server())
+    mock_server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .ok(event_id!("$foobar"))
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -535,8 +511,6 @@ async fn test_send_room_message() {
     assert_eq!(msg["action"], "send_event");
     let event_id = msg["response"]["event_id"].as_str().unwrap();
     assert_eq!(event_id, "$foobar");
-
-    // Make sure the event-sending endpoint was hit exactly once
 }
 
 #[async_test]
@@ -549,11 +523,12 @@ async fn test_send_room_name() {
     )
     .await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/?$"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$foobar" })))
-        .expect(1)
-        .mount(mock_server.server())
+    mock_server
+        .mock_room_send_state()
+        .for_type(StateEventType::RoomName)
+        .ok(event_id!("$foobar"))
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -576,8 +551,6 @@ async fn test_send_room_name() {
     assert_eq!(msg["action"], "send_event");
     let event_id = msg["response"]["event_id"].as_str().unwrap();
     assert_eq!(event_id, "$foobar");
-
-    // Make sure the event-sending endpoint was hit exactly once
 }
 
 #[async_test]
@@ -592,14 +565,15 @@ async fn test_send_delayed_message_event() {
         ]),
     )
     .await;
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*$"))
+    mock_server
+        .mock_room_send()
+        .with_delay(Duration::from_millis(1000))
+        .for_type(MessageLikeEventType::RoomMessage)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
         })))
-        .expect(1)
-        .mount(mock_server.server())
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -623,8 +597,6 @@ async fn test_send_delayed_message_event() {
     assert_eq!(msg["action"], "send_event");
     let delay_id = msg["response"]["delay_id"].as_str().unwrap();
     assert_eq!(delay_id, "1234");
-
-    // Make sure the event-sending endpoint was hit exactly once
 }
 
 #[async_test]
@@ -640,13 +612,15 @@ async fn test_send_delayed_state_event() {
     )
     .await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/?$"))
+    mock_server
+        .mock_room_send_state()
+        .with_delay(Duration::from_millis(1000))
+        .for_type(StateEventType::RoomName)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
         })))
-        .expect(1)
-        .mount(mock_server.server())
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -670,8 +644,65 @@ async fn test_send_delayed_state_event() {
     assert_eq!(msg["action"], "send_event");
     let delay_id = msg["response"]["delay_id"].as_str().unwrap();
     assert_eq!(delay_id, "1234");
+}
 
-    // Make sure the event-sending endpoint was hit exactly once
+#[async_test]
+async fn test_fail_sending_delay_rate_limit() {
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.message"
+        ]),
+    )
+    .await;
+
+    mock_server
+        .mock_room_send()
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "errcode": "M_LIMIT_EXCEEDED",
+            "error": "Sending too many delay events"
+        })))
+        .mock_once()
+        .mount()
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-room-message",
+        "send_event",
+        json!({
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.text",
+                "body": "Message from a widget!",
+            },
+            "delay":1000,
+        }),
+    )
+    .await;
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    // Receive the response in the correct widget error response format
+    assert_eq!(
+        msg["response"],
+        json!({
+            "error": {
+              "matrix_api_error": {
+                "http_status": 400,
+                "response": {
+                  "errcode": "M_LIMIT_EXCEEDED",
+                  "error": "Sending too many delay events"
+                },
+              },
+              "message": "the server returned an error: [400 / M_LIMIT_EXCEEDED] Sending too many delay events"
+            }
+        })
+    );
 }
 
 #[async_test]

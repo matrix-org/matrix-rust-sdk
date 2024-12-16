@@ -27,7 +27,10 @@ use matrix_sdk_crypto::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, SenderDataType, Session, StaticAccountData,
     },
-    store::{BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts, RoomSettings},
+    store::{
+        BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
+        RoomSettings,
+    },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
@@ -188,6 +191,9 @@ impl SqliteCryptoStore {
 }
 
 const DATABASE_VERSION: u8 = 9;
+
+/// key for the dehydrated device pickle key in the key/value table.
+const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
@@ -846,6 +852,11 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_kv("backup_version_v1", &serialized_backup_version)?;
                 }
 
+                if let Some(pickle_key) = &changes.dehydrated_device_pickle_key {
+                    let serialized_pickle_key = this.serialize_value(pickle_key)?;
+                    txn.set_kv(DEHYDRATED_DEVICE_PICKLE_KEY, &serialized_pickle_key)?;
+                }
+
                 for device in changes.devices.new.iter().chain(&changes.devices.changed) {
                     let user_id = this.encode_key("device", device.user_id().as_bytes());
                     let device_id = this.encode_key("device", device.device_id().as_bytes());
@@ -1091,6 +1102,21 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(BackupKeys { backup_version, decryption_key })
     }
 
+    async fn load_dehydrated_device_pickle_key(&self) -> Result<Option<DehydratedDeviceKey>> {
+        let conn = self.acquire().await?;
+
+        conn.get_kv(DEHYDRATED_DEVICE_PICKLE_KEY)
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()
+    }
+
+    async fn delete_dehydrated_device_pickle_key(&self) -> Result<(), Self::Error> {
+        let conn = self.acquire().await?;
+        conn.clear_kv(DEHYDRATED_DEVICE_PICKLE_KEY).await?;
+
+        Ok(())
+    }
     async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,

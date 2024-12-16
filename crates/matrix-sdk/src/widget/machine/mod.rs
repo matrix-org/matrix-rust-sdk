@@ -14,7 +14,7 @@
 
 //! No I/O logic of the [`WidgetDriver`].
 
-use std::{fmt, iter, time::Duration};
+use std::{iter, time::Duration};
 
 use driver_req::UpdateDelayedEventRequest;
 use from_widget::UpdateDelayedEventResponse;
@@ -48,10 +48,11 @@ use self::{
 #[cfg(doc)]
 use super::WidgetDriver;
 use super::{
-    capabilities,
+    capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
     filter::{MatrixEventContent, MatrixEventFilterInput},
     Capabilities, StateKeySelector,
 };
+use crate::Result;
 
 mod driver_req;
 mod from_widget;
@@ -212,18 +213,23 @@ impl WidgetMachine {
     ) -> Vec<Action> {
         let request = match raw_request.deserialize() {
             Ok(r) => r,
-            Err(e) => return vec![Self::send_from_widget_error_response(raw_request, e)],
+            Err(e) => {
+                return vec![Self::send_from_widget_err_response(
+                    raw_request,
+                    FromWidgetErrorResponse::from_error(crate::Error::SerdeJson(e)),
+                )]
+            }
         };
 
         match request {
             FromWidgetRequest::SupportedApiVersions {} => {
                 let response = SupportedApiVersionsResponse::new();
-                vec![Self::send_from_widget_response(raw_request, response)]
+                vec![Self::send_from_widget_response(raw_request, Ok(response))]
             }
 
             FromWidgetRequest::ContentLoaded {} => {
                 let mut response =
-                    vec![Self::send_from_widget_response(raw_request, JsonObject::new())];
+                    vec![Self::send_from_widget_response(raw_request, Ok(JsonObject::new()))];
                 if self.capabilities.is_unset() {
                     response.append(&mut self.negotiate_capabilities());
                 }
@@ -256,24 +262,22 @@ impl WidgetMachine {
                 });
 
                 let response =
-                    Self::send_from_widget_response(raw_request, OpenIdResponse::Pending);
+                    Self::send_from_widget_response(raw_request, Ok(OpenIdResponse::Pending));
                 iter::once(response).chain(request_action).collect()
             }
 
             FromWidgetRequest::DelayedEventUpdate(req) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
-                    let text =
-                        "Received send update delayed event request before capabilities were negotiated";
-                    return vec![Self::send_from_widget_error_response(raw_request, text)];
+                    return vec![Self::send_from_widget_error_string_response(
+                        raw_request,
+                        "Received send update delayed event request before capabilities were negotiated"
+                    )];
                 };
 
                 if !capabilities.update_delayed_event {
-                    return vec![Self::send_from_widget_error_response(
+                    return vec![Self::send_from_widget_error_string_response(
                         raw_request,
-                        format!(
-                            "Not allowed: missing the {} capability.",
-                            capabilities::UPDATE_DELAYED_EVENT
-                        ),
+                        format!("Not allowed: missing the {UPDATE_DELAYED_EVENT} capability."),
                     )];
                 }
 
@@ -282,13 +286,14 @@ impl WidgetMachine {
                         action: req.action,
                         delay_id: req.delay_id,
                     });
-
-                request.then(|res, _machine| {
-                    vec![Self::send_from_widget_result_response(
+                request.then(|result, _machine| {
+                    vec![Self::send_from_widget_response(
                         raw_request,
                         // This is mapped to another type because the update_delay_event::Response
                         // does not impl Serialize
-                        res.map(Into::<UpdateDelayedEventResponse>::into),
+                        result
+                            .map(Into::<UpdateDelayedEventResponse>::into)
+                            .map_err(FromWidgetErrorResponse::from_error),
                     )]
                 });
 
@@ -303,15 +308,17 @@ impl WidgetMachine {
         raw_request: Raw<FromWidgetRequest>,
     ) -> Option<Action> {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
-            let text = "Received read event request before capabilities were negotiated";
-            return Some(Self::send_from_widget_error_response(raw_request, text));
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                "Received read event request before capabilities were negotiated",
+            ));
         };
 
         match request {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
                 if !capabilities.read.iter().any(|f| f.matches_message_like_event_type(&event_type))
                 {
-                    return Some(Self::send_from_widget_error_response(
+                    return Some(Self::send_from_widget_error_string_response(
                         raw_request,
                         "Not allowed to read message like event",
                     ));
@@ -324,18 +331,24 @@ impl WidgetMachine {
                 let (request, action) = self.send_matrix_driver_request(request);
 
                 request.then(|result, machine| {
-                    let response = result.and_then(|mut events| {
-                        let CapabilitiesState::Negotiated(capabilities) = &machine.capabilities
-                        else {
-                            let err = "Received read event request before capabilities negotiation";
-                            return Err(err.into());
-                        };
+                    let response = match &machine.capabilities {
+                        CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
+                            "Received read event request before capabilities negotiation",
+                        )),
+                        CapabilitiesState::Negotiating => {
+                            Err(FromWidgetErrorResponse::from_string(
+                                "Received read event request while capabilities were negotiating",
+                            ))
+                        }
+                        CapabilitiesState::Negotiated(capabilities) => result
+                            .map(|mut events| {
+                                events.retain(|e| capabilities.raw_event_matches_read_filter(e));
+                                ReadEventResponse { events }
+                            })
+                            .map_err(FromWidgetErrorResponse::from_error),
+                    };
 
-                        events.retain(|e| capabilities.raw_event_matches_read_filter(e));
-                        Ok(ReadEventResponse { events })
-                    });
-
-                    vec![Self::send_from_widget_result_response(raw_request, response)]
+                    vec![Self::send_from_widget_response(raw_request, response)]
                 });
 
                 action
@@ -364,12 +377,14 @@ impl WidgetMachine {
                     let request = ReadStateEventRequest { event_type, state_key };
                     let (request, action) = self.send_matrix_driver_request(request);
                     request.then(|result, _machine| {
-                        let response = result.map(|events| ReadEventResponse { events });
-                        vec![Self::send_from_widget_result_response(raw_request, response)]
+                        let response = result
+                            .map(|events| ReadEventResponse { events })
+                            .map_err(FromWidgetErrorResponse::from_error);
+                        vec![Self::send_from_widget_response(raw_request, response)]
                     });
                     action
                 } else {
-                    Some(Self::send_from_widget_error_response(
+                    Some(Self::send_from_widget_error_string_response(
                         raw_request,
                         "Not allowed to read state event",
                     ))
@@ -400,17 +415,14 @@ impl WidgetMachine {
         };
 
         if !capabilities.send_delayed_event && request.delay.is_some() {
-            return Some(Self::send_from_widget_error_response(
+            return Some(Self::send_from_widget_error_string_response(
                 raw_request,
-                format!(
-                    "Not allowed: missing the {} capability.",
-                    capabilities::SEND_DELAYED_EVENT
-                ),
+                format!("Not allowed: missing the {SEND_DELAYED_EVENT} capability."),
             ));
         }
 
         if !capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
-            return Some(Self::send_from_widget_error_response(
+            return Some(Self::send_from_widget_error_string_response(
                 raw_request,
                 "Not allowed to send event",
             ));
@@ -422,7 +434,10 @@ impl WidgetMachine {
             if let Ok(r) = result.as_mut() {
                 r.set_room_id(machine.room_id.clone());
             }
-            vec![Self::send_from_widget_result_response(raw_request, result)]
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result.map_err(FromWidgetErrorResponse::from_error),
+            )]
         });
 
         action
@@ -465,7 +480,7 @@ impl WidgetMachine {
     fn process_matrix_driver_response(
         &mut self,
         request_id: Uuid,
-        response: Result<MatrixDriverResponse, String>,
+        response: Result<MatrixDriverResponse>,
     ) -> Vec<Action> {
         match self.pending_matrix_driver_requests.extract(&request_id) {
             Ok(request) => request
@@ -479,39 +494,55 @@ impl WidgetMachine {
         }
     }
 
-    #[instrument(skip_all)]
+    fn send_from_widget_error_string_response(
+        raw_request: Raw<FromWidgetRequest>,
+        error: impl Into<String>,
+    ) -> Action {
+        Self::send_from_widget_err_response(
+            raw_request,
+            FromWidgetErrorResponse::from_string(error),
+        )
+    }
+
+    fn send_from_widget_err_response(
+        raw_request: Raw<FromWidgetRequest>,
+        error: FromWidgetErrorResponse,
+    ) -> Action {
+        Self::send_from_widget_response(
+            raw_request,
+            Err::<serde_json::Value, FromWidgetErrorResponse>(error),
+        )
+    }
+
     fn send_from_widget_response(
         raw_request: Raw<FromWidgetRequest>,
-        response_data: impl Serialize,
+        result: Result<impl Serialize, FromWidgetErrorResponse>,
     ) -> Action {
-        let f = || {
-            let mut object = raw_request.deserialize_as::<IndexMap<String, Box<RawJsonValue>>>()?;
-            let response_data = serde_json::value::to_raw_value(&response_data)?;
-            object.insert("response".to_owned(), response_data);
-            serde_json::to_string(&object)
-        };
+        // we do not want tho expose this to never allow sending arbitrary errors.
+        // Errors always need to be `FromWidgetErrorResponse`.
+        #[instrument(skip_all)]
+        fn send_response_data(
+            raw_request: Raw<FromWidgetRequest>,
+            response_data: impl Serialize,
+        ) -> Action {
+            let f = || {
+                let mut object =
+                    raw_request.deserialize_as::<IndexMap<String, Box<RawJsonValue>>>()?;
+                let response_data = serde_json::value::to_raw_value(&response_data)?;
+                object.insert("response".to_owned(), response_data);
+                serde_json::to_string(&object)
+            };
 
-        // SAFETY: we expect the raw request to be a valid JSON map, to which we add a
-        // new field.
-        let serialized = f().expect("error when attaching response to incoming request");
+            // SAFETY: we expect the raw request to be a valid JSON map, to which we add a
+            // new field.
+            let serialized = f().expect("error when attaching response to incoming request");
 
-        Action::SendToWidget(serialized)
-    }
+            Action::SendToWidget(serialized)
+        }
 
-    fn send_from_widget_error_response(
-        raw_request: Raw<FromWidgetRequest>,
-        error: impl fmt::Display,
-    ) -> Action {
-        Self::send_from_widget_response(raw_request, FromWidgetErrorResponse::new(error))
-    }
-
-    fn send_from_widget_result_response(
-        raw_request: Raw<FromWidgetRequest>,
-        result: Result<impl Serialize, impl fmt::Display>,
-    ) -> Action {
         match result {
-            Ok(res) => Self::send_from_widget_response(raw_request, res),
-            Err(msg) => Self::send_from_widget_error_response(raw_request, msg),
+            Ok(res) => send_response_data(raw_request, res),
+            Err(error_response) => send_response_data(raw_request, error_response),
         }
     }
 
@@ -613,7 +644,7 @@ impl ToWidgetRequestMeta {
 }
 
 type MatrixDriverResponseFn =
-    Box<dyn FnOnce(Result<MatrixDriverResponse, String>, &mut WidgetMachine) -> Vec<Action> + Send>;
+    Box<dyn FnOnce(Result<MatrixDriverResponse>, &mut WidgetMachine) -> Vec<Action> + Send>;
 
 pub(crate) struct MatrixDriverRequestMeta {
     response_fn: Option<MatrixDriverResponseFn>,

@@ -13,13 +13,12 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     future::Future,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
 };
 
-use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use itertools::Itertools as _;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
@@ -44,11 +43,17 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use super::{HandleManyEventsResult, TimelineFocusKind, TimelineSettings};
+use super::{
+    observable_items::{
+        AllRemoteEvents, ObservableItems, ObservableItemsTransaction,
+        ObservableItemsTransactionEntry,
+    },
+    DateDividerMode, HandleManyEventsResult, TimelineFocusKind, TimelineSettings,
+};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
-        day_dividers::DayDividerAdjuster,
+        date_dividers::DateDividerAdjuster,
         event_handler::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
@@ -89,7 +94,7 @@ impl From<TimelineNewItemPosition> for TimelineItemPosition {
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineState {
-    pub items: ObservableVector<Arc<TimelineItem>>,
+    pub items: ObservableItems,
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
@@ -106,10 +111,7 @@ impl TimelineState {
         is_room_encrypted: Option<bool>,
     ) -> Self {
         Self {
-            // Upstream default capacity is currently 16, which is making
-            // sliding-sync tests with 20 events lag. This should still be
-            // small enough.
-            items: ObservableVector::with_capacity(32),
+            items: ObservableItems::new(),
             meta: TimelineMetadata::new(
                 own_user_id,
                 room_version,
@@ -127,14 +129,19 @@ impl TimelineState {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator + ExactSizeIterator,
+        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
+        if events.len() == 0 {
             return Default::default();
         }
 
@@ -185,12 +192,14 @@ impl TimelineState {
     }
 
     /// Adds a local echo (for an event) to the timeline.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
         should_add_new_items: bool,
+        date_divider_mode: DateDividerMode,
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
         content: TimelineEventKind,
@@ -209,13 +218,13 @@ impl TimelineState {
 
         let mut txn = self.transaction();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
+        let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut day_divider_adjuster, content)
+            .handle_event(&mut date_divider_adjuster, content)
             .await;
 
-        txn.adjust_day_dividers(day_divider_adjuster);
+        txn.adjust_date_dividers(date_divider_adjuster);
 
         txn.commit();
     }
@@ -232,7 +241,8 @@ impl TimelineState {
     {
         let mut txn = self.transaction();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
+        let mut date_divider_adjuster =
+            DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
         // Loop through all the indices, in order so we don't decrypt edits
         // before the event being edited, if both were UTD. Keep track of
@@ -254,7 +264,7 @@ impl TimelineState {
                     TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
                     room_data_provider,
                     settings,
-                    &mut day_divider_adjuster,
+                    &mut date_divider_adjuster,
                 )
                 .await;
 
@@ -265,7 +275,7 @@ impl TimelineState {
             }
         }
 
-        txn.adjust_day_dividers(day_divider_adjuster);
+        txn.adjust_date_dividers(date_divider_adjuster);
 
         txn.commit();
     }
@@ -292,13 +302,18 @@ impl TimelineState {
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
-    pub(super) async fn replace_with_remote_events<P: RoomDataProvider>(
+    pub(super) async fn replace_with_remote_events<Events, RoomData>(
         &mut self,
-        events: Vec<SyncTimelineEvent>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut txn = self.transaction();
         txn.clear();
         let result = txn.add_remote_events_at(events, position, room_data_provider, settings).await;
@@ -319,6 +334,7 @@ impl TimelineState {
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
         let items = self.items.transaction();
         let meta = self.meta.clone();
+
         TimelineStateTransaction {
             items,
             previous_meta: &mut self.meta,
@@ -331,7 +347,7 @@ impl TimelineState {
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// A vector transaction over the items themselves. Holds temporary state
     /// until committed.
-    pub items: ObservableVectorTransaction<'a, Arc<TimelineItem>>,
+    pub items: ObservableItemsTransaction<'a>,
 
     /// A clone of the previous meta, that we're operating on during the
     /// transaction, and that will be committed to the previous meta location in
@@ -352,18 +368,24 @@ impl TimelineStateTransaction<'_> {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut total = HandleManyEventsResult::default();
 
         let position = position.into();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
+        let mut date_divider_adjuster =
+            DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
         // Implementation note: when `position` is `TimelineEnd::Front`, events are in
         // the reverse topological order. Prepending them one by one in the order they
@@ -380,7 +402,7 @@ impl TimelineStateTransaction<'_> {
                     position,
                     room_data_provider,
                     settings,
-                    &mut day_divider_adjuster,
+                    &mut date_divider_adjuster,
                 )
                 .await;
 
@@ -388,7 +410,7 @@ impl TimelineStateTransaction<'_> {
             total.items_updated += handle_one_res.items_updated as u64;
         }
 
-        self.adjust_day_dividers(day_divider_adjuster);
+        self.adjust_date_dividers(date_divider_adjuster);
 
         self.check_no_unused_unique_ids();
         total
@@ -424,7 +446,7 @@ impl TimelineStateTransaction<'_> {
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
-        day_divider_adjuster: &mut DayDividerAdjuster,
+        date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> HandleEventResult {
         let SyncTimelineEvent { push_actions, kind } = event;
         let encryption_info = kind.encryption_info().cloned();
@@ -439,6 +461,7 @@ impl TimelineStateTransaction<'_> {
 
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
+            // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
                 let event_id = event.event_id().to_owned();
                 let room_version = room_data_provider.room_version();
@@ -498,7 +521,10 @@ impl TimelineStateTransaction<'_> {
                 )
             }
 
+            // The event seems invalid…
             Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
+                // The event can be partially deserialized, and it is allowed to be added to the
+                // timeline.
                 Ok(event) if settings.add_failed_to_parse => (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
@@ -508,6 +534,8 @@ impl TimelineStateTransaction<'_> {
                     true,
                 ),
 
+                // The event can be partially deserialized, but it is NOT allowed to be added to
+                // the timeline.
                 Ok(event) => {
                     let event_type = event.event_type();
                     let event_id = event.event_id();
@@ -521,19 +549,31 @@ impl TimelineStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    let _event_added_or_updated = self
-                        .add_or_update_event(event_meta, position, room_data_provider, settings)
-                        .await;
+
+                    // Remember the event before returning prematurely.
+                    // See [`ObservableItems::all_remote_events`].
+                    self.add_or_update_remote_event(
+                        event_meta,
+                        position,
+                        room_data_provider,
+                        settings,
+                    )
+                    .await;
 
                     return HandleEventResult::default();
                 }
 
+                // The event can NOT be partially deserialized, it seems really broken.
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
+                    warn!(
+                        event_type,
+                        event_id, "Failed to deserialize timeline event even without content: {e}"
+                    );
 
                     let event_id = event_id.and_then(|s| EventId::parse(s).ok());
+
                     if let Some(event_id) = &event_id {
                         let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
                         let is_own_event =
@@ -548,9 +588,16 @@ impl TimelineStateTransaction<'_> {
                             timestamp,
                             visible: false,
                         };
-                        let _event_added_or_updated = self
-                            .add_or_update_event(event_meta, position, room_data_provider, settings)
-                            .await;
+
+                        // Remember the event before returning prematurely.
+                        // See [`ObservableItems::all_remote_events`].
+                        self.add_or_update_remote_event(
+                            event_meta,
+                            position,
+                            room_data_provider,
+                            settings,
+                        )
+                        .await;
                     }
 
                     return HandleEventResult::default();
@@ -568,14 +615,9 @@ impl TimelineStateTransaction<'_> {
             visible: should_add,
         };
 
-        let event_added_or_updated =
-            self.add_or_update_event(event_meta, position, room_data_provider, settings).await;
-
-        // If the event has not been added or updated, it's because it's a duplicated
-        // event. Let's return early.
-        if !event_added_or_updated {
-            return HandleEventResult::default();
-        }
+        // Remember the event.
+        // See [`ObservableItems::all_remote_events`].
+        self.add_or_update_remote_event(event_meta, position, room_data_provider, settings).await;
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
@@ -586,7 +628,7 @@ impl TimelineStateTransaction<'_> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    &self.meta.all_events,
+                    self.items.all_remote_events(),
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
@@ -603,7 +645,8 @@ impl TimelineStateTransaction<'_> {
             should_add_new_items: should_add,
         };
 
-        TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind).await
+        // Handle the event to create or update a timeline item.
+        TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
     }
 
     fn clear(&mut self) {
@@ -618,15 +661,15 @@ impl TimelineStateTransaction<'_> {
             // Remove all remote events and the read marker
             self.items.for_each(|entry| {
                 if entry.is_remote_event() || entry.is_read_marker() {
-                    ObservableVectorTransactionEntry::remove(entry);
+                    ObservableItemsTransactionEntry::remove(entry);
                 }
             });
 
-            // Remove stray day dividers
+            // Remove stray date dividers
             let mut idx = 0;
             while idx < self.items.len() {
-                if self.items[idx].is_day_divider()
-                    && self.items.get(idx + 1).map_or(true, |item| item.is_day_divider())
+                if self.items[idx].is_date_divider()
+                    && self.items.get(idx + 1).map_or(true, |item| item.is_date_divider())
                 {
                     self.items.remove(idx);
                     // don't increment idx because all elements have shifted
@@ -663,53 +706,51 @@ impl TimelineStateTransaction<'_> {
         items.commit();
     }
 
-    /// Add or update an event in the [`TimelineMetadata::all_events`]
-    /// collection.
+    /// Add or update a remote  event in the
+    /// [`ObservableItems::all_remote_events`] collection.
     ///
     /// This method also adjusts read receipt if needed.
-    ///
-    /// It returns `true` if the event has been added or updated, `false`
-    /// otherwise. The latter happens if the event already exists, i.e. if
-    /// an existing event is requested to be added.
-    async fn add_or_update_event<P: RoomDataProvider>(
+    async fn add_or_update_remote_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
-    ) -> bool {
-        // Detect if an event already exists in [`TimelineMetadata::all_events`].
+    ) {
+        // Detect if an event already exists in [`ObservableItems::all_remote_events`].
         //
         // Returns its position, in this case.
         fn event_already_exists(
             new_event_id: &EventId,
-            all_events: &VecDeque<EventMeta>,
+            all_remote_events: &AllRemoteEvents,
         ) -> Option<usize> {
-            all_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
+            all_remote_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
         }
 
         match position {
             TimelineItemPosition::Start { .. } => {
-                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                if let Some(pos) =
+                    event_already_exists(event_meta.event_id, self.items.all_remote_events())
                 {
-                    self.meta.all_events.remove(pos);
+                    self.items.remove_remote_event(pos);
                 }
 
-                self.meta.all_events.push_front(event_meta.base_meta())
+                self.items.push_front_remote_event(event_meta.base_meta())
             }
 
             TimelineItemPosition::End { .. } => {
-                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                if let Some(pos) =
+                    event_already_exists(event_meta.event_id, self.items.all_remote_events())
                 {
-                    self.meta.all_events.remove(pos);
+                    self.items.remove_remote_event(pos);
                 }
 
-                self.meta.all_events.push_back(event_meta.base_meta());
+                self.items.push_back_remote_event(event_meta.base_meta());
             }
 
             TimelineItemPosition::UpdateDecrypted { .. } => {
                 if let Some(event) =
-                    self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
+                    self.items.get_remote_event_by_event_id_mut(event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -734,11 +775,9 @@ impl TimelineStateTransaction<'_> {
 
             self.maybe_add_implicit_read_receipt(event_meta);
         }
-
-        true
     }
 
-    fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
+    fn adjust_date_dividers(&mut self, mut adjuster: DateDividerAdjuster) {
         adjuster.run(&mut self.items, &mut self.meta);
     }
 
@@ -755,7 +794,7 @@ impl TimelineStateTransaction<'_> {
 
                 // Replace the existing item with a new version with the right encryption flag
                 let item = item.with_kind(cloned_event);
-                self.items.set(idx, item);
+                self.items.replace(idx, item);
             }
         }
     }
@@ -884,10 +923,6 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// the device has terabytes of RAM.
     next_internal_id: u64,
 
-    /// List of all the events as received in the timeline, even the ones that
-    /// are discarded in the timeline items.
-    pub all_events: VecDeque<EventMeta>,
-
     /// State helping matching reactions to their associated events, and
     /// stashing pending reactions.
     pub reactions: Reactions,
@@ -930,7 +965,6 @@ impl TimelineMetadata {
     ) -> Self {
         Self {
             own_user_id,
-            all_events: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
             pending_poll_events: Default::default(),
@@ -950,7 +984,6 @@ impl TimelineMetadata {
     pub(crate) fn clear(&mut self) {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
-        self.all_events.clear();
         self.reactions.clear();
         self.pending_poll_events.clear();
         self.pending_edits.clear();
@@ -971,6 +1004,7 @@ impl TimelineMetadata {
         &self,
         event_a: &EventId,
         event_b: &EventId,
+        all_remote_events: &AllRemoteEvents,
     ) -> Option<RelativePosition> {
         if event_a == event_b {
             return Some(RelativePosition::Same);
@@ -978,11 +1012,11 @@ impl TimelineMetadata {
 
         // We can make early returns here because we know all events since the end of
         // the timeline, so the first event encountered is the oldest one.
-        for meta in self.all_events.iter().rev() {
-            if meta.event_id == event_a {
+        for event_meta in all_remote_events.iter().rev() {
+            if event_meta.event_id == event_a {
                 return Some(RelativePosition::Before);
             }
-            if meta.event_id == event_b {
+            if event_meta.event_id == event_b {
                 return Some(RelativePosition::After);
             }
         }
@@ -1005,10 +1039,7 @@ impl TimelineMetadata {
     }
 
     /// Try to update the read marker item in the timeline.
-    pub(crate) fn update_read_marker(
-        &mut self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-    ) {
+    pub(crate) fn update_read_marker(&mut self, items: &mut ObservableItemsTransaction<'_>) {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
@@ -1057,7 +1088,8 @@ impl TimelineMetadata {
             (None, Some(idx)) => {
                 // Only insert the read marker if it is not at the end of the timeline.
                 if idx + 1 < items.len() {
-                    items.insert(idx + 1, TimelineItem::read_marker());
+                    let idx = idx + 1;
+                    items.insert(idx, TimelineItem::read_marker(), None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
                     // The next event might require a read marker to be inserted at the current
@@ -1091,7 +1123,7 @@ impl TimelineMetadata {
                     // Since the fully-read event's index was shifted to the left
                     // by one position by the remove call above, insert the fully-
                     // read marker at its previous position, rather than that + 1
-                    items.insert(to, read_marker);
+                    items.insert(to, read_marker, None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
                     self.has_up_to_date_read_marker_item = false;
@@ -1119,7 +1151,11 @@ pub(crate) struct FullEventMeta<'a> {
 
 impl FullEventMeta<'_> {
     fn base_meta(&self) -> EventMeta {
-        EventMeta { event_id: self.event_id.to_owned(), visible: self.visible }
+        EventMeta {
+            event_id: self.event_id.to_owned(),
+            visible: self.visible,
+            timeline_item_index: None,
+        }
     }
 }
 
@@ -1128,6 +1164,70 @@ impl FullEventMeta<'_> {
 pub(crate) struct EventMeta {
     /// The ID of the event.
     pub event_id: OwnedEventId,
+
     /// Whether the event is among the timeline items.
     pub visible: bool,
+
+    /// Foundation for the mapping between remote events to timeline items.
+    ///
+    /// Let's explain it. The events represent the first set and are stored in
+    /// [`ObservableItems::all_remote_events`], and the timeline
+    /// items represent the second set and are stored in
+    /// [`ObservableItems::items`].
+    ///
+    /// Each event is mapped to at most one timeline item:
+    ///
+    /// - `None` if the event isn't rendered in the timeline (e.g. some state
+    ///   events, or malformed events) or is rendered as a timeline item that
+    ///   attaches to or groups with another item, like reactions,
+    /// - `Some(_)` if the event is rendered in the timeline.
+    ///
+    /// This is neither a surjection nor an injection. Every timeline item may
+    /// not be attached to an event, for example with a virtual timeline item.
+    /// We can formulate other rules:
+    ///
+    /// - a timeline item that doesn't _move_ and that is represented by an
+    ///   event has a mapping to an event,
+    /// - a virtual timeline item has no mapping to an event.
+    ///
+    /// Imagine the following remote events:
+    ///
+    /// | index | remote events |
+    /// +-------+---------------+
+    /// | 0     | `$ev0`        |
+    /// | 1     | `$ev1`        |
+    /// | 2     | `$ev2`        |
+    /// | 3     | `$ev3`        |
+    /// | 4     | `$ev4`        |
+    /// | 5     | `$ev5`        |
+    ///
+    /// Once rendered in a timeline, it for example produces:
+    ///
+    /// | index | item              | related items        |
+    /// +-------+-------------------+----------------------+
+    /// | 0     | content of `$ev0` |                      |
+    /// | 1     | content of `$ev2` | reaction with `$ev4` |
+    /// | 2     | day divider       |                      |
+    /// | 3     | content of `$ev3` |                      |
+    /// | 4     | content of `$ev5` |                      |
+    ///
+    /// Note the day divider that is a virtual item. Also note `$ev4` which is
+    /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in
+    /// the timeline.
+    ///
+    /// The mapping between remote event index to timeline item index will look
+    /// like this:
+    ///
+    /// | remote event index | timeline item index | comment                                    |
+    /// +--------------------+---------------------+--------------------------------------------+
+    /// | 0                  | `Some(0)`           | `$ev0` is rendered as the #0 timeline item |
+    /// | 1                  | `None`              | `$ev1` isn't rendered in the timeline      |
+    /// | 2                  | `Some(1)`           | `$ev2` is rendered as the #1 timeline item |
+    /// | 3                  | `Some(3)`           | `$ev3` is rendered as the #3 timeline item |
+    /// | 4                  | `None`              | `$ev4` is a reaction to item #1            |
+    /// | 5                  | `Some(4)`           | `$ev5` is rendered as the #4 timeline item |
+    ///
+    /// Note that the #2 timeline item (the day divider) doesn't map to any
+    /// remote event, but if it moves, it has an impact on this mapping.
+    pub timeline_item_index: Option<usize>,
 }

@@ -1892,7 +1892,21 @@ async fn test_media_uploads() {
         .media()
         .get_media_content(
             &MediaRequestParameters {
-                source: local_thumbnail_source,
+                source: local_thumbnail_source.clone(),
+                format: MediaFormat::File,
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media, b"thumbnail");
+
+    // The format should be ignored when requesting a local media.
+    let thumbnail_media = client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: local_thumbnail_source.clone(),
                 format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
                     tinfo.width.unwrap(),
                     tinfo.height.unwrap(),
@@ -1954,18 +1968,22 @@ async fn test_media_uploads() {
     let thumbnail_media = client
         .media()
         .get_media_content(
-            &MediaRequestParameters {
-                source: new_thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
-            },
+            &MediaRequestParameters { source: new_thumbnail_source, format: MediaFormat::File },
             true,
         )
         .await
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
+
+    // The local URI does not work anymore.
+    client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters { source: local_thumbnail_source, format: MediaFormat::File },
+            true,
+        )
+        .await
+        .expect_err("media with local URI should not be found");
 
     // The event is sent, at some point.
     assert_update!(watch => sent {
@@ -2126,7 +2144,6 @@ async fn abort_and_verify(
     let file_source = img_content.source;
     let info = img_content.info.unwrap();
     let thumbnail_source = info.thumbnail_source.unwrap();
-    let thumbnail_info = info.thumbnail_info.unwrap();
 
     let aborted = upload_handle.abort().await.unwrap();
     assert!(aborted, "upload must have been aborted");
@@ -2146,13 +2163,7 @@ async fn abort_and_verify(
     client
         .media()
         .get_media_content(
-            &MediaRequestParameters {
-                source: thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    thumbnail_info.width.unwrap(),
-                    thumbnail_info.height.unwrap(),
-                )),
-            },
+            &MediaRequestParameters { source: thumbnail_source, format: MediaFormat::File },
             true,
         )
         .await

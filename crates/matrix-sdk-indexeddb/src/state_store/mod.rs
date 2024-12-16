@@ -419,6 +419,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::ComposerDraft(room_id) => {
                 self.encode_key(keys::KV, (StateStoreDataKey::COMPOSER_DRAFT, room_id))
             }
+            StateStoreDataKey::SeenKnockRequests(room_id) => {
+                self.encode_key(keys::KV, (StateStoreDataKey::SEEN_KNOCK_REQUESTS, room_id))
+            }
         }
     }
 }
@@ -537,6 +540,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<ComposerDraft>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::ComposerDraft),
+            StateStoreDataKey::SeenKnockRequests(_) => value
+                .map(|f| self.deserialize_value::<BTreeMap<OwnedEventId, OwnedUserId>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::SeenKnockRequests),
         };
 
         Ok(value)
@@ -573,6 +580,11 @@ impl_state_store!({
             ),
             StateStoreDataKey::ComposerDraft(_) => self.serialize_value(
                 &value.into_composer_draft().expect("Session data not a composer draft"),
+            ),
+            StateStoreDataKey::SeenKnockRequests(_) => self.serialize_value(
+                &value
+                    .into_seen_knock_requests()
+                    .expect("Session data is not a set of seen knock request ids"),
             ),
         };
 

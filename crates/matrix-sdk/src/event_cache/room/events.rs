@@ -16,16 +16,20 @@ use std::cmp::Ordering;
 
 use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
-use matrix_sdk_base::linked_chunk::AsVector;
+use matrix_sdk_base::{
+    event_cache::store::DEFAULT_CHUNK_CAPACITY,
+    linked_chunk::{AsVector, IterBackward, ObservableUpdates},
+};
 use matrix_sdk_common::linked_chunk::{
-    Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position,
+    Chunk, ChunkIdentifier, EmptyChunk, Error, LinkedChunk, Position,
 };
 use ruma::OwnedEventId;
 use tracing::{debug, error, warn};
 
-use super::super::deduplicator::{Decoration, Deduplicator};
-
-const DEFAULT_CHUNK_CAPACITY: usize = 128;
+use super::{
+    super::deduplicator::{Decoration, Deduplicator},
+    chunk_debug_string,
+};
 
 /// This type represents all events of a single room.
 #[derive(Debug)]
@@ -51,14 +55,33 @@ impl Default for RoomEvents {
 impl RoomEvents {
     /// Build a new [`RoomEvents`] struct with zero events.
     pub fn new() -> Self {
-        let mut chunks = LinkedChunk::new_with_update_history();
+        Self::with_initial_chunks(None)
+    }
+
+    /// Build a new [`RoomEvents`] struct with prior chunks knowledge.
+    ///
+    /// The provided [`LinkedChunk`] must have been built with update history.
+    pub fn with_initial_chunks(
+        chunks: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
+    ) -> Self {
+        let mut chunks = chunks.unwrap_or_else(LinkedChunk::new_with_update_history);
+
         let chunks_updates_as_vectordiffs = chunks
             .as_vector()
             // SAFETY: The `LinkedChunk` has been built with `new_with_update_history`, so
             // `as_vector` must return `Some(…)`.
-            .expect("`LinkedChunk` must have been constructor with `new_with_update_history`");
+            .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
-        Self { chunks, chunks_updates_as_vectordiffs, deduplicator: Deduplicator::new() }
+        // Let the deduplicator know about initial events.
+        let deduplicator =
+            Deduplicator::with_initial_events(chunks.items().map(|(_pos, event)| event));
+
+        Self { chunks, chunks_updates_as_vectordiffs, deduplicator }
+    }
+
+    /// Returns whether the room has at least one event.
+    pub fn is_empty(&self) -> bool {
+        self.chunks.num_items() == 0
     }
 
     /// Clear all events.
@@ -91,7 +114,7 @@ impl RoomEvents {
 
     /// Push a gap after all events or gaps.
     pub fn push_gap(&mut self, gap: Gap) {
-        self.chunks.push_gap_back(gap)
+        self.chunks.push_gap_back(gap);
     }
 
     /// Insert events at a specified position.
@@ -157,8 +180,17 @@ impl RoomEvents {
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
-    pub fn chunks(&self) -> Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+    pub fn chunks(
+        &self,
+    ) -> matrix_sdk_common::linked_chunk::Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
         self.chunks.chunks()
+    }
+
+    /// Iterate over the chunks, backward.
+    ///
+    /// The most recent chunk comes first.
+    pub fn rchunks(&self) -> IterBackward<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+        self.chunks.rchunks()
     }
 
     /// Iterate over the events, backward.
@@ -185,6 +217,12 @@ impl RoomEvents {
     #[allow(unused)] // gonna be useful very soon! but we need it now for test purposes
     pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
         self.chunks_updates_as_vectordiffs.take()
+    }
+
+    /// Get a mutable reference to the [`LinkedChunk`] updates, aka
+    /// [`ObservableUpdates`].
+    pub(super) fn updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
+        self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 
     /// Deduplicate `events` considering all events in `Self::chunks`.
@@ -225,6 +263,18 @@ impl RoomEvents {
             .collect();
 
         (deduplicated_events, duplicated_event_ids)
+    }
+
+    /// Return a nice debug string (a vector of lines) for the linked chunk of
+    /// events for this room.
+    pub fn debug_string(&self) -> Vec<String> {
+        let mut result = Vec::new();
+        for c in self.chunks() {
+            let content = chunk_debug_string(c.content());
+            let line = format!("chunk #{}: {content}", c.identifier().index());
+            result.push(line);
+        }
+        result
     }
 }
 

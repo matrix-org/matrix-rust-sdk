@@ -39,9 +39,5 @@ fn main() {
             !env_is_set("CARGO_FEATURE_SSO_LOGIN"),
             "feature 'sso-login' is not available on target arch 'wasm32'",
         );
-        ensure(
-            !env_is_set("CARGO_FEATURE_IMAGE_RAYON"),
-            "feature 'image-rayon' is not available on target arch 'wasm32'",
-        );
     }
 }

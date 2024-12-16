@@ -8,11 +8,16 @@ use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
     config::RequestConfig,
-    test_utils::{logged_in_client_with_server, set_client_session, test_client_builder},
+    test_utils::{
+        logged_in_client_with_server, mocks::MatrixMockServer, set_client_session,
+        test_client_builder,
+    },
     Client,
 };
 use matrix_sdk_base::sync::UnreadNotificationsCount;
-use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, ALICE,
+};
 use matrix_sdk_ui::{
     room_list_service::{
         filters::{new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none},
@@ -28,7 +33,7 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::TempDir;
-use tokio::{spawn, sync::mpsc::channel, task::yield_now};
+use tokio::{spawn, sync::mpsc::channel, task::yield_now, time::sleep};
 use wiremock::{
     matchers::{header, method, path},
     Mock, MockServer, ResponseTemplate,
@@ -360,6 +365,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.join_rules", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
                     ],
                     "include_heroes": true,
                     "filters": {
@@ -2227,6 +2233,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.join_rules", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2267,6 +2274,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.join_rules", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2443,7 +2451,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     // Previous timeline items.
     assert_matches!(
         **previous_timeline_items[0],
-        TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_))
+        TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_))
     );
     assert_matches!(
         &**previous_timeline_items[1],
@@ -2794,4 +2802,82 @@ async fn test_sync_indicator() -> Result<(), Error> {
     sync_indicator_task.await.unwrap();
 
     Ok(())
+}
+
+#[async_test]
+async fn test_multiple_timeline_init() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_list = RoomListService::new(client.clone()).await.unwrap();
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id = room_id!("!r0:bar.org");
+
+    let mock_server = server.server();
+    sync_then_assert_request_and_fake_response! {
+        [mock_server, room_list, sync]
+        assert request >= {},
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 2,
+                },
+            },
+            "rooms": {
+                room_id: {
+                    "initial": true,
+                    "timeline": [
+                        timeline_event!("$x0:bar.org" at 0 sec),
+                    ],
+                    "prev_batch": "prev-batch-token"
+                },
+            },
+        },
+    };
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // Send back-pagination responses with a small delay.
+    server
+        .mock_room_messages()
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "start": "unused-start",
+                    "end": null,
+                    "chunk": vec![f.text_msg("hello").into_raw_timeline()],
+                    "state": [],
+                }))
+                .set_delay(Duration::from_millis(500)),
+        )
+        .mount()
+        .await;
+
+    let task = {
+        // Get a RoomListService::Room, initialize the timeline, start a pagination.
+        let room = room_list.room(room_id).unwrap();
+
+        let builder = room.default_room_timeline_builder().await.unwrap();
+        room.init_timeline_with_builder(builder).await.unwrap();
+
+        let timeline = room.timeline().unwrap();
+
+        spawn(async move { timeline.paginate_backwards(20).await })
+    };
+
+    // Rinse and repeat.
+    let room = room_list.room(room_id).unwrap();
+
+    // Let the pagination start in the other timeline, and quickly abort it.
+    sleep(Duration::from_millis(200)).await;
+    task.abort();
+
+    // A new timeline for the same room can still be constructed.
+    let builder = room.default_room_timeline_builder().await.unwrap();
+    room.init_timeline_with_builder(builder).await.unwrap();
 }

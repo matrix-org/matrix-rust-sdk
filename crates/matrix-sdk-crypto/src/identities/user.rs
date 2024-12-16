@@ -31,7 +31,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     error::SignatureError,
@@ -392,6 +392,7 @@ impl OtherUserIdentity {
 
     /// Pin the current identity (public part of the master signing key).
     pub async fn pin_current_master_key(&self) -> Result<(), CryptoStoreError> {
+        info!(master_key = ?self.master_key.get_first_key(), "Pinning current identity for user '{}'", self.user_id());
         self.inner.pin();
         let to_save = UserIdentityData::Other(self.inner.clone());
         let changes = Changes {
@@ -427,6 +428,7 @@ impl OtherUserIdentity {
 
     /// Remove the requirement for this identity to be verified.
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
+        info!(master_key = ?self.master_key.get_first_key(), "Withdrawing verification status and pinning current identity for user '{}'", self.user_id());
         self.inner.withdraw_verification();
         let to_save = UserIdentityData::Other(self.inner.clone());
         let changes = Changes {

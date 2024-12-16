@@ -16,9 +16,10 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use events::{Gap, RoomEvents};
+use events::Gap;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
+    linked_chunk::ChunkContent,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -63,10 +64,11 @@ impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     pub(super) fn new(
         client: WeakClient,
+        state: RoomEventCacheState,
         room_id: OwnedRoomId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(client, room_id, all_events_cache)) }
+        Self { inner: Arc::new(RoomEventCacheInner::new(client, state, room_id, all_events_cache)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -77,7 +79,7 @@ impl RoomEventCache {
         &self,
     ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
         let state = self.inner.state.read().await;
-        let events = state.events.events().map(|(_position, item)| item.clone()).collect();
+        let events = state.events().events().map(|(_position, item)| item.clone()).collect();
 
         Ok((events, self.inner.sender.subscribe()))
     }
@@ -99,7 +101,7 @@ impl RoomEventCache {
         }
 
         let state = self.inner.state.read().await;
-        for (_pos, event) in state.events.revents() {
+        for (_pos, event) in state.events().revents() {
             if event.event_id().as_deref() == Some(event_id) {
                 return Some(event.clone());
             }
@@ -125,6 +127,27 @@ impl RoomEventCache {
         } else {
             None
         }
+    }
+
+    /// Clear all the storage for this [`RoomEventCache`].
+    ///
+    /// This will get rid of all the events from the linked chunk and persisted
+    /// storage.
+    pub async fn clear(&self) -> Result<()> {
+        // Clear the linked chunk and persisted storage.
+        self.inner.state.write().await.clear().await?;
+
+        // Clear the (temporary) events mappings.
+        self.inner.all_events.write().await.clear();
+
+        // Reset the paginator.
+        // TODO: properly stop any ongoing back-pagination.
+        let _ = self.inner.paginator.set_idle_state(PaginatorState::Initial, None, None);
+
+        // Notify observers about the update.
+        let _ = self.inner.sender.send(RoomEventCacheUpdate::Clear);
+
+        Ok(())
     }
 
     /// Looks for related event ids for the passed event id, and appends them to
@@ -193,6 +216,12 @@ impl RoomEventCache {
             }
         }
     }
+
+    /// Return a nice debug string (a vector of lines) for the linked chunk of
+    /// events for this room.
+    pub async fn debug_string(&self) -> Vec<String> {
+        self.inner.state.read().await.events().debug_string()
+    }
 }
 
 /// The (non-cloneable) details of the `RoomEventCache`.
@@ -231,19 +260,15 @@ impl RoomEventCacheInner {
     /// to handle new timeline events.
     fn new(
         client: WeakClient,
+        state: RoomEventCacheState,
         room_id: OwnedRoomId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
         let sender = Sender::new(32);
-
         let weak_room = WeakRoom::new(client, room_id);
-
         Self {
             room_id: weak_room.room_id().to_owned(),
-            state: RwLock::new(RoomEventCacheState {
-                events: RoomEvents::default(),
-                waited_for_initial_prev_token: false,
-            }),
+            state: RwLock::new(state),
             all_events: all_events_cache,
             sender,
             pagination_batch_token_notifier: Default::default(),
@@ -289,8 +314,13 @@ impl RoomEventCacheInner {
         }
     }
 
-    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(
+        &self,
+        has_storage: bool,
+        updates: JoinedRoomUpdate,
+    ) -> Result<()> {
         self.handle_timeline(
+            has_storage,
             updates.timeline,
             updates.ephemeral.clone(),
             updates.ambiguity_changes,
@@ -304,11 +334,12 @@ impl RoomEventCacheInner {
 
     async fn handle_timeline(
         &self,
+        has_storage: bool,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if timeline.limited {
+        if !has_storage && timeline.limited {
             // Ideally we'd try to reconcile existing events against those received in the
             // timeline, but we're not there yet. In the meanwhile, clear the
             // items from the room. TODO: implement Smart Matching™.
@@ -325,9 +356,14 @@ impl RoomEventCacheInner {
             // Add all the events to the backend.
             trace!("adding new events");
 
+            // Only keep the previous-batch token if we have a limited timeline; otherwise,
+            // we know about all the events, and we don't need to back-paginate,
+            // so we wouldn't make use of the given previous-batch token.
+            let prev_batch = if timeline.limited { timeline.prev_batch } else { None };
+
             self.append_new_events(
                 timeline.events,
-                timeline.prev_batch,
+                prev_batch,
                 ephemeral_events,
                 ambiguity_changes,
             )
@@ -337,8 +373,13 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
-    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+    pub(super) async fn handle_left_room_update(
+        &self,
+        has_storage: bool,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
+        self.handle_timeline(has_storage, updates.timeline, Vec::new(), updates.ambiguity_changes)
+            .await?;
         Ok(())
     }
 
@@ -355,14 +396,14 @@ impl RoomEventCacheInner {
         let mut state = self.state.write().await;
 
         // Reset the room's state.
-        state.reset();
+        state.reset().await?;
 
         // Propagate to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::Clear);
 
         // Push the new events.
         self.append_events_locked_impl(
-            &mut state.events,
+            &mut state,
             sync_timeline_events,
             prev_batch.clone(),
             ephemeral_events,
@@ -385,8 +426,9 @@ impl RoomEventCacheInner {
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
+        let mut state = self.state.write().await;
         self.append_events_locked_impl(
-            &mut self.state.write().await.events,
+            &mut state,
             sync_timeline_events,
             prev_batch,
             ephemeral_events,
@@ -471,7 +513,7 @@ impl RoomEventCacheInner {
     /// This is a private implementation. It must not be exposed publicly.
     async fn append_events_locked_impl(
         &self,
-        room_events: &mut RoomEvents,
+        state: &mut RoomEventCacheState,
         sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
@@ -488,11 +530,15 @@ impl RoomEventCacheInner {
         // Add the previous back-pagination token (if present), followed by the timeline
         // events themselves.
         {
-            if let Some(prev_token) = &prev_batch {
-                room_events.push_gap(Gap { prev_token: prev_token.clone() });
-            }
+            state
+                .with_events_mut(|room_events| {
+                    if let Some(prev_token) = &prev_batch {
+                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                    }
 
-            room_events.push_events(sync_timeline_events.clone());
+                    room_events.push_events(sync_timeline_events.clone());
+                })
+                .await?;
 
             let mut cache = self.all_events.write().await;
             for ev in &sync_timeline_events {
@@ -533,40 +579,352 @@ impl RoomEventCacheInner {
     }
 }
 
-/// State for a single room's event cache.
-///
-/// This contains all inner mutable state that ought to be updated at the same
-/// time.
-pub(super) struct RoomEventCacheState {
-    /// The events of the room.
-    pub events: RoomEvents,
-
-    /// Have we ever waited for a previous-batch-token to come from sync, in the
-    /// context of pagination? We do this at most once per room, the first
-    /// time we try to run backward pagination. We reset that upon clearing
-    /// the timeline events.
-    pub waited_for_initial_prev_token: bool,
-}
-
-impl RoomEventCacheState {
-    /// Resets this data structure as if it were brand new.
-    pub(super) fn reset(&mut self) {
-        self.events.reset();
-        self.waited_for_initial_prev_token = false;
+/// Create a debug string for a [`ChunkContent`] for an event/gap pair.
+fn chunk_debug_string(content: &ChunkContent<SyncTimelineEvent, Gap>) -> String {
+    match content {
+        ChunkContent::Gap(Gap { prev_token }) => {
+            format!("gap['{prev_token}']")
+        }
+        ChunkContent::Items(vec) => {
+            let items = vec
+                .iter()
+                .map(|event| {
+                    // Limit event ids to 8 chars *after* the $.
+                    event.event_id().map_or_else(
+                        || "<no event id>".to_owned(),
+                        |id| id.as_str().chars().take(1 + 8).collect(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("events[{items}]")
+        }
     }
 }
 
+// Use a private module to hide `events` to this parent module.
+mod private {
+    use std::sync::Arc;
+
+    use matrix_sdk_base::{
+        deserialized_responses::{SyncTimelineEvent, TimelineEventKind},
+        event_cache::{
+            store::{
+                EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockGuard,
+                DEFAULT_CHUNK_CAPACITY,
+            },
+            Event, Gap,
+        },
+        linked_chunk::{LinkedChunk, LinkedChunkBuilder, RawChunk, Update},
+    };
+    use once_cell::sync::OnceCell;
+    use ruma::{serde::Raw, OwnedRoomId, RoomId};
+    use tracing::{error, trace};
+
+    use super::{chunk_debug_string, events::RoomEvents};
+    use crate::event_cache::EventCacheError;
+
+    /// State for a single room's event cache.
+    ///
+    /// This contains all the inner mutable states that ought to be updated at
+    /// the same time.
+    pub struct RoomEventCacheState {
+        /// The room this state relates to.
+        room: OwnedRoomId,
+
+        /// Reference to the underlying backing store.
+        ///
+        /// Set to none if the room shouldn't read the linked chunk from
+        /// storage, and shouldn't store updates to storage.
+        store: Arc<OnceCell<EventCacheStoreLock>>,
+
+        /// The events of the room.
+        events: RoomEvents,
+
+        /// Have we ever waited for a previous-batch-token to come from sync, in
+        /// the context of pagination? We do this at most once per room,
+        /// the first time we try to run backward pagination. We reset
+        /// that upon clearing the timeline events.
+        pub waited_for_initial_prev_token: bool,
+    }
+
+    impl RoomEventCacheState {
+        async fn try_reload_linked_chunk(
+            room: &RoomId,
+            locked: &EventCacheStoreLockGuard<'_>,
+        ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, EventCacheError>
+        {
+            let raw_chunks = locked.reload_linked_chunk(room).await?;
+
+            let mut builder = LinkedChunkBuilder::from_raw_parts(raw_chunks.clone());
+
+            builder.with_update_history();
+
+            Ok(builder.build().map_err(|err| {
+                // Show a debug string representing the known chunks.
+                if tracing::enabled!(tracing::Level::TRACE) {
+                    trace!("couldn't build a linked chunk from the raw parts. Raw chunks:");
+                    for line in raw_chunks_debug_string(raw_chunks) {
+                        trace!("{line}");
+                    }
+                }
+
+                EventCacheStoreError::InvalidData { details: err.to_string() }
+            })?)
+        }
+
+        /// Create a new state, or reload it from storage if it's been enabled.
+        pub async fn new(
+            room: OwnedRoomId,
+            store: Arc<OnceCell<EventCacheStoreLock>>,
+        ) -> Result<Self, EventCacheError> {
+            let events = if let Some(store) = store.get() {
+                let locked = store.lock().await?;
+
+                // Try to reload a linked chunk from storage. If it fails, log the error and
+                // restart with a fresh, empty linked chunk.
+                let linked_chunk = match Self::try_reload_linked_chunk(&room, &locked).await {
+                    Ok(linked_chunk) => linked_chunk,
+                    Err(err) => {
+                        error!("error when reloading a linked chunk from memory: {err}");
+
+                        // Clear storage for this room.
+                        locked.handle_linked_chunk_updates(&room, vec![Update::Clear]).await?;
+
+                        // Restart with an empty linked chunk.
+                        None
+                    }
+                };
+
+                RoomEvents::with_initial_chunks(linked_chunk)
+            } else {
+                RoomEvents::default()
+            };
+
+            Ok(Self { room, store, events, waited_for_initial_prev_token: false })
+        }
+
+        /// Clear all cached content for this [`RoomEventCacheState`].
+        pub async fn clear(&mut self) -> Result<(), EventCacheError> {
+            self.events.reset();
+            self.propagate_changes().await?;
+            self.waited_for_initial_prev_token = false;
+            Ok(())
+        }
+
+        /// Removes the bundled relations from an event, if they were present.
+        ///
+        /// Only replaces the present if it contained bundled relations.
+        fn strip_relations_if_present<T>(event: &mut Raw<T>) {
+            // We're going to get rid of the `unsigned`/`m.relations` field, if it's
+            // present.
+            // Use a closure that returns an option so we can quickly short-circuit.
+            let mut closure = || -> Option<()> {
+                let mut val: serde_json::Value = event.deserialize_as().ok()?;
+                let unsigned = val.get_mut("unsigned")?;
+                let unsigned_obj = unsigned.as_object_mut()?;
+                if unsigned_obj.remove("m.relations").is_some() {
+                    *event = Raw::new(&val).ok()?.cast();
+                }
+                None
+            };
+            let _ = closure();
+        }
+
+        /// Strips the bundled relations from a collection of events.
+        fn strip_relations_from_events(items: &mut [SyncTimelineEvent]) {
+            for ev in items.iter_mut() {
+                match &mut ev.kind {
+                    TimelineEventKind::Decrypted(decrypted) => {
+                        // Remove all information about encryption info for
+                        // the bundled events.
+                        decrypted.unsigned_encryption_info = None;
+
+                        // Remove the `unsigned`/`m.relations` field, if needs be.
+                        Self::strip_relations_if_present(&mut decrypted.event);
+                    }
+
+                    TimelineEventKind::UnableToDecrypt { event, .. }
+                    | TimelineEventKind::PlainText { event } => {
+                        Self::strip_relations_if_present(event);
+                    }
+                }
+            }
+        }
+
+        /// Propagate changes to the underlying storage.
+        async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
+            let mut updates = self.events.updates().take();
+
+            if !updates.is_empty() {
+                if let Some(store) = self.store.get() {
+                    // Strip relations from the `PushItems` updates.
+                    for up in updates.iter_mut() {
+                        match up {
+                            Update::PushItems { items, .. } => {
+                                Self::strip_relations_from_events(items)
+                            }
+                            // Other update kinds don't involve adding new events.
+                            Update::NewItemsChunk { .. }
+                            | Update::NewGapChunk { .. }
+                            | Update::RemoveChunk(_)
+                            | Update::RemoveItem { .. }
+                            | Update::DetachLastItems { .. }
+                            | Update::StartReattachItems
+                            | Update::EndReattachItems
+                            | Update::Clear => {}
+                        }
+                    }
+
+                    // Spawn a task to make sure that all the changes are effectively forwarded to
+                    // the store, even if the call to this method gets aborted.
+                    //
+                    // The store cross-process locking involves an actual mutex, which ensures that
+                    // storing updates happens in the expected order.
+
+                    let store = store.clone();
+                    let room_id = self.room.clone();
+
+                    matrix_sdk_common::executor::spawn(async move {
+                        let locked = store.lock().await?;
+
+                        if let Err(err) =
+                            locked.handle_linked_chunk_updates(&room_id, updates).await
+                        {
+                            error!("unable to handle linked chunk updates: {err}");
+                        }
+
+                        super::Result::Ok(())
+                    })
+                    .await
+                    .expect("joining failed")?;
+                }
+            }
+
+            Ok(())
+        }
+
+        /// Resets this data structure as if it were brand new.
+        pub async fn reset(&mut self) -> Result<(), EventCacheError> {
+            self.events.reset();
+            self.propagate_changes().await?;
+            self.waited_for_initial_prev_token = false;
+            Ok(())
+        }
+
+        /// Returns a read-only reference to the underlying events.
+        pub fn events(&self) -> &RoomEvents {
+            &self.events
+        }
+
+        /// Gives a temporary mutable handle to the underlying in-memory events,
+        /// and will propagate changes to the storage once done.
+        pub async fn with_events_mut<O, F: FnOnce(&mut RoomEvents) -> O>(
+            &mut self,
+            func: F,
+        ) -> Result<O, EventCacheError> {
+            let output = func(&mut self.events);
+            self.propagate_changes().await?;
+            Ok(output)
+        }
+    }
+
+    /// Create a debug string over multiple lines (one String per line),
+    /// offering a debug representation of a [`RawChunk`] loaded from disk.
+    fn raw_chunks_debug_string(mut raw_chunks: Vec<RawChunk<Event, Gap>>) -> Vec<String> {
+        let mut result = Vec::new();
+
+        // Sort the chunks by id, for the output to be deterministic.
+        raw_chunks.sort_by_key(|c| c.identifier.index());
+
+        for c in raw_chunks {
+            let content = chunk_debug_string(&c.content);
+
+            let prev =
+                c.previous.map_or_else(|| "<none>".to_owned(), |prev| prev.index().to_string());
+            let next = c.next.map_or_else(|| "<none>".to_owned(), |prev| prev.index().to_string());
+
+            let line =
+                format!("chunk #{} (prev={prev}, next={next}): {content}", c.identifier.index());
+
+            result.push(line);
+        }
+
+        result
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use matrix_sdk_base::{
+            event_cache::Gap,
+            linked_chunk::{ChunkContent, ChunkIdentifier as CId, RawChunk},
+        };
+        use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
+        use ruma::event_id;
+
+        use super::raw_chunks_debug_string;
+
+        #[test]
+        fn test_raw_chunks_debug_string() {
+            let mut raws = Vec::new();
+            let f = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
+
+            raws.push(RawChunk {
+                content: ChunkContent::Items(vec![
+                    f.text_msg("hey")
+                        .event_id(event_id!("$123456789101112131415617181920"))
+                        .into_sync(),
+                    f.text_msg("you").event_id(event_id!("$2")).into_sync(),
+                ]),
+                identifier: CId::new(1),
+                previous: Some(CId::new(0)),
+                next: None,
+            });
+
+            raws.push(RawChunk {
+                content: ChunkContent::Gap(Gap { prev_token: "prev-token".to_owned() }),
+                identifier: CId::new(0),
+                previous: None,
+                next: Some(CId::new(1)),
+            });
+
+            let output = raw_chunks_debug_string(raws);
+            assert_eq!(output.len(), 2);
+            assert_eq!(&output[0], "chunk #0 (prev=<none>, next=1): gap['prev-token']");
+            assert_eq!(&output[1], "chunk #1 (prev=0, next=<none>): events[$12345678, $2]");
+        }
+    }
+}
+
+pub(super) use private::RoomEventCacheState;
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
+    use matrix_sdk_base::{
+        event_cache::{
+            store::{EventCacheStore as _, MemoryStore},
+            Gap,
+        },
+        linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
+        store::StoreConfig,
+        sync::{JoinedRoomUpdate, Timeline},
+    };
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
     use ruma::{
         event_id,
-        events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
+        events::{
+            relation::RelationType, room::message::RoomMessageEventContentWithoutRelation,
+            AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        },
         room_id, user_id, RoomId,
     };
 
-    use crate::test_utils::logged_in_client;
+    use crate::test_utils::{client::MockClientBuilder, logged_in_client};
 
     #[async_test]
     async fn test_event_with_redaction_relation() {
@@ -801,6 +1159,526 @@ mod tests {
         assert_eq!(related_event_id, related_id);
         let related_event_id = related_events[1].event_id().unwrap();
         assert_eq!(related_event_id, associated_related_id);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_write_to_storage() {
+        use matrix_sdk_base::linked_chunk::LinkedChunkBuilder;
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Propagate an update for a message and a prev-batch token.
+        let timeline = Timeline {
+            limited: true,
+            prev_batch: Some("raclette".to_owned()),
+            events: vec![f.text_msg("hey yo").sender(*ALICE).into_sync()],
+        };
+
+        room_event_cache
+            .inner
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .await
+            .unwrap();
+
+        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let linked_chunk =
+            LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
+
+        assert_eq!(linked_chunk.chunks().count(), 3);
+
+        let mut chunks = linked_chunk.chunks();
+
+        // Invariant: there's always an empty items chunk at the beginning.
+        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 0)
+        });
+
+        // Then we have the gap.
+        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Gap(gap) => {
+            assert_eq!(gap.prev_token, "raclette");
+        });
+
+        // Then we have the stored event.
+        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            let deserialized = events[0].raw().deserialize().unwrap();
+            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = deserialized);
+            assert_eq!(msg.as_original().unwrap().content.body(), "hey yo");
+        });
+
+        // That's all, folks!
+        assert!(chunks.next().is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_write_to_storage_strips_bundled_relations() {
+        use matrix_sdk_base::linked_chunk::LinkedChunkBuilder;
+        use ruma::events::BundledMessageLikeRelations;
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Propagate an update for a message with bundled relations.
+        let mut relations = BundledMessageLikeRelations::new();
+        relations.replace =
+            Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
+        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_sync();
+
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
+
+        room_event_cache
+            .inner
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .await
+            .unwrap();
+
+        // The in-memory linked chunk keeps the bundled relation.
+        {
+            let (events, _) = room_event_cache.subscribe().await.unwrap();
+
+            assert_eq!(events.len(), 1);
+
+            let ev = events[0].raw().deserialize().unwrap();
+            assert_let!(
+                AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev
+            );
+
+            let original = msg.as_original().unwrap();
+            assert_eq!(original.content.body(), "hey yo");
+            assert!(original.unsigned.relations.replace.is_some());
+        }
+
+        // The one in storage does not.
+        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let linked_chunk =
+            LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
+
+        assert_eq!(linked_chunk.chunks().count(), 1);
+
+        let mut chunks = linked_chunk.chunks();
+        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+
+            let ev = events[0].raw().deserialize().unwrap();
+            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev);
+
+            let original = msg.as_original().unwrap();
+            assert_eq!(original.content.body(), "hey yo");
+            assert!(original.unsigned.relations.replace.is_none());
+        });
+
+        // That's all, folks!
+        assert!(chunks.next().is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_clear() {
+        use matrix_sdk_base::linked_chunk::LinkedChunkBuilder;
+
+        use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let event_id1 = event_id!("$1");
+        let event_id2 = event_id!("$2");
+
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_sync();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_sync();
+
+        // Prefill the store with some data.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    // An empty items chunk.
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    // A gap chunk.
+                    Update::NewGapChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        // Chunk IDs aren't supposed to be ordered, so use a random value here.
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                        gap: Gap { prev_token: "cheddar".to_owned() },
+                    },
+                    // Another items chunk, non-empty this time.
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev1.clone()],
+                    },
+                    // And another items chunk, non-empty again.
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(1)),
+                        new: ChunkIdentifier::new(2),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(2), 0),
+                        items: vec![ev2.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+        // The rooms knows about the cached events.
+        assert!(room_event_cache.event(event_id1).await.is_some());
+
+        // The reloaded room must contain the two events.
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].event_id().unwrap(), event_id1);
+        assert_eq!(items[1].event_id().unwrap(), event_id2);
+
+        assert!(stream.is_empty());
+
+        // After clearing,…
+        room_event_cache.clear().await.unwrap();
+
+        //…we get an update that the content has been cleared.
+        assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = stream.recv());
+
+        // The room event cache has forgotten about the events.
+        assert!(room_event_cache.event(event_id1).await.is_none());
+
+        let (items, _) = room_event_cache.subscribe().await.unwrap();
+        assert!(items.is_empty());
+
+        // The event cache store too.
+        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let linked_chunk = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap();
+
+        // Note: while the event cache store could return `None` here, clearing it will
+        // reset it to its initial form, maintaining the invariant that it
+        // contains a single items chunk that's empty.
+        let linked_chunk = linked_chunk.unwrap();
+        assert_eq!(linked_chunk.num_items(), 0);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_load_from_storage() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let event_id1 = event_id!("$1");
+        let event_id2 = event_id!("$2");
+
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_sync();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_sync();
+
+        // Prefill the store with some data.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    // An empty items chunk.
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    // A gap chunk.
+                    Update::NewGapChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        // Chunk IDs aren't supposed to be ordered, so use a random value here.
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                        gap: Gap { prev_token: "cheddar".to_owned() },
+                    },
+                    // Another items chunk, non-empty this time.
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev1.clone()],
+                    },
+                    // And another items chunk, non-empty again.
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(1)),
+                        new: ChunkIdentifier::new(2),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(2), 0),
+                        items: vec![ev2.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+
+        // The reloaded room must contain the two events.
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].event_id().unwrap(), event_id1);
+        assert_eq!(items[1].event_id().unwrap(), event_id2);
+
+        // A new update with one of these events leads to deduplication.
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev1] };
+        room_event_cache
+            .inner
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .await
+            .unwrap();
+
+        // The stream doesn't report these changes *yet*. Use the items vector given
+        // when subscribing, to check that the items correspond to their new
+        // positions. The duplicated item is removed (so it's not the first
+        // element anymore), and it's added to the back of the list.
+        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].event_id().unwrap(), event_id2);
+        assert_eq!(items[1].event_id().unwrap(), event_id1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_load_from_storage_resilient_to_failure() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        // Prefill the store with invalid data: two chunks that form a cycle.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: Some(ChunkIdentifier::new(0)),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("holder".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+
+        // Because the persisted content was invalid, the room store is reset: there are
+        // no events in the cache.
+        assert!(items.is_empty());
+
+        // Storage doesn't contain anything. It would also be valid that it contains a
+        // single initial empty items chunk.
+        let raw_chunks = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        assert!(raw_chunks.is_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_no_useless_gaps() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let has_storage = true; // for testing purposes only
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        // Propagate an update including a limited timeline with one message and a
+        // prev-batch token.
+        room_event_cache
+            .inner
+            .handle_joined_room_update(
+                has_storage,
+                JoinedRoomUpdate {
+                    timeline: Timeline {
+                        limited: true,
+                        prev_batch: Some("raclette".to_owned()),
+                        events: vec![f.text_msg("hey yo").into_sync()],
+                    },
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            let mut num_gaps = 0;
+            let mut num_events = 0;
+
+            for c in state.events().chunks() {
+                match c.content() {
+                    ChunkContent::Items(items) => num_events += items.len(),
+                    ChunkContent::Gap(_) => num_gaps += 1,
+                }
+            }
+
+            // The gap must have been stored.
+            assert_eq!(num_gaps, 1);
+            assert_eq!(num_events, 1);
+        }
+
+        // Now, propagate an update for another message, but the timeline isn't limited
+        // this time.
+        room_event_cache
+            .inner
+            .handle_joined_room_update(
+                has_storage,
+                JoinedRoomUpdate {
+                    timeline: Timeline {
+                        limited: false,
+                        prev_batch: Some("fondue".to_owned()),
+                        events: vec![f.text_msg("sup").into_sync()],
+                    },
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            let mut num_gaps = 0;
+            let mut num_events = 0;
+
+            for c in state.events().chunks() {
+                match c.content() {
+                    ChunkContent::Items(items) => num_events += items.len(),
+                    ChunkContent::Gap(gap) => {
+                        assert_eq!(gap.prev_token, "raclette");
+                        num_gaps += 1;
+                    }
+                }
+            }
+
+            // There's only the previous gap, no new ones.
+            assert_eq!(num_gaps, 1);
+            assert_eq!(num_events, 2);
+        }
     }
 
     async fn assert_relations(

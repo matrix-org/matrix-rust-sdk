@@ -879,7 +879,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     }
 
     /// Returns the number of items of the linked chunk.
-    fn len(&self) -> usize {
+    pub fn num_items(&self) -> usize {
         self.items().count()
     }
 }
@@ -961,12 +961,12 @@ pub struct ChunkIdentifier(u64);
 
 impl ChunkIdentifier {
     /// Create a new [`ChunkIdentifier`].
-    pub(super) fn new(identifier: u64) -> Self {
+    pub fn new(identifier: u64) -> Self {
         Self(identifier)
     }
 
     /// Get the underlying identifier.
-    fn index(&self) -> u64 {
+    pub fn index(&self) -> u64 {
         self.0
     }
 }
@@ -985,7 +985,7 @@ pub struct Position(ChunkIdentifier, usize);
 
 impl Position {
     /// Create a new [`Position`].
-    pub(super) fn new(chunk_identifier: ChunkIdentifier, index: usize) -> Self {
+    pub fn new(chunk_identifier: ChunkIdentifier, index: usize) -> Self {
         Self(chunk_identifier, index)
     }
 
@@ -1064,7 +1064,7 @@ impl<'a, const CAP: usize, Item, Gap> Iterator for Iter<'a, CAP, Item, Gap> {
 }
 
 /// This enum represents the content of a [`Chunk`].
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ChunkContent<Item, Gap> {
     /// The chunk represents a gap in the linked chunk, i.e. a hole. It
     /// means that some items are missing in this location.
@@ -1419,6 +1419,26 @@ impl EmptyChunk {
     }
 }
 
+/// The raw representation of a linked chunk, as persisted in storage.
+///
+/// It may rebuilt into [`Chunk`] and shares the same internal representation,
+/// except that links are materialized using [`ChunkIdentifier`] instead of raw
+/// pointers to the previous and next chunks.
+#[derive(Clone, Debug)]
+pub struct RawChunk<Item, Gap> {
+    /// Content section of the linked chunk.
+    pub content: ChunkContent<Item, Gap>,
+
+    /// Link to the previous chunk, via its identifier.
+    pub previous: Option<ChunkIdentifier>,
+
+    /// Current chunk's identifier.
+    pub identifier: ChunkIdentifier,
+
+    /// Link to the next chunk, via its identifier.
+    pub next: Option<ChunkIdentifier>,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1455,7 +1475,7 @@ mod tests {
     fn test_empty() {
         let items = LinkedChunk::<3, char, ()>::new();
 
-        assert_eq!(items.len(), 0);
+        assert_eq!(items.num_items(), 0);
 
         // This test also ensures that `Drop` for `LinkedChunk` works when
         // there is only one chunk.
@@ -1538,7 +1558,7 @@ mod tests {
             ]
         );
 
-        assert_eq!(linked_chunk.len(), 10);
+        assert_eq!(linked_chunk.num_items(), 10);
     }
 
     #[test]
@@ -1630,7 +1650,7 @@ mod tests {
             ]
         );
 
-        assert_eq!(linked_chunk.len(), 9);
+        assert_eq!(linked_chunk.num_items(), 9);
     }
 
     #[test]
@@ -1898,7 +1918,7 @@ mod tests {
                 linked_chunk,
                 ['a', 'b', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f']
             );
-            assert_eq!(linked_chunk.len(), 10);
+            assert_eq!(linked_chunk.num_items(), 10);
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
@@ -1932,7 +1952,7 @@ mod tests {
                 linked_chunk,
                 ['l', 'm', 'n'] ['o', 'a', 'b'] ['c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f']
             );
-            assert_eq!(linked_chunk.len(), 14);
+            assert_eq!(linked_chunk.num_items(), 14);
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
@@ -1966,7 +1986,7 @@ mod tests {
                 linked_chunk,
                 ['l', 'm', 'n'] ['o', 'a', 'b'] ['r', 's', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f']
             );
-            assert_eq!(linked_chunk.len(), 16);
+            assert_eq!(linked_chunk.num_items(), 16);
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[
@@ -1994,7 +2014,7 @@ mod tests {
                 linked_chunk.updates().unwrap().take(),
                 &[PushItems { at: Position(ChunkIdentifier(3), 1), items: vec!['p', 'q'] }]
             );
-            assert_eq!(linked_chunk.len(), 18);
+            assert_eq!(linked_chunk.num_items(), 18);
         }
 
         // Insert in a chunk that does not exist.
@@ -2039,7 +2059,7 @@ mod tests {
             );
         }
 
-        assert_eq!(linked_chunk.len(), 18);
+        assert_eq!(linked_chunk.num_items(), 18);
 
         Ok(())
     }
@@ -2055,7 +2075,7 @@ mod tests {
 
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h', 'i'] ['j', 'k']);
-        assert_eq!(linked_chunk.len(), 11);
+        assert_eq!(linked_chunk.num_items(), 11);
 
         // Ignore previous updates.
         let _ = linked_chunk.updates().unwrap().take();
@@ -2068,21 +2088,21 @@ mod tests {
 
             assert_eq!(removed_item, 'f');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e'] ['g', 'h', 'i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 10);
+            assert_eq!(linked_chunk.num_items(), 10);
 
             let position_of_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
             let removed_item = linked_chunk.remove_item_at(position_of_e, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'e');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d'] ['g', 'h', 'i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 9);
+            assert_eq!(linked_chunk.num_items(), 9);
 
             let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
             let removed_item = linked_chunk.remove_item_at(position_of_d, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'd');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['g', 'h', 'i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 8);
+            assert_eq!(linked_chunk.num_items(), 8);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2103,19 +2123,19 @@ mod tests {
 
             assert_eq!(removed_item, 'a');
             assert_items_eq!(linked_chunk, ['b', 'c'] ['g', 'h', 'i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 7);
+            assert_eq!(linked_chunk.num_items(), 7);
 
             let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'b');
             assert_items_eq!(linked_chunk, ['c'] ['g', 'h', 'i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 6);
+            assert_eq!(linked_chunk.num_items(), 6);
 
             let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'c');
             assert_items_eq!(linked_chunk, [] ['g', 'h', 'i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 5);
+            assert_eq!(linked_chunk.num_items(), 5);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2135,19 +2155,19 @@ mod tests {
 
             assert_eq!(removed_item, 'g');
             assert_items_eq!(linked_chunk, [] ['h', 'i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 4);
+            assert_eq!(linked_chunk.num_items(), 4);
 
             let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'h');
             assert_items_eq!(linked_chunk, [] ['i'] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 3);
+            assert_eq!(linked_chunk.num_items(), 3);
 
             let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'i');
             assert_items_eq!(linked_chunk, [] ['j', 'k']);
-            assert_eq!(linked_chunk.len(), 2);
+            assert_eq!(linked_chunk.num_items(), 2);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2169,14 +2189,14 @@ mod tests {
             assert_eq!(removed_item, 'k');
             #[rustfmt::skip]
             assert_items_eq!(linked_chunk, [] ['j']);
-            assert_eq!(linked_chunk.len(), 1);
+            assert_eq!(linked_chunk.num_items(), 1);
 
             let position_of_j = linked_chunk.item_position(|item| *item == 'j').unwrap();
             let removed_item = linked_chunk.remove_item_at(position_of_j, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'j');
             assert_items_eq!(linked_chunk, []);
-            assert_eq!(linked_chunk.len(), 0);
+            assert_eq!(linked_chunk.num_items(), 0);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2194,13 +2214,13 @@ mod tests {
 
             #[rustfmt::skip]
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d']);
-            assert_eq!(linked_chunk.len(), 4);
+            assert_eq!(linked_chunk.num_items(), 4);
 
             let position_of_c = linked_chunk.item_position(|item| *item == 'c').unwrap();
             linked_chunk.insert_gap_at((), position_of_c)?;
 
             assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['c'] ['d']);
-            assert_eq!(linked_chunk.len(), 4);
+            assert_eq!(linked_chunk.num_items(), 4);
 
             // Ignore updates.
             let _ = linked_chunk.updates().unwrap().take();
@@ -2210,27 +2230,27 @@ mod tests {
 
             assert_eq!(removed_item, 'c');
             assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['d']);
-            assert_eq!(linked_chunk.len(), 3);
+            assert_eq!(linked_chunk.num_items(), 3);
 
             let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
             let removed_item = linked_chunk.remove_item_at(position_of_d, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'd');
             assert_items_eq!(linked_chunk, ['a', 'b'] [-]);
-            assert_eq!(linked_chunk.len(), 2);
+            assert_eq!(linked_chunk.num_items(), 2);
 
             let first_position = linked_chunk.item_position(|item| *item == 'a').unwrap();
             let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'a');
             assert_items_eq!(linked_chunk, ['b'] [-]);
-            assert_eq!(linked_chunk.len(), 1);
+            assert_eq!(linked_chunk.num_items(), 1);
 
             let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
 
             assert_eq!(removed_item, 'b');
             assert_items_eq!(linked_chunk, [] [-]);
-            assert_eq!(linked_chunk.len(), 0);
+            assert_eq!(linked_chunk.num_items(), 0);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2259,7 +2279,7 @@ mod tests {
 
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h']);
-        assert_eq!(linked_chunk.len(), 8);
+        assert_eq!(linked_chunk.num_items(), 8);
 
         // Ignore previous updates.
         let _ = linked_chunk.updates().unwrap().take();
@@ -2272,19 +2292,19 @@ mod tests {
 
             assert_eq!(removed_item, 'd');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['e', 'f'] ['g', 'h']);
-            assert_eq!(linked_chunk.len(), 7);
+            assert_eq!(linked_chunk.num_items(), 7);
 
             let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
 
             assert_eq!(removed_item, 'e');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['f'] ['g', 'h']);
-            assert_eq!(linked_chunk.len(), 6);
+            assert_eq!(linked_chunk.num_items(), 6);
 
             let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
 
             assert_eq!(removed_item, 'f');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [] ['g', 'h']);
-            assert_eq!(linked_chunk.len(), 5);
+            assert_eq!(linked_chunk.num_items(), 5);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2304,13 +2324,13 @@ mod tests {
 
             assert_eq!(removed_item, 'g');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [] ['h']);
-            assert_eq!(linked_chunk.len(), 4);
+            assert_eq!(linked_chunk.num_items(), 4);
 
             let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
 
             assert_eq!(removed_item, 'h');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [] []);
-            assert_eq!(linked_chunk.len(), 3);
+            assert_eq!(linked_chunk.num_items(), 3);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2329,19 +2349,19 @@ mod tests {
 
             assert_eq!(removed_item, 'a');
             assert_items_eq!(linked_chunk, ['b', 'c'] [] []);
-            assert_eq!(linked_chunk.len(), 2);
+            assert_eq!(linked_chunk.num_items(), 2);
 
             let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
 
             assert_eq!(removed_item, 'b');
             assert_items_eq!(linked_chunk, ['c'] [] []);
-            assert_eq!(linked_chunk.len(), 1);
+            assert_eq!(linked_chunk.num_items(), 1);
 
             let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
 
             assert_eq!(removed_item, 'c');
             assert_items_eq!(linked_chunk, [] [] []);
-            assert_eq!(linked_chunk.len(), 0);
+            assert_eq!(linked_chunk.num_items(), 0);
 
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2530,7 +2550,7 @@ mod tests {
             assert!(linked_chunk.updates().unwrap().take().is_empty());
         }
 
-        assert_eq!(linked_chunk.len(), 6);
+        assert_eq!(linked_chunk.num_items(), 6);
 
         Ok(())
     }
@@ -2645,7 +2665,7 @@ mod tests {
             );
         }
 
-        assert_eq!(linked_chunk.len(), 13);
+        assert_eq!(linked_chunk.num_items(), 13);
 
         Ok(())
     }
@@ -2732,7 +2752,7 @@ mod tests {
 
         assert_eq!(Arc::strong_count(&item), 7);
         assert_eq!(Arc::strong_count(&gap), 2);
-        assert_eq!(linked_chunk.len(), 6);
+        assert_eq!(linked_chunk.num_items(), 6);
         assert_eq!(linked_chunk.chunk_identifier_generator.next.load(Ordering::SeqCst), 3);
 
         // Now, we can clear the linked chunk and see what happens.
@@ -2740,7 +2760,7 @@ mod tests {
 
         assert_eq!(Arc::strong_count(&item), 1);
         assert_eq!(Arc::strong_count(&gap), 1);
-        assert_eq!(linked_chunk.len(), 0);
+        assert_eq!(linked_chunk.num_items(), 0);
         assert_eq!(linked_chunk.chunk_identifier_generator.next.load(Ordering::SeqCst), 0);
     }
 

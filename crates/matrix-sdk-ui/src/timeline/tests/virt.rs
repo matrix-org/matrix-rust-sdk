@@ -28,7 +28,7 @@ use super::TestTimeline;
 use crate::timeline::{traits::RoomDataProvider as _, VirtualTimelineItem};
 
 #[async_test]
-async fn test_day_divider() {
+async fn test_date_divider() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
@@ -41,8 +41,8 @@ async fn test_day_divider() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert_let!(VirtualTimelineItem::DayDivider(ts) = day_divider.as_virtual().unwrap());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert_let!(VirtualTimelineItem::DateDivider(ts) = date_divider.as_virtual().unwrap());
     let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
     assert_eq!(date.year(), 1970);
     assert_eq!(date.month(), 1);
@@ -65,8 +65,9 @@ async fn test_day_divider() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
-    assert_let!(VirtualTimelineItem::DayDivider(ts) = day_divider.as_virtual().unwrap());
+    let date_divider =
+        assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
+    assert_let!(VirtualTimelineItem::DateDivider(ts) = date_divider.as_virtual().unwrap());
     let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
     assert_eq!(date.year(), 1970);
     assert_eq!(date.month(), 1);
@@ -81,10 +82,11 @@ async fn test_day_divider() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    // The other events are in the past so a local event always creates a new day
+    // The other events are in the past so a local event always creates a new date
     // divider.
-    let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 5, value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider =
+        assert_next_matches!(stream, VectorDiff::Insert { index: 5, value } => value);
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -102,9 +104,9 @@ async fn test_update_read_marker() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id1 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
-    // Timeline: [day-divider, A].
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    // Timeline: [date-divider, A].
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     timeline.controller.handle_fully_read_marker(event_id1.clone()).await;
 
@@ -113,13 +115,13 @@ async fn test_update_read_marker() {
     //            ^-- fully read
     assert!(stream.next().now_or_never().is_none());
 
-    // Timeline: [day-divider, A, B].
+    // Timeline: [date-divider, A, B].
     timeline.handle_live_event(f.text_msg("B").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id2 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
     // Now the read marker appears after the first event.
-    // Timeline: [day-divider, A, read-marker, B].
+    // Timeline: [date-divider, A, read-marker, B].
     //            fully read --^
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 2, value } => value);
     assert_matches!(item.as_virtual(), Some(VirtualTimelineItem::ReadMarker));
@@ -128,18 +130,18 @@ async fn test_update_read_marker() {
 
     // The read marker is removed but not reinserted, because it cannot be added at
     // the end.
-    // Timeline: [day-divider, A, B].
+    // Timeline: [date-divider, A, B].
     //                            ^-- fully read
     assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
 
-    // Timeline: [day-divider, A, B, C].
+    // Timeline: [date-divider, A, B, C].
     //                            ^-- fully read
     timeline.handle_live_event(f.text_msg("C").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id3 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
     // Now the read marker is reinserted after the second event.
-    // Timeline: [day-divider, A, B, read-marker, C].
+    // Timeline: [date-divider, A, B, read-marker, C].
     //                            ^-- fully read
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
     assert!(marker.is_read_marker());
@@ -158,7 +160,7 @@ async fn test_update_read_marker() {
     timeline.controller.handle_fully_read_marker(event_id2).await;
     assert!(stream.next().now_or_never().is_none());
 
-    // Timeline: [day-divider, A, B, read-marker, C, D].
+    // Timeline: [date-divider, A, B, read-marker, C, D].
     //                            ^-- fully read
     timeline.handle_live_event(f.text_msg("D").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -167,17 +169,17 @@ async fn test_update_read_marker() {
     timeline.controller.handle_fully_read_marker(event_id3).await;
 
     // The read marker is moved after the third event (sent by another user).
-    // Timeline: [day-divider, A, B, C, D].
+    // Timeline: [date-divider, A, B, C, D].
     //                  fully read --^
     assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
 
-    // Timeline: [day-divider, A, B, C, read-marker, D].
+    // Timeline: [date-divider, A, B, C, read-marker, D].
     //                  fully read --^
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 4, value } => value);
     assert!(marker.is_read_marker());
 
     // If the current user sends an event afterwards, the read marker doesn't move.
-    // Timeline: [day-divider, A, B, C, read-marker, D, E].
+    // Timeline: [date-divider, A, B, C, read-marker, D, E].
     //                  fully read --^
     timeline.handle_live_event(f.text_msg("E").sender(&own_user)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -187,7 +189,7 @@ async fn test_update_read_marker() {
 
     // If the marker moved forward to another user's event, and there's no other
     // event sent from another user, then it will be removed.
-    // Timeline: [day-divider, A, B, C, D, E].
+    // Timeline: [date-divider, A, B, C, D, E].
     //                     fully read --^
     timeline.controller.handle_fully_read_marker(event_id4).await;
     assert_next_matches!(stream, VectorDiff::Remove { index: 4 });
@@ -195,13 +197,13 @@ async fn test_update_read_marker() {
     assert!(stream.next().now_or_never().is_none());
 
     // When a last event is inserted by ourselves, still no read marker.
-    // Timeline: [day-divider, A, B, C, D, E, F].
+    // Timeline: [date-divider, A, B, C, D, E, F].
     //                     fully read --^
     timeline.handle_live_event(f.text_msg("F").sender(&own_user)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    // Timeline: [day-divider, A, B, C, D, E, F, G].
+    // Timeline: [date-divider, A, B, C, D, E, F, G].
     //                     fully read --^
     timeline.handle_live_event(f.text_msg("G").sender(&own_user)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -213,14 +215,14 @@ async fn test_update_read_marker() {
     // before their message. It is the first message that's both after the
     // fully-read event and not sent by us.
     //
-    // Timeline: [day-divider, A, B, C, D, E, F, G, H].
+    // Timeline: [date-divider, A, B, C, D, E, F, G, H].
     //                     fully read --^
     timeline.handle_live_event(f.text_msg("H").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
     //                                     [our own]              v-- sent by Bob
-    // Timeline: [day-divider, A, B, C, D,  E, F, G, read-marker, H].
+    // Timeline: [date-divider, A, B, C, D,  E, F, G, read-marker, H].
     //                     fully read --^
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 8, value } => value);
     assert!(marker.is_read_marker());

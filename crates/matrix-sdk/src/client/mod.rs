@@ -265,7 +265,7 @@ pub(crate) struct ClientInner {
     pub(crate) http_client: HttpClient,
 
     /// User session data.
-    base_client: BaseClient,
+    pub(super) base_client: BaseClient,
 
     /// Server capabilities, either prefilled during building or fetched from
     /// the server.
@@ -615,7 +615,7 @@ impl Client {
     }
 
     /// Get a reference to the event cache store.
-    pub(crate) fn event_cache_store(&self) -> &EventCacheStoreLock {
+    pub fn event_cache_store(&self) -> &EventCacheStoreLock {
         self.base_client().event_cache_store()
     }
 

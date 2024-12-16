@@ -243,7 +243,7 @@ impl Recovery {
     /// ```
     #[instrument(skip_all)]
     pub async fn enable_backup(&self) -> Result<()> {
-        if !self.client.encryption().backups().exists_on_server().await? {
+        if !self.client.encryption().backups().fetch_exists_on_server().await? {
             self.mark_backup_as_enabled().await?;
 
             self.client.encryption().backups().create().await?;
@@ -503,7 +503,7 @@ impl Recovery {
         // disabled, then we can automatically enable them.
         Ok(self.client.inner.e2ee.encryption_settings.auto_enable_backups
             && !self.client.encryption().backups().are_enabled().await
-            && !self.client.encryption().backups().exists_on_server().await?
+            && !self.client.encryption().backups().fetch_exists_on_server().await?
             && !self.are_backups_marked_as_disabled().await?)
     }
 

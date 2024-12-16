@@ -131,7 +131,7 @@ jobs:
   test-apple:
     name: matrix-rust-components-swift
     needs: xtask
-    runs-on: macos-14
+    runs-on: macos-15
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
@@ -175,7 +175,7 @@ jobs:
         run: swift test
 
       - name: Build Framework
-        run: target/debug/xtask swift build-framework --target=aarch64-apple-ios --profile=dev
+        run: target/debug/xtask swift build-framework --target=aarch64-apple-ios --profile=reldbg
 
   complement-crypto:
     name: "Run Complement Crypto tests"
@@ -186,7 +186,7 @@ jobs:
 
   test-crypto-apple-framework-generation:
     name: Generate Crypto FFI Apple XCFramework
-    runs-on: macos-14
+    runs-on: macos-15
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:

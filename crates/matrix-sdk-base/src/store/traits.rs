@@ -1022,6 +1022,9 @@ pub enum StateStoreDataValue {
     ///
     /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(ComposerDraft),
+
+    /// A list of knock request ids marked as seen in a room.
+    SeenKnockRequests(BTreeMap<OwnedEventId, OwnedUserId>),
 }
 
 /// Current draft of the composer for the room.
@@ -1088,6 +1091,11 @@ impl StateStoreDataValue {
     pub fn into_server_capabilities(self) -> Option<ServerCapabilities> {
         as_variant!(self, Self::ServerCapabilities)
     }
+
+    /// Get this value if it is the data for the ignored join requests.
+    pub fn into_seen_knock_requests(self) -> Option<BTreeMap<OwnedEventId, OwnedUserId>> {
+        as_variant!(self, Self::SeenKnockRequests)
+    }
 }
 
 /// A key for key-value data.
@@ -1117,6 +1125,9 @@ pub enum StateStoreDataKey<'a> {
     ///
     /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(&'a RoomId),
+
+    /// A list of knock request ids marked as seen in a room.
+    SeenKnockRequests(&'a RoomId),
 }
 
 impl StateStoreDataKey<'_> {
@@ -1142,6 +1153,10 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the [`ComposerDraft`][Self::ComposerDraft]
     /// variant.
     pub const COMPOSER_DRAFT: &'static str = "composer_draft";
+
+    /// Key prefix to use for the
+    /// [`SeenKnockRequests`][Self::SeenKnockRequests] variant.
+    pub const SEEN_KNOCK_REQUESTS: &'static str = "seen_knock_requests";
 }
 
 #[cfg(test)]

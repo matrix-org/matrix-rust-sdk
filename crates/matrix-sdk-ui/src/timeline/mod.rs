@@ -59,7 +59,7 @@ use crate::timeline::pinned_events_loader::PinnedEventsRoom;
 
 mod builder;
 mod controller;
-mod day_dividers;
+mod date_dividers;
 mod error;
 mod event_handler;
 mod event_item;
@@ -175,6 +175,14 @@ impl TimelineFocus {
             TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
         }
     }
+}
+
+/// Changes how dividers get inserted, either in between each day or in between
+/// each month
+#[derive(Debug, Clone)]
+pub enum DateDividerMode {
+    Daily,
+    Monthly,
 }
 
 impl Timeline {
@@ -524,6 +532,12 @@ impl Timeline {
     /// If the encryption feature is enabled, this method will transparently
     /// encrypt the room message if the room is encrypted.
     ///
+    /// The attachment and its optional thumbnail are stored in the media cache
+    /// and can be retrieved at any time, by calling
+    /// [`Media::get_media_content()`] with the `MediaSource` that can be found
+    /// in the corresponding `TimelineEventItem`, and using a
+    /// `MediaFormat::File`.
+    ///
     /// # Arguments
     ///
     /// * `path` - The path of the file to be sent.
@@ -532,6 +546,8 @@ impl Timeline {
     ///
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment like a thumbnail, its size, duration etc.
+    ///
+    /// [`Media::get_media_content()`]: matrix_sdk::Media::get_media_content
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,

@@ -17,7 +17,6 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
-#![cfg_attr(test, allow(unexpected_cfgs))] // Triggered by the init_tracing_for_tests!() invocation.
 
 pub mod backups;
 mod ciphers;
@@ -111,7 +110,7 @@ pub use verification::{QrVerification, QrVerificationState, ScanError};
 pub use vodozemac;
 
 /// The version of the matrix-sdk-cypto crate being used
-pub static VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();

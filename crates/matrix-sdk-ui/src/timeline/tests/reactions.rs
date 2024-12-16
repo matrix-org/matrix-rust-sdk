@@ -196,14 +196,15 @@ async fn test_initial_reaction_timestamp_is_stored() {
     timeline
         .controller
         .add_events_at(
-            vec![
+            [
                 // Reaction comes first.
                 f.reaction(&message_event_id, REACTION_KEY.to_owned())
                     .server_ts(reaction_timestamp)
                     .into_sync(),
                 // Event comes next.
                 f.text_msg("A").event_id(&message_event_id).into_sync(),
-            ],
+            ]
+            .into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
@@ -228,8 +229,8 @@ async fn send_first_message(
     let event_id = event_item.event_id().unwrap().to_owned();
     let position = timeline.len().await - 1;
 
-    let day_divider = assert_next_matches!(*stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(*stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     (item_id, event_id, position)
 }

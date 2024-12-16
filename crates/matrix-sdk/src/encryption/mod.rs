@@ -50,8 +50,11 @@ use ruma::{
         uiaa::{AuthData, UiaaInfo},
     },
     assign,
-    events::room::{MediaSource, ThumbnailInfo},
-    DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+    events::{
+        direct::DirectUserIdentifier,
+        room::{MediaSource, ThumbnailInfo},
+    },
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLockReadGuard};
@@ -605,7 +608,7 @@ impl Client {
         // Find the room we share with the `user_id` and only with `user_id`
         let room = rooms.into_iter().find(|r| {
             let targets = r.direct_targets();
-            targets.len() == 1 && targets.contains(user_id)
+            targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
         });
 
         trace!(?room, "Found room");
@@ -713,6 +716,15 @@ impl Encryption {
     /// Get the public Curve25519 key of our own device.
     pub async fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519)
+    }
+
+    /// Get the current device creation timestamp.
+    pub async fn device_creation_timestamp(&self) -> MilliSecondsSinceUnixEpoch {
+        match self.get_own_device().await {
+            Ok(Some(device)) => device.first_time_seen_ts(),
+            // Should not happen, there should always be an own device
+            _ => MilliSecondsSinceUnixEpoch::now(),
+        }
     }
 
     #[cfg(feature = "experimental-oidc")]
@@ -1150,7 +1162,7 @@ impl Encryption {
     /// # let client = Client::new(homeserver).await?;
     /// # let user_id = unimplemented!();
     /// let encryption = client.encryption();
-    ///       
+    ///
     /// if let Some(handle) = encryption.reset_cross_signing().await? {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {

@@ -242,7 +242,7 @@ impl TestTimeline {
         let event = event.into();
         self.controller
             .add_events_at(
-                vec![event],
+                [event].into_iter(),
                 TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
             )
             .await;
@@ -264,7 +264,7 @@ impl TestTimeline {
         let timeline_event = TimelineEvent::new(event.cast());
         self.controller
             .add_events_at(
-                vec![timeline_event],
+                [timeline_event].into_iter(),
                 TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
             )
             .await;
@@ -387,6 +387,8 @@ impl RoomDataProvider for TestRoomDataProvider {
             )
             .unwrap_or(MilliSecondsSinceUnixEpoch::now()),
             is_backup_configured: false,
+            this_device_is_verified: true,
+            backup_exists_on_server: true,
         })
         .boxed()
     }

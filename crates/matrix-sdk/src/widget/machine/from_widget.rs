@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
-
+use as_variant::as_variant;
 use ruma::{
-    api::client::delayed_events::{
-        delayed_message_event, delayed_state_event, update_delayed_event,
+    api::client::{
+        delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
+        error::{ErrorBody, StandardErrorBody},
     },
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
@@ -25,7 +25,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use super::{SendEventRequest, UpdateDelayedEventRequest};
-use crate::widget::StateKeySelector;
+use crate::{widget::StateKeySelector, Error, HttpError, RumaApiError};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]
@@ -41,28 +41,85 @@ pub(super) enum FromWidgetRequest {
     DelayedEventUpdate(UpdateDelayedEventRequest),
 }
 
+/// The full response a client sends to a [`FromWidgetRequest`] in case of an
+/// error.
 #[derive(Serialize)]
 pub(super) struct FromWidgetErrorResponse {
     error: FromWidgetError,
 }
 
 impl FromWidgetErrorResponse {
-    pub(super) fn new(e: impl fmt::Display) -> Self {
-        Self { error: FromWidgetError { message: e.to_string() } }
+    /// Create a error response to send to the widget from an http error.
+    pub(crate) fn from_http_error(error: HttpError) -> Self {
+        let message = error.to_string();
+        let matrix_api_error = as_variant!(error, HttpError::Api(ruma::api::error::FromHttpResponseError::Server(RumaApiError::ClientApi(err))) => err);
+
+        Self {
+            error: FromWidgetError {
+                message,
+                matrix_api_error: matrix_api_error.and_then(|api_error| match api_error.body {
+                    ErrorBody::Standard { kind, message } => Some(FromWidgetMatrixErrorBody {
+                        http_status: api_error.status_code.as_u16().into(),
+                        response: StandardErrorBody { kind, message },
+                    }),
+                    _ => None,
+                }),
+            },
+        }
+    }
+
+    /// Create a error response to send to the widget from a matrix sdk error.
+    pub(crate) fn from_error(error: Error) -> Self {
+        match error {
+            Error::Http(e) => FromWidgetErrorResponse::from_http_error(e),
+            // For UnknownError's we do not want to have the `unknown error` bit in the message.
+            // Hence we only convert the inner error to a string.
+            Error::UnknownError(e) => FromWidgetErrorResponse::from_string(e.to_string()),
+            _ => FromWidgetErrorResponse::from_string(error.to_string()),
+        }
+    }
+
+    /// Create a error response to send to the widget from a string.
+    pub(crate) fn from_string<S: Into<String>>(error: S) -> Self {
+        Self { error: FromWidgetError { message: error.into(), matrix_api_error: None } }
     }
 }
 
+/// Serializable section of an error response send by the client as a
+/// response to a [`FromWidgetRequest`].
 #[derive(Serialize)]
 struct FromWidgetError {
+    /// Unspecified error message text that caused this widget action to
+    /// fail.
+    ///
+    /// This is useful to prompt the user on an issue but cannot be used to
+    /// decide on how to deal with the error.
     message: String,
+
+    /// Optional matrix error hinting at workarounds for specific errors.
+    matrix_api_error: Option<FromWidgetMatrixErrorBody>,
 }
 
+/// Serializable section of a widget response that represents a matrix error.
+#[derive(Serialize)]
+struct FromWidgetMatrixErrorBody {
+    /// Status code of the http response.
+    http_status: u32,
+
+    /// Standard error response including the `errorcode` and the `error`
+    /// message as defined in the [spec](https://spec.matrix.org/v1.12/client-server-api/#standard-error-response).
+    response: StandardErrorBody,
+}
+
+/// The serializable section of a widget response containing the supported
+/// versions.
 #[derive(Serialize)]
 pub(super) struct SupportedApiVersionsResponse {
     supported_versions: Vec<ApiVersion>,
 }
 
 impl SupportedApiVersionsResponse {
+    /// The currently supported widget api versions from the rust widget driver.
     pub(super) fn new() -> Self {
         Self {
             supported_versions: vec![

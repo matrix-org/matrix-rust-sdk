@@ -118,11 +118,11 @@ async fn test_back_pagination() {
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
-    let day_divider = assert_next_matches!(
+    let date_divider = assert_next_matches!(
         timeline_stream,
         VectorDiff::PushFront { value } => value
     );
-    assert!(day_divider.is_day_divider());
+    assert!(date_divider.is_date_divider());
 
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
@@ -228,11 +228,11 @@ async fn test_back_pagination_highlighted() {
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
 
-    let day_divider = assert_next_matches!(
+    let date_divider = assert_next_matches!(
         timeline_stream,
         VectorDiff::PushFront { value } => value
     );
-    assert!(day_divider.is_day_divider());
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -273,7 +273,8 @@ async fn test_wait_for_token() {
                 &ALICE,
                 RoomMessageEventContent::text_plain("live event!"),
             ))
-            .set_timeline_prev_batch(from.to_owned()),
+            .set_timeline_prev_batch(from.to_owned())
+            .set_timeline_limited(),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
@@ -385,7 +386,8 @@ async fn test_timeline_reset_while_paginating() {
                 &ALICE,
                 RoomMessageEventContent::text_plain("live event!"),
             ))
-            .set_timeline_prev_batch("pagination_1".to_owned()),
+            .set_timeline_prev_batch("pagination_1".to_owned())
+            .set_timeline_limited(),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     client.sync_once(sync_settings.clone()).await.unwrap();
@@ -399,8 +401,8 @@ async fn test_timeline_reset_while_paginating() {
                 &BOB,
                 RoomMessageEventContent::text_plain("new live event."),
             ))
-            .set_timeline_limited()
-            .set_timeline_prev_batch("pagination_2".to_owned()),
+            .set_timeline_prev_batch("pagination_2".to_owned())
+            .set_timeline_limited(),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
@@ -480,7 +482,7 @@ async fn test_timeline_reset_while_paginating() {
     // field.
     assert!(hit_start);
 
-    // No events in back-pagination responses, day divider + event from latest
+    // No events in back-pagination responses, date divider + event from latest
     // sync is present
     assert_eq!(timeline.items().await.len(), 2);
 
@@ -644,11 +646,11 @@ async fn test_empty_chunk() {
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
-    let day_divider = assert_next_matches!(
+    let date_divider = assert_next_matches!(
         timeline_stream,
         VectorDiff::PushFront { value } => value
     );
-    assert!(day_divider.is_day_divider());
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -744,11 +746,11 @@ async fn test_until_num_items_with_empty_chunk() {
     assert_eq!(content.name, "New room name");
     assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
 
-    let day_divider = assert_next_matches!(
+    let date_divider = assert_next_matches!(
         timeline_stream,
         VectorDiff::PushFront { value } => value
     );
-    assert!(day_divider.is_day_divider());
+    assert!(date_divider.is_date_divider());
 
     timeline.live_paginate_backwards(10).await.unwrap();
 
@@ -760,11 +762,11 @@ async fn test_until_num_items_with_empty_chunk() {
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hello room then");
 
-    let day_divider = assert_next_matches!(
+    let date_divider = assert_next_matches!(
         timeline_stream,
         VectorDiff::PushFront { value } => value
     );
-    assert!(day_divider.is_day_divider());
+    assert!(date_divider.is_date_divider());
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
 }
 

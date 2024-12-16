@@ -70,8 +70,8 @@ macro_rules! timeline_event {
 pub(crate) use timeline_event;
 
 macro_rules! assert_timeline_stream {
-    // `--- day divider ---`
-    ( @_ [ $stream:ident ] [ --- day divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    // `--- date divider ---`
+    ( @_ [ $stream:ident ] [ --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
             [ $stream ]
@@ -85,7 +85,7 @@ macro_rules! assert_timeline_stream {
                             assert_matches!(
                                 **value,
                                 TimelineItemKind::Virtual(
-                                    VirtualTimelineItem::DayDivider(_)
+                                    VirtualTimelineItem::DateDivider(_)
                                 )
                             );
                         }
@@ -120,8 +120,8 @@ macro_rules! assert_timeline_stream {
         )
     };
 
-    // `prepend --- day divider ---`
-    ( @_ [ $stream:ident ] [ prepend --- day divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    // `prepend --- date divider ---`
+    ( @_ [ $stream:ident ] [ prepend --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
             [ $stream ]
@@ -134,7 +134,7 @@ macro_rules! assert_timeline_stream {
                         Some(Some(VectorDiff::PushFront { value })) => {
                             assert_matches!(
                                 &**value,
-                                TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)) => {}
+                                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)) => {}
                             );
                         }
                     );
@@ -279,16 +279,6 @@ async fn timeline_test_helper(
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
 
-    // TODO: when the event cache handles its own cache, we can remove this.
-    client
-        .event_cache()
-        .add_initial_events(
-            room_id,
-            sliding_sync_room.timeline_queue().iter().cloned().collect(),
-            sliding_sync_room.prev_batch(),
-        )
-        .await?;
-
     let timeline = Timeline::builder(&sdk_room).track_read_marker_and_receipts().build().await?;
 
     Ok(timeline.subscribe().await)
@@ -345,7 +335,7 @@ async fn test_timeline_basic() -> Result<()> {
             append    "$x1:bar.org";
             update[0] "$x1:bar.org";
             append    "$x2:bar.org";
-            prepend   --- day divider ---;
+            prepend   --- date divider ---;
         };
     }
 
@@ -395,7 +385,7 @@ async fn test_timeline_duplicated_events() -> Result<()> {
             append    "$x2:bar.org";
             update[1] "$x2:bar.org";
             append    "$x3:bar.org";
-            prepend    --- day divider ---;
+            prepend    --- date divider ---;
         };
     }
 
@@ -473,7 +463,7 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
             append    "$x1:bar.org";
             update[0] "$x1:bar.org";
             append    "$x2:bar.org";
-            prepend   --- day divider ---;
+            prepend   --- date divider ---;
         };
     }
 

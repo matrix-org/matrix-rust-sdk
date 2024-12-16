@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 mod ci;
 mod fixup;
 mod kotlin;
@@ -5,13 +7,15 @@ mod release;
 mod swift;
 mod workspace;
 
+use std::rc::Rc;
+
 use ci::CiArgs;
 use clap::{Parser, Subcommand};
 use fixup::FixupArgs;
 use kotlin::KotlinArgs;
 use release::ReleaseArgs;
 use swift::SwiftArgs;
-use xshell::cmd;
+use xshell::{cmd, Shell};
 
 const NIGHTLY: &str = "nightly-2024-11-26";
 
@@ -66,11 +70,22 @@ fn build_docs(
         rustdocflags += " -Dwarnings";
     }
 
+    let sh = sh();
     // Keep in sync with .github/workflows/docs.yml
-    cmd!("rustup run {NIGHTLY} cargo doc --no-deps --workspace --features docsrs")
+    cmd!(sh, "rustup run {NIGHTLY} cargo doc --no-deps --workspace --features docsrs")
         .env("RUSTDOCFLAGS", rustdocflags)
         .args(extra_args)
         .run()?;
 
     Ok(())
+}
+
+thread_local! {
+    /// The shared shell API.
+    static SH: Rc<Shell> = Rc::new(Shell::new().unwrap())
+}
+
+/// Get a reference to the shared shell API.
+fn sh() -> Rc<Shell> {
+    SH.with(|sh| sh.clone())
 }

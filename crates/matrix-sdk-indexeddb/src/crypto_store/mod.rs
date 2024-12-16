@@ -29,8 +29,8 @@ use matrix_sdk_crypto::{
         StaticAccountData,
     },
     store::{
-        BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges, RoomKeyCounts,
-        RoomSettings,
+        BackupKeys, Changes, CryptoStore, CryptoStoreError, DehydratedDeviceKey, PendingChanges,
+        RoomKeyCounts, RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
@@ -104,6 +104,9 @@ mod keys {
     /// with the client-side recovery key, which is actually an AES key for use
     /// with SSSS.
     pub const RECOVERY_KEY_V1: &str = "recovery_key_v1";
+
+    /// Indexeddb key for the dehydrated device pickle key.
+    pub const DEHYDRATION_PICKLE_KEY: &str = "dehydration_pickle_key";
 }
 
 /// An implementation of [CryptoStore] that uses [IndexedDB] for persistent
@@ -471,6 +474,7 @@ impl IndexeddbCryptoStore {
 
         let decryption_key_pickle = &changes.backup_decryption_key;
         let backup_version = &changes.backup_version;
+        let dehydration_pickle_key = &changes.dehydrated_device_pickle_key;
 
         let mut core = indexeddb_changes.get(keys::CORE);
         if let Some(next_batch) = &changes.next_batch_token {
@@ -483,6 +487,13 @@ impl IndexeddbCryptoStore {
         if let Some(i) = &private_identity_pickle {
             core.put(
                 JsValue::from_str(keys::PRIVATE_IDENTITY),
+                self.serializer.serialize_value(i)?,
+            );
+        }
+
+        if let Some(i) = &dehydration_pickle_key {
+            core.put(
+                JsValue::from_str(keys::DEHYDRATION_PICKLE_KEY),
                 self.serializer.serialize_value(i)?,
             );
         }
@@ -1289,6 +1300,28 @@ impl_crypto_store! {
         };
 
         Ok(key)
+    }
+
+
+     async fn load_dehydrated_device_pickle_key(&self) -> Result<Option<DehydratedDeviceKey>> {
+       if let Some(pickle) = self
+            .inner
+            .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
+            .object_store(keys::CORE)?
+            .get(&JsValue::from_str(keys::DEHYDRATION_PICKLE_KEY))?
+            .await?
+        {
+            let pickle: DehydratedDeviceKey = self.serializer.deserialize_value(pickle)?;
+
+            Ok(Some(pickle))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn delete_dehydrated_device_pickle_key(&self) -> Result<()> {
+        self.remove_custom_value(keys::DEHYDRATION_PICKLE_KEY).await?;
+        Ok(())
     }
 
     async fn get_withheld_info(

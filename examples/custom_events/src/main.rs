@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs)] // Triggered by the `EventContent` macro usage
-
 ///
 ///  This is an example showcasing how to build a very simple bot with custom
 /// events  using the matrix-sdk. To try it, you need a rust build setup, then

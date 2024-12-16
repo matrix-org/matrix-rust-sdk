@@ -50,7 +50,7 @@ async fn test_initial_events() {
     timeline
         .controller
         .add_events_at(
-            vec![f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)],
+            [f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)].into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
@@ -62,7 +62,7 @@ async fn test_initial_events() {
     assert_eq!(item.as_event().unwrap().sender(), *BOB);
 
     let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_)));
+    assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
 }
 
 #[async_test]
@@ -92,20 +92,26 @@ async fn test_replace_with_initial_events_and_read_marker() {
 
     timeline
         .controller
-        .add_events_at(vec![ev], TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync })
+        .add_events_at(
+            [ev].into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        )
         .await;
 
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
-    assert!(items[0].is_day_divider());
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = f.text_msg("yo").sender(*BOB).into_sync();
-    timeline.controller.replace_with_initial_remote_events(vec![ev], RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
+        .await;
 
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
-    assert!(items[0].is_day_divider());
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "yo");
 }
 
@@ -263,8 +269,8 @@ async fn test_other_state() {
     assert_eq!(content.name, "Alice's room");
     assert_matches!(prev_content, None);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     timeline.handle_live_redacted_state_event(&ALICE, RedactedRoomTopicEventContent::new()).await;
 
@@ -292,7 +298,7 @@ async fn test_dedup_pagination() {
     assert_eq!(timeline_items.len(), 2);
     assert_matches!(
         timeline_items[0].kind,
-        TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_))
+        TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_))
     );
     assert_matches!(timeline_items[1].kind, TimelineItemKind::Event(_));
 }
@@ -309,7 +315,7 @@ async fn test_dedup_initial() {
     timeline
         .controller
         .add_events_at(
-            vec![
+            [
                 // two events
                 event_a.clone(),
                 event_b.clone(),
@@ -318,7 +324,8 @@ async fn test_dedup_initial() {
                 event_b,
                 // … and a new event also came in
                 event_c,
-            ],
+            ]
+            .into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
@@ -326,7 +333,7 @@ async fn test_dedup_initial() {
     let timeline_items = timeline.controller.items().await;
     assert_eq!(timeline_items.len(), 4);
 
-    assert!(timeline_items[0].is_day_divider());
+    assert!(timeline_items[0].is_date_divider());
 
     let event1 = &timeline_items[1];
     let event2 = &timeline_items[2];
@@ -356,7 +363,7 @@ async fn test_internal_id_prefix() {
     timeline
         .controller
         .add_events_at(
-            vec![ev_a, ev_b, ev_c],
+            [ev_a, ev_b, ev_c].into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
@@ -364,7 +371,7 @@ async fn test_internal_id_prefix() {
     let timeline_items = timeline.controller.items().await;
     assert_eq!(timeline_items.len(), 4);
 
-    assert!(timeline_items[0].is_day_divider());
+    assert!(timeline_items[0].is_date_divider());
     assert_eq!(timeline_items[0].unique_id().0, "le_prefix_3");
 
     let event1 = &timeline_items[1];
@@ -420,8 +427,8 @@ async fn test_sanitized() {
         "
     );
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -438,8 +445,8 @@ async fn test_reply() {
     let first_event_id = first_event.event_id().unwrap();
     let first_event_sender = *ALICE;
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     let reply_formatted_body = format!("\
         <mx-reply>\
@@ -488,8 +495,8 @@ async fn test_thread() {
     let first_event = item.as_event().unwrap();
     let first_event_id = first_event.event_id().unwrap();
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     timeline
         .handle_live_event(
@@ -522,19 +529,25 @@ async fn test_replace_with_initial_events_when_batched() {
 
     timeline
         .controller
-        .add_events_at(vec![ev], TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync })
+        .add_events_at(
+            [ev].into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        )
         .await;
 
     let (items, mut stream) = timeline.controller.subscribe_batched().await;
     assert_eq!(items.len(), 2);
-    assert!(items[0].is_day_divider());
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = f.text_msg("yo").sender(*BOB).into_sync();
-    timeline.controller.replace_with_initial_remote_events(vec![ev], RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
+        .await;
 
     // Assert there are more than a single Clear diff in the next batch:
-    // Clear + PushBack (event) + PushFront (day divider)
+    // Clear + PushBack (event) + PushFront (date divider)
     let batched_diffs = stream.next().await.unwrap();
     assert_eq!(batched_diffs.len(), 3);
     assert_matches!(batched_diffs[0], VectorDiff::Clear);
@@ -542,6 +555,6 @@ async fn test_replace_with_initial_events_when_batched() {
         assert!(value.as_event().is_some());
     });
     assert_matches!(&batched_diffs[2], VectorDiff::PushFront { value } => {
-        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
+        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DateDivider(_)));
     });
 }

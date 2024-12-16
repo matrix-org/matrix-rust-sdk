@@ -36,7 +36,7 @@ pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use self::integration_tests::EventCacheStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
-    traits::{DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
+    traits::{DynEventCacheStore, EventCacheStore, IntoEventCacheStore, DEFAULT_CHUNK_CAPACITY},
 };
 
 /// The high-level public type to represent an `EventCacheStore` lock.
@@ -138,12 +138,23 @@ pub enum EventCacheStoreError {
     #[error("Error encoding or decoding data from the event cache store: {0}")]
     Codec(#[from] Utf8Error),
 
+    /// The store failed to serialize or deserialize some data.
+    #[error("Error serializing or deserializing data from the event cache store: {0}")]
+    Serialization(#[from] serde_json::Error),
+
     /// The database format has changed in a backwards incompatible way.
     #[error(
         "The database format of the event cache store changed in an incompatible way, \
          current version: {0}, latest version: {1}"
     )]
     UnsupportedDatabaseVersion(usize, usize),
+
+    /// The store contains invalid data.
+    #[error("The store contains invalid data: {details}")]
+    InvalidData {
+        /// Details why the data contained in the store was invalid.
+        details: String,
+    },
 }
 
 impl EventCacheStoreError {

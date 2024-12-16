@@ -18,7 +18,7 @@ default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.80"
+rust-version = "1.82"
 
 [workspace.dependencies]
 anyhow = "1.0.93"
@@ -56,7 +56,7 @@ proptest = { version = "1.5.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
 rmp-serde = "1.3.0"
-ruma = { version = "0.11.1", features = [
+ruma = { version = "0.12.0", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -69,8 +69,9 @@ ruma = { version = "0.11.1", features = [
     "unstable-msc3489",
     "unstable-msc4075",
     "unstable-msc4140",
+    "unstable-msc4171",
 ] }
-ruma-common = "0.14.1"
+ruma-common = "0.15.0"
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
@@ -150,7 +151,10 @@ vodozemac = { git = "https://github.com/uhoreg/vodozemac.git", branch = "dehydra
 [workspace.lints.rust]
 rust_2018_idioms = "warn"
 semicolon_in_expressions_from_macros = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(tarpaulin_include)', # Used by tarpaulin (code coverage)
+    'cfg(ruma_unstable_exhaustive_types)', # Used by Ruma's EventContent derive macro
+] }
 unused_extern_crates = "warn"
 unused_import_braces = "warn"
 unused_qualifications = "warn"

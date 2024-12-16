@@ -3,8 +3,9 @@ use std::{
     time::Duration,
 };
 
-use futures_util::future::join_all;
+use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
+    assert_next_with_timeout,
     config::SyncSettings,
     room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
     test_utils::mocks::MatrixMockServer,
@@ -22,13 +23,18 @@ use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{
+        direct::DirectUserIdentifier,
         receipt::ReceiptThread,
-        room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
+        room::{
+            member::{MembershipState, RoomMemberEventContent},
+            message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
+        },
         TimelineEventType,
     },
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
 };
-use serde_json::{json, Value};
+use serde_json::{from_value, json, Value};
+use stream_assert::assert_pending;
 use wiremock::{
     matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
@@ -632,6 +638,38 @@ async fn test_reset_power_levels() {
 }
 
 #[async_test]
+async fn test_is_direct_invite_by_3pid() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::default());
+    let data = json!({
+        "content": {
+            "invited@localhost.com": [*DEFAULT_TEST_ROOM_ID],
+        },
+        "event_id": "$757957878228ekrDs:localhost",
+        "origin_server_ts": 17195787,
+        "sender": "@example:localhost",
+        "state_key": "",
+        "type": "m.direct",
+        "unsigned": {
+          "age": 139298
+        }
+    });
+    sync_builder.add_global_account_data_bulk(vec![from_value(data).unwrap()]);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    mock_encryption_state(&server, false).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert!(room.is_direct().await.unwrap());
+    assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from("invited@localhost.com")));
+}
+
+#[async_test]
 async fn test_call_notifications_ring_for_dms() {
     let (client, server) = logged_in_client_with_server().await;
 
@@ -799,4 +837,114 @@ async fn test_enable_encryption_doesnt_stay_unencrypted() {
     mock.mock_room_state_encryption().encrypted().mount().await;
 
     assert!(room.is_encrypted().await.unwrap());
+}
+
+#[async_test]
+async fn test_subscribe_to_requests_to_join() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id);
+
+    let user_id = user_id!("@alice:b.c");
+    let knock_event_id = event_id!("$alice-knock:b.c");
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(knock_event_id)
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let stream = room.subscribe_to_knock_requests().await.unwrap();
+
+    pin_mut!(stream);
+
+    // We receive an initial knock request from Alice
+    let initial = assert_next_with_timeout!(stream, 100);
+    assert_eq!(initial.len(), 1);
+
+    let knock_request = &initial[0];
+    assert_eq!(knock_request.event_id, knock_event_id);
+    assert!(!knock_request.is_seen);
+
+    // We then mark the knock request as seen
+    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+
+    // Now it's received again as seen
+    let seen = assert_next_with_timeout!(stream, 100);
+    assert_eq!(initial.len(), 1);
+    let seen_knock = &seen[0];
+    assert_eq!(seen_knock.event_id, knock_event_id);
+    assert!(seen_knock.is_seen);
+
+    // If we then receive a new member event for Alice that's not 'knock'
+    let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
+        .event(RoomMemberEventContent::new(MembershipState::Invite))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast()]);
+    server.sync_room(&client, joined_room_builder).await;
+
+    // The knock requests are now empty
+    let updated_requests = assert_next_with_timeout!(stream, 100);
+    assert!(updated_requests.is_empty());
+
+    // There should be no other knock requests
+    assert_pending!(stream)
+}
+
+#[async_test]
+async fn test_subscribe_to_requests_to_join_reloads_members_on_limited_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id);
+
+    let user_id = user_id!("@alice:b.c");
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server
+        .mock_get_members()
+        .ok(vec![knock_event])
+        // The endpoint will be called twice:
+        // 1. For the initial loading of room members.
+        // 2. When a gappy (limited) sync is received.
+        .expect(2)
+        .mount()
+        .await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let stream = room.subscribe_to_knock_requests().await.unwrap();
+
+    pin_mut!(stream);
+
+    // We receive an initial knock request from Alice
+    let initial = assert_next_with_timeout!(stream, 500);
+    assert!(!initial.is_empty());
+
+    // This limited sync should trigger a new emission of knock requests, with a
+    // reloading of the room members
+    server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
+
+    // We should receive a new list of knock requests
+    assert_next_with_timeout!(stream, 500);
+
+    // There should be no other knock requests
+    assert_pending!(stream)
 }

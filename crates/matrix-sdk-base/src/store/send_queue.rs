@@ -248,9 +248,15 @@ pub struct FinishUploadThumbnailInfo {
     /// Transaction id for the thumbnail upload.
     pub txn: OwnedTransactionId,
     /// Thumbnail's width.
-    pub width: UInt,
+    ///
+    /// Used previously, kept for backwards compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<UInt>,
     /// Thumbnail's height.
-    pub height: UInt,
+    ///
+    /// Used previously, kept for backwards compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<UInt>,
 }
 
 /// A transaction id identifying a [`DependentQueuedRequest`] rather than its

@@ -1,5 +1,4 @@
 #![allow(clippy::assign_op_pattern)] // Triggered by bitflags! usage
-#![allow(unexpected_cfgs)] // Triggered by the `EventContent` macro usage
 
 mod members;
 pub(crate) mod normal;
@@ -22,6 +21,7 @@ use ruma::{
     events::{
         beacon_info::BeaconInfoEventContent,
         call::member::{CallMemberEventContent, CallMemberStateKey},
+        direct::OwnedDirectUserIdentifier,
         macros::EventContent,
         room::{
             avatar::RoomAvatarEventContent,
@@ -128,7 +128,7 @@ pub struct BaseRoomInfo {
     pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
-    pub(crate) dm_targets: HashSet<OwnedUserId>,
+    pub(crate) dm_targets: HashSet<OwnedDirectUserIdentifier>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.

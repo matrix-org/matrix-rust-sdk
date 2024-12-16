@@ -141,11 +141,12 @@ async fn test_reaction_redaction_timeline_filter() {
     timeline
         .controller
         .add_events_at(
-            vec![SyncTimelineEvent::new(
+            [SyncTimelineEvent::new(
                 timeline
                     .event_builder
                     .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
-            )],
+            )]
+            .into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
@@ -159,7 +160,7 @@ async fn test_reaction_redaction_timeline_filter() {
     // Adding a room message
     timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    // Creates a day divider and the message.
+    // Creates a date divider and the message.
     assert_eq!(timeline.controller.items().await.len(), 2);
 
     // Reaction is attached to the message and doesn't add a timeline item.
@@ -191,7 +192,7 @@ async fn test_receive_unredacted() {
 
     // redact the first one as well
     let items = timeline.controller.items().await;
-    assert!(items[0].is_day_divider());
+    assert!(items[0].is_date_divider());
     let fst = items[1].as_event().unwrap();
     timeline.handle_live_event(f.redaction(fst.event_id().unwrap()).sender(&ALICE)).await;
 

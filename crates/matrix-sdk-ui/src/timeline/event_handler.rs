@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{
     crypto::types::events::UtdCause,
@@ -51,29 +50,24 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    controller::{PendingEditKind, TimelineMetadata, TimelineStateTransaction},
-    day_dividers::DayDividerAdjuster,
+    controller::{
+        ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
+        TimelineMetadata, TimelineStateTransaction,
+    },
+    date_dividers::DateDividerAdjuster,
     event_item::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
         AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, PollState, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
-        RemoteEventTimelineItem, TimelineEventItemId,
+        LocalEventTimelineItem, PollState, Profile, ReactionInfo, ReactionStatus,
+        ReactionsByKeyBySender, RemoteEventOrigin, RemoteEventTimelineItem, TimelineEventItemId,
     },
-    reactions::FullReactionKey,
+    reactions::{FullReactionKey, PendingReaction},
+    traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item},
-    EventTimelineItem, InReplyToDetails, OtherState, Sticker, TimelineDetails, TimelineItem,
-    TimelineItemContent,
+    EventTimelineItem, InReplyToDetails, OtherState, RepliedToEvent, Sticker, TimelineDetails,
+    TimelineItem, TimelineItemContent,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent,
-    timeline::{
-        controller::PendingEdit,
-        event_item::{ReactionInfo, ReactionStatus},
-        reactions::PendingReaction,
-        traits::RoomDataProvider,
-        RepliedToEvent,
-    },
-};
+use crate::events::SyncTimelineEventWithoutContent;
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -330,7 +324,7 @@ pub(super) struct HandleEventResult {
 /// existing timeline item, transforming that item or creating a new one,
 /// updating the reactive Vec).
 pub(super) struct TimelineEventHandler<'a, 'o> {
-    items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
+    items: &'a mut ObservableItemsTransaction<'o>,
     meta: &'a mut TimelineMetadata,
     ctx: TimelineEventContext,
     result: HandleEventResult,
@@ -354,12 +348,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     #[instrument(skip_all, fields(txn_id, event_id, position))]
     pub(super) async fn handle_event(
         mut self,
-        day_divider_adjuster: &mut DayDividerAdjuster,
+        date_divider_adjuster: &mut DateDividerAdjuster,
         event_kind: TimelineEventKind,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
-        day_divider_adjuster.mark_used();
+        date_divider_adjuster.mark_used();
 
         match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
@@ -449,7 +443,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // timeline.
                 if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
                     if let Some(event_id) = &self.ctx.flow.event_id() {
-                        hook.on_utd(event_id, utd_cause).await;
+                        hook.on_utd(event_id, utd_cause, self.ctx.timestamp, &self.ctx.sender)
+                            .await;
                     }
                 }
             }
@@ -504,14 +499,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("No new item added");
 
             if let Flow::Remote {
-                position: TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
+                position: TimelineItemPosition::UpdateDecrypted { timeline_item_index },
                 ..
             } = self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
-                self.items.remove(idx);
+                self.items.remove(timeline_item_index);
 
                 self.result.item_removed = true;
             }
@@ -576,7 +571,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 Self::maybe_update_responses(self.items, &replacement.event_id, &new_item);
 
                 // Update the event itself.
-                self.items.set(item_pos, TimelineItem::new(new_item, internal_id));
+                self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
                 self.result.items_updated += 1;
             }
         } else if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
@@ -730,7 +725,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 },
             );
 
-            self.items.set(idx, event_item.with_reactions(reactions));
+            self.items.replace(idx, event_item.with_reactions(reactions));
 
             self.result.items_updated += 1;
         } else {
@@ -794,7 +789,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         trace!("Applying poll start edit.");
-        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+        self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
         self.result.items_updated += 1;
     }
 
@@ -898,7 +893,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         trace!("Adding poll response.");
-        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+        self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
         self.result.items_updated += 1;
     }
 
@@ -917,7 +912,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let new_item = item.with_content(TimelineItemContent::Poll(poll_state), None);
 
                 trace!("Ending poll.");
-                self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+                self.items
+                    .replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
                 self.result.items_updated += 1;
             }
             Err(_) => {
@@ -959,7 +955,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // the replied-to event there as well.
                     Self::maybe_update_responses(self.items, &redacted, &new_item);
 
-                    self.items.set(idx, TimelineItem::new(new_item, internal_id));
+                    self.items.replace(idx, TimelineItem::new(new_item, internal_id));
                     self.result.items_updated += 1;
                 }
             } else {
@@ -1000,7 +996,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let mut reactions = item.reactions.clone();
             if reactions.remove_reaction(&sender, &key).is_some() {
                 trace!("Removing reaction");
-                self.items.set(item_pos, item.with_reactions(reactions));
+                self.items.replace(item_pos, item.with_reactions(reactions));
                 self.result.items_updated += 1;
                 return true;
             }
@@ -1010,6 +1006,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     /// Add a new event item in the timeline.
+    ///
+    /// # Safety
+    ///
+    /// This method is not marked as unsafe **but** it manipulates
+    /// [`TimelineMetadata::all_remote_events`]. 2 rules **must** be respected:
+    ///
+    /// 1. the remote event of the item being added **must** be present in
+    ///    `all_remote_events`,
+    /// 2. the lastly added or updated remote event must be associated to the
+    ///    timeline item being added here.
     fn add_item(
         &mut self,
         content: TimelineItemContent,
@@ -1082,7 +1088,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Adding new local timeline item");
 
                 let item = self.meta.new_timeline_item(item);
-                self.items.push_back(item);
+                self.items.push_back(item, None);
             }
 
             Flow::Remote { position: TimelineItemPosition::Start { .. }, event_id, .. } => {
@@ -1099,7 +1105,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Adding new remote timeline item at the start");
 
                 let item = self.meta.new_timeline_item(item);
-                self.items.push_front(item);
+                self.items.push_front(item, Some(0));
             }
 
             Flow::Remote {
@@ -1138,10 +1144,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     let old_item_id = old_item.internal_id;
 
                     if idx == self.items.len() - 1 {
-                        // If the old item is the last one and no day divider
+                        // If the old item is the last one and no date divider
                         // changes need to happen, replace and return early.
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, TimelineItem::new(item, old_item_id.to_owned()));
+                        self.items.replace(idx, TimelineItem::new(item, old_item_id.to_owned()));
                         return;
                     }
 
@@ -1153,19 +1159,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // will run to re-add the removed item
                 }
 
-                // Local echoes that are pending should stick to the bottom,
-                // find the latest event that isn't that.
-                let latest_event_idx = self
-                    .items
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find_map(|(idx, item)| (!item.as_event()?.is_local_echo()).then_some(idx));
-
-                // Insert the next item after the latest event item that's not a
-                // pending local echo, or at the start if there is no such item.
-                let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
-
                 trace!("Adding new remote timeline item after all non-pending events");
                 let new_item = match removed_event_item_id {
                     // If a previous version of the same item (usually a local
@@ -1175,13 +1168,52 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     None => self.meta.new_timeline_item(item),
                 };
 
-                // Keep push semantics, if we're inserting at the front or the back.
-                if insert_idx == self.items.len() {
-                    self.items.push_back(new_item);
-                } else if insert_idx == 0 {
-                    self.items.push_front(new_item);
+                // Local events are always at the bottom. Let's find the latest remote event
+                // and insert after it, otherwise, if there is no remote event, insert at 0.
+                let timeline_item_index = self
+                    .items
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find_map(|(timeline_item_index, timeline_item)| {
+                        (!timeline_item.as_event()?.is_local_echo())
+                            .then_some(timeline_item_index + 1)
+                    })
+                    .unwrap_or(0);
+
+                let event_index = self
+                    .items
+                    .all_remote_events()
+                    .last_index()
+                    // The last remote event is necessarily associated to this
+                    // timeline item, see the contract of this method. Let's fallback to a similar
+                    // value as `timeline_item_index` instead of panicking.
+                    .or_else(|| {
+                        error!(?event_id, "Failed to read the last event index from `AllRemoteEvents`: at least one event must be present");
+
+                        Some(0)
+                    });
+
+                // Try to keep precise insertion semantics here, in this exact order:
+                //
+                // * _push back_ when the new item is inserted after all items (the assumption
+                // being that this is the hot path, because most of the time new events
+                // come from the sync),
+                // * _push front_ when the new item is inserted at index 0,
+                // * _insert_ otherwise.
+
+                if timeline_item_index == self.items.len() {
+                    trace!("Adding new remote timeline item at the back");
+                    self.items.push_back(new_item, event_index);
+                } else if timeline_item_index == 0 {
+                    trace!("Adding new remote timeline item at the front");
+                    self.items.push_front(new_item, event_index);
                 } else {
-                    self.items.insert(insert_idx, new_item);
+                    trace!(
+                        timeline_item_index,
+                        "Adding new remote timeline item at specific index"
+                    );
+                    self.items.insert(timeline_item_index, new_item, event_index);
                 }
             }
 
@@ -1196,7 +1228,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 Self::maybe_update_responses(self.items, decrypted_event_id, &item);
 
                 let internal_id = self.items[*idx].internal_id.clone();
-                self.items.set(*idx, TimelineItem::new(item, internal_id));
+                self.items.replace(*idx, TimelineItem::new(item, internal_id));
             }
         }
 
@@ -1209,7 +1241,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// After updating the timeline item `new_item` which id is
     /// `target_event_id`, update other items that are responses to this item.
     fn maybe_update_responses(
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        items: &mut ObservableItemsTransaction<'_>,
         target_event_id: &EventId,
         new_item: &EventTimelineItem,
     ) {
@@ -1229,7 +1261,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
                 let new_reply_item =
                 entry.with_kind(event_item.with_content(new_reply_content, None));
-                ObservableVectorTransactionEntry::set(&mut entry, new_reply_item);
+                ObservableItemsTransactionEntry::replace(&mut entry, new_reply_item);
             }
         });
     }

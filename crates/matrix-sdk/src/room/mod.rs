@@ -22,6 +22,7 @@ use std::{
     time::Duration,
 };
 
+use async_stream::stream;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use async_trait::async_trait;
 use eyeball::SharedObservable;
@@ -48,6 +49,11 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
 use mime::Mime;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    SyncMessageLikeEvent,
+};
 use ruma::{
     api::client::{
         config::{set_global_account_data, set_room_account_data},
@@ -80,6 +86,7 @@ use ruma::{
             avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
+            member::{MembershipChange, SyncRoomMemberEvent},
             message::{
                 AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
                 FormattedBody, ImageMessageEventContent, MessageType, RoomMessageEventContent,
@@ -108,17 +115,10 @@ use ruma::{
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::{
-    events::{
-        room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, SyncMessageLikeEvent,
-    },
-    MilliSecondsSinceUnixEpoch,
-};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
 use tracing::{debug, info, instrument, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
@@ -135,9 +135,13 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
+    live_location_share::ObservableLiveLocation,
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
-    room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
+    room::{
+        knock_requests::{KnockRequest, KnockRequestMemberInfo},
+        power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
+    },
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
@@ -148,6 +152,8 @@ use crate::{crypto::types::events::CryptoContextInfo, encryption::backups::Backu
 pub mod edit;
 pub mod futures;
 pub mod identity_status_changes;
+/// Contains code related to requests to join a room.
+pub mod knock_requests;
 mod member;
 mod messages;
 pub mod power_levels;
@@ -619,13 +625,22 @@ impl Room {
     #[cfg(feature = "e2e-encryption")]
     pub async fn crypto_context_info(&self) -> CryptoContextInfo {
         let encryption = self.client.encryption();
+
+        let this_device_is_verified = match encryption.get_own_device().await {
+            Ok(Some(device)) => device.is_verified_with_cross_signing(),
+
+            // Should not happen, there will always be an own device
+            _ => true,
+        };
+
+        let backup_exists_on_server =
+            encryption.backups().exists_on_server().await.unwrap_or(false);
+
         CryptoContextInfo {
-            device_creation_ts: match encryption.get_own_device().await {
-                Ok(Some(device)) => device.first_time_seen_ts(),
-                // Should not happen, there will always be an own device
-                _ => MilliSecondsSinceUnixEpoch::now(),
-            },
+            device_creation_ts: encryption.device_creation_timestamp().await,
+            this_device_is_verified,
             is_backup_configured: encryption.backups().state() == BackupState::Enabled,
+            backup_exists_on_server,
         }
     }
 
@@ -1224,7 +1239,7 @@ impl Room {
             room_members.retain(|member| member.user_id() != self.own_user_id());
 
             for member in room_members {
-                let entry = content.entry(member.user_id().to_owned()).or_default();
+                let entry = content.entry(member.user_id().into()).or_default();
                 if !entry.iter().any(|room_id| room_id == this_room_id) {
                     entry.push(this_room_id.to_owned());
                 }
@@ -3013,17 +3028,18 @@ impl Room {
         Ok(())
     }
 
-    /// Get the beacon information event in the room for the current user.
+    /// Get the beacon information event in the room for the `user_id`.
     ///
     /// # Errors
     ///
     /// Returns an error if the event is redacted, stripped, not found or could
     /// not be deserialized.
-    async fn get_user_beacon_info(
+    pub(crate) async fn get_user_beacon_info(
         &self,
+        user_id: &UserId,
     ) -> Result<OriginalSyncStateEvent<BeaconInfoEventContent>, BeaconError> {
         let raw_event = self
-            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(self.own_user_id())
+            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(user_id)
             .await?
             .ok_or(BeaconError::NotFound)?;
 
@@ -3076,7 +3092,7 @@ impl Room {
     ) -> Result<send_state_event::v3::Response, BeaconError> {
         self.ensure_room_joined()?;
 
-        let mut beacon_info_event = self.get_user_beacon_info().await?;
+        let mut beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
         beacon_info_event.content.stop();
         Ok(self.send_state_event_for_key(self.own_user_id(), beacon_info_event.content).await?)
     }
@@ -3098,7 +3114,7 @@ impl Room {
     ) -> Result<send_message_event::v3::Response, BeaconError> {
         self.ensure_room_joined()?;
 
-        let beacon_info_event = self.get_user_beacon_info().await?;
+        let beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
 
         if beacon_info_event.content.is_live() {
             let content = BeaconEventContent::new(beacon_info_event.event_id, geo_uri, None);
@@ -3188,6 +3204,139 @@ impl Room {
                 _ => Err(http_error.into()),
             },
         }
+    }
+
+    /// Observe live location sharing events for this room.
+    ///
+    /// The returned observable will receive the newest event for each sync
+    /// response that contains an `m.beacon` event.
+    pub fn observe_live_location_shares(&self) -> ObservableLiveLocation {
+        ObservableLiveLocation::new(&self.client, self.room_id())
+    }
+
+    /// Subscribe to knock requests in this `Room`.
+    ///
+    /// The current requests to join the room will be emitted immediately
+    /// when subscribing.
+    ///
+    /// A new set of knock requests will be emitted whenever:
+    /// - A new member event is received.
+    /// - A knock request is marked as seen.
+    /// - A sync is gappy (limited), so room membership information may be
+    ///   outdated.
+    pub async fn subscribe_to_knock_requests(
+        &self,
+    ) -> Result<impl Stream<Item = Vec<KnockRequest>>> {
+        let this = Arc::new(self.clone());
+
+        let room_member_events_observer =
+            self.client.observe_room_events::<SyncRoomMemberEvent, (Client, Room)>(this.room_id());
+
+        let current_seen_ids = self.get_seen_knock_request_ids().await?;
+        let mut seen_request_ids_stream = self
+            .seen_knock_request_ids_map
+            .subscribe()
+            .await
+            .map(|values| values.unwrap_or_default());
+
+        let mut room_info_stream = self.subscribe_info();
+
+        let combined_stream = stream! {
+            // Emit current requests to join
+            match this.get_current_join_requests(&current_seen_ids).await {
+                Ok(initial_requests) => yield initial_requests,
+                Err(err) => warn!("Failed to get initial requests to join: {err}")
+            }
+
+            let mut requests_stream = room_member_events_observer.subscribe();
+            let mut seen_ids = current_seen_ids.clone();
+
+            loop {
+                // This is equivalent to a combine stream operation, triggering a new emission
+                // when any of the branches changes
+                tokio::select! {
+                    Some((event, _)) = requests_stream.next() => {
+                        if let Some(event) = event.as_original() {
+                            // If we can calculate the membership change, try to emit only when needed
+                            let emit = if event.prev_content().is_some() {
+                                matches!(event.membership_change(),
+                                    MembershipChange::Banned |
+                                    MembershipChange::Knocked |
+                                    MembershipChange::KnockAccepted |
+                                    MembershipChange::KnockDenied |
+                                    MembershipChange::KnockRetracted
+                                )
+                            } else {
+                                // If we can't calculate the membership change, assume we need to
+                                // emit updated values
+                                true
+                            };
+
+                            if emit {
+                                match this.get_current_join_requests(&seen_ids).await {
+                                    Ok(requests) => yield requests,
+                                    Err(err) => {
+                                        warn!("Failed to get updated knock requests on new member event: {err}")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Some(new_seen_ids) = seen_request_ids_stream.next() => {
+                        // Update the current seen ids
+                        seen_ids = new_seen_ids;
+
+                        // If seen requests have changed we need to recalculate
+                        // all the knock requests
+                        match this.get_current_join_requests(&seen_ids).await {
+                            Ok(requests) => yield requests,
+                            Err(err) => {
+                                warn!("Failed to get updated knock requests on seen ids changed: {err}")
+                            }
+                        }
+                    }
+
+                    Some(room_info) = room_info_stream.next() => {
+                        // We need to emit new items when we may have missing room members:
+                        // this usually happens after a gappy (limited) sync
+                        if !room_info.are_members_synced() {
+                            match this.get_current_join_requests(&seen_ids).await {
+                                Ok(requests) => yield requests,
+                                Err(err) => {
+                                    warn!("Failed to get updated knock requests on gappy (limited) sync: {err}")
+                                }
+                            }
+                        }
+                    }
+                    // If the streams in all branches are closed, stop the loop
+                    else => break,
+                }
+            }
+        };
+
+        Ok(combined_stream)
+    }
+
+    async fn get_current_join_requests(
+        &self,
+        seen_request_ids: &BTreeMap<OwnedEventId, OwnedUserId>,
+    ) -> Result<Vec<KnockRequest>> {
+        Ok(self
+            .members(RoomMemberships::KNOCK)
+            .await?
+            .into_iter()
+            .filter_map(|member| {
+                let event_id = member.event().event_id()?;
+                Some(KnockRequest::new(
+                    self,
+                    event_id,
+                    member.event().timestamp(),
+                    KnockRequestMemberInfo::from_member(&member),
+                    seen_request_ids.contains_key(event_id),
+                ))
+            })
+            .collect())
     }
 }
 
@@ -3478,9 +3627,14 @@ pub struct TryFromReportedContentScoreError(());
 mod tests {
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft, SessionMeta};
     use matrix_sdk_test::{
-        async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
+        async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder,
     };
-    use ruma::{device_id, int, user_id};
+    use ruma::{
+        device_id, event_id,
+        events::room::member::{MembershipState, RoomMemberEventContent},
+        int, room_id, user_id,
+    };
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
@@ -3490,7 +3644,7 @@ mod tests {
     use crate::{
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
-        test_utils::logged_in_client,
+        test_utils::{logged_in_client, mocks::MatrixMockServer},
         Client,
     };
 
@@ -3664,5 +3818,43 @@ mod tests {
 
         room.clear_composer_draft().await.unwrap();
         assert_eq!(room.load_composer_draft().await.unwrap(), None);
+    }
+
+    #[async_test]
+    async fn test_mark_join_requests_as_seen() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let event_id = event_id!("$a:b.c");
+        let room_id = room_id!("!a:b.c");
+        let user_id = user_id!("@alice:b.c");
+
+        let f = EventFactory::new().room(room_id);
+        let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
+            .event(RoomMemberEventContent::new(MembershipState::Knock))
+            .event_id(event_id)
+            .sender(user_id)
+            .state_key(user_id)
+            .into_raw_timeline()
+            .cast()]);
+        let room = server.sync_room(&client, joined_room_builder).await;
+
+        // When loading the initial seen ids, there are none
+        let seen_ids =
+            room.get_seen_knock_request_ids().await.expect("Couldn't load seen join request ids");
+        assert!(seen_ids.is_empty());
+
+        // We mark a random event id as seen
+        room.mark_knock_requests_as_seen(&[user_id.to_owned()])
+            .await
+            .expect("Couldn't mark join request as seen");
+
+        // Then we can check it was successfully marked as seen
+        let seen_ids =
+            room.get_seen_knock_request_ids().await.expect("Couldn't load seen join request ids");
+        assert_eq!(seen_ids.len(), 1);
+        assert_eq!(
+            seen_ids.into_iter().next().expect("No next value"),
+            (event_id.to_owned(), user_id.to_owned())
+        )
     }
 }

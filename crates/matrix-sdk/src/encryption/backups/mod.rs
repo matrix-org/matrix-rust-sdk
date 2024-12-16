@@ -90,6 +90,7 @@ impl Backups {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn create(&self) -> Result<(), Error> {
+        self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
         let _guard = self.client.locks().backup_modify_lock.lock().await;
 
         self.set_state(BackupState::Creating);
@@ -385,9 +386,32 @@ impl Backups {
     /// Does a backup exist on the server?
     ///
     /// This method will request info about the current backup from the
-    /// homeserver and if a backup exits return `true`, otherwise `false`.
+    /// homeserver and if a backup exists return `true`, otherwise `false`.
+    pub async fn fetch_exists_on_server(&self) -> Result<bool, Error> {
+        let exists_on_server = self.get_current_version().await?.is_some();
+        self.client.inner.e2ee.backup_state.set_backup_exists_on_server(exists_on_server);
+        Ok(exists_on_server)
+    }
+
+    /// Does a backup exist on the server?
+    ///
+    /// This method is identical to [`Self::fetch_exists_on_server`] except that
+    /// we cache the latest answer in memory and only empty the cache if the
+    /// local device adds or deletes a backup itself.
+    ///
+    /// Do not use this method if you need an accurate answer about whether a
+    /// backup exists - instead use [`Self::fetch_exists_on_server`]. This
+    /// method is useful when performance is more important than guaranteed
+    /// accuracy, such as when classifying UTDs.
     pub async fn exists_on_server(&self) -> Result<bool, Error> {
-        Ok(self.get_current_version().await?.is_some())
+        // If we have an answer cached, return it immediately
+        if let Some(cached_value) = self.client.inner.e2ee.backup_state.backup_exists_on_server() {
+            return Ok(cached_value);
+        }
+
+        // Otherwise, delegate to fetch_exists_on_server. (It will update the cached
+        // value for us.)
+        self.fetch_exists_on_server().await
     }
 
     /// Subscribe to a stream that notifies when a room key for the specified
@@ -621,7 +645,7 @@ impl Backups {
     async fn delete_backup_from_server(&self, version: String) -> Result<(), Error> {
         let request = ruma::api::client::backup::delete_backup_version::v3::Request::new(version);
 
-        match self.client.send(request, Default::default()).await {
+        let ret = match self.client.send(request, Default::default()).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 if let Some(kind) = e.client_api_error_kind() {
@@ -634,7 +658,14 @@ impl Backups {
                     Err(e.into())
                 }
             }
-        }
+        };
+
+        // If the request succeeded, the backup is gone. If it failed, we are not really
+        // sure what the backup state is. Either way, clear the cache so we check next
+        // time we need to know.
+        self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
+
+        ret
     }
 
     #[instrument(skip(self, olm_machine, request))]
@@ -1014,7 +1045,7 @@ mod test {
     };
 
     use super::*;
-    use crate::test_utils::logged_in_client;
+    use crate::test_utils::{logged_in_client, mocks::MatrixMockServer};
 
     fn room_key() -> ExportedRoomKey {
         let json = json!({
@@ -1119,72 +1150,122 @@ mod test {
     }
 
     #[async_test]
-    async fn test_exists_on_server() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
+    async fn test_when_a_backup_exists_then_fetch_exists_on_server_returns_true() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_room_keys_version().exists().expect(1).mount().await;
+
+        let exists = client
+            .encryption()
+            .backups()
+            .fetch_exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(exists, "We should deduce that a backup exists on the server");
+    }
+
+    #[async_test]
+    async fn test_repeated_calls_to_fetch_exists_on_server_makes_repeated_requests() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Expect 2 requests to the server
+        server.mock_room_keys_version().exists().expect(2).mount().await;
+
+        let backups = client.encryption().backups();
+
+        // Call fetch_exists_on_server twice
+        backups.fetch_exists_on_server().await.unwrap();
+        let exists = backups.fetch_exists_on_server().await.unwrap();
+
+        assert!(exists, "We should deduce that a backup exists on the server");
+    }
+
+    #[async_test]
+    async fn test_when_no_backup_exists_then_fetch_exists_on_server_returns_false() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_room_keys_version().none().expect(1).mount().await;
+
+        let exists = client
+            .encryption()
+            .backups()
+            .fetch_exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(!exists, "We should deduce that no backup exists on the server");
+    }
+
+    #[async_test]
+    async fn test_when_server_returns_an_error_then_fetch_exists_on_server_returns_an_error() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                    "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-                    "auth_data": {
-                        "public_key": "abcdefg",
-                        "signatures": {},
-                    },
-                    "count": 42,
-                    "etag": "anopaquestring",
-                    "version": "1",
-                })))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope =
+                server.mock_room_keys_version().error429().expect(1).mount_as_scoped().await;
 
-            let exists = client
-                .encryption()
-                .backups()
-                .exists_on_server()
-                .await
-                .expect("We should be able to check if backups exist on the server");
-
-            assert!(exists, "We should deduce that a backup exist on the server");
+            client.encryption().backups().fetch_exists_on_server().await.expect_err(
+                "If the /version endpoint returns a non 404 error we should throw an error",
+            );
         }
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-                    "errcode": "M_NOT_FOUND",
-                    "error": "No current backup version"
-                })))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope =
+                server.mock_room_keys_version().error404().expect(1).mount_as_scoped().await;
 
-            let exists = client
-                .encryption()
-                .backups()
-                .exists_on_server()
-                .await
-                .expect("We should be able to check if backups exist on the server");
-
-            assert!(!exists, "We should deduce that no backup exist on the server");
+            client.encryption().backups().fetch_exists_on_server().await.expect_err(
+                "If the /version endpoint returns a non-Matrix 404 error we should throw an error",
+            );
         }
+    }
+
+    #[async_test]
+    async fn test_when_a_backup_exists_then_exists_on_server_returns_true() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_room_keys_version().exists().expect(1).mount().await;
+
+        let exists = client
+            .encryption()
+            .backups()
+            .exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(exists, "We should deduce that a backup exists on the server");
+    }
+
+    #[async_test]
+    async fn test_when_no_backup_exists_then_exists_on_server_returns_false() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_room_keys_version().none().expect(1).mount().await;
+
+        let exists = client
+            .encryption()
+            .backups()
+            .exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(!exists, "We should deduce that no backup exists on the server");
+    }
+
+    #[async_test]
+    async fn test_when_server_returns_an_error_then_exists_on_server_returns_an_error() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(429).set_body_json(json!({
-                    "errcode": "M_LIMIT_EXCEEDED",
-                    "error": "Too many requests",
-                    "retry_after_ms": 2000
-                })))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope =
+                server.mock_room_keys_version().error429().expect(1).mount_as_scoped().await;
 
             client.encryption().backups().exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non 404 error we should throw an error",
@@ -1192,37 +1273,100 @@ mod test {
         }
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(404))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope =
+                server.mock_room_keys_version().error404().expect(1).mount_as_scoped().await;
 
             client.encryption().backups().exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non-Matrix 404 error we should throw an error",
             );
         }
+    }
 
-        server.verify().await;
+    #[async_test]
+    async fn test_repeated_calls_to_exists_on_server_do_not_make_additional_requests() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Create a mock stating that the request should only be made once
+        server.mock_room_keys_version().exists().expect(1).mount().await;
+
+        let backups = client.encryption().backups();
+
+        // Call exists_on_server several times
+        backups.exists_on_server().await.unwrap();
+        backups.exists_on_server().await.unwrap();
+        backups.exists_on_server().await.unwrap();
+
+        let exists = backups
+            .exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(exists, "We should deduce that a backup exists on the server");
+
+        // We check expectations here, confirming that only one call was made
+    }
+
+    #[async_test]
+    async fn test_adding_a_backup_invalidates_exists_on_server_cache() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let backups = client.encryption().backups();
+
+        {
+            let _scope = server.mock_room_keys_version().none().expect(1).mount_as_scoped().await;
+
+            // Call exists_on_server to fill the cache
+            let exists = backups.exists_on_server().await.unwrap();
+            assert!(!exists, "No backup exists at this point");
+        }
+
+        // Create a new backup. Should invalidate the cache
+        server.mock_add_room_keys_version().ok().expect(1).mount().await;
+        backups.create().await.expect("Failed to create a backup");
+
+        server.mock_room_keys_version().exists().expect(1).mount().await;
+        let exists = backups
+            .exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(exists, "But now a backup does exist");
+    }
+
+    #[async_test]
+    async fn test_removing_a_backup_invalidates_exists_on_server_cache() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let backups = client.encryption().backups();
+
+        {
+            let _scope = server.mock_room_keys_version().exists().expect(1).mount_as_scoped().await;
+
+            // Call exists_on_server to fill the cache
+            let exists = backups.exists_on_server().await.unwrap();
+            assert!(exists, "A backup exists at this point");
+        }
+
+        // Delete the backup. Should invalidate the cache
+        server.mock_delete_room_keys_version().ok().expect(1).mount().await;
+        backups.delete_backup_from_server("1".to_owned()).await.expect("Failed to delete a backup");
+
+        server.mock_room_keys_version().none().expect(1).mount().await;
+        let exists = backups
+            .exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(!exists, "But now there is no backup");
     }
 
     #[async_test]
     async fn test_waiting_for_steady_state_resets_the_delay() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
-        Mock::given(method("POST"))
-            .and(path("_matrix/client/unstable/room_keys/version"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-              "version": "1"
-            })))
-            .expect(1)
-            .named("POST for the backup creation")
-            .mount(&server)
-            .await;
+        server.mock_add_room_keys_version().ok().expect(1).mount().await;
 
         client
             .encryption()
@@ -1279,7 +1423,5 @@ mod test {
             { client.inner.e2ee.backup_state.upload_delay.read().unwrap().to_owned() };
 
         assert_eq!(old_duration, current_duration);
-
-        server.verify().await;
     }
 }
