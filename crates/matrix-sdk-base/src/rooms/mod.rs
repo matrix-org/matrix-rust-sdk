@@ -1,5 +1,4 @@
 #![allow(clippy::assign_op_pattern)] // Triggered by bitflags! usage
-#![allow(unexpected_cfgs)] // Triggered by the `EventContent` macro usage
 
 mod members;
 pub(crate) mod normal;
