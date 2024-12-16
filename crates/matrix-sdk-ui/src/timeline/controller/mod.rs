@@ -789,6 +789,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 txn_id,
                 send_handle,
                 content,
+                &self.settings,
             )
             .await;
     }

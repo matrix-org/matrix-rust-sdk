@@ -46,13 +46,14 @@ use ruma::{
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    TransactionId,
 };
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
     controller::{
         ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
-        TimelineMetadata, TimelineStateTransaction,
+        TimelineMetadata, TimelineSettings, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -337,15 +338,17 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
     meta: &'a mut TimelineMetadata,
     ctx: TimelineEventContext,
     result: HandleEventResult,
+    settings: &'a TimelineSettings,
 }
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     pub(super) fn new(
         state: &'a mut TimelineStateTransaction<'o>,
         ctx: TimelineEventContext,
+        settings: &'a TimelineSettings,
     ) -> Self {
         let TimelineStateTransaction { items, meta, .. } = state;
-        Self { items, meta, ctx, result: HandleEventResult::default() }
+        Self { items, meta, ctx, result: HandleEventResult::default(), settings }
     }
 
     /// Handle an event.
@@ -1097,28 +1100,47 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
 
-                let item = self.meta.new_timeline_item(item);
+                let item = Self::new_timeline_item(self.meta, item, None);
+
                 self.items.push_back(item, None);
             }
 
-            Flow::Remote { position: TimelineItemPosition::Start { .. }, event_id, .. } => {
-                if self
-                    .items
-                    .iter()
-                    .filter_map(|ev| ev.as_event()?.event_id())
-                    .any(|id| id == event_id)
-                {
-                    trace!("Skipping back-paginated event that has already been seen");
-                    return;
-                }
+            Flow::Remote {
+                position: TimelineItemPosition::Start { .. }, event_id, txn_id, ..
+            } => {
+                let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
+                    self.items,
+                    &mut item,
+                    Some(event_id),
+                    txn_id.as_ref().map(AsRef::as_ref),
+                    self.meta,
+                    self.settings,
+                );
+                let item =
+                    Self::new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 trace!("Adding new remote timeline item at the start");
 
-                let item = self.meta.new_timeline_item(item);
                 self.items.push_front(item, Some(0));
             }
 
-            Flow::Remote { position: TimelineItemPosition::At { event_index, .. }, .. } => {
+            Flow::Remote {
+                position: TimelineItemPosition::At { event_index, .. },
+                event_id,
+                txn_id,
+                ..
+            } => {
+                let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
+                    self.items,
+                    &mut item,
+                    Some(event_id),
+                    txn_id.as_ref().map(AsRef::as_ref),
+                    self.meta,
+                    self.settings,
+                );
+                let item =
+                    Self::new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
+
                 let event_index = *event_index;
                 let timeline_item_index = self
                     .items
@@ -1163,69 +1185,22 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     "Adding new remote timeline at specific event index"
                 );
 
-                let item = self.meta.new_timeline_item(item);
                 self.items.insert(timeline_item_index, item, Some(event_index));
             }
 
             Flow::Remote {
-                position: TimelineItemPosition::End { .. }, txn_id, event_id, ..
+                position: TimelineItemPosition::End { .. }, event_id, txn_id, ..
             } => {
-                // Look if we already have a corresponding item somewhere, based on the
-                // transaction id (if a local echo) or the event id (if a
-                // duplicate remote event).
-                let result = rfind_event_item(self.items, |it| {
-                    txn_id.is_some() && it.transaction_id() == txn_id.as_deref()
-                        || it.event_id() == Some(event_id)
-                });
-
-                let mut removed_event_item_id = None;
-
-                if let Some((idx, old_item)) = result {
-                    if old_item.as_remote().is_some() {
-                        // Item was previously received from the server. This should be very rare
-                        // normally, but with the sliding- sync proxy, it is actually very
-                        // common.
-                        // NOTE: SS proxy workaround.
-                        trace!(?item, old_item = ?*old_item, "Received duplicate event");
-
-                        if old_item.content.is_redacted() && !item.content.is_redacted() {
-                            warn!("Got original form of an event that was previously redacted");
-                            item.content = item.content.redact(&self.meta.room_version);
-                            item.reactions.clear();
-                        }
-                    }
-
-                    // TODO: Check whether anything is different about the
-                    //       old and new item?
-
-                    transfer_details(&mut item, &old_item);
-
-                    let old_item_id = old_item.internal_id;
-
-                    if idx == self.items.len() - 1 {
-                        // If the old item is the last one and no date divider
-                        // changes need to happen, replace and return early.
-                        trace!(idx, "Replacing existing event");
-                        self.items.replace(idx, TimelineItem::new(item, old_item_id.to_owned()));
-                        return;
-                    }
-
-                    // In more complex cases, remove the item before re-adding the item.
-                    trace!("Removing local echo or duplicate timeline item");
-                    removed_event_item_id = Some(self.items.remove(idx).internal_id.clone());
-
-                    // no return here, below code for adding a new event
-                    // will run to re-add the removed item
-                }
-
-                trace!("Adding new remote timeline item after all non-pending events");
-                let new_item = match removed_event_item_id {
-                    // If a previous version of the same item (usually a local
-                    // echo) was removed and we now need to add it again, reuse
-                    // the previous item's ID.
-                    Some(id) => TimelineItem::new(item, id),
-                    None => self.meta.new_timeline_item(item),
-                };
+                let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
+                    self.items,
+                    &mut item,
+                    Some(event_id),
+                    txn_id.as_ref().map(AsRef::as_ref),
+                    self.meta,
+                    self.settings,
+                );
+                let item =
+                    Self::new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 // Local events are always at the bottom. Let's find the latest remote event
                 // and insert after it, otherwise, if there is no remote event, insert at 0.
@@ -1263,16 +1238,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 if timeline_item_index == self.items.len() {
                     trace!("Adding new remote timeline item at the back");
-                    self.items.push_back(new_item, event_index);
+                    self.items.push_back(item, event_index);
                 } else if timeline_item_index == 0 {
                     trace!("Adding new remote timeline item at the front");
-                    self.items.push_front(new_item, event_index);
+                    self.items.push_front(item, event_index);
                 } else {
                     trace!(
                         timeline_item_index,
                         "Adding new remote timeline item at specific index"
                     );
-                    self.items.insert(timeline_item_index, new_item, event_index);
+                    self.items.insert(timeline_item_index, item, event_index);
                 }
             }
 
@@ -1294,6 +1269,128 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // If we don't have a read marker item, look if we need to add one now.
         if !self.meta.has_up_to_date_read_marker_item {
             self.meta.update_read_marker(self.items);
+        }
+    }
+
+    /// Remove the local timeline item matching the `event_id` or the
+    /// `transaction_id` of `new_event_timeline_item` if it exists.
+    ///
+    /// Let's also try to deduplicate remote evevents. If `VectorDiff`s are the
+    /// inputs of the `Timeline`, this is not necessary, as they are
+    /// generated by the `EventCache`, which supports its own deduplication
+    /// algorithm.
+    //
+    // Note: this method doesn't take `&mut self` to avoid a borrow checker
+    // conflict with `TimelineEventHandler::add_item`. It's fine.
+    fn deduplicate_local_timeline_item(
+        items: &mut ObservableItemsTransaction<'_>,
+        new_event_timeline_item: &mut EventTimelineItem,
+        event_id: Option<&EventId>,
+        transaction_id: Option<&TransactionId>,
+        metadata: &TimelineMetadata,
+        settings: &TimelineSettings,
+    ) -> Option<Arc<TimelineItem>> {
+        /// Transfer `TimelineDetails` that weren't available on the original
+        /// item and have been fetched separately (only `reply_to` for
+        /// now) from `old_item` to `item`, given two items for an event
+        /// that was re-received.
+        ///
+        /// `old_item` *should* always be a local timeline item usually, but it
+        /// can be a remote timeline item.
+        fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
+            let TimelineItemContent::Message(msg) = &mut new_item.content else { return };
+            let TimelineItemContent::Message(old_msg) = &old_item.content else { return };
+
+            let Some(in_reply_to) = &mut msg.in_reply_to else { return };
+            let Some(old_in_reply_to) = &old_msg.in_reply_to else { return };
+
+            if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
+                in_reply_to.event = old_in_reply_to.event.clone();
+            }
+        }
+
+        // Start with the canonical case: detect a local timeline item that matches
+        // `event_id` or `transaction_id`.
+        if let Some((local_timeline_item_index, local_timeline_item)) =
+            rfind_event_item(items, |event_timeline_item| {
+                if event_timeline_item.is_local_echo() {
+                    event_id == event_timeline_item.event_id()
+                        || (transaction_id.is_some()
+                            && transaction_id == event_timeline_item.transaction_id())
+                } else {
+                    false
+                }
+            })
+        {
+            trace!(
+                ?event_id,
+                ?transaction_id,
+                ?local_timeline_item_index,
+                "Removing local timeline item"
+            );
+
+            transfer_details(new_event_timeline_item, &local_timeline_item);
+
+            // Remove the local timeline item.
+            return Some(items.remove(local_timeline_item_index));
+        };
+
+        if !settings.vectordiffs_as_inputs {
+            if let Some((remote_timeline_item_index, remote_timeline_item)) =
+                rfind_event_item(items, |event_timeline_item| {
+                    if event_timeline_item.is_remote_event() {
+                        event_id == event_timeline_item.event_id()
+                    } else {
+                        false
+                    }
+                })
+            {
+                trace!(
+                    ?event_id,
+                    ?transaction_id,
+                    ?remote_timeline_item_index,
+                    "Removing remote timeline item (it is a duplicate)"
+                );
+
+                if remote_timeline_item.content.is_redacted()
+                    && !new_event_timeline_item.content.is_redacted()
+                {
+                    warn!("Got original form of an event that was previously redacted");
+                    new_event_timeline_item.content =
+                        new_event_timeline_item.content.redact(&metadata.room_version);
+                    new_event_timeline_item.reactions.clear();
+                }
+
+                transfer_details(new_event_timeline_item, &remote_timeline_item);
+
+                // Remove the remote timeline item.
+                return Some(items.remove(remote_timeline_item_index));
+            }
+        }
+
+        None
+    }
+
+    /// Create a new timeline item from an [`EventTimelineItem`].
+    ///
+    /// It is possible that the new timeline item replaces a duplicated timeline
+    /// event (see [`TimelineEventHandler::deduplicate_local_timeline_item`]) in
+    /// case it replaces a local timeline item.
+    //
+    // Note: this method doesn't take `&mut self` to avoid a borrow checker
+    // conflict with `Self::add_item`. It's fine.
+    fn new_timeline_item(
+        metadata: &mut TimelineMetadata,
+        event_timeline_item: EventTimelineItem,
+        replaced_timeline_item: Option<Arc<TimelineItem>>,
+    ) -> Arc<TimelineItem> {
+        match replaced_timeline_item {
+            // Reuse the internal ID.
+            Some(to_replace_timeline_item) => {
+                TimelineItem::new(event_timeline_item, to_replace_timeline_item.internal_id.clone())
+            }
+
+            None => metadata.new_timeline_item(event_timeline_item),
         }
     }
 
@@ -1353,23 +1450,5 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             Some(bundled)
         })
-    }
-}
-
-/// Transfer `TimelineDetails` that weren't available on the original item and
-/// have been fetched separately (only `reply_to` for now) from `old_item` to
-/// `item`, given two items for an event that was re-received.
-///
-/// `old_item` *should* always be a local echo usually, but with the sliding
-/// sync proxy, we often re-receive remote events that aren't remote echoes.
-fn transfer_details(item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
-    let TimelineItemContent::Message(msg) = &mut item.content else { return };
-    let TimelineItemContent::Message(old_msg) = &old_item.content else { return };
-
-    let Some(in_reply_to) = &mut msg.in_reply_to else { return };
-    let Some(old_in_reply_to) = &old_msg.in_reply_to else { return };
-
-    if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
-        in_reply_to.event = old_in_reply_to.event.clone();
     }
 }
