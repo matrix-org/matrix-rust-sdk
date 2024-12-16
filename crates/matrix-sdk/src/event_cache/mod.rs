@@ -62,7 +62,7 @@ mod pagination;
 mod room;
 
 pub mod paginator;
-pub use pagination::{RoomPagination, TimelineHasBeenResetWhilePaginating};
+pub use pagination::{PaginationToken, RoomPagination, TimelineHasBeenResetWhilePaginating};
 pub use room::RoomEventCache;
 
 /// An error observed in the [`EventCache`].
