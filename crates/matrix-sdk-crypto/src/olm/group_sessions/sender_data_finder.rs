@@ -171,7 +171,7 @@ impl<'a> SenderDataFinder<'a> {
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> Result<SenderData, SessionDeviceKeysCheckError> {
         // Does the to-device message contain the device_keys property from MSC4147?
-        if let Some(sender_device_keys) = &room_key_event.device_keys {
+        if let Some(sender_device_keys) = &room_key_event.sender_device_keys {
             // Yes: use the device keys to continue.
 
             // Validate the signature of the DeviceKeys supplied.
