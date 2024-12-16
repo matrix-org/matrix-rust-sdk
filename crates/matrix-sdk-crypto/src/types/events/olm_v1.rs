@@ -153,10 +153,10 @@ impl AnyDecryptedOlmEvent {
     pub fn sender_device_keys(&self) -> Option<&DeviceKeys> {
         match self {
             AnyDecryptedOlmEvent::Custom(_) => None,
-            AnyDecryptedOlmEvent::RoomKey(e) => e.device_keys.as_ref(),
-            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.device_keys.as_ref(),
-            AnyDecryptedOlmEvent::SecretSend(e) => e.device_keys.as_ref(),
-            AnyDecryptedOlmEvent::Dummy(e) => e.device_keys.as_ref(),
+            AnyDecryptedOlmEvent::RoomKey(e) => e.sender_device_keys.as_ref(),
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.sender_device_keys.as_ref(),
+            AnyDecryptedOlmEvent::SecretSend(e) => e.sender_device_keys.as_ref(),
+            AnyDecryptedOlmEvent::Dummy(e) => e.sender_device_keys.as_ref(),
         }
     }
 }
@@ -177,7 +177,7 @@ where
     pub recipient_keys: OlmV1Keys,
     /// The device keys if supplied as per MSC4147
     #[serde(rename = "org.matrix.msc4147.device_keys")]
-    pub device_keys: Option<DeviceKeys>,
+    pub sender_device_keys: Option<DeviceKeys>,
     /// The type of the event.
     pub content: C,
 }
@@ -201,7 +201,7 @@ impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
             recipient: recipient.to_owned(),
             keys: OlmV1Keys { ed25519: key },
             recipient_keys: OlmV1Keys { ed25519: key },
-            device_keys,
+            sender_device_keys: device_keys,
             content,
         }
     }
