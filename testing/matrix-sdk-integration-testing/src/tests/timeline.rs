@@ -41,6 +41,7 @@ use matrix_sdk_ui::{
     timeline::{EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent},
 };
 use similar_asserts::assert_eq;
+use stream_assert::assert_pending;
 use tokio::{
     spawn,
     task::JoinHandle,
@@ -274,22 +275,42 @@ async fn test_stale_local_echo_time_abort_edit() {
     // - or the remote echo comes up faster.
     //
     // Handle both orderings.
-    while let Ok(Some(vector_diff)) = timeout(Duration::from_secs(3), stream.next()).await {
-        let VectorDiff::Set { index: 0, value: echo } = vector_diff else {
-            panic!("unexpected diff: {vector_diff:#?}");
-        };
+    {
+        let mut diffs = Vec::with_capacity(3);
 
-        if echo.is_local_echo() {
-            // If the sender profile wasn't available, we may receive an update about it;
-            // ignore it.
-            if !has_sender_profile && echo.sender_profile().is_ready() {
-                has_sender_profile = true;
-                continue;
-            }
-            assert_matches!(echo.send_state(), Some(EventSendState::Sent { .. }));
+        while let Ok(Some(vector_diff)) = timeout(Duration::from_secs(5), stream.next()).await {
+            diffs.push(vector_diff);
         }
-        assert!(echo.is_editable());
-        assert_eq!(echo.content().as_message().unwrap().body(), "hi!");
+
+        assert!(diffs.len() >= 3);
+
+        for diff in diffs {
+            match diff {
+                VectorDiff::Set { index: 0, value: event }
+                | VectorDiff::PushBack { value: event }
+                | VectorDiff::Insert { index: 0, value: event } => {
+                    if event.is_local_echo() {
+                        // If the sender profile wasn't available, we may receive an update about
+                        // it; ignore it.
+                        if !has_sender_profile && event.sender_profile().is_ready() {
+                            has_sender_profile = true;
+                            continue;
+                        }
+
+                        assert_matches!(event.send_state(), Some(EventSendState::Sent { .. }));
+                    }
+
+                    assert!(event.is_editable());
+                    assert_eq!(event.content().as_message().unwrap().body(), "hi!");
+                }
+
+                VectorDiff::Remove { index } => assert_eq!(index, 0),
+
+                diff => {
+                    panic!("unexpected diff: {diff:?}");
+                }
+            }
+        }
     }
 
     // Now do a crime: try to edit the local echo.
@@ -310,6 +331,8 @@ async fn test_stale_local_echo_time_abort_edit() {
     assert_eq!(remote_echo.content().as_message().unwrap().body(), "bonjour");
 
     alice_sync.abort();
+
+    assert_pending!(stream);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

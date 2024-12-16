@@ -24,7 +24,7 @@ use ruma::{
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
     user_id, MilliSecondsSinceUnixEpoch,
 };
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
@@ -121,9 +121,18 @@ async fn test_remote_echo_full_trip() {
         .await;
 
     // The local echo is replaced with the remote echo.
-    let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    assert_next_matches!(stream, VectorDiff::Remove { index: 1 });
+    let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(!item.as_event().unwrap().is_local_echo());
     assert_eq!(*item.unique_id(), id);
+
+    // The date divider is adjusted.
+    // A new date divider is inserted, and the older one is removed.
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
+    assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
+
+    assert_pending!(stream);
 }
 
 #[async_test]
@@ -168,12 +177,14 @@ async fn test_remote_echo_new_position() {
         .await;
 
     // … the remote echo replaces the previous event.
-    let item = assert_next_matches!(stream, VectorDiff::Set { index: 3, value } => value);
+    assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
+    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 2, value} => value);
     assert!(!item.as_event().unwrap().is_local_echo());
 
-    // … the date divider is removed (because both bob's and alice's message are
-    // from the same day according to server timestamps).
-    assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
+    // Date divider is updated.
+    assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
+
+    assert_pending!(stream);
 }
 
 #[async_test]

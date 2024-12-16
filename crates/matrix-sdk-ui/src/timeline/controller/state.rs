@@ -223,6 +223,7 @@ impl TimelineState {
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
         content: TimelineEventKind,
+        settings: &TimelineSettings,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -240,7 +241,7 @@ impl TimelineState {
 
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
-        TimelineEventHandler::new(&mut txn, ctx)
+        TimelineEventHandler::new(&mut txn, ctx, settings)
             .handle_event(&mut date_divider_adjuster, content)
             .await;
 
@@ -744,14 +745,16 @@ impl TimelineStateTransaction<'_> {
         };
 
         // Handle the event to create or update a timeline item.
-        TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
+        TimelineEventHandler::new(self, ctx, settings)
+            .handle_event(date_divider_adjuster, event_kind)
+            .await
     }
 
     /// Remove one timeline item by its `event_index`.
     fn remove_timeline_item(
         &mut self,
         event_index: usize,
-        day_divider_adjuster: &mut DayDividerAdjuster,
+        day_divider_adjuster: &mut DateDividerAdjuster,
     ) {
         day_divider_adjuster.mark_used();
 

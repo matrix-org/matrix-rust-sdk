@@ -14,7 +14,7 @@ use ruma::{
         AnyMessageLikeEventContent,
     },
 };
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use crate::timeline::{tests::TestTimeline, EventSendState};
 
@@ -108,7 +108,8 @@ async fn test_local_sent_in_clear_shield() {
             "type": "m.room.message",
         })))
         .await;
-    let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    assert_next_matches!(stream, VectorDiff::Remove { index: 1 });
+    let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let event_item = item.as_event().unwrap();
 
     // Then the remote echo should now be showing the shield.
@@ -118,6 +119,13 @@ async fn test_local_sent_in_clear_shield() {
         shield,
         Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." })
     );
+
+    // Date divider is adjusted.
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
+    assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
+
+    assert_pending!(stream);
 }
 
 #[async_test]
