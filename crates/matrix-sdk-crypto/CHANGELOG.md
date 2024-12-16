@@ -13,8 +13,12 @@ All notable changes to this project will be documented in this file.
   as parameter instead of a raw byte array. Use `DehydratedDeviceKey::from_bytes` to migrate.
   ([#4383](https://github.com/matrix-org/matrix-rust-sdk/pull/4383))
 
+- Add extra logging in `OtherUserIdentity::pin_current_master_key` and
+  `OtherUserIdentity::withdraw_verification`.
+  ([#4415](https://github.com/matrix-org/matrix-rust-sdk/pull/4415))
+
 - Added new `UtdCause` variants `WithheldForUnverifiedOrInsecureDevice` and `WithheldBySender`.
-  These variants provide clearer categorization for expected Unable-To-Decrypt (UTD) errors 
+  These variants provide clearer categorization for expected Unable-To-Decrypt (UTD) errors
   when the sender either did not wish to share or was unable to share the room_key.
   ([#4305](https://github.com/matrix-org/matrix-rust-sdk/pull/4305))
 
