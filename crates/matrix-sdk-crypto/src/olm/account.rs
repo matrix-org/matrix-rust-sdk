@@ -711,7 +711,11 @@ impl Account {
 
         match data {
             DehydratedDeviceData::V1(d) => {
-                let account = InnerAccount::from_dehydrated_device(&d.device_pickle, device_id.as_str(), pickle_key)?;
+                let account = InnerAccount::from_dehydrated_device(
+                    &d.device_pickle,
+                    device_id.as_str(),
+                    pickle_key,
+                )?;
                 Ok(Self::new_helper(account, user_id, device_id))
             }
             _ => Err(DehydrationError::Json(serde_json::Error::custom(format!(

@@ -134,7 +134,8 @@ impl DehydratedDevices {
         device_id: &DeviceId,
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<RehydratedDevice, DehydrationError> {
-        let rehydrated = self.inner.rehydrate(&pickle_key, device_id, device_data).await?;
+        let rehydrated =
+            self.inner.rehydrate(pickle_key.inner.as_ref(), device_id, device_data).await?;
 
         Ok(RehydratedDevice { rehydrated, original: self.inner.to_owned() })
     }
@@ -367,7 +368,7 @@ impl DehydratedDevice {
         trace!("Creating an upload request for a dehydrated device");
 
         let device_id = self.store.static_account().device_id.clone();
-        let device_data = account.dehydrate(&pickle_key);
+        let device_data = account.dehydrate(pickle_key.inner.as_ref());
         let initial_device_display_name = Some(initial_device_display_name);
 
         transaction.commit().await?;
