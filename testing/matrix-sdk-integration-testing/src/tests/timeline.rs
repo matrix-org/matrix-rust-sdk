@@ -25,16 +25,20 @@ use matrix_sdk::{
     encryption::{backups::BackupState, EncryptionSettings},
     room::edit::EditedContent,
     ruma::{
-        api::client::room::create_room::v3::Request as CreateRoomRequest,
+        api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
             InitialStateEvent,
         },
         MilliSecondsSinceUnixEpoch,
     },
+    RoomState,
 };
-use matrix_sdk_ui::timeline::{
-    EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent,
+use matrix_sdk_ui::{
+    notification_client::NotificationClient,
+    room_list_service::RoomListLoadingState,
+    sync_service::SyncService,
+    timeline::{EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent},
 };
 use similar_asserts::assert_eq;
 use tokio::{
@@ -357,7 +361,7 @@ async fn test_enabling_backups_retries_decryption() {
         .create_room(assign!(CreateRoomRequest::new(), {
             is_direct: true,
             initial_state,
-            preset: Some(matrix_sdk::ruma::api::client::room::create_room::v3::RoomPreset::PrivateChat)
+            preset: Some(RoomPreset::PrivateChat)
         }))
         .await
         .unwrap();
@@ -461,4 +465,166 @@ async fn test_enabling_backups_retries_decryption() {
     assert_eq!(message.body(), "It's a secret to everybody!");
 
     bob_sync.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await.unwrap();
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    // Set up sync for user Alice, and create a room.
+    let alice_sync = spawn({
+        let alice = alice.clone();
+        async move {
+            alice.sync(Default::default()).await.expect("sync failed!");
+        }
+    });
+
+    debug!("Creating the room…");
+
+    // The room needs to be encrypted.
+    let initial_state =
+        vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+            .to_raw_any()];
+
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state,
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await
+        .unwrap();
+
+    assert!(alice_room
+        .is_encrypted()
+        .await
+        .expect("We should be able to check that the room is encrypted"));
+
+    // Now here comes bob.
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await.unwrap();
+    bob.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    debug!("Inviting Bob.");
+
+    alice_room
+        .invite_user_by_id(bob.user_id().expect("We should have access to bob's user ID"))
+        .await
+        .expect("We should be able to invite Bob to the room");
+
+    // Sync once to get access to the room.
+    let sync_service = SyncService::builder(bob.clone()).build().await.expect("Wat");
+    sync_service.start().await;
+
+    let bob_rooms = sync_service
+        .room_list_service()
+        .all_rooms()
+        .await
+        .expect("We should be able to get the room");
+
+    debug!("Waiting for the room list to load");
+    let wait_for_room_list_load = async {
+        while let Some(state) = bob_rooms.loading_state().next().await {
+            if let RoomListLoadingState::Loaded { .. } = state {
+                break;
+            }
+        }
+    };
+
+    timeout(Duration::from_secs(5), wait_for_room_list_load)
+        .await
+        .expect("We should be able to load the room list");
+
+    // Bob joins the room.
+    let bob_room =
+        bob.get_room(alice_room.room_id()).expect("We should have access to the room now");
+    bob_room.join().await.expect("Bob should be able to join the room");
+
+    debug!("Bob joined the room");
+    assert_eq!(bob_room.state(), RoomState::Joined);
+    assert!(bob_room.is_encrypted().await.unwrap());
+
+    // Let's stop the sync so we don't receive the room key using the usual channel.
+    sync_service.stop().await.expect("We should be able to stop the sync service");
+
+    debug!("Alice sends the message");
+    let event_id = alice_room
+        .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
+        .await
+        .expect("We should be able to send a message to our new room")
+        .event_id;
+
+    // We don't need Alice anymore.
+    alice_sync.abort();
+
+    // Let's get the timeline and backpaginate to load the event.
+    let mut timeline =
+        bob_room.timeline().await.expect("We should be able to get a timeline for our room");
+
+    let mut item = None;
+
+    for _ in 0..10 {
+        timeline
+            .paginate_backwards(50)
+            .await
+            .expect("We should be able to paginate the timeline to fetch the history");
+
+        if let Some(timeline_item) = timeline.item_by_event_id(&event_id).await {
+            item = Some(timeline_item);
+            break;
+        } else {
+            timeline = bob_room.timeline().await.expect("We should be able to reset our timeline");
+            sleep(Duration::from_millis(100)).await
+        }
+    }
+
+    let item = item.expect("The event should be in the timeline by now");
+
+    // The event is not decrypted yet.
+    assert_matches!(item.content(), TimelineItemContent::UnableToDecrypt(_));
+
+    // Let's subscribe to our timeline so we don't miss the transition from UTD to
+    // decrypted event.
+    let (_, mut stream) = timeline
+        .subscribe_filter_map(|item| {
+            item.as_event().cloned().filter(|item| item.event_id() == Some(&event_id))
+        })
+        .await;
+
+    // Now we create a notification client.
+    let notification_client = bob
+        .notification_client("BOB_NOTIFICATION_CLIENT".to_owned())
+        .await
+        .expect("We should be able to build a notification client");
+
+    // This syncs and fetches the room key.
+    debug!("The notification client syncs");
+    let notification_client = NotificationClient::new(
+        notification_client,
+        matrix_sdk_ui::notification_client::NotificationProcessSetup::SingleProcess {
+            sync_service: sync_service.into(),
+        },
+    )
+    .await
+    .expect("We should be able to build a notification client");
+
+    let _ = notification_client
+        .get_notification(bob_room.room_id(), &event_id)
+        .await
+        .expect("We should be able toe get a notification item for the given event");
+
+    // Alright, we should now receive an update that the event had been decrypted.
+    let _vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+
+    // Let's fetch the event again.
+    let item =
+        timeline.item_by_event_id(&event_id).await.expect("The event should be in the timeline");
+
+    // Yup it's decrypted great.
+    assert_let!(
+        TimelineItemContent::Message(message) = item.content(),
+        "The event should have been decrypted now"
+    );
+
+    assert_eq!(message.body(), "It's a secret to everybody!");
 }
