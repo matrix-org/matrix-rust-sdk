@@ -28,7 +28,7 @@ use super::{
         events::{Gap, RoomEvents},
         RoomEventCacheInner,
     },
-    BackPaginationOutcome, Result,
+    BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
 };
 
 /// An API object to run pagination queries on a [`super::RoomEventCache`].
@@ -225,6 +225,15 @@ impl RoomPagination {
                     }
                 } else {
                     debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
+                }
+
+                let sync_timeline_events_diffs = room_events.updates_as_vector_diffs();
+
+                if !sync_timeline_events_diffs.is_empty() {
+                    let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                        diffs: sync_timeline_events_diffs,
+                        origin: EventsOrigin::Sync,
+                    });
                 }
 
                 BackPaginationOutcome { events, reached_start }

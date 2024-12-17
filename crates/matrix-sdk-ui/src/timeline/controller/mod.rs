@@ -124,7 +124,7 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
     pub(crate) room_data_provider: P,
 
     /// Settings applied to this timeline.
-    settings: TimelineSettings,
+    pub(super) settings: TimelineSettings,
 }
 
 #[derive(Clone)]
