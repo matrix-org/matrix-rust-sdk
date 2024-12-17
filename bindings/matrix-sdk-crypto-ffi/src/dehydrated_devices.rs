@@ -5,12 +5,13 @@ use matrix_sdk_crypto::{
         DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
         RehydratedDevice as InnerRehydratedDevice,
     },
-    store::DehydratedDeviceKey,
+    store::DehydratedDeviceKey as InnerDehydratedDeviceKey,
 };
 use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
 use serde_json::json;
 use tokio::runtime::Handle;
-use zeroize::Zeroize;
+
+use crate::{CryptoStoreError, DehydratedDeviceKey};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
@@ -25,6 +26,8 @@ pub enum DehydrationError {
     Store(#[from] matrix_sdk_crypto::CryptoStoreError),
     #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
     PickleKeyLength(usize),
+    #[error(transparent)]
+    Rand(#[from] rand::Error),
 }
 
 impl From<matrix_sdk_crypto::dehydrated_devices::DehydrationError> for DehydrationError {
@@ -36,6 +39,9 @@ impl From<matrix_sdk_crypto::dehydrated_devices::DehydrationError> for Dehydrati
                 Self::MissingSigningKey(e)
             }
             matrix_sdk_crypto::dehydrated_devices::DehydrationError::Store(e) => Self::Store(e),
+            matrix_sdk_crypto::dehydrated_devices::DehydrationError::PickleKeyLength(l) => {
+                Self::PickleKeyLength(l)
+            }
         }
     }
 }
@@ -69,14 +75,14 @@ impl DehydratedDevices {
 
     pub fn rehydrate(
         &self,
-        pickle_key: Vec<u8>,
+        pickle_key: &DehydratedDeviceKey,
         device_id: String,
         device_data: String,
     ) -> Result<Arc<RehydratedDevice>, DehydrationError> {
         let device_data: Raw<_> = serde_json::from_str(&device_data)?;
         let device_id: OwnedDeviceId = device_id.into();
 
-        let mut key = get_pickle_key(&pickle_key)?;
+        let key = InnerDehydratedDeviceKey::from_slice(&pickle_key.inner)?;
 
         let ret = RehydratedDevice {
             runtime: self.runtime.to_owned(),
@@ -88,9 +94,40 @@ impl DehydratedDevices {
         }
         .into();
 
-        key.zeroize();
-
         Ok(ret)
+    }
+
+    /// Get the cached dehydrated device pickle key if any.
+    ///
+    /// None if the key was not previously cached (via
+    /// [`Self::save_dehydrated_device_pickle_key`]).
+    ///
+    /// Should be used to periodically rotate the dehydrated device to avoid
+    /// OTK exhaustion and accumulation of to_device messages.
+    pub fn get_dehydrated_device_key(
+        &self,
+    ) -> Result<Option<crate::DehydratedDeviceKey>, CryptoStoreError> {
+        Ok(self
+            .runtime
+            .block_on(self.inner.get_dehydrated_device_pickle_key())?
+            .map(crate::DehydratedDeviceKey::from))
+    }
+
+    /// Store the dehydrated device pickle key in the crypto store.
+    ///
+    /// This is useful if the client wants to periodically rotate dehydrated
+    /// devices to avoid OTK exhaustion and accumulated to_device problems.
+    pub fn save_dehydrated_device_key(
+        &self,
+        pickle_key: &crate::DehydratedDeviceKey,
+    ) -> Result<(), CryptoStoreError> {
+        let pickle_key = InnerDehydratedDeviceKey::from_slice(&pickle_key.inner)?;
+        Ok(self.runtime.block_on(self.inner.save_dehydrated_device_pickle_key(&pickle_key))?)
+    }
+
+    /// Deletes the previously stored dehydrated device pickle key.
+    pub fn delete_dehydrated_device_key(&self) -> Result<(), CryptoStoreError> {
+        Ok(self.runtime.block_on(self.inner.delete_dehydrated_device_pickle_key())?)
     }
 }
 
@@ -141,14 +178,12 @@ impl DehydratedDevice {
     pub fn keys_for_upload(
         &self,
         device_display_name: String,
-        pickle_key: Vec<u8>,
+        pickle_key: &DehydratedDeviceKey,
     ) -> Result<UploadDehydratedDeviceRequest, DehydrationError> {
-        let mut key = get_pickle_key(&pickle_key)?;
+        let key = InnerDehydratedDeviceKey::from_slice(&pickle_key.inner)?;
 
         let request =
             self.runtime.block_on(self.inner.keys_for_upload(device_display_name, &key))?;
-
-        key.zeroize();
 
         Ok(request.into())
     }
@@ -180,15 +215,36 @@ impl From<dehydrated_device::put_dehydrated_device::unstable::Request>
     }
 }
 
-fn get_pickle_key(pickle_key: &[u8]) -> Result<DehydratedDeviceKey, DehydrationError> {
-    let pickle_key_length = pickle_key.len();
+#[cfg(test)]
+mod tests {
+    use crate::{dehydrated_devices::DehydrationError, DehydratedDeviceKey};
 
-    if pickle_key_length == 32 {
-        let mut raw_bytes = [0u8; 32];
-        raw_bytes.copy_from_slice(pickle_key);
-        let key = DehydratedDeviceKey::from_bytes(&raw_bytes);
-        Ok(key)
-    } else {
-        Err(DehydrationError::PickleKeyLength(pickle_key_length))
+    #[test]
+    fn test_creating_dehydrated_key() {
+        let result = DehydratedDeviceKey::new();
+        assert!(result.is_ok());
+        let dehydrated_device_key = result.unwrap();
+        let base_64 = dehydrated_device_key.to_base64();
+        let inner_bytes = dehydrated_device_key.inner;
+
+        let copy = DehydratedDeviceKey::from_slice(&inner_bytes).unwrap();
+
+        assert_eq!(base_64, copy.to_base64());
+    }
+
+    #[test]
+    fn test_creating_dehydrated_key_failure() {
+        let bytes = [0u8; 24];
+
+        let pickle_key = DehydratedDeviceKey::from_slice(&bytes);
+
+        assert!(pickle_key.is_err());
+
+        match pickle_key {
+            Err(DehydrationError::PickleKeyLength(pickle_key_length)) => {
+                assert_eq!(bytes.len(), pickle_key_length);
+            }
+            _ => panic!("Should have failed!"),
+        }
     }
 }

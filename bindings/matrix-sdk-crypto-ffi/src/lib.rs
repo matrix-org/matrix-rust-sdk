@@ -36,7 +36,10 @@ pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
 use matrix_sdk_common::deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode};
 use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, SenderData, Session},
-    store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
+    store::{
+        Changes, CryptoStore, DehydratedDeviceKey as InnerDehydratedDeviceKey, PendingChanges,
+        RoomSettings as RustRoomSettings,
+    },
     types::{
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey,
     },
@@ -61,6 +64,8 @@ pub use verification::{
     Verification, VerificationRequest, VerificationRequestListener, VerificationRequestState,
 };
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
+
+use crate::dehydrated_devices::DehydrationError;
 
 /// Struct collecting data that is important to migrate to the rust-sdk
 #[derive(Deserialize, Serialize, uniffi::Record)]
@@ -819,6 +824,39 @@ impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
             .into(),
             backup_version: keys.backup_version.ok_or(())?,
         })
+    }
+}
+
+/// Dehydrated device key
+#[derive(uniffi::Record, Clone)]
+pub struct DehydratedDeviceKey {
+    pub(crate) inner: Vec<u8>,
+}
+
+impl DehydratedDeviceKey {
+    /// Generates a new random pickle key.
+    pub fn new() -> Result<Self, DehydrationError> {
+        let inner = InnerDehydratedDeviceKey::new()?;
+        Ok(inner.into())
+    }
+
+    /// Creates a new dehydration pickle key from the given slice.
+    ///
+    /// Fail if the slice length is not 32.
+    pub fn from_slice(slice: &[u8]) -> Result<Self, DehydrationError> {
+        let inner = InnerDehydratedDeviceKey::from_slice(slice)?;
+        Ok(inner.into())
+    }
+
+    /// Export the [`DehydratedDeviceKey`] as a base64 encoded string.
+    pub fn to_base64(&self) -> String {
+        let inner = InnerDehydratedDeviceKey::from_slice(&self.inner).unwrap();
+        inner.to_base64()
+    }
+}
+impl From<InnerDehydratedDeviceKey> for DehydratedDeviceKey {
+    fn from(pickle_key: InnerDehydratedDeviceKey) -> Self {
+        DehydratedDeviceKey { inner: pickle_key.into() }
     }
 }
 
