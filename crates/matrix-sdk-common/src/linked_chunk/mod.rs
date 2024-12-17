@@ -816,8 +816,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             .skip_while({
                 let expected_index = position.index();
 
-                move |(Position(_chunk_identifier, item_index), _item)| {
-                    *item_index != expected_index
+                move |(Position(chunk_identifier, item_index), _item)| {
+                    *chunk_identifier == position.chunk_identifier()
+                        && *item_index != expected_index
                 }
             }))
     }
@@ -1811,6 +1812,26 @@ mod tests {
         assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(0), 1), 'b')));
         assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(0), 0), 'a')));
         assert_matches!(iterator.next(), None);
+    }
+
+    #[test]
+    fn test_ritems_with_final_gap() -> Result<(), Error> {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+        linked_chunk.push_items_back(['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['c', 'd', 'e']);
+        linked_chunk.push_gap_back(());
+
+        let mut iterator = linked_chunk.ritems();
+
+        assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(2), 2), 'e')));
+        assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(2), 1), 'd')));
+        assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(2), 0), 'c')));
+        assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(0), 1), 'b')));
+        assert_matches!(iterator.next(), Some((Position(ChunkIdentifier(0), 0), 'a')));
+        assert_matches!(iterator.next(), None);
+
+        Ok(())
     }
 
     #[test]
