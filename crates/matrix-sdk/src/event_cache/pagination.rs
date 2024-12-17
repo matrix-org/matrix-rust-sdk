@@ -209,14 +209,22 @@ impl RoomPagination {
                 };
 
                 // And insert the new gap if needs be.
-                if let Some(new_gap) = new_gap {
-                    if let Some(new_pos) = insert_new_gap_pos {
-                        room_events
-                            .insert_gap_at(new_gap, new_pos)
-                            .expect("events_chunk_pos represents a valid chunk position");
-                    } else {
-                        room_events.push_gap(new_gap);
+                //
+                // We only do this when at least one new, non-duplicated event, has been added
+                // to the chunk. Otherwise it means we've back-paginated all the
+                // known events.
+                if !add_event_report.deduplicated_all_new_events() {
+                    if let Some(new_gap) = new_gap {
+                        if let Some(new_pos) = insert_new_gap_pos {
+                            room_events
+                                .insert_gap_at(new_gap, new_pos)
+                                .expect("events_chunk_pos represents a valid chunk position");
+                        } else {
+                            room_events.push_gap(new_gap);
+                        }
                     }
+                } else {
+                    debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
                 }
 
                 BackPaginationOutcome { events, reached_start }
