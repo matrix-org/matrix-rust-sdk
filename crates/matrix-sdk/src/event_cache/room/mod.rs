@@ -36,7 +36,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     Notify, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 
 use super::{
     paginator::{Paginator, PaginatorState},
@@ -277,6 +277,10 @@ impl RoomEventCacheInner {
     }
 
     fn handle_account_data(&self, account_data: Vec<Raw<AnyRoomAccountDataEvent>>) {
+        if account_data.is_empty() {
+            return;
+        }
+
         let mut handled_read_marker = false;
 
         trace!("Handling account data");
@@ -536,7 +540,22 @@ impl RoomEventCacheInner {
                         room_events.push_gap(Gap { prev_token: prev_token.clone() });
                     }
 
-                    room_events.push_events(sync_timeline_events.clone());
+                    let add_event_report = room_events.push_events(sync_timeline_events.clone());
+
+                    if add_event_report.deduplicated_all_new_events() {
+                        debug!(
+                            "not storing previous batch token, because we deduplicated all new sync events"
+                        );
+
+                        // Remove the gap we just inserted.
+                        let prev_gap_id = room_events
+                            .rchunks()
+                            .find_map(|c| c.is_gap().then_some(c.identifier()))
+                            .expect("we just inserted the gap beforehand");
+                        room_events
+                            .replace_gap_at([], prev_gap_id)
+                            .expect("we obtained the valid position beforehand");
+                    }
                 })
                 .await?;
 
