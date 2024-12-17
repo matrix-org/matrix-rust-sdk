@@ -95,12 +95,17 @@ impl RoomEvents {
     /// Push events after all events or gaps.
     ///
     /// The last event in `events` is the most recent one.
-    pub fn push_events<I>(&mut self, events: I)
+    pub fn push_events<I>(&mut self, events: I) -> AddEventReport
     where
         I: IntoIterator<Item = Event>,
     {
         let (unique_events, duplicated_event_ids) =
             self.filter_duplicated_events(events.into_iter());
+
+        let report = AddEventReport {
+            num_new_unique: unique_events.len(),
+            num_duplicated: duplicated_event_ids.len(),
+        };
 
         // Remove the _old_ duplicated events!
         //
@@ -110,6 +115,8 @@ impl RoomEvents {
 
         // Push new `events`.
         self.chunks.push_items_back(unique_events);
+
+        report
     }
 
     /// Push a gap after all events or gaps.
@@ -118,12 +125,21 @@ impl RoomEvents {
     }
 
     /// Insert events at a specified position.
-    pub fn insert_events_at<I>(&mut self, events: I, mut position: Position) -> Result<(), Error>
+    pub fn insert_events_at<I>(
+        &mut self,
+        events: I,
+        mut position: Position,
+    ) -> Result<AddEventReport, Error>
     where
         I: IntoIterator<Item = Event>,
     {
         let (unique_events, duplicated_event_ids) =
             self.filter_duplicated_events(events.into_iter());
+
+        let report = AddEventReport {
+            num_new_unique: unique_events.len(),
+            num_duplicated: duplicated_event_ids.len(),
+        };
 
         // Remove the _old_ duplicated events!
         //
@@ -132,7 +148,9 @@ impl RoomEvents {
         // argument value for each removal.
         self.remove_events_and_update_insert_position(duplicated_event_ids, &mut position);
 
-        self.chunks.insert_items_at(unique_events, position)
+        self.chunks.insert_items_at(unique_events, position)?;
+
+        Ok(report)
     }
 
     /// Insert a gap at a specified position.
@@ -145,18 +163,23 @@ impl RoomEvents {
     /// Because the `gap_identifier` can represent non-gap chunk, this method
     /// returns a `Result`.
     ///
-    /// This method returns either the position of the first chunk that's been
-    /// created, or the next insert position if the chunk has been removed.
+    /// This method returns a reference to the (first if many) newly created
+    /// `Chunk` that contains the `items`.
     pub fn replace_gap_at<I>(
         &mut self,
         events: I,
         gap_identifier: ChunkIdentifier,
-    ) -> Result<Option<Position>, Error>
+    ) -> Result<(AddEventReport, Option<Position>), Error>
     where
         I: IntoIterator<Item = Event>,
     {
         let (unique_events, duplicated_event_ids) =
             self.filter_duplicated_events(events.into_iter());
+
+        let report = AddEventReport {
+            num_new_unique: unique_events.len(),
+            num_duplicated: duplicated_event_ids.len(),
+        };
 
         // Remove the _old_ duplicated events!
         //
@@ -165,14 +188,15 @@ impl RoomEvents {
         // because of the removals.
         self.remove_events(duplicated_event_ids);
 
-        if unique_events.is_empty() {
+        let next_pos = if unique_events.is_empty() {
             // There are no new events, so there's no need to create a new empty items
             // chunk; instead, remove the gap.
-            self.chunks.remove_gap_at(gap_identifier)
+            self.chunks.remove_gap_at(gap_identifier)?
         } else {
             // Replace the gap by new events.
-            Ok(Some(self.chunks.replace_gap_at(unique_events, gap_identifier)?.first_position()))
-        }
+            Some(self.chunks.replace_gap_at(unique_events, gap_identifier)?.first_position())
+        };
+        Ok((report, next_pos))
     }
 
     /// Search for a chunk, and return its identifier.
@@ -395,6 +419,20 @@ impl RoomEvents {
                 }
             }
         }
+    }
+}
+
+pub(in crate::event_cache) struct AddEventReport {
+    /// Number of new unique events that have been added.
+    num_new_unique: usize,
+    /// Number of events which have been deduplicated.
+    num_duplicated: usize,
+}
+
+impl AddEventReport {
+    /// Were all the events (at least one) we added already known?
+    pub fn deduplicated_all_new_events(&self) -> bool {
+        self.num_new_unique > 0 && self.num_new_unique == self.num_duplicated
     }
 }
 
@@ -814,8 +852,10 @@ mod tests {
             .unwrap();
 
         // The next insert position is the next chunk's start.
-        let pos = room_events.replace_gap_at([], first_gap_id).unwrap();
+        let (report, pos) = room_events.replace_gap_at([], first_gap_id).unwrap();
         assert_eq!(pos, Some(Position::new(ChunkIdentifier::new(2), 0)));
+        assert_eq!(report.num_new_unique, 0);
+        assert_eq!(report.num_duplicated, 0);
 
         // Remove the second gap.
         let second_gap_id = room_events
@@ -824,8 +864,10 @@ mod tests {
             .unwrap();
 
         // No next insert position.
-        let pos = room_events.replace_gap_at([], second_gap_id).unwrap();
+        let (report, pos) = room_events.replace_gap_at([], second_gap_id).unwrap();
         assert!(pos.is_none());
+        assert_eq!(report.num_new_unique, 0);
+        assert_eq!(report.num_duplicated, 0);
     }
 
     #[test]

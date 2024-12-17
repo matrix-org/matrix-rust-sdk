@@ -185,7 +185,7 @@ impl RoomPagination {
                 let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
                 // First, insert events.
-                let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                let (add_event_report, insert_new_gap_pos) = if let Some(gap_id) = prev_gap_id {
                     // There is a prior gap, let's replace it by new events!
                     trace!("replaced gap with new events from backpagination");
                     room_events
@@ -195,16 +195,17 @@ impl RoomPagination {
                     // No prior gap, but we had some events: assume we need to prepend events
                     // before those.
                     trace!("inserted events before the first known event");
-                    room_events
+                    let report = room_events
                         .insert_events_at(sync_events, pos)
                         .expect("pos is a valid position we just read above");
-                    Some(pos)
+                    (report, Some(pos))
                 } else {
                     // No prior gap, and no prior events: push the events.
                     trace!("pushing events received from back-pagination");
-                    room_events.push_events(sync_events);
+                    let report = room_events.push_events(sync_events);
                     // A new gap may be inserted before the new events, if there are any.
-                    room_events.events().next().map(|(item_pos, _)| item_pos)
+                    let next_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
+                    (report, next_pos)
                 };
 
                 // And insert the new gap if needs be.
