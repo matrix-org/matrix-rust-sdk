@@ -77,12 +77,16 @@ impl super::Timeline {
                     let num_events = events.len();
                     trace!("Back-pagination succeeded with {num_events} events");
 
-                    // TODO(hywan): Remove, and let spread events via
-                    // `matrix_sdk::event_cache::RoomEventCacheUpdate` from
-                    // `matrix_sdk::event_cache::RoomPagination::run_backwards`.
-                    self.controller
-                        .add_events_at(events.into_iter(), TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination })
-                        .await;
+                    // If `TimelineSettings::vectordiffs_as_inputs` is enabled,
+                    // we don't need to add events manually: everything we need
+                    // is to let the `EventCache` receives the events from this
+                    // pagination, and emits its updates as `VectorDiff`s, which
+                    // will be handled by the `Timeline` naturally.
+                    if !self.controller.settings.vectordiffs_as_inputs {
+                        self.controller
+                            .add_events_at(events.into_iter(), TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination })
+                            .await;
+                    }
 
                     if num_events == 0 && !reached_start {
                         // As an exceptional contract: if there were no events in the response,

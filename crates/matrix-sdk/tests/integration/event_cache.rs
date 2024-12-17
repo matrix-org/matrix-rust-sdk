@@ -281,6 +281,9 @@ async fn test_backpaginate_once() {
     assert_eq!(events.len(), 2);
 
     let next = room_stream.recv().now_or_never();
+    assert_matches!(next, Some(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. })));
+
+    let next = room_stream.recv().now_or_never();
     assert_matches!(next, None);
 }
 
@@ -398,6 +401,14 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     assert_event_matches_msg(&events[2], "world");
     assert_event_matches_msg(&events[3], "heyo");
     assert_eq!(events.len(), 4);
+
+    // First iteration.
+    let next = room_stream.recv().now_or_never();
+    assert_matches!(next, Some(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. })));
+
+    // Second iteration.
+    let next = room_stream.recv().now_or_never();
+    assert_matches!(next, Some(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. })));
 
     assert!(room_stream.is_empty());
 }
@@ -521,6 +532,14 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     assert_event_matches_msg(&events[2], "world");
     assert_event_matches_msg(&events[3], "heyo");
     assert_eq!(events.len(), 4);
+
+    // First pagination.
+    let next = room_stream.recv().now_or_never();
+    assert_matches!(next, Some(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. })));
+
+    // Second pagination.
+    let next = room_stream.recv().now_or_never();
+    assert_matches!(next, Some(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. })));
 
     assert!(room_stream.is_empty());
 }
@@ -676,7 +695,7 @@ async fn test_backpaginating_without_token() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
     assert!(room_stream.is_empty());
@@ -707,6 +726,9 @@ async fn test_backpaginating_without_token() {
     // And we get notified about the new event.
     assert_event_matches_msg(&events[0], "hi");
     assert_eq!(events.len(), 1);
+
+    let next = room_stream.recv().now_or_never();
+    assert_matches!(next, Some(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. })));
 
     assert!(room_stream.is_empty());
 }
@@ -768,6 +790,7 @@ async fn test_limited_timeline_resets_pagination() {
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
 
     // We receive an update about the limited timeline.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = room_stream.recv());
     assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = room_stream.recv());
 
     // The paginator state is reset: status set to Initial, hasn't hit the timeline
