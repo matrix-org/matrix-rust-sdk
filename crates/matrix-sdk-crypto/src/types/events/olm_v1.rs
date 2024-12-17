@@ -487,9 +487,9 @@ mod tests {
             .unwrap()
             .insert("org.matrix.msc4147.device_keys".to_owned(), sender_device_keys_json);
 
-        // When we deserialise it
+        // When we deserialize it
         let event: DecryptedRoomKeyEvent = serde_json::from_value(event_json)
-            .expect("JSON should deserialise to the right event type");
+            .expect("JSON should deserialize to the right event type");
 
         // Then it contains the sender_device_keys
         assert_eq!(event.sender_device_keys, Some(sender_device_keys));
@@ -506,9 +506,9 @@ mod tests {
             .unwrap()
             .insert("sender_device_keys".to_owned(), sender_device_keys_json);
 
-        // When we deserialise it
+        // When we deserialize it
         let event: DecryptedRoomKeyEvent = serde_json::from_value(event_json)
-            .expect("JSON should deserialise to the right event type");
+            .expect("JSON should deserialize to the right event type");
 
         // Then it contains the sender_device_keys
         assert_eq!(event.sender_device_keys, Some(sender_device_keys));
