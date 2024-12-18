@@ -1288,25 +1288,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         metadata: &TimelineMetadata,
         settings: &TimelineSettings,
     ) -> Option<Arc<TimelineItem>> {
-        /// Transfer `TimelineDetails` that weren't available on the original
-        /// item and have been fetched separately (only `reply_to` for
-        /// now) from `old_item` to `item`, given two items for an event
-        /// that was re-received.
-        ///
-        /// `old_item` *should* always be a local timeline item usually, but it
-        /// can be a remote timeline item.
-        fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
-            let TimelineItemContent::Message(msg) = &mut new_item.content else { return };
-            let TimelineItemContent::Message(old_msg) = &old_item.content else { return };
-
-            let Some(in_reply_to) = &mut msg.in_reply_to else { return };
-            let Some(old_in_reply_to) = &old_msg.in_reply_to else { return };
-
-            if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
-                in_reply_to.event = old_in_reply_to.event.clone();
-            }
-        }
-
         // Start with the canonical case: detect a local timeline item that matches
         // `event_id` or `transaction_id`.
         if let Some((local_timeline_item_index, local_timeline_item)) =
@@ -1448,5 +1429,24 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             Some(bundled)
         })
+    }
+}
+
+/// Transfer `TimelineDetails` that weren't available on the original
+/// item and have been fetched separately (only `reply_to` for
+/// now) from `old_item` to `item`, given two items for an event
+/// that was re-received.
+///
+/// `old_item` *should* always be a local timeline item usually, but it
+/// can be a remote timeline item.
+fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
+    let TimelineItemContent::Message(msg) = &mut new_item.content else { return };
+    let TimelineItemContent::Message(old_msg) = &old_item.content else { return };
+
+    let Some(in_reply_to) = &mut msg.in_reply_to else { return };
+    let Some(old_in_reply_to) = &old_msg.in_reply_to else { return };
+
+    if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
+        in_reply_to.event = old_in_reply_to.event.clone();
     }
 }
