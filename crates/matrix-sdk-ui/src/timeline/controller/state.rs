@@ -798,7 +798,7 @@ impl TimelineStateTransaction<'_> {
             let mut idx = 0;
             while idx < self.items.len() {
                 if self.items[idx].is_date_divider()
-                    && self.items.get(idx + 1).map_or(true, |item| item.is_date_divider())
+                    && self.items.get(idx + 1).is_none_or(|item| item.is_date_divider())
                 {
                     self.items.remove(idx);
                     // don't increment idx because all elements have shifted
