@@ -79,8 +79,8 @@ impl super::Timeline {
 
                     // If `TimelineSettings::vectordiffs_as_inputs` is enabled,
                     // we don't need to add events manually: everything we need
-                    // is to let the `EventCache` receives the events from this
-                    // pagination, and emits its updates as `VectorDiff`s, which
+                    // is to let the `EventCache` receive the events from this
+                    // pagination, and emit its updates as `VectorDiff`s, which
                     // will be handled by the `Timeline` naturally.
                     if !self.controller.settings.vectordiffs_as_inputs {
                         self.controller
