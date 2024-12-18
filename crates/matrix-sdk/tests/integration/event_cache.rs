@@ -14,7 +14,7 @@ use matrix_sdk::{
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
 };
-use ruma::{event_id, room_id, user_id};
+use ruma::{event_id, events::AnyTimelineEvent, room_id, serde::Raw, user_id};
 use serde_json::json;
 use tokio::{spawn, sync::broadcast};
 use wiremock::ResponseTemplate;
@@ -915,4 +915,75 @@ async fn test_backpaginate_with_no_initial_events() {
     assert_event_matches_msg(&events[1], "hello");
     assert_event_matches_msg(&events[2], "world");
     assert_eq!(events.len(), 3);
+}
+
+#[async_test]
+async fn test_backpaginate_replace_empty_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // Start with a room with an event, limited timeline and prev-batch token.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("world").event_id(event_id!("$2")))
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev-batch".to_owned()),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+    wait_for_initial_events(events, &mut stream).await;
+
+    // The first back-pagination will return a previous-batch token, but no events.
+    server
+        .mock_room_messages()
+        .ok(
+            "start-token-unused1".to_owned(),
+            Some("prev_batch".to_owned()),
+            Vec::<Raw<AnyTimelineEvent>>::new(),
+            Vec::new(),
+        )
+        .mock_once()
+        .mount()
+        .await;
+
+    // The second round of back-pagination will return this one.
+    server
+        .mock_room_messages()
+        .from("prev_batch")
+        .ok(
+            "start-token-unused2".to_owned(),
+            None,
+            vec![f.text_msg("hello").event_id(event_id!("$1"))],
+            Vec::new(),
+        )
+        .mock_once()
+        .mount()
+        .await;
+
+    let pagination = room_event_cache.pagination();
+
+    // Run pagination twice.
+    pagination.run_backwards(20, once).await.unwrap();
+    pagination.run_backwards(20, once).await.unwrap();
+
+    // The linked chunk should contain the events in the correct order.
+    let (events, _stream) = room_event_cache.subscribe().await.unwrap();
+
+    assert_event_matches_msg(&events[0], "hello");
+    assert_event_matches_msg(&events[1], "world");
+    assert_eq!(events.len(), 2);
 }

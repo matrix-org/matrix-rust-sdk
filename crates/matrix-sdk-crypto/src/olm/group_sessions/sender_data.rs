@@ -215,6 +215,7 @@ enum SenderDataReader {
         legacy_session: bool,
     },
 
+    #[serde(alias = "SenderUnverifiedButPreviouslyVerified")]
     VerificationViolation(KnownSenderData),
 
     SenderUnverified(KnownSenderData),
@@ -286,7 +287,10 @@ mod tests {
     use vodozemac::Ed25519PublicKey;
 
     use super::SenderData;
-    use crate::types::{DeviceKeys, Signatures};
+    use crate::{
+        olm::KnownSenderData,
+        types::{DeviceKeys, Signatures},
+    };
 
     #[test]
     fn serializing_unknown_device_correctly_preserves_owner_check_failed_if_true() {
@@ -358,6 +362,47 @@ mod tests {
 
         let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
         assert_let!(SenderData::SenderVerified { .. } = end);
+    }
+
+    #[test]
+    fn deserializing_sender_unverified_but_previously_verified_migrates_to_verification_violation()
+    {
+        let json = r#"
+            {
+                "SenderUnverifiedButPreviouslyVerified":{
+                    "user_id":"@u:s.co",
+                    "master_key":[
+                        150,140,249,139,141,29,63,230,179,14,213,175,176,61,11,255,
+                        26,103,10,51,100,154,183,47,181,117,87,204,33,215,241,92
+                    ],
+                    "master_key_verified":true
+                }
+            }
+            "#;
+
+        let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
+        assert_let!(SenderData::VerificationViolation(KnownSenderData { user_id, .. }) = end);
+        assert_eq!(user_id, owned_user_id!("@u:s.co"));
+    }
+
+    #[test]
+    fn deserializing_verification_violation() {
+        let json = r#"
+            {
+                "VerificationViolation":{
+                    "user_id":"@u:s.co",
+                    "master_key":[
+                        150,140,249,139,141,29,63,230,179,14,213,175,176,61,11,255,
+                        26,103,10,51,100,154,183,47,181,117,87,204,33,215,241,92
+                    ],
+                    "master_key_verified":true
+                }
+            }
+            "#;
+
+        let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
+        assert_let!(SenderData::VerificationViolation(KnownSenderData { user_id, .. }) = end);
+        assert_eq!(user_id, owned_user_id!("@u:s.co"));
     }
 
     #[test]

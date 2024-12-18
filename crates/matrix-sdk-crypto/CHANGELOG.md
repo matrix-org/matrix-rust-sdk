@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.9.0] - 2024-12-18
+
 - Expose new API `DehydratedDevices::get_dehydrated_device_pickle_key`, `DehydratedDevices::save_dehydrated_device_pickle_key`
   and `DehydratedDevices::delete_dehydrated_device_pickle_key` to store/load the dehydrated device pickle key.
   This allows client to automatically rotate the dehydrated device to avoid one-time-keys exhaustion and to_device accumulation.
@@ -92,6 +94,12 @@ All notable changes to this project will be documented in this file.
 
 
 ### Refactor
+
+- Fix [#4424](https://github.com/matrix-org/matrix-rust-sdk/issues/4424) Failed
+  storage upgrade for "PreviouslyVerifiedButNoLonger". This bug caused errors to
+  occur when loading crypto information from storage, which typically prevented
+  apps from starting correctly.
+  ([#4430](https://github.com/matrix-org/matrix-rust-sdk/pull/4430))
 
 - Add new method `OlmMachine::try_decrypt_room_event`.
   ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))

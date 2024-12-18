@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.9.0] - 2024-12-18
+
 ### Features
 
 - Introduced support for

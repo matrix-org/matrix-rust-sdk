@@ -3067,7 +3067,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -3143,7 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "as_variant",
  "assert_matches",
@@ -3179,7 +3179,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-common"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -3209,7 +3209,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3333,7 +3333,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-indexeddb"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3401,7 +3401,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "byteorder",
  "image",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sqlite"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -3441,7 +3441,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-store-encryption"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3489,7 +3489,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ui"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "as_variant",

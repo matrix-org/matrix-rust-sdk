@@ -179,6 +179,7 @@ pub enum VerificationLevel {
 
     /// The message was sent by a user identity we have not verified, but the
     /// user was previously verified.
+    #[serde(alias = "PreviouslyVerified")]
     VerificationViolation,
 
     /// The message was sent by a device not linked to (signed by) any user
@@ -262,6 +263,7 @@ pub enum ShieldStateCode {
     /// An unencrypted event in an encrypted room.
     SentInClear,
     /// The sender was previously verified but changed their identity.
+    #[serde(alias = "PreviouslyVerified")]
     VerificationViolation,
 }
 
@@ -995,6 +997,74 @@ mod tests {
             deserialized.state,
             VerificationState::Unverified(VerificationLevel::UnsignedDevice)
         );
+    }
+
+    #[test]
+    fn test_verification_level_deserializes() {
+        // Given a JSON VerificationLevel
+        #[derive(Deserialize)]
+        struct Container {
+            verification_level: VerificationLevel,
+        }
+        let container = json!({ "verification_level": "VerificationViolation" });
+
+        // When we deserialize it
+        let deserialized: Container = serde_json::from_value(container)
+            .expect("We can deserialize the old PreviouslyVerified value");
+
+        // Then it is populated correctly
+        assert_eq!(deserialized.verification_level, VerificationLevel::VerificationViolation);
+    }
+
+    #[test]
+    fn test_verification_level_deserializes_from_old_previously_verified_value() {
+        // Given a JSON VerificationLevel with the old value PreviouslyVerified
+        #[derive(Deserialize)]
+        struct Container {
+            verification_level: VerificationLevel,
+        }
+        let container = json!({ "verification_level": "PreviouslyVerified" });
+
+        // When we deserialize it
+        let deserialized: Container = serde_json::from_value(container)
+            .expect("We can deserialize the old PreviouslyVerified value");
+
+        // Then it is migrated to the new value
+        assert_eq!(deserialized.verification_level, VerificationLevel::VerificationViolation);
+    }
+
+    #[test]
+    fn test_shield_state_code_deserializes() {
+        // Given a JSON ShieldStateCode with value VerificationViolation
+        #[derive(Deserialize)]
+        struct Container {
+            shield_state_code: ShieldStateCode,
+        }
+        let container = json!({ "shield_state_code": "VerificationViolation" });
+
+        // When we deserialize it
+        let deserialized: Container = serde_json::from_value(container)
+            .expect("We can deserialize the old PreviouslyVerified value");
+
+        // Then it is populated correctly
+        assert_eq!(deserialized.shield_state_code, ShieldStateCode::VerificationViolation);
+    }
+
+    #[test]
+    fn test_shield_state_code_deserializes_from_old_previously_verified_value() {
+        // Given a JSON ShieldStateCode with the old value PreviouslyVerified
+        #[derive(Deserialize)]
+        struct Container {
+            shield_state_code: ShieldStateCode,
+        }
+        let container = json!({ "shield_state_code": "PreviouslyVerified" });
+
+        // When we deserialize it
+        let deserialized: Container = serde_json::from_value(container)
+            .expect("We can deserialize the old PreviouslyVerified value");
+
+        // Then it is migrated to the new value
+        assert_eq!(deserialized.shield_state_code, ShieldStateCode::VerificationViolation);
     }
 
     #[test]
