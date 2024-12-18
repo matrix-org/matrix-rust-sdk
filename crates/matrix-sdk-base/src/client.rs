@@ -73,7 +73,7 @@ use crate::{
     event_cache::store::EventCacheStoreLock,
     response_processors::AccountDataProcessor,
     rooms::{
-        normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons},
+        normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
         Room, RoomInfo, RoomState,
     },
     store::{
@@ -983,6 +983,9 @@ impl BaseClient {
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
 
+        let mut updated_members_in_room: BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>> =
+            BTreeMap::new();
+
         for (room_id, new_info) in response.rooms.join {
             let room = self.store.get_or_create_room(
                 &room_id,
@@ -1010,6 +1013,8 @@ impl BaseClient {
                     &mut ambiguity_cache,
                 )
                 .await?;
+
+            updated_members_in_room.insert(room_id.to_owned(), user_ids.clone());
 
             for raw in &new_info.ephemeral.events {
                 match raw.deserialize() {
@@ -1252,6 +1257,13 @@ impl BaseClient {
         // above. Oh well.
         new_rooms.update_in_memory_caches(&self.store).await;
 
+        for (room_id, member_ids) in updated_members_in_room {
+            if let Some(room) = self.get_room(&room_id) {
+                let _ =
+                    room.room_member_updates_sender.send(RoomMembersUpdate::Partial(member_ids));
+            }
+        }
+
         info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
@@ -1400,6 +1412,8 @@ impl BaseClient {
 
         self.store.save_changes(&changes).await?;
         self.apply_changes(&changes, Default::default());
+
+        let _ = room.room_member_updates_sender.send(RoomMembersUpdate::FullReload);
 
         Ok(())
     }

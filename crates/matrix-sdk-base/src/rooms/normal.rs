@@ -71,7 +71,7 @@ use super::{
 use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::{
-        DisplayName, MemberEvent, RawSyncOrStrippedState, SyncOrStrippedState,
+        DisplayName, MemberEvent, RawMemberEvent, RawSyncOrStrippedState, SyncOrStrippedState,
     },
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
@@ -174,6 +174,9 @@ pub struct Room {
     /// user has marked as seen so they can be ignored.
     pub seen_knock_request_ids_map:
         SharedObservable<Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
+
+    /// A sender that will notify receivers when room member updates happen.
+    pub room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -262,6 +265,15 @@ fn heroes_filter<'a>(
     move |user_id| user_id != own_user_id && !member_hints.service_members.contains(user_id)
 }
 
+/// The kind of room member updates that just happened.
+#[derive(Debug, Clone)]
+pub enum RoomMembersUpdate {
+    /// The whole list room members was reloaded.
+    FullReload,
+    /// A few members were updated, their user ids are included.
+    Partial(BTreeSet<OwnedUserId>),
+}
+
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
     // SAFETY: `new_unchecked` is safe because 10 is not zero.
@@ -286,6 +298,7 @@ impl Room {
         room_info: RoomInfo,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
+        let (room_member_updates_sender, _) = broadcast::channel(10);
         Self {
             own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),
@@ -297,6 +310,7 @@ impl Room {
             ))),
             room_info_notable_update_sender,
             seen_knock_request_ids_map: SharedObservable::new_async(None),
+            room_member_updates_sender,
         }
     }
 
@@ -2075,6 +2089,7 @@ mod tests {
     use std::{
         collections::BTreeSet,
         ops::{Not, Sub},
+        pin::pin,
         str::FromStr,
         sync::Arc,
         time::Duration,
@@ -3717,5 +3732,28 @@ mod tests {
                 RoomState::Banned
             ]
         );
+    }
+
+    #[async_test]
+    async fn test_room_member_updates_sender_and_receiver() {
+        use assert_matches::assert_matches;
+
+        let client = logged_in_base_client(None).await;
+        let room = client.get_or_create_room(room_id!("!a:b.c"), RoomState::Joined);
+
+        let mut receiver = room.room_member_updates_sender.subscribe();
+
+        assert!(receiver.is_empty());
+
+        room.room_member_updates_sender
+            .send(RoomMembersUpdate::FullReload)
+            .expect("broadcasting a room members update failed");
+
+        let recv = pin!(receiver.recv());
+        let next = matrix_sdk_common::timeout::timeout(recv, Duration::from_secs(1))
+            .await
+            .expect("receiving a room members update timed out")
+            .expect("failed receiving a room members update");
+        assert_matches!(next, RoomMembersUpdate::FullReload);
     }
 }
