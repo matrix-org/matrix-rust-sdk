@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.9.0] - 2024-12-18
+
 ### Bug Fixes
 
 - Change the behavior of `LinkedChunk::new_with_update_history()` to emit an

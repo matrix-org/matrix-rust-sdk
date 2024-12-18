@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.9.0] - 2024-12-18
+
 ### Bug Fixes
 
 - Add the `m.room.create` and the `m.room.history_visibility` state events to
