@@ -18,6 +18,10 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 [features]
 js = ["wasm-bindgen-futures"]
 uniffi = ["dep:uniffi"]
+# Private feature, see
+# https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
+# details.
+test-send-sync = []
 
 [dependencies]
 async-trait = { workspace = true }

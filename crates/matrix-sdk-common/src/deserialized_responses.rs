@@ -308,6 +308,22 @@ pub struct EncryptionInfo {
 /// Previously, this differed from [`TimelineEvent`] by wrapping an
 /// [`AnySyncTimelineEvent`] instead of an [`AnyTimelineEvent`], but nowadays
 /// they are essentially identical, and one of them should probably be removed.
+//
+// 🚨 Note about this type, please read! 🚨
+//
+// `SyncTimelineEvent` is heavily used across the SDK crates. In some cases, we
+// are reaching a [`recursion_limit`] when the compiler is trying to figure out
+// if `SyncTimelineEvent` implements `Sync` when it's embedded in other types.
+//
+// We want to help the compiler so that one doesn't need to increase the
+// `recursion_limit`. We stop the recursive check by (un)safely implement `Sync`
+// and `Send` on `SyncTimelineEvent` directly.
+//
+// See
+// https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823
+// which has addressed this issue first
+//
+// [`recursion_limit`]: https://doc.rust-lang.org/reference/attributes/limits.html#the-recursion_limit-attribute
 #[derive(Clone, Debug, Serialize)]
 pub struct SyncTimelineEvent {
     /// The event itself, together with any information on decryption.
@@ -316,6 +332,23 @@ pub struct SyncTimelineEvent {
     /// The push actions associated with this event.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub push_actions: Vec<Action>,
+}
+
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+#[cfg(not(feature = "test-send-sync"))]
+unsafe impl Send for SyncTimelineEvent {}
+
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+#[cfg(not(feature = "test-send-sync"))]
+unsafe impl Sync for SyncTimelineEvent {}
+
+#[cfg(feature = "test-send-sync")]
+#[test]
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+fn test_send_sync_for_sync_timeline_event() {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<SyncTimelineEvent>();
 }
 
 impl SyncTimelineEvent {
