@@ -315,14 +315,11 @@ pub struct EncryptionInfo {
 //
 // We want to help the compiler so that one doesn't need to increase the
 // `recursion_limit`. We stop the recursive check by (un)safely implement `Sync`
-// and `Send` on `SyncTimelineEvent` directly. However, before doing that, we
-// need to ensure that every field of `SyncTimelineEvent` implements `Sync` and
-// `Send` too. That's why we have `assert_sync_and_send` in a const expression
-// so that it is checked at compile-time. If these checks pass, we can (un)safely
-// implement `Sync` and `Send` for `SyncTimelineEvent`.
+// and `Send` on `SyncTimelineEvent` directly.
 //
-// If a field must be added to this type, please update the calls to
-// `assert_sync_and_send`.
+// See
+// https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823
+// which has adressed this issue first
 //
 // [`recursion_limit`]: https://doc.rust-lang.org/reference/attributes/limits.html#the-recursion_limit-attribute
 #[derive(Clone, Debug, Serialize)]
@@ -335,20 +332,22 @@ pub struct SyncTimelineEvent {
     pub push_actions: Vec<Action>,
 }
 
-const _: fn() = || {
-    fn assert_sync_and_send<T: ?Sized + Sync + Send>() {}
-
-    // `SyncTimelineEvent::kind` is of type `TimelineEventKind`.
-    assert_sync_and_send::<TimelineEventKind>();
-
-    // `SyncTimelineEvent::push_actions` is of type `Vec<Action>`.
-    assert_sync_and_send::<Vec<Action>>();
-};
-
-// All fields of `SyncTimelineEvent` implements `Sync` and `Send`: we can safely
-// implement `Sync` and `Send` for `SyncTimelineEvent` directly.
-unsafe impl Sync for SyncTimelineEvent {}
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+#[cfg(not(feature = "test-send-sync"))]
 unsafe impl Send for SyncTimelineEvent {}
+
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+#[cfg(not(feature = "test-send-sync"))]
+unsafe impl Sync for SyncTimelineEvent {}
+
+#[cfg(feature = "test-send-sync")]
+#[test]
+// See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
+fn test_send_sync_for_sync_timeline_event() {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<SyncTimelineEvent>();
+}
 
 impl SyncTimelineEvent {
     /// Create a new `SyncTimelineEvent` from the given raw event.
