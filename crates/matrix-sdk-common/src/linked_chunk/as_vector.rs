@@ -99,7 +99,7 @@ impl UpdateToVectorDiff {
         let mut initial_chunk_lengths = VecDeque::new();
 
         for chunk in chunk_iterator {
-            initial_chunk_lengths.push_front((
+            initial_chunk_lengths.push_back((
                 chunk.identifier(),
                 match chunk.content() {
                     ChunkContent::Gap(_) => 0,
@@ -773,7 +773,7 @@ mod tests {
     }
 
     #[test]
-    fn updates_are_drained_when_constructing_as_vector() {
+    fn test_updates_are_drained_when_constructing_as_vector() {
         let mut linked_chunk = LinkedChunk::<10, char, ()>::new_with_update_history();
 
         linked_chunk.push_items_back(['a']);
@@ -791,6 +791,40 @@ mod tests {
 
         // `diffs` is not empty because new updates are coming.
         assert_eq!(diffs.len(), 1);
+    }
+
+    #[test]
+    fn test_as_vector_with_initial_content() {
+        // Fill the linked chunk with some initial items.
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+
+        #[rustfmt::skip]
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d']);
+
+        // Empty updates first.
+        let _ = linked_chunk.updates().take();
+
+        // Start observing future updates.
+        let mut as_vector = linked_chunk.as_vector().unwrap();
+
+        assert!(as_vector.take().is_empty());
+
+        // It's important to cause a change that will create new chunks, like pushing
+        // enough items.
+        linked_chunk.push_items_back(['e', 'f', 'g']);
+        #[rustfmt::skip]
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g']);
+
+        // And the vector diffs can be computed without crashing.
+        let diffs = as_vector.take();
+        assert_eq!(diffs.len(), 2);
+        assert_matches!(&diffs[0], VectorDiff::Append { values } => {
+            assert_eq!(*values, ['e', 'f'].into());
+        });
+        assert_matches!(&diffs[1], VectorDiff::Append { values } => {
+            assert_eq!(*values, ['g'].into());
+        });
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -824,7 +858,7 @@ mod tests {
 
         proptest! {
             #[test]
-            fn as_vector_is_correct(
+            fn test_as_vector_is_correct(
                 operations in prop::collection::vec(as_vector_operation_strategy(), 50..=200)
             ) {
                 let mut linked_chunk = LinkedChunk::<10, char, ()>::new_with_update_history();
