@@ -683,7 +683,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         origin: RemoteEventOrigin,
     ) {
         if diffs.is_empty() {
-            return Default::default();
+            return;
         }
 
         let mut state = self.state.write().await;

@@ -165,7 +165,7 @@ impl TimelineState {
         RoomData: RoomDataProvider,
     {
         if diffs.is_empty() {
-            return Default::default();
+            return;
         }
 
         let mut transaction = self.transaction();
