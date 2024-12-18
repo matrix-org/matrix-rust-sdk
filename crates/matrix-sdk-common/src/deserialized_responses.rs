@@ -260,6 +260,7 @@ pub enum ShieldStateCode {
     /// An unencrypted event in an encrypted room.
     SentInClear,
     /// The sender was previously verified but changed their identity.
+    #[serde(alias = "PreviouslyVerified")]
     VerificationViolation,
 }
 
@@ -815,7 +816,7 @@ mod tests {
         TimelineEventKind, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
         UnsignedEventLocation, VerificationState,
     };
-    use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
+    use crate::deserialized_responses::{DeviceLinkProblem, ShieldStateCode, VerificationLevel};
 
     fn example_event() -> serde_json::Value {
         json!({
@@ -922,6 +923,40 @@ mod tests {
 
         // Then it is migrated to the new value
         assert_eq!(deserialized.verification_level, VerificationLevel::VerificationViolation);
+    }
+
+    #[test]
+    fn test_shield_state_code_deserializes() {
+        // Given a JSON ShieldStateCode with value VerificationViolation
+        #[derive(Deserialize)]
+        struct Container {
+            shield_state_code: ShieldStateCode,
+        }
+        let container = json!({ "shield_state_code": "VerificationViolation" });
+
+        // When we deserialize it
+        let deserialized: Container = serde_json::from_value(container)
+            .expect("We can deserialize the old PreviouslyVerified value");
+
+        // Then it is populated correctly
+        assert_eq!(deserialized.shield_state_code, ShieldStateCode::VerificationViolation);
+    }
+
+    #[test]
+    fn test_shield_state_code_deserializes_from_old_previously_verified_value() {
+        // Given a JSON ShieldStateCode with the old value PreviouslyVerified
+        #[derive(Deserialize)]
+        struct Container {
+            shield_state_code: ShieldStateCode,
+        }
+        let container = json!({ "shield_state_code": "PreviouslyVerified" });
+
+        // When we deserialize it
+        let deserialized: Container = serde_json::from_value(container)
+            .expect("We can deserialize the old PreviouslyVerified value");
+
+        // Then it is migrated to the new value
+        assert_eq!(deserialized.shield_state_code, ShieldStateCode::VerificationViolation);
     }
 
     #[test]
