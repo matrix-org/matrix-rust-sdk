@@ -1279,7 +1279,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// algorithm.
     //
     // Note: this method doesn't take `&mut self` to avoid a borrow checker
-    // conflict with `TimelineEventHandler::add_item`. It's fine.
+    // conflict with `TimelineEventHandler::add_item`.
     fn deduplicate_local_timeline_item(
         items: &mut ObservableItemsTransaction<'_>,
         new_event_timeline_item: &mut EventTimelineItem,
@@ -1357,7 +1357,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// case it replaces a local timeline item.
     //
     // Note: this method doesn't take `&mut self` to avoid a borrow checker
-    // conflict with `Self::add_item`. It's fine.
+    // conflict with `Self::add_item`.
     fn new_timeline_item(
         metadata: &mut TimelineMetadata,
         event_timeline_item: EventTimelineItem,
