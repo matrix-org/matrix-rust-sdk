@@ -1221,21 +1221,14 @@ impl Room {
             }
         }
 
-        let mut current_seen_events_guard = self.seen_knock_request_ids_map.write().await;
+        let current_seen_events_guard = self.get_write_guarded_current_knock_request_ids().await?;
         // We're not calling `get_seen_join_request_ids` here because we need to keep
         // the Mutex's guard until we've updated the data
-        let mut current_seen_events = if current_seen_events_guard.is_none() {
-            self.load_cached_knock_request_ids().await?
-        } else {
-            current_seen_events_guard.clone().unwrap()
-        };
+        let mut current_seen_events = current_seen_events_guard.clone().unwrap_or_default();
 
         current_seen_events.extend(event_to_user_ids);
 
-        ObservableWriteGuard::set(
-            &mut current_seen_events_guard,
-            Some(current_seen_events.clone()),
-        );
+        self.update_seen_knock_request_ids(current_seen_events_guard, current_seen_events).await?;
 
         self.store
             .set_kv_data(
@@ -1251,27 +1244,46 @@ impl Room {
     pub async fn get_seen_knock_request_ids(
         &self,
     ) -> Result<BTreeMap<OwnedEventId, OwnedUserId>, StoreError> {
-        let mut guard = self.seen_knock_request_ids_map.write().await;
-        if guard.is_none() {
-            ObservableWriteGuard::set(
-                &mut guard,
-                Some(self.load_cached_knock_request_ids().await?),
-            );
-        }
-        Ok(guard.clone().unwrap_or_default())
+        Ok(self.get_write_guarded_current_knock_request_ids().await?.clone().unwrap_or_default())
     }
 
-    /// This loads the current list of seen knock request ids from the state
-    /// store.
-    async fn load_cached_knock_request_ids(
+    async fn get_write_guarded_current_knock_request_ids(
         &self,
-    ) -> StoreResult<BTreeMap<OwnedEventId, OwnedUserId>> {
-        Ok(self
-            .store
-            .get_kv_data(StateStoreDataKey::SeenKnockRequests(self.room_id()))
-            .await?
-            .and_then(|v| v.into_seen_knock_requests())
-            .unwrap_or_default())
+    ) -> StoreResult<ObservableWriteGuard<'_, Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>>
+    {
+        let mut guard = self.seen_knock_request_ids_map.write().await;
+        // If there are no loaded request ids yet
+        if guard.is_none() {
+            // Load the values from the store and update the shared observable contents
+            let updated_seen_ids = self
+                .store
+                .get_kv_data(StateStoreDataKey::SeenKnockRequests(self.room_id()))
+                .await?
+                .and_then(|v| v.into_seen_knock_requests())
+                .unwrap_or_default();
+
+            ObservableWriteGuard::set(&mut guard, Some(updated_seen_ids));
+        }
+        Ok(guard)
+    }
+
+    async fn update_seen_knock_request_ids(
+        &self,
+        mut guard: ObservableWriteGuard<'_, Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
+        new_value: BTreeMap<OwnedEventId, OwnedUserId>,
+    ) -> StoreResult<()> {
+        // Save the new values to the shared observable
+        ObservableWriteGuard::set(&mut guard, Some(new_value.clone()));
+
+        // Save them into the store too
+        self.store
+            .set_kv_data(
+                StateStoreDataKey::SeenKnockRequests(self.room_id()),
+                StateStoreDataValue::SeenKnockRequests(new_value),
+            )
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -2135,13 +2147,7 @@ mod tests {
     use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState, SyncInfo};
     #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
     use crate::latest_event::LatestEvent;
-    use crate::{
-        rooms::RoomNotableTags,
-        store::{IntoStateStore, MemoryStore, StateChanges, StateStore, StoreConfig},
-        test_utils::logged_in_base_client,
-        BaseClient, MinimalStateEvent, OriginalMinimalStateEvent, RoomDisplayName,
-        RoomInfoNotableUpdateReasons, RoomStateFilter, SessionMeta,
-    };
+    use crate::{rooms::RoomNotableTags, store::{IntoStateStore, MemoryStore, StateChanges, StateStore, StoreConfig}, test_utils::logged_in_base_client, BaseClient, MinimalStateEvent, OriginalMinimalStateEvent, RoomDisplayName, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomStateFilter, SessionMeta};
 
     #[test]
     #[cfg(feature = "experimental-sliding-sync")]
