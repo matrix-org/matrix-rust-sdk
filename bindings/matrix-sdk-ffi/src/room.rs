@@ -924,13 +924,15 @@ impl Room {
         self: Arc<Self>,
         listener: Box<dyn KnockRequestsListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
-        let stream = self.inner.subscribe_to_knock_requests().await?;
+        let (stream, seen_ids_cleanup_handle) = self.inner.subscribe_to_knock_requests().await?;
 
         let handle = Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(stream);
             while let Some(requests) = stream.next().await {
                 listener.call(requests.into_iter().map(Into::into).collect());
             }
+            // Cancel the seen ids cleanup task
+            seen_ids_cleanup_handle.abort();
         })));
 
         Ok(handle)
