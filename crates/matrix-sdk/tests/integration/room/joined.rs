@@ -947,4 +947,109 @@ async fn test_subscribe_to_requests_to_join_reloads_members_on_limited_sync() {
 
     // There should be no other knock requests
     assert_pending!(stream)
+    assert_pending!(stream);
+
+    handle.abort();
+}
+
+#[async_test]
+async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id);
+
+    let user_id = user_id!("@alice:b.c");
+    let knock_event_id = event_id!("$alice-knock:b.c");
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(knock_event_id)
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    // When syncing the room, we'll have a knock request coming from alice
+    let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![knock_event])).await;
+
+    // We then mark the knock request as seen
+    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+
+    // Now it's received again as seen
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert_eq!(seen.len(), 1);
+
+    // If we then load the members again and the previously knocking member is in
+    // another state now
+    let joined_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Join))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
+
+    room.mark_members_missing();
+    room.sync_members().await.expect("could not reload room members");
+
+    // Calling remove outdated seen knock request ids will remove the seen id
+    room.remove_outdated_seen_knock_requests_ids().await.expect("could not remove outdated seen knock request ids");
+
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert!(seen.is_empty());
+}
+
+#[async_test]
+async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_knock() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id);
+
+    let user_id = user_id!("@alice:b.c");
+    let knock_event_id = event_id!("$alice-knock:b.c");
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(knock_event_id)
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    // When syncing the room, we'll have a knock request coming from alice
+    let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![knock_event])).await;
+
+    // We then mark the knock request as seen
+    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+
+    // Now it's received again as seen
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert_eq!(seen.len(), 1);
+
+    // If we then load the members again and the previously knocking member has a different event id
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(event_id!("$knock-2:b.c"))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
+
+    room.mark_members_missing();
+    room.sync_members().await.expect("could not reload room members");
+
+    // Calling remove outdated seen knock request ids will remove the seen id
+    room.remove_outdated_seen_knock_requests_ids().await.expect("could not remove outdated seen knock request ids");
+
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert!(seen.is_empty());
 }
