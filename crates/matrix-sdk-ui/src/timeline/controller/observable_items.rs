@@ -1361,6 +1361,11 @@ mod all_remote_events_tests {
 
         assert_eq!(events.iter().count(), 3);
 
+        // Test a few combinations.
+        assert_eq!(events.range(..).count(), 3);
+        assert_eq!(events.range(1..).count(), 2);
+        assert_eq!(events.range(0..=1).count(), 2);
+
         // Iterate on some of them.
         let mut some_events = events.range(1..);
 
