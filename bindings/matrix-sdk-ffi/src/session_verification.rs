@@ -13,7 +13,7 @@ use ruma::UserId;
 use tracing::{error, info};
 
 use super::RUNTIME;
-use crate::error::ClientError;
+use crate::{error::ClientError, utils::Timestamp};
 
 #[derive(uniffi::Object)]
 pub struct SessionVerificationEmoji {
@@ -46,7 +46,7 @@ pub struct SessionVerificationRequestDetails {
     device_id: String,
     display_name: Option<String>,
     /// First time this device was seen in milliseconds since epoch.
-    first_seen_timestamp: u64,
+    first_seen_timestamp: Timestamp,
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -242,7 +242,7 @@ impl SessionVerificationController {
                     flow_id: request.flow_id().into(),
                     device_id: other_device_data.device_id().into(),
                     display_name: other_device_data.display_name().map(str::to_string),
-                    first_seen_timestamp: other_device_data.first_time_seen_ts().get().into(),
+                    first_seen_timestamp: other_device_data.first_time_seen_ts().into(),
                 });
             }
         }

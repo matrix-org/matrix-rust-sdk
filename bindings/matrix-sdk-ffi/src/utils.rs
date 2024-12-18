@@ -15,8 +15,19 @@
 use std::{mem::ManuallyDrop, ops::Deref};
 
 use async_compat::TOKIO1 as RUNTIME;
-use ruma::UInt;
+use ruma::{MilliSecondsSinceUnixEpoch, UInt};
 use tracing::warn;
+
+#[derive(Debug, Clone)]
+pub struct Timestamp(u64);
+
+impl From<MilliSecondsSinceUnixEpoch> for Timestamp {
+    fn from(date: MilliSecondsSinceUnixEpoch) -> Self {
+        Self(date.0.into())
+    }
+}
+
+uniffi::custom_newtype!(Timestamp, u64);
 
 pub(crate) fn u64_to_uint(u: u64) -> UInt {
     UInt::new(u).unwrap_or_else(|| {

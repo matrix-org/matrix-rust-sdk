@@ -146,7 +146,7 @@ impl PollState {
                 .iter()
                 .map(|i| ((*i.0).to_owned(), i.1.iter().map(|i| i.to_string()).collect()))
                 .collect(),
-            end_time: self.end_event_timestamp.map(|millis| millis.0.into()),
+            end_time: self.end_event_timestamp,
             has_been_edited: self.has_been_edited,
         }
     }
@@ -178,7 +178,7 @@ pub struct PollResult {
     pub max_selections: u64,
     pub answers: Vec<PollResultAnswer>,
     pub votes: HashMap<String, Vec<String>>,
-    pub end_time: Option<u64>,
+    pub end_time: Option<MilliSecondsSinceUnixEpoch>,
     pub has_been_edited: bool,
 }
 
