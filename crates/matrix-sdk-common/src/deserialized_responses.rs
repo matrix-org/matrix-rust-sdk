@@ -907,7 +907,7 @@ mod tests {
     use std::{collections::BTreeMap, vec};
 
     use assert_matches::assert_matches;
-    use insta::assert_json_snapshot;
+    use insta::{assert_json_snapshot, with_settings};
     use ruma::{
         device_id, event_id,
         events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
@@ -1349,9 +1349,11 @@ mod tests {
             sender_claimed_keys: map,
         };
 
-        assert_json_snapshot! {
-            serde_json::to_value(&info).unwrap(),
-        }
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot! {
+                serde_json::to_value(&info).unwrap(),
+            }
+        })
     }
 
     #[test]
@@ -1366,8 +1368,10 @@ mod tests {
             verification_state: VerificationState::Verified,
         };
 
-        assert_json_snapshot! {
-            serde_json::to_value(&info).unwrap(),
-        }
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot! {
+                serde_json::to_value(&info).unwrap(),
+            }
+        });
     }
 }
