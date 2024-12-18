@@ -607,7 +607,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         replacement: PendingEdit,
     ) {
         match position {
-            TimelineItemPosition::Start { .. } | TimelineItemPosition::UpdateDecrypted { .. } => {
+            TimelineItemPosition::Start { .. }
+            | TimelineItemPosition::At { .. }
+            | TimelineItemPosition::UpdateDecrypted { .. } => {
                 // Only insert the edit if there wasn't any other edit
                 // before.
                 //
@@ -631,7 +633,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             }
 
-            TimelineItemPosition::At { .. } | TimelineItemPosition::End { .. } => {
+            TimelineItemPosition::End { .. } => {
                 // This is a more recent edit, coming either live from sync or from a
                 // forward-pagination: it's fine to overwrite the previous one, if
                 // available.
