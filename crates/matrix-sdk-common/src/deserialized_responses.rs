@@ -907,6 +907,7 @@ mod tests {
     use std::{collections::BTreeMap, vec};
 
     use assert_matches::assert_matches;
+    use insta::assert_json_snapshot;
     use ruma::{
         device_id, event_id,
         events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
@@ -1252,29 +1253,28 @@ mod tests {
     #[test]
     fn snapshot_test_verification_level() {
         let level = VerificationLevel::VerificationViolation;
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&level).unwrap(),
         }
 
         let level = VerificationLevel::UnsignedDevice;
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&level).unwrap(),
         }
 
         let level = VerificationLevel::None(DeviceLinkProblem::InsecureSource);
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&level).unwrap(),
         }
 
         let level = VerificationLevel::None(DeviceLinkProblem::MissingDevice);
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&level).unwrap(),
         }
 
         let level = VerificationLevel::UnverifiedIdentity;
-        insta::assert_json_snapshot! {
-            serde_json::to_value(&level).unwrap(),
-            @r###""UnverifiedIdentity""###
+        assert_json_snapshot! {
+            serde_json::to_value(&level).unwrap()
         }
     }
 
@@ -1293,7 +1293,7 @@ mod tests {
         ];
 
         for state in states {
-            insta::assert_json_snapshot! {
+            assert_json_snapshot! {
                 serde_json::to_value(&state).unwrap(),
             }
         }
@@ -1302,13 +1302,13 @@ mod tests {
     #[test]
     fn snapshot_test_shield_states() {
         let state = ShieldState::None;
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&state).unwrap(),
         }
 
         let state =
             ShieldState::Red { code: ShieldStateCode::UnverifiedIdentity, message: "a message" };
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&state).unwrap(),
         }
 
@@ -1316,7 +1316,7 @@ mod tests {
             code: ShieldStateCode::AuthenticityNotGuaranteed,
             message: "authenticity of this message cannot be guaranteed",
         };
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&state).unwrap(),
         }
     }
@@ -1333,7 +1333,7 @@ mod tests {
         ];
 
         for code in codes {
-            insta::assert_json_snapshot! {
+            assert_json_snapshot! {
                 serde_json::to_value(code).unwrap(),
             }
         }
@@ -1349,7 +1349,7 @@ mod tests {
             sender_claimed_keys: map,
         };
 
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&info).unwrap(),
         }
     }
@@ -1366,7 +1366,7 @@ mod tests {
             verification_state: VerificationState::Verified,
         };
 
-        insta::assert_json_snapshot! {
+        assert_json_snapshot! {
             serde_json::to_value(&info).unwrap(),
         }
     }
