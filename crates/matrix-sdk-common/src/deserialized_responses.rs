@@ -1443,4 +1443,47 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn snapshot_test_sync_timeline_event() {
+        let room_event = SyncTimelineEvent {
+            kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
+                event: Raw::new(&example_event()).unwrap().cast(),
+                encryption_info: EncryptionInfo {
+                    sender: user_id!("@sender:example.com").to_owned(),
+                    sender_device: Some(device_id!("ABCDEFGHIJ").to_owned()),
+                    algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                        curve25519_key: "xxx".to_owned(),
+                        sender_claimed_keys: BTreeMap::from([
+                            (
+                                DeviceKeyAlgorithm::Ed25519,
+                                "I3YsPwqMZQXHkSQbjFNEs7b529uac2xBpI83eN3LUXo".to_owned(),
+                            ),
+                            (
+                                DeviceKeyAlgorithm::Curve25519,
+                                "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY".to_owned(),
+                            ),
+                        ]),
+                    },
+                    verification_state: VerificationState::Verified,
+                },
+                unsigned_encryption_info: Some(BTreeMap::from([(
+                    UnsignedEventLocation::RelationsThreadLatestEvent,
+                    UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
+                        session_id: Some("xyz".to_owned()),
+                        reason: UnableToDecryptReason::MissingMegolmSession {
+                            withheld_code: Some(WithheldCode::Unverified),
+                        },
+                    }),
+                )])),
+            }),
+            push_actions: Default::default(),
+        };
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot! {
+                serde_json::to_value(&room_event).unwrap(),
+            }
+        });
+    }
 }
