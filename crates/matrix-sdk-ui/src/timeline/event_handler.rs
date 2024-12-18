@@ -1118,8 +1118,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.meta,
                     self.settings,
                 );
-                let item =
-                    Self::new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
+                let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 trace!("Adding new remote timeline item at the start");
 
@@ -1140,8 +1139,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.meta,
                     self.settings,
                 );
-                let item =
-                    Self::new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
+                let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 let all_remote_events = self.items.all_remote_events();
 
@@ -1197,8 +1195,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.meta,
                     self.settings,
                 );
-                let item =
-                    Self::new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
+                let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 // Local events are always at the bottom. Let's find the latest remote event
                 // and insert after it, otherwise, if there is no remote event, insert at 0.
@@ -1350,29 +1347,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         None
     }
 
-    /// Create a new timeline item from an [`EventTimelineItem`].
-    ///
-    /// It is possible that the new timeline item replaces a duplicated timeline
-    /// event (see [`TimelineEventHandler::deduplicate_local_timeline_item`]) in
-    /// case it replaces a local timeline item.
-    //
-    // Note: this method doesn't take `&mut self` to avoid a borrow checker
-    // conflict with `Self::add_item`.
-    fn new_timeline_item(
-        metadata: &mut TimelineMetadata,
-        event_timeline_item: EventTimelineItem,
-        replaced_timeline_item: Option<Arc<TimelineItem>>,
-    ) -> Arc<TimelineItem> {
-        match replaced_timeline_item {
-            // Reuse the internal ID.
-            Some(to_replace_timeline_item) => {
-                TimelineItem::new(event_timeline_item, to_replace_timeline_item.internal_id.clone())
-            }
-
-            None => metadata.new_timeline_item(event_timeline_item),
-        }
-    }
-
     /// After updating the timeline item `new_item` which id is
     /// `target_event_id`, update other items that are responses to this item.
     fn maybe_update_responses(
@@ -1448,5 +1422,25 @@ fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineIt
 
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();
+    }
+}
+
+/// Create a new timeline item from an [`EventTimelineItem`].
+///
+/// It is possible that the new timeline item replaces a duplicated timeline
+/// event (see [`TimelineEventHandler::deduplicate_local_timeline_item`]) in
+/// case it replaces a local timeline item.
+fn new_timeline_item(
+    metadata: &mut TimelineMetadata,
+    event_timeline_item: EventTimelineItem,
+    replaced_timeline_item: Option<Arc<TimelineItem>>,
+) -> Arc<TimelineItem> {
+    match replaced_timeline_item {
+        // Reuse the internal ID.
+        Some(to_replace_timeline_item) => {
+            TimelineItem::new(event_timeline_item, to_replace_timeline_item.internal_id.clone())
+        }
+
+        None => metadata.new_timeline_item(event_timeline_item),
     }
 }
