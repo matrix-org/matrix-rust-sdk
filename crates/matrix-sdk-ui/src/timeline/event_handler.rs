@@ -1143,43 +1143,39 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let item =
                     Self::new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
+                let all_remote_events = self.items.all_remote_events();
+
                 let event_index = *event_index;
-                let timeline_item_index = self
-                    .items
-                    .all_remote_events()
-                    // The remote events at the left.
-                    //
-                    // Note: the case where `event_index = 0` is matched with
-                    // `TimelineItemPosition::Start`.
+
+                // Look for the closest `timeline_item_index` at the left of `event_index`.
+                let timeline_item_index = all_remote_events
                     .range(0..=event_index)
                     .rev()
                     .find_map(|event_meta| event_meta.timeline_item_index)
                     // The new `timeline_item_index` is the previous + 1.
-                    .map(|timeline_item_index| timeline_item_index + 1)
-                    //
-                    // No index? Look for the closest `timeline_item_index` at the right of the
-                    // current events.
-                    .or_else(|| {
-                        self.items
-                            .all_remote_events()
-                            // The events at the right.
-                            .range(event_index + 1..)
-                            .find_map(|event_meta| event_meta.timeline_item_index)
-                    })
-                    //
-                    // No index? Well, it means there is no existing `timeline_item_index`
-                    // so we are inserting at the last non-local item position as a fallback.
-                    .unwrap_or_else(|| {
-                        self.items
-                            .iter()
-                            .enumerate()
-                            .rev()
-                            .find_map(|(timeline_item_index, timeline_item)| {
-                                (!timeline_item.as_event()?.is_local_echo())
-                                    .then_some(timeline_item_index + 1)
-                            })
-                            .unwrap_or(0)
-                    });
+                    .map(|timeline_item_index| timeline_item_index + 1);
+
+                // No index? Look for the closest `timeline_item_index` at the right of
+                // `event_index`.
+                let timeline_item_index = timeline_item_index.or_else(|| {
+                    all_remote_events
+                        .range(event_index + 1..)
+                        .find_map(|event_meta| event_meta.timeline_item_index)
+                });
+
+                // Still no index? Well, it means there is no existing `timeline_item_index`
+                // so we are inserting at the last non-local item position as a fallback.
+                let timeline_item_index = timeline_item_index.unwrap_or_else(|| {
+                    self.items
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find_map(|(timeline_item_index, timeline_item)| {
+                            (!timeline_item.as_event()?.is_local_echo())
+                                .then_some(timeline_item_index + 1)
+                        })
+                        .unwrap_or(0)
+                });
 
                 trace!(
                     ?event_index,
