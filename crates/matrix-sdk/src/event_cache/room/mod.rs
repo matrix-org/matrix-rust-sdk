@@ -540,9 +540,9 @@ impl RoomEventCacheInner {
                         room_events.push_gap(Gap { prev_token: prev_token.clone() });
                     }
 
-                    let add_event_report = room_events.push_events(sync_timeline_events.clone());
+                    let added_unique_events = room_events.push_events(sync_timeline_events.clone());
 
-                    if add_event_report.deduplicated_all_new_events() {
+                    if !added_unique_events {
                         debug!(
                             "not storing previous batch token, because we deduplicated all new sync events"
                         );
@@ -1524,7 +1524,7 @@ mod tests {
         assert_eq!(items[1].event_id().unwrap(), event_id2);
 
         // A new update with one of these events leads to deduplication.
-        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev1] };
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
         room_event_cache
             .inner
             .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
@@ -1537,8 +1537,8 @@ mod tests {
         // element anymore), and it's added to the back of the list.
         let (items, _stream) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0].event_id().unwrap(), event_id2);
-        assert_eq!(items[1].event_id().unwrap(), event_id1);
+        assert_eq!(items[0].event_id().unwrap(), event_id1);
+        assert_eq!(items[1].event_id().unwrap(), event_id2);
     }
 
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.

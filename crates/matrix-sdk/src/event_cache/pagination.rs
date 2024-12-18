@@ -185,7 +185,7 @@ impl RoomPagination {
                 let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
                 // First, insert events.
-                let (add_event_report, insert_new_gap_pos) = if let Some(gap_id) = prev_gap_id {
+                let (added_unique_events, insert_new_gap_pos) = if let Some(gap_id) = prev_gap_id {
                     // There is a prior gap, let's replace it by new events!
                     trace!("replaced gap with new events from backpagination");
                     room_events
@@ -213,7 +213,7 @@ impl RoomPagination {
                 // We only do this when at least one new, non-duplicated event, has been added
                 // to the chunk. Otherwise it means we've back-paginated all the
                 // known events.
-                if !add_event_report.deduplicated_all_new_events() {
+                if added_unique_events {
                     if let Some(new_gap) = new_gap {
                         if let Some(new_pos) = insert_new_gap_pos {
                             room_events
