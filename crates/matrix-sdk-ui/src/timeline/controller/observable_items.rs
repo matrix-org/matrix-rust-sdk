@@ -1173,7 +1173,7 @@ impl AllRemoteEvents {
     }
 
     /// Return a front-to-back iterator covering ranges of all remote events
-    /// describes by `range`.
+    /// described by `range`.
     pub fn range<R>(&self, range: R) -> Iter<'_, EventMeta>
     where
         R: RangeBounds<usize>,
