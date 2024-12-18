@@ -46,6 +46,7 @@ hmac = "0.12.1"
 http = "1.1.0"
 imbl = "3.0.0"
 indexmap = "2.6.0"
+insta = { version = "1.41.1", features = ["json"] }
 itertools = "0.13.0"
 js-sys = "0.3.69"
 mime = "0.3.17"
