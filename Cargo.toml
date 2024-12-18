@@ -124,6 +124,9 @@ debug = 0
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.
 quote = { opt-level = 2 }
 sha2 = { opt-level = 2 }
+# faster runs for insta.rs snapshot testing
+insta.opt-level = 3
+similar.opt-level = 3
 
 # Custom profile with full debugging info, use `--profile dbg` to select
 [profile.dbg]

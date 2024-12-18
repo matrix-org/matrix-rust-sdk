@@ -46,6 +46,7 @@ assert_matches = { workspace = true }
 proptest = { workspace = true }
 matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
 wasm-bindgen-test = { workspace = true }
+insta = { version = "1.41.1", features = ["json"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Enable the test macro.
