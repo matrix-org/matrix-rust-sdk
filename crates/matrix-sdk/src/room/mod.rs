@@ -1813,7 +1813,7 @@ impl Room {
         // A member has no unknown devices iff it was tracked *and* the tracking is
         // not considered dirty.
         let members_with_unknown_devices =
-            members.iter().filter(|member| tracked.get(*member).map_or(true, |dirty| *dirty));
+            members.iter().filter(|member| tracked.get(*member).is_none_or(|dirty| *dirty));
 
         let (req_id, request) =
             olm.query_keys_for_users(members_with_unknown_devices.map(|owned| owned.borrow()));
