@@ -558,12 +558,18 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     alice_sync.abort();
 
     // Let's get the timeline and backpaginate to load the event.
-    let mut timeline =
+    let timeline =
         bob_room.timeline().await.expect("We should be able to get a timeline for our room");
 
     let mut item = None;
 
     for _ in 0..10 {
+        {
+            // Clear any previously received previous-batch token.
+            let (room_event_cache, _drop_handles) = bob_room.event_cache().await.unwrap();
+            room_event_cache.clear().await.unwrap();
+        }
+
         timeline
             .paginate_backwards(50)
             .await
@@ -572,10 +578,9 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         if let Some(timeline_item) = timeline.item_by_event_id(&event_id).await {
             item = Some(timeline_item);
             break;
-        } else {
-            timeline = bob_room.timeline().await.expect("We should be able to reset our timeline");
-            sleep(Duration::from_millis(100)).await
         }
+
+        sleep(Duration::from_millis(100)).await
     }
 
     let item = item.expect("The event should be in the timeline by now");
