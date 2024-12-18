@@ -47,7 +47,11 @@ use matrix_sdk_base::{
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
 };
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
+use matrix_sdk_common::{
+    deserialized_responses::SyncTimelineEvent,
+    executor::{spawn, JoinHandle},
+    timeout::timeout,
+};
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -3224,9 +3228,12 @@ impl Room {
     /// - A knock request is marked as seen.
     /// - A sync is gappy (limited), so room membership information may be
     ///   outdated.
+    ///
+    /// Returns both a stream of knock requests and a handle for a task that
+    /// will clean up the seen knock request ids when possible.
     pub async fn subscribe_to_knock_requests(
         &self,
-    ) -> Result<impl Stream<Item = Vec<KnockRequest>>> {
+    ) -> Result<(impl Stream<Item = Vec<KnockRequest>>, JoinHandle<()>)> {
         let this = Arc::new(self.clone());
 
         let room_member_events_observer =
@@ -3240,6 +3247,21 @@ impl Room {
             .map(|values| values.unwrap_or_default());
 
         let mut room_info_stream = self.subscribe_info();
+
+        // Spawn a task that will clean up the seen knock request ids when updated room
+        // members are received
+        let clear_seen_ids_handle = spawn({
+            let this = self.clone();
+            async move {
+                let mut member_updates_stream = this.room_member_updates_sender.subscribe();
+                while member_updates_stream.recv().await.is_ok() {
+                    // If room members were updated, try to remove outdated seen knock request ids
+                    if let Err(err) = this.remove_outdated_seen_knock_requests_ids().await {
+                        warn!("Failed to remove seen knock requests: {err}")
+                    }
+                }
+            }
+        });
 
         let combined_stream = stream! {
             // Emit current requests to join
@@ -3315,7 +3337,7 @@ impl Room {
             }
         };
 
-        Ok(combined_stream)
+        Ok((combined_stream, clear_seen_ids_handle))
     }
 
     async fn get_current_join_requests(
