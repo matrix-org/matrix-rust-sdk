@@ -1102,7 +1102,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
 
-                let item = Self::new_timeline_item(self.meta, item, None);
+                let item = self.meta.new_timeline_item(item);
 
                 self.items.push_back(item, None);
             }
