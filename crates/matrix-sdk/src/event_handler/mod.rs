@@ -1167,4 +1167,78 @@ mod tests {
 
         Ok(())
     }
+
+    #[async_test]
+    async fn test_observe_several_room_events() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+
+        let room_id = room_id!("!r0.matrix.org");
+
+        let observable_for_room =
+            client.observe_room_events::<OriginalSyncRoomNameEvent, (Room, Client)>(room_id);
+
+        let mut subscriber_for_room = observable_for_room.subscribe();
+
+        assert_pending!(subscriber_for_room);
+
+        let mut response_builder = SyncResponseBuilder::new();
+        let response = response_builder
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(StateTestEvent::Custom(json!({
+                        "content": {
+                            "name": "Name 0"
+                        },
+                        "event_id": "$ev0",
+                        "origin_server_ts": 1,
+                        "sender": "@mnt_io:matrix.org",
+                        "state_key": "",
+                        "type": "m.room.name",
+                        "unsigned": {
+                            "age": 1,
+                        }
+                    })))
+                    .add_state_event(StateTestEvent::Custom(json!({
+                        "content": {
+                            "name": "Name 1"
+                        },
+                        "event_id": "$ev1",
+                        "origin_server_ts": 2,
+                        "sender": "@mnt_io:matrix.org",
+                        "state_key": "",
+                        "type": "m.room.name",
+                        "unsigned": {
+                            "age": 1,
+                        }
+                    })))
+                    .add_state_event(StateTestEvent::Custom(json!({
+                        "content": {
+                            "name": "Name 2"
+                        },
+                        "event_id": "$ev2",
+                        "origin_server_ts": 3,
+                        "sender": "@mnt_io:matrix.org",
+                        "state_key": "",
+                        "type": "m.room.name",
+                        "unsigned": {
+                            "age": 1,
+                        }
+                    }))),
+            )
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let (room_name, (room, _client)) = assert_ready!(subscriber_for_room);
+
+        // Check we only get notified about the latest received event
+        assert_eq!(room_name.event_id.as_str(), "$ev2");
+        assert_eq!(room.name().unwrap(), "Name 2");
+
+        assert_pending!(subscriber_for_room);
+
+        drop(observable_for_room);
+        assert_closed!(subscriber_for_room);
+
+        Ok(())
+    }
 }
