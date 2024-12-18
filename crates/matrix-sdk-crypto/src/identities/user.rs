@@ -920,6 +920,7 @@ enum OwnUserIdentityVerifiedState {
     NeverVerified,
 
     /// We previously verified this identity, but it has changed.
+    #[serde(alias = "PreviouslyVerifiedButNoLonger")]
     VerificationViolation,
 
     /// We have verified the current identity.
@@ -1539,26 +1540,10 @@ pub(crate) mod tests {
     /// that we can deserialize boolean values.
     #[test]
     fn test_deserialize_own_user_identity_bool_verified() {
-        let mut json = json!({
-            "user_id": "@example:localhost",
-            "master_key": {
-                "user_id":"@example:localhost",
-                "usage":["master"],
-                "keys":{"ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0":"rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"},
-            },
-            "self_signing_key": {
-                "user_id":"@example:localhost",
-                "usage":["self_signing"],
-                "keys":{"ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210":"0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"}
-            },
-            "user_signing_key": {
-                "user_id":"@example:localhost",
-                "usage":["user_signing"],
-                "keys":{"ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo":"DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"}
-            },
-            "verified": false
-        });
+        let mut json = own_user_identity_data();
 
+        // Set `"verified": false`
+        *json.get_mut("verified").unwrap() = false.into();
         let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(*id.verified.read().unwrap(), OwnUserIdentityVerifiedState::NeverVerified);
 
@@ -1566,6 +1551,38 @@ pub(crate) mod tests {
         *json.get_mut("verified").unwrap() = true.into();
         let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(*id.verified.read().unwrap(), OwnUserIdentityVerifiedState::Verified);
+    }
+
+    #[test]
+    fn test_own_user_identity_verified_state_verification_violation_deserializes() {
+        // Given data containing verified: VerificationViolation
+        let mut json = own_user_identity_data();
+        *json.get_mut("verified").unwrap() = "VerificationViolation".into();
+
+        // When we deserialize
+        let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
+
+        // Then the value is correctly populated
+        assert_eq!(
+            *id.verified.read().unwrap(),
+            OwnUserIdentityVerifiedState::VerificationViolation
+        );
+    }
+
+    #[test]
+    fn test_own_user_identity_verified_state_previously_verified_deserializes() {
+        // Given data containing verified: PreviouslyVerifiedButNoLonger
+        let mut json = own_user_identity_data();
+        *json.get_mut("verified").unwrap() = "PreviouslyVerifiedButNoLonger".into();
+
+        // When we deserialize
+        let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
+
+        // Then the old value is re-interpreted as VerificationViolation
+        assert_eq!(
+            *id.verified.read().unwrap(),
+            OwnUserIdentityVerifiedState::VerificationViolation
+        );
     }
 
     #[test]
@@ -1942,5 +1959,27 @@ pub(crate) mod tests {
         assert!(!own_identity.is_verified());
         assert!(!own_identity.was_previously_verified());
         assert!(!own_identity.has_verification_violation());
+    }
+
+    fn own_user_identity_data() -> Value {
+        json!({
+            "user_id": "@example:localhost",
+            "master_key": {
+                "user_id":"@example:localhost",
+                "usage":["master"],
+                "keys":{"ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0":"rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"},
+            },
+            "self_signing_key": {
+                "user_id":"@example:localhost",
+                "usage":["self_signing"],
+                "keys":{"ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210":"0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"}
+            },
+            "user_signing_key": {
+                "user_id":"@example:localhost",
+                "usage":["user_signing"],
+                "keys":{"ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo":"DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"}
+            },
+            "verified": false
+        })
     }
 }
