@@ -142,17 +142,19 @@ impl UpdateToVectorDiff {
     ///   [`VectorDiff`] is emitted,
     /// * [`Update::StartReattachItems`] and [`Update::EndReattachItems`] are
     ///   respectively muting or unmuting the emission of [`VectorDiff`] by
-    ///   [`Update::PushItems`].
+    ///   [`Update::PushItems`],
+    /// * [`Update::Clear`] reinitialises the state.
     ///
-    /// The only `VectorDiff` that are emitted are [`VectorDiff::Insert`] or
-    /// [`VectorDiff::Append`] because a [`LinkedChunk`] is append-only.
+    /// The only `VectorDiff` that are emitted are [`VectorDiff::Insert`],
+    /// [`VectorDiff::Append`], [`VectorDiff::Remove`] and
+    /// [`VectorDiff::Clear`].
     ///
     /// `VectorDiff::Append` is an optimisation when numerous
     /// `VectorDiff::Insert`s have to be emitted at the last position.
     ///
-    /// `VectorDiff::Insert` need an index. To compute this index, the algorithm
-    /// will iterate over all pairs to accumulate each chunk length until it
-    /// finds the appropriate pair (given by
+    /// `VectorDiff::Insert` needs an index. To compute this index, the
+    /// algorithm will iterate over all pairs to accumulate each chunk length
+    /// until it finds the appropriate pair (given by
     /// [`Update::PushItems::at`]). This is _the offset_. To this offset, the
     /// algorithm adds the position's index of the new items (still given by
     /// [`Update::PushItems::at`]). This is _the index_. This logic works
