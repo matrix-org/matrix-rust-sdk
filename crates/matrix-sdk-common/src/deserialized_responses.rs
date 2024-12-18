@@ -918,12 +918,11 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, ShieldState, ShieldStateCode,
-        SyncTimelineEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
-        UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationState,
-        WithheldCode,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ShieldState,
+        ShieldStateCode, SyncTimelineEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
+        UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
+        VerificationState, WithheldCode,
     };
-    use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
 
     fn example_event() -> serde_json::Value {
         json!({
