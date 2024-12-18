@@ -135,7 +135,7 @@ impl RoomEventCache {
     /// storage.
     pub async fn clear(&self) -> Result<()> {
         // Clear the linked chunk and persisted storage.
-        self.inner.state.write().await.clear().await?;
+        self.inner.state.write().await.reset().await?;
 
         // Clear the (temporary) events mappings.
         self.inner.all_events.write().await.clear();
@@ -721,14 +721,6 @@ mod private {
             };
 
             Ok(Self { room, store, events, waited_for_initial_prev_token: false })
-        }
-
-        /// Clear all cached content for this [`RoomEventCacheState`].
-        pub async fn clear(&mut self) -> Result<(), EventCacheError> {
-            self.events.reset();
-            self.propagate_changes().await?;
-            self.waited_for_initial_prev_token = false;
-            Ok(())
         }
 
         /// Removes the bundled relations from an event, if they were present.
