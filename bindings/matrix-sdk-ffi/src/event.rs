@@ -17,6 +17,7 @@ use ruma::{
 use crate::{
     room_member::MembershipState,
     ruma::{MessageType, NotifyType},
+    utils::Timestamp,
     ClientError,
 };
 
@@ -33,8 +34,8 @@ impl TimelineEvent {
         self.0.sender().to_string()
     }
 
-    pub fn timestamp(&self) -> u64 {
-        self.0.origin_server_ts().0.into()
+    pub fn timestamp(&self) -> Timestamp {
+        self.0.origin_server_ts().into()
     }
 
     pub fn event_type(&self) -> Result<TimelineEventType, ClientError> {
