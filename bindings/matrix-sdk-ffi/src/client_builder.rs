@@ -1,4 +1,4 @@
-use std::{fs, num::NonZeroUsize, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -509,8 +509,8 @@ impl ClientBuilder {
         }
 
         if let Some(session_paths) = &builder.session_paths {
-            let data_path = PathBuf::from(&session_paths.data_path);
-            let cache_path = PathBuf::from(&session_paths.cache_path);
+            let data_path = Path::new(&session_paths.data_path);
+            let cache_path = Path::new(&session_paths.cache_path);
 
             debug!(
                 data_path = %data_path.to_string_lossy(),
@@ -518,12 +518,12 @@ impl ClientBuilder {
                 "Creating directories for data and cache stores.",
             );
 
-            fs::create_dir_all(&data_path)?;
-            fs::create_dir_all(&cache_path)?;
+            fs::create_dir_all(data_path)?;
+            fs::create_dir_all(cache_path)?;
 
             inner_builder = inner_builder.sqlite_store_with_cache_path(
-                &data_path,
-                &cache_path,
+                data_path,
+                cache_path,
                 builder.passphrase.as_deref(),
             );
         } else {

@@ -1402,7 +1402,7 @@ impl CryptoStore for SqliteCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::Path;
 
     use matrix_sdk_crypto::{
         cryptostore_integration_tests, cryptostore_integration_tests_time, store::CryptoStore,
@@ -1428,7 +1428,7 @@ mod tests {
     async fn get_test_db() -> TestDb {
         let db_name = "matrix-sdk-crypto.sqlite3";
 
-        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let database_path = manifest_path.join("testing/data/storage").join(db_name);
 
         let tmpdir = tempdir().unwrap();

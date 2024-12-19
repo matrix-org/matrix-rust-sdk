@@ -1,4 +1,9 @@
-use std::{env, error::Error, path::PathBuf, process::Command};
+use std::{
+    env,
+    error::Error,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use vergen::EmitBuilder;
 
@@ -39,7 +44,7 @@ fn setup_x86_64_android_workaround() {
 }
 
 /// Run the clang binary at `clang_path`, and return its major version number
-fn get_clang_major_version(clang_path: &PathBuf) -> String {
+fn get_clang_major_version(clang_path: &Path) -> String {
     let clang_output =
         Command::new(clang_path).arg("-dumpversion").output().expect("failed to start clang");
 
