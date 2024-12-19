@@ -529,14 +529,16 @@ impl RoomEventCacheInner {
 
         // Add the previous back-pagination token (if present), followed by the timeline
         // events themselves.
-        {
-            state
+        let sync_timeline_events_diffs = {
+            let sync_timeline_events_diffs = state
                 .with_events_mut(|room_events| {
                     if let Some(prev_token) = &prev_batch {
                         room_events.push_gap(Gap { prev_token: prev_token.clone() });
                     }
 
                     room_events.push_events(sync_timeline_events.clone());
+
+                    room_events.updates_as_vector_diffs()
                 })
                 .await?;
 
@@ -547,7 +549,9 @@ impl RoomEventCacheInner {
                     cache.events.insert(event_id.to_owned(), (self.room_id.clone(), ev.clone()));
                 }
             }
-        }
+
+            sync_timeline_events_diffs
+        };
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -557,9 +561,17 @@ impl RoomEventCacheInner {
 
         // The order of `RoomEventCacheUpdate`s is **really** important here.
         {
+            // TODO: remove once `UpdateTimelineEvents` is stabilized.
             if !sync_timeline_events.is_empty() {
                 let _ = self.sender.send(RoomEventCacheUpdate::AddTimelineEvents {
                     events: sync_timeline_events,
+                    origin: EventsOrigin::Sync,
+                });
+            }
+
+            if !sync_timeline_events_diffs.is_empty() {
+                let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                    diffs: sync_timeline_events_diffs,
                     origin: EventsOrigin::Sync,
                 });
             }

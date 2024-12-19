@@ -124,20 +124,29 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
     pub(crate) room_data_provider: P,
 
     /// Settings applied to this timeline.
-    settings: TimelineSettings,
+    pub(super) settings: TimelineSettings,
 }
 
 #[derive(Clone)]
 pub(super) struct TimelineSettings {
     /// Should the read receipts and read markers be handled?
     pub(super) track_read_receipts: bool,
+
     /// Event filter that controls what's rendered as a timeline item (and thus
     /// what can carry read receipts).
     pub(super) event_filter: Arc<TimelineEventFilterFn>,
+
     /// Are unparsable events added as timeline items of their own kind?
     pub(super) add_failed_to_parse: bool,
+
     /// Should the timeline items be grouped by day or month?
     pub(super) date_divider_mode: DateDividerMode,
+
+    /// Whether `VectorDiff` is the “input mechanism” to use.
+    ///
+    /// This mechanism will replace the existing one, but this runtime feature
+    /// flag is necessary for the transition and the testing phase.
+    pub(super) vectordiffs_as_inputs: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -146,6 +155,7 @@ impl fmt::Debug for TimelineSettings {
         f.debug_struct("TimelineSettings")
             .field("track_read_receipts", &self.track_read_receipts)
             .field("add_failed_to_parse", &self.add_failed_to_parse)
+            .field("vectordiffs_as_inputs", &self.vectordiffs_as_inputs)
             .finish_non_exhaustive()
     }
 }
@@ -157,6 +167,7 @@ impl Default for TimelineSettings {
             event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
             date_divider_mode: DateDividerMode::Daily,
+            vectordiffs_as_inputs: false,
         }
     }
 }
@@ -665,6 +676,27 @@ impl<P: RoomDataProvider> TimelineController<P> {
         state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
     }
 
+    /// Handle updates on events as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_events_with_diffs(
+        &self,
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) {
+        if diffs.is_empty() {
+            return;
+        }
+
+        let mut state = self.state.write().await;
+        state
+            .handle_remote_events_with_diffs(
+                diffs,
+                origin,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await
+    }
+
     pub(super) async fn clear(&self) {
         self.state.write().await.clear();
     }
@@ -757,6 +789,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 txn_id,
                 send_handle,
                 content,
+                &self.settings,
             )
             .await;
     }
