@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use async_trait::async_trait;
+use matrix_sdk_common::BoxFuture;
 use ruma::{
     events::{
         room::member::{MembershipState, SyncRoomMemberEvent},
@@ -31,18 +31,17 @@ use crate::store::IdentityUpdates;
 ///
 /// This is implemented by `matrix_sdk::Room` and is a trait here so we can
 /// supply a mock when needed.
-#[async_trait]
 pub trait RoomIdentityProvider: core::fmt::Debug {
     /// Is the user with the supplied ID a member of this room?
-    async fn is_member(&self, user_id: &UserId) -> bool;
+    fn is_member<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, bool>;
 
     /// Return a list of the [`UserIdentity`] of all members of this room
-    async fn member_identities(&self) -> Vec<UserIdentity>;
+    fn member_identities(&self) -> BoxFuture<'_, Vec<UserIdentity>>;
 
     /// Return the [`UserIdentity`] of the user with the supplied ID (even if
     /// they are not a member of this room) or None if this user does not
     /// exist.
-    async fn user_identity(&self, user_id: &UserId) -> Option<UserIdentity>;
+    fn user_identity<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<UserIdentity>>;
 
     /// Return the [`IdentityState`] of the supplied user identity.
     /// Normally only overridden in tests.
@@ -352,7 +351,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use async_trait::async_trait;
+    use matrix_sdk_common::BoxFuture;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -1030,23 +1029,28 @@ mod tests {
         }
     }
 
-    #[async_trait]
     impl RoomIdentityProvider for FakeRoom {
-        async fn is_member(&self, user_id: &UserId) -> bool {
-            self.users.lock().unwrap().get(user_id).map(|m| m.is_member).unwrap_or(false)
+        fn is_member<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, bool> {
+            Box::pin(async {
+                self.users.lock().unwrap().get(user_id).map(|m| m.is_member).unwrap_or(false)
+            })
         }
 
-        async fn member_identities(&self) -> Vec<UserIdentity> {
-            self.users
-                .lock()
-                .unwrap()
-                .values()
-                .filter_map(|m| if m.is_member { Some(m.user_identity.clone()) } else { None })
-                .collect()
+        fn member_identities(&self) -> BoxFuture<'_, Vec<UserIdentity>> {
+            Box::pin(async {
+                self.users
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .filter_map(|m| if m.is_member { Some(m.user_identity.clone()) } else { None })
+                    .collect()
+            })
         }
 
-        async fn user_identity(&self, user_id: &UserId) -> Option<UserIdentity> {
-            self.users.lock().unwrap().get(user_id).map(|m| m.user_identity.clone())
+        fn user_identity<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<UserIdentity>> {
+            Box::pin(async {
+                self.users.lock().unwrap().get(user_id).map(|m| m.user_identity.clone())
+            })
         }
 
         fn state_of(&self, user_identity: &UserIdentity) -> IdentityState {
