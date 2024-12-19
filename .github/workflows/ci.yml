@@ -18,6 +18,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Insta.rs is run directly via cargo test. We don't want insta.rs to create new snapshots files.
+  # Just want it to run the tests (option `no` instead of `auto`).
+  INSTA_UPDATE: no
 
 jobs:
   xtask:
