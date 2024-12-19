@@ -224,7 +224,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                 content,
             );
 
-            let response = room.client.send(request, request_config).await?;
+            let response = room.client.send(request).with_request_config(request_config).await?;
 
             Span::current().record("event_id", tracing::field::debug(&response.event_id));
             info!("Sent event in room");

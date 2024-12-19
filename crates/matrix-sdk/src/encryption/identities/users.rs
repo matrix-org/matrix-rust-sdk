@@ -366,7 +366,7 @@ impl UserIdentity {
             CryptoUserIdentity::Other(identity) => identity.verify().await?,
         };
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         Ok(())
     }
