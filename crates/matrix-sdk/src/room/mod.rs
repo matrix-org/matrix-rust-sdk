@@ -23,8 +23,6 @@ use std::{
 };
 
 use async_stream::stream;
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
-use async_trait::async_trait;
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::{
@@ -47,6 +45,8 @@ use matrix_sdk_base::{
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
 };
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+use matrix_sdk_common::BoxFuture;
 use matrix_sdk_common::{
     deserialized_responses::SyncTimelineEvent,
     executor::{spawn, JoinHandle},
@@ -3363,34 +3363,37 @@ impl Room {
 }
 
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
-#[async_trait]
 impl RoomIdentityProvider for Room {
-    async fn is_member(&self, user_id: &UserId) -> bool {
-        self.get_member(user_id).await.unwrap_or(None).is_some()
+    fn is_member<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, bool> {
+        Box::pin(async { self.get_member(user_id).await.unwrap_or(None).is_some() })
     }
 
-    async fn member_identities(&self) -> Vec<UserIdentity> {
-        let members = self
-            .members(RoomMemberships::JOIN | RoomMemberships::INVITE)
-            .await
-            .unwrap_or_else(|_| Default::default());
+    fn member_identities(&self) -> BoxFuture<'_, Vec<UserIdentity>> {
+        Box::pin(async {
+            let members = self
+                .members(RoomMemberships::JOIN | RoomMemberships::INVITE)
+                .await
+                .unwrap_or_else(|_| Default::default());
 
-        let mut ret: Vec<UserIdentity> = Vec::new();
-        for member in members {
-            if let Some(i) = self.user_identity(member.user_id()).await {
-                ret.push(i);
+            let mut ret: Vec<UserIdentity> = Vec::new();
+            for member in members {
+                if let Some(i) = self.user_identity(member.user_id()).await {
+                    ret.push(i);
+                }
             }
-        }
-        ret
+            ret
+        })
     }
 
-    async fn user_identity(&self, user_id: &UserId) -> Option<UserIdentity> {
-        self.client
-            .encryption()
-            .get_user_identity(user_id)
-            .await
-            .unwrap_or(None)
-            .map(|u| u.underlying_identity())
+    fn user_identity<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<UserIdentity>> {
+        Box::pin(async {
+            self.client
+                .encryption()
+                .get_user_identity(user_id)
+                .await
+                .unwrap_or(None)
+                .map(|u| u.underlying_identity())
+        })
     }
 }
 
