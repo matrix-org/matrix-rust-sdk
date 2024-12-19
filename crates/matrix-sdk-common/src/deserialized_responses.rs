@@ -1508,7 +1508,7 @@ mod tests {
                   },
                   "utd_info": {
                     "reason": "MissingMegolmSession",
-                    "session_id": "session000"
+                    "session_id": "session0001"
                   }
                 }
               }
