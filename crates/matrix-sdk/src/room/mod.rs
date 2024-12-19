@@ -203,7 +203,7 @@ impl Room {
         }
 
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         self.client.base_client().room_left(self.room_id()).await?;
         Ok(())
     }
@@ -315,7 +315,7 @@ impl Room {
     pub async fn messages(&self, options: MessagesOptions) -> Result<Messages> {
         let room_id = self.inner.room_id();
         let request = options.into_request(room_id);
-        let http_response = self.client.send(request, None).await?;
+        let http_response = self.client.send(request).await?;
 
         #[allow(unused_mut)]
         let mut response = Messages {
@@ -472,7 +472,7 @@ impl Room {
         let request =
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
-        let raw_event = self.client.send(request, request_config).await?.event;
+        let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
         let event = self.try_decrypt_event(raw_event).await?;
 
         // Save the event into the event cache, if it's set up.
@@ -502,7 +502,7 @@ impl Room {
                 LazyLoadOptions::Enabled { include_redundant_members: false };
         }
 
-        let response = self.client.send(request, request_config).await?;
+        let response = self.client.send(request).with_request_config(request_config).await?;
 
         let target_event = if let Some(event) = response.event {
             Some(self.try_decrypt_event(event).await?)
@@ -555,11 +555,11 @@ impl Room {
                 let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
                 let response = self
                     .client
-                    .send(
-                        request.clone(),
+                    .send(request.clone())
+                    .with_request_config(
                         // In some cases it can take longer than 30s to load:
                         // https://github.com/element-hq/synapse/issues/16872
-                        Some(RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3)),
+                        RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3),
                     )
                     .await?;
 
@@ -587,7 +587,7 @@ impl Room {
                     StateEventType::RoomEncryption,
                     "".to_owned(),
                 );
-                let response = match self.client.send(request, None).await {
+                let response = match self.client.send(request).await {
                     Ok(response) => {
                         Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
                     }
@@ -1059,7 +1059,7 @@ impl Room {
             &content,
         )?;
 
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Set the given raw account data event in this room.
@@ -1100,7 +1100,7 @@ impl Room {
             content,
         );
 
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Adds a tag to the room, or updates it if it already exists.
@@ -1145,7 +1145,7 @@ impl Room {
             tag.to_string(),
             tag_info,
         );
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Removes a tag from the room.
@@ -1161,7 +1161,7 @@ impl Room {
             self.inner.room_id().to_owned(),
             tag.to_string(),
         );
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Add or remove the `m.favourite` flag for this room.
@@ -1259,7 +1259,7 @@ impl Room {
 
         let request = set_global_account_data::v3::Request::new(user_id.to_owned(), &content)?;
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1335,7 +1335,7 @@ impl Room {
             ban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1352,7 +1352,7 @@ impl Room {
             unban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1370,7 +1370,7 @@ impl Room {
             kick_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1383,7 +1383,7 @@ impl Room {
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         // Force a future room members reload before sending any event to prevent UTDs
         // that can happen when some event is sent after a room member has been invited
@@ -1402,7 +1402,7 @@ impl Room {
     pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         // Force a future room members reload before sending any event to prevent UTDs
         // that can happen when some event is sent after a room member has been invited
@@ -1497,7 +1497,7 @@ impl Room {
             typing,
         );
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         Ok(())
     }
@@ -1538,7 +1538,7 @@ impl Room {
                 );
                 request.thread = thread;
 
-                self.client.send(request, None).await?;
+                self.client.send(request).await?;
                 Ok(())
             })
             .await
@@ -1564,7 +1564,7 @@ impl Room {
             private_read_receipt,
         });
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -2413,7 +2413,7 @@ impl Room {
         self.ensure_room_joined()?;
         let request =
             send_state_event::v3::Request::new(self.room_id().to_owned(), state_key, &content)?;
-        let response = self.client.send(request, None).await?;
+        let response = self.client.send(request).await?;
         Ok(response)
     }
 
@@ -2467,7 +2467,7 @@ impl Room {
             content.into_raw_state_event_content(),
         );
 
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Strips all information out of an event of the room.
@@ -2517,7 +2517,7 @@ impl Room {
             { reason: reason.map(ToOwned::to_owned) }
         );
 
-        self.client.send(request, None).await
+        self.client.send(request).await
     }
 
     /// Returns true if the user with the given user_id is able to redact
@@ -2860,7 +2860,7 @@ impl Room {
         }
 
         let request = forget_room::v3::Request::new(self.inner.room_id().to_owned());
-        let _response = self.client.send(request, None).await?;
+        let _response = self.client.send(request).await?;
 
         // If it was a DM, remove the room from the `m.direct` global account data.
         if self.inner.direct_targets_length() != 0 {
@@ -2971,7 +2971,7 @@ impl Room {
             score.map(Into::into),
             reason,
         );
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Set a flag on the room to indicate that the user has explicitly marked
@@ -2987,7 +2987,7 @@ impl Room {
             &content,
         )?;
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -3189,14 +3189,11 @@ impl Room {
     pub async fn load_pinned_events(&self) -> Result<Option<Vec<OwnedEventId>>> {
         let response = self
             .client
-            .send(
-                get_state_events_for_key::v3::Request::new(
-                    self.room_id().to_owned(),
-                    StateEventType::RoomPinnedEvents,
-                    "".to_owned(),
-                ),
-                None,
-            )
+            .send(get_state_events_for_key::v3::Request::new(
+                self.room_id().to_owned(),
+                StateEventType::RoomPinnedEvents,
+                "".to_owned(),
+            ))
             .await;
 
         match response {
