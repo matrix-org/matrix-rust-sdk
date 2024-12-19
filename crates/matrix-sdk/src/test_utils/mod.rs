@@ -117,6 +117,18 @@ macro_rules! assert_next_with_timeout {
     }};
 }
 
+/// Asserts the next item in a `Receiver` can be loaded in the given timeout in
+/// milliseconds.
+#[macro_export]
+macro_rules! assert_recv_with_timeout {
+    ($receiver:expr, $timeout_ms:expr) => {{
+        tokio::time::timeout(std::time::Duration::from_millis($timeout_ms), $receiver.recv())
+            .await
+            .expect("Next event timed out")
+            .expect("No next event received")
+    }};
+}
+
 /// Assert the next item in a `Stream` or `Subscriber` matches the provided
 /// pattern in the given timeout in milliseconds.
 ///

@@ -1,16 +1,18 @@
 use std::{
+    collections::BTreeSet,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use assert_matches2::assert_let;
 use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
-    assert_next_with_timeout,
+    assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
     room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_base::RoomState;
+use matrix_sdk_base::{RoomMembersUpdate, RoomState};
 use matrix_sdk_test::{
     async_test,
     event_factory::EventFactory,
@@ -1155,4 +1157,64 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
     assert!(seen_knock_request_ids.is_empty());
 
     handle.abort();
+}
+
+#[async_test]
+async fn test_room_member_updates_sender_on_full_member_reload() {
+    use assert_matches::assert_matches;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let mut receiver = room.room_member_updates_sender.subscribe();
+    assert!(receiver.is_empty());
+
+    // When loading the full room member list
+    let user_id = user_id!("@alice:b.c");
+    let joined_event = EventFactory::new()
+        .room(room_id)
+        .event(RoomMemberEventContent::new(MembershipState::Join))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+    server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
+    room.sync_members().await.expect("could not reload room members");
+
+    // The member updates sender emits a full reload
+    let next = assert_recv_with_timeout!(receiver, 100);
+    assert_matches!(next, RoomMembersUpdate::FullReload);
+}
+
+#[async_test]
+async fn test_room_member_updates_sender_on_partial_members_update() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let mut receiver = room.room_member_updates_sender.subscribe();
+    assert!(receiver.is_empty());
+
+    // When loading a few room member updates
+    let user_id = user_id!("@alice:b.c");
+    let joined_event = EventFactory::new()
+        .room(room_id)
+        .event(RoomMemberEventContent::new(MembershipState::Join))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_sync()
+        .cast();
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![joined_event]))
+        .await;
+
+    // The member updates sender emits a partial update with the user ids of the
+    // members
+    let next = assert_recv_with_timeout!(receiver, 100);
+    assert_let!(RoomMembersUpdate::Partial(user_ids) = next);
+    assert_eq!(user_ids, BTreeSet::from_iter(vec![user_id!("@alice:b.c").to_owned()]));
 }
