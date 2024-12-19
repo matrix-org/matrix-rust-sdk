@@ -44,8 +44,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -442,6 +442,10 @@ struct PersistedQueuedRequest {
 
     priority: Option<usize>,
 
+    /// The time the original message was first attempted to be sent at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<MilliSecondsSinceUnixEpoch>,
+
     // Migrated fields: keep these private, they're not used anymore elsewhere in the code base.
     /// Deprecated (from old format), now replaced with error field.
     is_wedged: Option<bool>,
@@ -467,7 +471,13 @@ impl PersistedQueuedRequest {
         // By default, events without a priority have a priority of 0.
         let priority = self.priority.unwrap_or(0);
 
-        Some(QueuedRequest { kind, transaction_id: self.transaction_id, error, priority })
+        Some(QueuedRequest {
+            kind,
+            transaction_id: self.transaction_id,
+            error,
+            priority,
+            created_at: self.created_at,
+        })
     }
 }
 
@@ -1370,6 +1380,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         kind: QueuedRequestKind,
         priority: usize,
     ) -> Result<()> {
@@ -1391,7 +1402,6 @@ impl_state_store!({
             || Ok(Vec::new()),
             |val| self.deserialize_value::<Vec<PersistedQueuedRequest>>(&val),
         )?;
-
         // Push the new request.
         prev.push(PersistedQueuedRequest {
             room_id: room_id.to_owned(),
@@ -1401,6 +1411,7 @@ impl_state_store!({
             is_wedged: None,
             event: None,
             priority: Some(priority),
+            created_at: Some(created_at),
         });
 
         // Save the new vector into db.
@@ -1570,6 +1581,7 @@ impl_state_store!({
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
@@ -1596,6 +1608,7 @@ impl_state_store!({
             parent_transaction_id: parent_txn_id.to_owned(),
             own_transaction_id: own_txn_id,
             parent_key: None,
+            created_at: Some(created_at),
         });
 
         // Save the new vector into db.

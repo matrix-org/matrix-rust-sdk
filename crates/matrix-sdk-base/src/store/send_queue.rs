@@ -23,7 +23,8 @@ use ruma::{
         AnyMessageLikeEventContent, EventContent as _, RawExt as _,
     },
     serde::Raw,
-    OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId, TransactionId, UInt,
+    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    TransactionId, UInt,
 };
 use serde::{Deserialize, Serialize};
 
@@ -131,6 +132,9 @@ pub struct QueuedRequest {
     /// The bigger the value, the higher the priority at which this request
     /// should be handled.
     pub priority: usize,
+
+    /// The time that the request was original attempted.
+    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl QueuedRequest {
@@ -371,6 +375,10 @@ pub struct DependentQueuedRequest {
     /// If the parent request has been sent, the parent's request identifier
     /// returned by the server once the local echo has been sent out.
     pub parent_key: Option<SentRequestKey>,
+
+    /// The time that the request was original attempted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl DependentQueuedRequest {
