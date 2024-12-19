@@ -46,6 +46,7 @@ hmac = "0.12.1"
 http = "1.1.0"
 imbl = "3.0.0"
 indexmap = "2.6.0"
+insta = { version = "1.41.1", features = ["json"] }
 itertools = "0.13.0"
 js-sys = "0.3.69"
 mime = "0.3.17"
@@ -124,6 +125,9 @@ debug = 0
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.
 quote = { opt-level = 2 }
 sha2 = { opt-level = 2 }
+# faster runs for insta.rs snapshot testing
+insta.opt-level = 3
+similar.opt-level = 3
 
 # Custom profile with full debugging info, use `--profile dbg` to select
 [profile.dbg]

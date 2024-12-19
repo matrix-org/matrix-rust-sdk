@@ -30,6 +30,33 @@ integration tests that need a running synapse instance. These tests reside in
 synapse for testing purposes.
 
 
+### Snapshot Testing
+
+You can add/review snapshot tests using [insta.rs](https://insta.rs)
+
+Every new struct/enum that derives `Serialize` `Deserialise` should have a snapshot test for it.
+Any code change that breaks serialisation will then break a test, the author will then have to decide
+how to handle migration and test it if needed.
+
+
+And for an improved review experience it's recommended (but not necessary) to install the cargo-insta tool:
+
+Unix:
+```
+curl -LsSf https://insta.rs/install.sh | sh
+```
+
+Windows:
+```
+powershell -c "irm https://insta.rs/install.ps1 | iex"
+```
+
+Usual flow is to first run the test, then review them.
+```
+cargo insta test
+cargo insta review
+```
+
 ## Pull requests
 
 Ideally, a PR should have a *proper title*, with *atomic logical commits*, and

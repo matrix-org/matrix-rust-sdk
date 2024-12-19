@@ -906,24 +906,25 @@ impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, vec};
 
     use assert_matches::assert_matches;
+    use insta::{assert_json_snapshot, with_settings};
     use ruma::{
-        event_id,
+        device_id, event_id,
         events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
         serde::Raw,
-        user_id,
+        user_id, DeviceKeyAlgorithm,
     };
     use serde::Deserialize;
     use serde_json::json;
 
     use super::{
-        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEvent,
-        TimelineEventKind, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
-        UnsignedEventLocation, VerificationState, WithheldCode,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ShieldState,
+        ShieldStateCode, SyncTimelineEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
+        UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
+        VerificationState, WithheldCode,
     };
-    use crate::deserialized_responses::{DeviceLinkProblem, ShieldStateCode, VerificationLevel};
 
     fn example_event() -> serde_json::Value {
         json!({
@@ -1316,5 +1317,173 @@ mod tests {
 
         let reason = UnableToDecryptReason::UnknownMegolmMessageIndex;
         assert!(reason.is_missing_room_key());
+    }
+
+    #[test]
+    fn snapshot_test_verification_level() {
+        let level = VerificationLevel::VerificationViolation;
+        assert_json_snapshot! {
+            serde_json::to_value(&level).unwrap(),
+        }
+
+        let level = VerificationLevel::UnsignedDevice;
+        assert_json_snapshot! {
+            serde_json::to_value(&level).unwrap(),
+        }
+
+        let level = VerificationLevel::None(DeviceLinkProblem::InsecureSource);
+        assert_json_snapshot! {
+            serde_json::to_value(&level).unwrap(),
+        }
+
+        let level = VerificationLevel::None(DeviceLinkProblem::MissingDevice);
+        assert_json_snapshot! {
+            serde_json::to_value(&level).unwrap(),
+        }
+
+        let level = VerificationLevel::UnverifiedIdentity;
+        assert_json_snapshot! {
+            serde_json::to_value(&level).unwrap()
+        }
+    }
+
+    #[test]
+    fn snapshot_test_verification_states() {
+        let states = vec![
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+            VerificationState::Unverified(VerificationLevel::VerificationViolation),
+            VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::InsecureSource,
+            )),
+            VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice,
+            )),
+            VerificationState::Verified,
+        ];
+
+        for state in states {
+            assert_json_snapshot! {
+                serde_json::to_value(&state).unwrap(),
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_test_shield_states() {
+        let state = ShieldState::None;
+        assert_json_snapshot! {
+            serde_json::to_value(&state).unwrap(),
+        }
+
+        let state =
+            ShieldState::Red { code: ShieldStateCode::UnverifiedIdentity, message: "a message" };
+        assert_json_snapshot! {
+            serde_json::to_value(&state).unwrap(),
+        }
+
+        let state = ShieldState::Grey {
+            code: ShieldStateCode::AuthenticityNotGuaranteed,
+            message: "authenticity of this message cannot be guaranteed",
+        };
+        assert_json_snapshot! {
+            serde_json::to_value(&state).unwrap(),
+        }
+    }
+
+    #[test]
+    fn snapshot_test_shield_codes() {
+        let codes = vec![
+            ShieldStateCode::AuthenticityNotGuaranteed,
+            ShieldStateCode::UnknownDevice,
+            ShieldStateCode::UnsignedDevice,
+            ShieldStateCode::UnverifiedIdentity,
+            ShieldStateCode::SentInClear,
+            ShieldStateCode::VerificationViolation,
+        ];
+
+        for code in codes {
+            assert_json_snapshot! {
+                serde_json::to_value(code).unwrap(),
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_test_algorithm_info() {
+        let mut map = BTreeMap::new();
+        map.insert(DeviceKeyAlgorithm::Curve25519, "claimedclaimedcurve25519".to_owned());
+        map.insert(DeviceKeyAlgorithm::Ed25519, "claimedclaimeded25519".to_owned());
+        let info = AlgorithmInfo::MegolmV1AesSha2 {
+            curve25519_key: "curvecurvecurve".into(),
+            sender_claimed_keys: map,
+        };
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot! {
+                serde_json::to_value(&info).unwrap(),
+            }
+        })
+    }
+
+    #[test]
+    fn snapshot_test_encryption_info() {
+        let info = EncryptionInfo {
+            sender: user_id!("@alice:localhost").to_owned(),
+            sender_device: Some(device_id!("ABCDEFGH").to_owned()),
+            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                curve25519_key: "curvecurvecurve".into(),
+                sender_claimed_keys: Default::default(),
+            },
+            verification_state: VerificationState::Verified,
+        };
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot! {
+                serde_json::to_value(&info).unwrap(),
+            }
+        });
+    }
+
+    #[test]
+    fn snapshot_test_sync_timeline_event() {
+        let room_event = SyncTimelineEvent {
+            kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
+                event: Raw::new(&example_event()).unwrap().cast(),
+                encryption_info: EncryptionInfo {
+                    sender: user_id!("@sender:example.com").to_owned(),
+                    sender_device: Some(device_id!("ABCDEFGHIJ").to_owned()),
+                    algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                        curve25519_key: "xxx".to_owned(),
+                        sender_claimed_keys: BTreeMap::from([
+                            (
+                                DeviceKeyAlgorithm::Ed25519,
+                                "I3YsPwqMZQXHkSQbjFNEs7b529uac2xBpI83eN3LUXo".to_owned(),
+                            ),
+                            (
+                                DeviceKeyAlgorithm::Curve25519,
+                                "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY".to_owned(),
+                            ),
+                        ]),
+                    },
+                    verification_state: VerificationState::Verified,
+                },
+                unsigned_encryption_info: Some(BTreeMap::from([(
+                    UnsignedEventLocation::RelationsThreadLatestEvent,
+                    UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
+                        session_id: Some("xyz".to_owned()),
+                        reason: UnableToDecryptReason::MissingMegolmSession {
+                            withheld_code: Some(WithheldCode::Unverified),
+                        },
+                    }),
+                )])),
+            }),
+            push_actions: Default::default(),
+        };
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot! {
+                serde_json::to_value(&room_event).unwrap(),
+            }
+        });
     }
 }

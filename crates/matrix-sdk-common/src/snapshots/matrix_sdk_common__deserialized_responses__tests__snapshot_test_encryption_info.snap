@@ -1,0 +1,15 @@
+---
+source: crates/matrix-sdk-common/src/deserialized_responses.rs
+expression: "serde_json::to_value(&info).unwrap()"
+---
+{
+  "algorithm_info": {
+    "MegolmV1AesSha2": {
+      "curve25519_key": "curvecurvecurve",
+      "sender_claimed_keys": {}
+    }
+  },
+  "sender": "@alice:localhost",
+  "sender_device": "ABCDEFGH",
+  "verification_state": "Verified"
+}
