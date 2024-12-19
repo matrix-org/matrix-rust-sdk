@@ -182,7 +182,8 @@ impl LoginBuilder {
             refresh_token: self.request_refresh_token,
         });
 
-        let response = client.send(request, Some(RequestConfig::short_retry())).await?;
+        let response =
+            client.send(request).with_request_config(RequestConfig::short_retry()).await?;
         self.auth
             .receive_login_response(
                 &response,

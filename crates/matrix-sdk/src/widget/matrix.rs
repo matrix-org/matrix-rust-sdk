@@ -55,7 +55,7 @@ impl MatrixDriver {
     /// Requests an OpenID token for the current user.
     pub(crate) async fn get_open_id(&self) -> Result<OpenIdResponse> {
         let user_id = self.room.own_user_id().to_owned();
-        self.room.client.send(OpenIdRequest::new(user_id), None).await.map_err(Error::Http)
+        self.room.client.send(OpenIdRequest::new(user_id)).await.map_err(Error::Http)
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room.
@@ -146,7 +146,7 @@ impl MatrixDriver {
                     delayed_event_parameters,
                     Raw::<AnyMessageLikeEventContent>::from_json(content),
                 );
-                self.room.client.send(r, None).await.map(|r| r.into())?
+                self.room.client.send(r).await.map(|r| r.into())?
             }
 
             (Some(key), Some(delayed_event_parameters)) => {
@@ -157,7 +157,7 @@ impl MatrixDriver {
                     delayed_event_parameters,
                     Raw::<AnyStateEventContent>::from_json(content),
                 );
-                self.room.client.send(r, None).await.map(|r| r.into())?
+                self.room.client.send(r).await.map(|r| r.into())?
             }
         })
     }
@@ -172,7 +172,7 @@ impl MatrixDriver {
         action: UpdateAction,
     ) -> Result<delayed_events::update_delayed_event::unstable::Response> {
         let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
-        self.room.client.send(r, None).await.map_err(Error::Http)
+        self.room.client.send(r).await.map_err(Error::Http)
     }
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`

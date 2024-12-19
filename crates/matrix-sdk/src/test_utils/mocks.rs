@@ -1156,7 +1156,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// )
     /// .unwrap();
     ///
-    /// let response = room.client().send(r, None).await.unwrap();
+    /// let response = room.client().send(r).await.unwrap();
     /// // The delayed `m.room.message` event type should be mocked by the server.
     /// assert_eq!("$some_id", response.delay_id);
     /// # anyhow::Ok(()) });
@@ -1383,7 +1383,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///     &AnyStateEventContent::RoomCreate(RoomCreateEventContent::new_v11()),
     /// )
     /// .unwrap();
-    /// let response = room.client().send(r, None).await.unwrap();
+    /// let response = room.client().send(r).await.unwrap();
     /// // The delayed `m.room.message` event type should be mocked by the server.
     /// assert_eq!("$some_id", response.delay_id);
     ///

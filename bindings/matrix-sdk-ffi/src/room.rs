@@ -449,15 +449,12 @@ impl Room {
         let int_score = score.map(|value| value.into());
         self.inner
             .client()
-            .send(
-                report_content::v3::Request::new(
-                    self.inner.room_id().into(),
-                    event_id,
-                    int_score,
-                    reason,
-                ),
-                None,
-            )
+            .send(report_content::v3::Request::new(
+                self.inner.room_id().into(),
+                event_id,
+                int_score,
+                reason,
+            ))
             .await?;
         Ok(())
     }

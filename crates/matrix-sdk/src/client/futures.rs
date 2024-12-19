@@ -77,6 +77,13 @@ impl<R> SendRequest<R> {
         self
     }
 
+    /// Use the given [`RequestConfig`] for this send request, instead of the
+    /// one provided by default.
+    pub fn with_request_config(mut self, request_config: impl Into<Option<RequestConfig>>) -> Self {
+        self.config = request_config.into();
+        self
+    }
+
     /// Get a subscriber to observe the progress of sending the request
     /// body.
     #[cfg(not(target_arch = "wasm32"))]
