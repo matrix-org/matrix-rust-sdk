@@ -36,14 +36,14 @@ impl Pusher {
     /// Sets a given pusher
     pub async fn set(&self, pusher: ruma::api::client::push::Pusher) -> Result<()> {
         let request = set_pusher::v3::Request::post(pusher);
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
     /// Deletes a pusher by its ids
     pub async fn delete(&self, pusher_ids: PusherIds) -> Result<()> {
         let request = set_pusher::v3::Request::delete(pusher_ids);
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 }

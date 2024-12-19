@@ -290,7 +290,7 @@ impl Device {
     /// ```
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         let request = self.inner.verify().await?;
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         Ok(())
     }

@@ -98,7 +98,7 @@ impl MatrixAuth {
     /// appropriate method for the next step.
     pub async fn get_login_types(&self) -> HttpResult<get_login_types::v3::Response> {
         let request = get_login_types::v3::Request::new();
-        self.client.send(request, None).await
+        self.client.send(request).await
     }
 
     /// Get the URL to use to log in via Single Sign-On.
@@ -617,7 +617,7 @@ impl MatrixAuth {
             _ => None,
         };
 
-        let response = self.client.send(request, None).await?;
+        let response = self.client.send(request).await?;
         if let Some(session) = MatrixSession::from_register_response(&response) {
             let _ = self
                 .set_session(
@@ -632,7 +632,7 @@ impl MatrixAuth {
     /// Log out the current user.
     pub async fn logout(&self) -> HttpResult<logout::v3::Response> {
         let request = logout::v3::Request::new();
-        self.client.send(request, None).await
+        self.client.send(request).await
     }
 
     /// Get the current access token and optional refresh token for this
