@@ -1486,4 +1486,40 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn snapshot_old_to_remove() {
+        let serialized = json!({
+             "kind": {
+                "UnableToDecrypt": {
+                  "event": {
+                    "content": {
+                      "algorithm": "m.megolm.v1.aes-sha2",
+                      "ciphertext": "AwgAEoABzL1JYhqhjW9jXrlT3M6H8mJ4qffYtOQOnPuAPNxsuG20oiD/Fnpv6jnQGhU6YbV9pNM+1mRnTvxW3CbWOPjLKqCWTJTc7Q0vDEVtYePg38ncXNcwMmfhgnNAoW9S7vNs8C003x3yUl6NeZ8bH+ci870BZL+kWM/lMl10tn6U7snNmSjnE3ckvRdO+11/R4//5VzFQpZdf4j036lNSls/WIiI67Fk9iFpinz9xdRVWJFVdrAiPFwb8L5xRZ8aX+e2JDMlc1eW8gk",
+                      "device_id": "SKCGPNUWAU",
+                      "sender_key": "Gim/c7uQdSXyrrUbmUOrBT6sMC0gO7QSLmOK6B7NOm0",
+                      "session_id": "hgLyeSqXfb8vc5AjQLsg6TSHVu0HJ7HZ4B6jgMvxkrs"
+                    },
+                    "event_id": "$xxxxx:example.org",
+                    "origin_server_ts": 2189,
+                    "room_id": "!someroom:example.com",
+                    "sender": "@carl:example.com",
+                    "type": "m.room.message"
+                  },
+                  "utd_info": {
+                    "reason": "MissingMegolmSession",
+                    "session_id": "session000"
+                  }
+                }
+              }
+        });
+
+        let result: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot! {
+                serde_json::to_value(&result).unwrap(),
+            }
+        });
+    }
 }
