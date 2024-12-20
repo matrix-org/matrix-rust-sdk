@@ -175,6 +175,11 @@ impl EventCache {
         Ok(())
     }
 
+    /// Check whether the storage is enabled or not.
+    pub fn has_storage(&self) -> bool {
+        self.inner.has_storage()
+    }
+
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
     /// before.
     ///
