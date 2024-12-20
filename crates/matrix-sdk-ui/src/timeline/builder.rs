@@ -162,11 +162,16 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> Result<Timeline, Error> {
-        let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
-        let settings_vectordiffs_as_inputs = settings.vectordiffs_as_inputs;
+        let Self { room, mut settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
         let client = room.client();
         let event_cache = client.event_cache();
+
+        // Enable `TimelineSettings::vectordiffs_as_inputs` if and only if the event
+        // cache storage is enabled.
+        settings.vectordiffs_as_inputs = event_cache.has_storage();
+
+        let settings_vectordiffs_as_inputs = settings.vectordiffs_as_inputs;
 
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
         event_cache.subscribe()?;
