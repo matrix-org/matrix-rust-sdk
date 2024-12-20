@@ -208,7 +208,7 @@ impl RoomSendQueue {
             room: self.clone(),
             transaction_id: send_event_txn.clone().into(),
             media_handles: Some(MediaHandles { upload_thumbnail_txn, upload_file_txn }),
-            created_at: Some(created_at),
+            created_at,
         };
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {

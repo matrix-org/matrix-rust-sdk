@@ -268,7 +268,7 @@ impl EventTimelineItem {
         as_variant!(&self.kind, EventTimelineItemKind::Local(local) => &local.send_state)
     }
 
-    /// Get the local time that the event was enqueued at.
+    /// Get the time that the local event was pushed in the send queue at.
     pub fn local_created_at(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         as_variant!(&self.kind, EventTimelineItemKind::Local(local) => local.created_at).flatten()
     }

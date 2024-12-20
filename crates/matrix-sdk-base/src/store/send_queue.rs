@@ -133,8 +133,8 @@ pub struct QueuedRequest {
     /// should be handled.
     pub priority: usize,
 
-    /// The time that the request was original attempted.
-    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
+    /// The time that the request was originally attempted.
+    pub created_at: MilliSecondsSinceUnixEpoch,
 }
 
 impl QueuedRequest {
@@ -376,9 +376,8 @@ pub struct DependentQueuedRequest {
     /// returned by the server once the local echo has been sent out.
     pub parent_key: Option<SentRequestKey>,
 
-    /// The time that the request was original attempted.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
+    /// The time that the request was originally attempted.
+    pub created_at: MilliSecondsSinceUnixEpoch,
 }
 
 impl DependentQueuedRequest {

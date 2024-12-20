@@ -309,7 +309,7 @@ async fn test_no_reuse_of_counters() {
     let local_id = assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value: item } => {
         let event_item = item.as_event().unwrap();
         assert!(event_item.is_local_echo());
-        assert_matches!(event_item.send_state(), Some(EventSendState::NotSentYet{ .. }));
+        assert_matches!(event_item.send_state(), Some(EventSendState::NotSentYet));
         assert!(!event_item.can_be_replied_to());
         item.unique_id().to_owned()
     });

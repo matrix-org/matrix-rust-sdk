@@ -174,7 +174,7 @@ async fn test_retry_failed() {
 
     // First, local echo is added.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet{ ..}));
+        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
     });
 
     // Sending fails, because the error is a transient one that's recoverable,
@@ -320,7 +320,7 @@ async fn test_cancel_failed() {
 
     // Local echo is added (immediately)
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet{ ..}));
+        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
     });
 
     // Sending fails, the mock server has no matching route

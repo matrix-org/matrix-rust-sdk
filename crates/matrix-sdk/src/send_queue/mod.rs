@@ -454,7 +454,7 @@ impl RoomSendQueue {
             room: self.clone(),
             transaction_id: transaction_id.clone(),
             media_handles: None,
-            created_at: Some(created_at),
+            created_at,
         };
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -1915,7 +1915,7 @@ pub struct SendHandle {
     media_handles: Option<MediaHandles>,
 
     /// The time that this send handle was first created
-    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
+    pub created_at: MilliSecondsSinceUnixEpoch,
 }
 
 impl SendHandle {
@@ -2168,7 +2168,7 @@ impl SendReactionHandle {
             room: self.room.clone(),
             transaction_id: self.transaction_id.clone().into(),
             media_handles: None,
-            created_at: Some(MilliSecondsSinceUnixEpoch::now()),
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         handle.abort().await
@@ -2263,7 +2263,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
-            created_at: Some(created_at),
+            created_at,
         };
 
         let res = canonicalize_dependent_requests(&[edit]);
@@ -2275,7 +2275,7 @@ mod tests {
         );
         assert_eq!(msg.body(), "edit");
         assert_eq!(res[0].parent_transaction_id, txn);
-        assert_eq!(res[0].created_at, Some(created_at));
+        assert_eq!(res[0].created_at, created_at);
     }
 
     #[async_test]
@@ -2338,7 +2338,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
-            created_at: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
         let res = canonicalize_dependent_requests(&[edit]);
 
@@ -2359,7 +2359,7 @@ mod tests {
             parent_transaction_id: txn.clone(),
             kind: DependentQueuedRequestKind::RedactEvent,
             parent_key: None,
-            created_at: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         let edit = DependentQueuedRequest {
@@ -2372,7 +2372,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
-            created_at: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         inputs.push({
@@ -2412,7 +2412,7 @@ mod tests {
                     .unwrap(),
                 },
                 parent_key: None,
-                created_at: None,
+                created_at: MilliSecondsSinceUnixEpoch::now(),
             })
             .collect::<Vec<_>>();
 
@@ -2444,7 +2444,7 @@ mod tests {
                 kind: DependentQueuedRequestKind::RedactEvent,
                 parent_transaction_id: txn1.clone(),
                 parent_key: None,
-                created_at: None,
+                created_at: MilliSecondsSinceUnixEpoch::now(),
             },
             // This one pertains to txn2.
             DependentQueuedRequest {
@@ -2457,7 +2457,7 @@ mod tests {
                 },
                 parent_transaction_id: txn2.clone(),
                 parent_key: None,
-                created_at: None,
+                created_at: MilliSecondsSinceUnixEpoch::now(),
             },
         ];
 
@@ -2488,7 +2488,7 @@ mod tests {
             kind: DependentQueuedRequestKind::ReactEvent { key: "🧠".to_owned() },
             parent_transaction_id: txn.clone(),
             parent_key: None,
-            created_at: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         let edit_id = ChildTransactionId::new();
@@ -2502,7 +2502,7 @@ mod tests {
             },
             parent_transaction_id: txn,
             parent_key: None,
-            created_at: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         let res = canonicalize_dependent_requests(&[react, edit]);
