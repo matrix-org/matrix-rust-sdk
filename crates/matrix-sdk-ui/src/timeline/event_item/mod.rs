@@ -270,7 +270,10 @@ impl EventTimelineItem {
 
     /// Get the time that the local event was pushed in the send queue at.
     pub fn local_created_at(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        as_variant!(&self.kind, EventTimelineItemKind::Local(local) => local.created_at).flatten()
+        match &self.kind {
+            EventTimelineItemKind::Local(local) => local.send_handle.as_ref().map(|s| s.created_at),
+            EventTimelineItemKind::Remote(_) => None,
+        }
     }
 
     /// Get the unique identifier of this item.

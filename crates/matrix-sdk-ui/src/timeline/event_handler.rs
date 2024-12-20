@@ -1045,7 +1045,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 send_state: EventSendState::NotSentYet,
                 transaction_id: txn_id.to_owned(),
                 send_handle: send_handle.clone(),
-                created_at: send_handle.clone().map(|h| h.created_at),
             }
             .into(),
 
