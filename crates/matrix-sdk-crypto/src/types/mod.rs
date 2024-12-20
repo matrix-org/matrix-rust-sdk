@@ -519,6 +519,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use insta::{assert_debug_snapshot, assert_json_snapshot, with_settings};
+    use ruma::{device_id, user_id};
     use serde_json::json;
     use similar_asserts::assert_eq;
 
@@ -546,5 +548,80 @@ mod test {
             .expect("We should be able to serialize a secrets bundle");
 
         assert_eq!(json, serialized, "A serialization cycle should yield the same result");
+    }
+
+    #[test]
+    fn snapshot_backup_decryption_key() {
+        let decryption_key = BackupDecryptionKey { inner: Box::new([1u8; 32]) };
+        assert_json_snapshot!(decryption_key);
+
+        // should not log the key !
+        assert_debug_snapshot!(decryption_key);
+    }
+
+    #[test]
+    fn snapshot_signatures() {
+        let signatures = Signatures(BTreeMap::from([
+            (
+                user_id!("@alice:localhost").to_owned(),
+                BTreeMap::from([
+                    (
+                        DeviceKeyId::from_parts(
+                            DeviceKeyAlgorithm::Ed25519,
+                            device_id!("ABCDEFGH"),
+                        ),
+                        Ok(Signature::from(Ed25519Signature::from_slice(&[0u8; 64]).unwrap())),
+                    ),
+                    (
+                        DeviceKeyId::from_parts(
+                            DeviceKeyAlgorithm::Curve25519,
+                            device_id!("IJKLMNOP"),
+                        ),
+                        Ok(Signature::from(Ed25519Signature::from_slice(&[1u8; 64]).unwrap())),
+                    ),
+                ]),
+            ),
+            (
+                user_id!("@bob:localhost").to_owned(),
+                BTreeMap::from([(
+                    DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("ABCDEFGH")),
+                    Err(InvalidSignature { source: "SOME+B64+SOME+B64+SOME+B64+==".to_owned() }),
+                )]),
+            ),
+        ]));
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot!(signatures)
+        });
+    }
+
+    #[test]
+    fn snapshot_secret_bundle() {
+        let secret_bundle = SecretsBundle {
+            cross_signing: CrossSigningSecrets {
+                master_key: "MSKMSKMSKMSKMSKMSKMSKMSKMSKMSKMSKMSK".to_owned(),
+                user_signing_key: "USKUSKUSKUSKUSKUSKUSKUSKUSKUSKUSKUSK".to_owned(),
+                self_signing_key: "SSKSSKSSKSSKSSKSSKSSKSSKSSKSSKSSK".to_owned(),
+            },
+            backup: Some(BackupSecrets::MegolmBackupV1Curve25519AesSha2(
+                MegolmBackupV1Curve25519AesSha2Secrets {
+                    key: BackupDecryptionKey::from_bytes(&[0u8; 32]),
+                    backup_version: "v1.1".to_owned(),
+                },
+            )),
+        };
+
+        assert_json_snapshot!(secret_bundle);
+
+        let secret_bundle = SecretsBundle {
+            cross_signing: CrossSigningSecrets {
+                master_key: "MSKMSKMSKMSKMSKMSKMSKMSKMSKMSKMSKMSK".to_owned(),
+                user_signing_key: "USKUSKUSKUSKUSKUSKUSKUSKUSKUSKUSKUSK".to_owned(),
+                self_signing_key: "SSKSSKSSKSSKSSKSSKSSKSSKSSKSSKSSK".to_owned(),
+            },
+            backup: None,
+        };
+
+        assert_json_snapshot!(secret_bundle);
     }
 }

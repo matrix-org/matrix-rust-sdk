@@ -108,10 +108,16 @@ impl Serialize for RoomKeyBackupInfo {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches::assert_matches;
-    use serde_json::json;
+    use insta::{assert_json_snapshot, with_settings};
+    use ruma::{user_id, DeviceKeyAlgorithm, KeyId};
+    use serde_json::{json, Value};
+    use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
     use super::RoomKeyBackupInfo;
+    use crate::types::{MegolmV1AuthData, Signature, Signatures};
 
     #[test]
     fn serialization() {
@@ -145,5 +151,33 @@ mod tests {
 
         let serialized = serde_json::to_value(deserialized).unwrap();
         assert_eq!(json, serialized);
+    }
+
+    #[test]
+    fn snapshot_room_key_backup_info() {
+        let info = RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(MegolmV1AuthData {
+            public_key: Curve25519PublicKey::from_bytes([2u8; 32]),
+            signatures: Signatures(BTreeMap::from([(
+                user_id!("@alice:localhost").to_owned(),
+                BTreeMap::from([(
+                    KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "ABCDEFG".into()),
+                    Ok(Signature::from(Ed25519Signature::from_slice(&[0u8; 64]).unwrap())),
+                )]),
+            )])),
+            extra: BTreeMap::from([("foo".to_owned(), Value::from("bar"))]),
+        });
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot!(info)
+        });
+
+        let info = RoomKeyBackupInfo::Other {
+            algorithm: "caesar.cipher".to_owned(),
+            auth_data: BTreeMap::from([("foo".to_owned(), Value::from("bar"))]),
+        };
+
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot!(info);
+        })
     }
 }

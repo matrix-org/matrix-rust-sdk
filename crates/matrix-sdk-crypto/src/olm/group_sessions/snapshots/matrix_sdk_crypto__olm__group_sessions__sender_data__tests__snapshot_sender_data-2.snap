@@ -1,0 +1,9 @@
+---
+source: crates/matrix-sdk-crypto/src/olm/group_sessions/sender_data.rs
+expression: "SenderData::UnknownDevice { legacy_session: true, owner_check_failed: false, }"
+---
+{
+  "UnknownDevice": {
+    "legacy_session": true
+  }
+}

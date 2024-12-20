@@ -85,6 +85,7 @@ assert_matches2 = { workspace = true }
 futures-executor = { workspace = true }
 http = { workspace = true }
 indoc = "2.0.5"
+insta = { workspace = true }
 matrix-sdk-test = { workspace = true }
 proptest = { workspace = true }
 similar-asserts = { workspace = true }
