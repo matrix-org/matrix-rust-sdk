@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] Move the optional `RequestConfig` argument of the
   `Client::send()` method to the `with_request_config()` builder method. You
-  should call `Client::send(request).with_request_config(request_config).awat`
+  should call `Client::send(request).with_request_config(request_config).await`
   now instead.
 
 ## [0.9.0] - 2024-12-18
