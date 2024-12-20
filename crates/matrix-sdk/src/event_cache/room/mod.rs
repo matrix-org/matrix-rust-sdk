@@ -561,11 +561,15 @@ impl RoomEventCacheInner {
                 })
                 .await?;
 
-            let mut cache = self.all_events.write().await;
-            for ev in &sync_timeline_events {
-                if let Some(event_id) = ev.event_id() {
-                    self.append_related_event(&mut cache, ev);
-                    cache.events.insert(event_id.to_owned(), (self.room_id.clone(), ev.clone()));
+            let mut all_events = self.all_events.write().await;
+
+            for sync_timeline_event in &sync_timeline_events {
+                if let Some(event_id) = sync_timeline_event.event_id() {
+                    self.append_related_event(&mut all_events, sync_timeline_event);
+                    all_events.events.insert(
+                        event_id.to_owned(),
+                        (self.room_id.clone(), sync_timeline_event.clone()),
+                    );
                 }
             }
 
