@@ -1863,7 +1863,7 @@ impl StateStore for SqliteStateStore {
         let mut requests = Vec::with_capacity(res.len());
         for entry in res {
             let created_at = UInt::new(entry.4)
-                .map_or_else(|| MilliSecondsSinceUnixEpoch::now(), MilliSecondsSinceUnixEpoch);
+                .map_or_else(MilliSecondsSinceUnixEpoch::now, MilliSecondsSinceUnixEpoch);
             requests.push(QueuedRequest {
                 transaction_id: entry.0.into(),
                 kind: self.deserialize_json(&entry.1)?,
@@ -2061,7 +2061,7 @@ impl StateStore for SqliteStateStore {
         let mut dependent_events = Vec::with_capacity(res.len());
         for entry in res {
             let created_at = UInt::new(entry.4)
-                .map_or_else(|| MilliSecondsSinceUnixEpoch::now(), MilliSecondsSinceUnixEpoch);
+                .map_or_else(MilliSecondsSinceUnixEpoch::now, MilliSecondsSinceUnixEpoch);
             dependent_events.push(DependentQueuedRequest {
                 own_transaction_id: entry.0.into(),
                 parent_transaction_id: entry.1.into(),
