@@ -1,0 +1,21 @@
+---
+source: crates/matrix-sdk-crypto/src/olm/group_sessions/sender_data.rs
+expression: "SenderData::DeviceInfo\n{\n    device_keys:\n    DeviceKeys::new(owned_user_id!(\"@foo:bar.baz\"), owned_device_id!(\"DEV\"),\n    vec!(EventEncryptionAlgorithm::MegolmV1AesSha2,\n    EventEncryptionAlgorithm::OlmV1Curve25519AesSha2),\n    BTreeMap::from_iter(vec![(DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519,\n    device_id!(\"ABCDEFGH\")),\n    DeviceKey::Curve25519(Curve25519PublicKey::from_bytes([0u8; 32])),)]),\n    Default::default(),), legacy_session: false,\n}"
+---
+{
+  "DeviceInfo": {
+    "device_keys": {
+      "user_id": "@foo:bar.baz",
+      "device_id": "DEV",
+      "algorithms": [
+        "m.megolm.v1.aes-sha2",
+        "m.olm.v1.curve25519-aes-sha2"
+      ],
+      "keys": {
+        "ed25519:ABCDEFGH": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "signatures": {}
+    },
+    "legacy_session": false
+  }
+}

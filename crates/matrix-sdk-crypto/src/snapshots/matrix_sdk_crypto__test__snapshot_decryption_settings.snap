@@ -1,0 +1,7 @@
+---
+source: crates/matrix-sdk-crypto/src/lib.rs
+expression: "DecryptionSettings\n{ sender_device_trust_requirement: TrustRequirement::Untrusted, }"
+---
+{
+  "sender_device_trust_requirement": "Untrusted"
+}

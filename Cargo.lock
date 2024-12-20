@@ -3230,6 +3230,7 @@ dependencies = [
  "hmac",
  "http",
  "indoc",
+ "insta",
  "itertools 0.13.0",
  "js_option",
  "matrix-sdk-common",
