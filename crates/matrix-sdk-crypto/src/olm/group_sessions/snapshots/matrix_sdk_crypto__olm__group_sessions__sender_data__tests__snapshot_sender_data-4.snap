@@ -6,39 +6,6 @@ expression: "SenderData::VerificationViolation(KnownSenderData\n{\n    user_id: 
   "VerificationViolation": {
     "user_id": "@foo:bar.baz",
     "device_id": "DEV",
-    "master_key": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0
-    ]
+    "master_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
   }
 }
