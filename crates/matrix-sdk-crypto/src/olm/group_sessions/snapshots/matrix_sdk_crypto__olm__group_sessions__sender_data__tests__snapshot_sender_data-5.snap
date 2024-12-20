@@ -6,39 +6,6 @@ expression: "SenderData::SenderUnverified(KnownSenderData\n{\n    user_id: owned
   "SenderUnverified": {
     "user_id": "@foo:bar.baz",
     "device_id": null,
-    "master_key": [
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1
-    ]
+    "master_key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
   }
 }
