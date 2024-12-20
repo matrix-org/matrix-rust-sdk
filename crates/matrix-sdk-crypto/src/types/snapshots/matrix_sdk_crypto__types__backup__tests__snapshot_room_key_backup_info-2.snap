@@ -1,0 +1,10 @@
+---
+source: crates/matrix-sdk-crypto/src/types/backup.rs
+expression: info
+---
+{
+  "algorithm": "caesar.cipher",
+  "auth_data": {
+    "foo": "bar"
+  }
+}

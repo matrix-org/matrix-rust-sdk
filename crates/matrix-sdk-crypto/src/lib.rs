@@ -1093,3 +1093,24 @@ pub enum RoomEventDecryptionResult {
 ///
 /// [1]: https://spec.matrix.org/unstable/client-server-api/#server-behaviour-4
 pub mod tutorial {}
+
+#[cfg(test)]
+mod test {
+    use insta::assert_json_snapshot;
+
+    use crate::{DecryptionSettings, TrustRequirement};
+
+    #[test]
+    fn snapshot_trust_requirement() {
+        assert_json_snapshot!(TrustRequirement::Untrusted);
+        assert_json_snapshot!(TrustRequirement::CrossSignedOrLegacy);
+        assert_json_snapshot!(TrustRequirement::CrossSigned);
+    }
+
+    #[test]
+    fn snapshot_decryption_settings() {
+        assert_json_snapshot!(DecryptionSettings {
+            sender_device_trust_requirement: TrustRequirement::Untrusted,
+        });
+    }
+}

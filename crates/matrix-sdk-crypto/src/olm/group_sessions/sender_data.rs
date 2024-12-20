@@ -283,13 +283,16 @@ mod tests {
     use std::{cmp::Ordering, collections::BTreeMap};
 
     use assert_matches2::assert_let;
-    use ruma::{device_id, owned_device_id, owned_user_id, user_id};
-    use vodozemac::Ed25519PublicKey;
+    use insta::assert_json_snapshot;
+    use ruma::{
+        device_id, owned_device_id, owned_user_id, user_id, DeviceKeyAlgorithm, DeviceKeyId,
+    };
+    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::SenderData;
     use crate::{
         olm::KnownSenderData,
-        types::{DeviceKeys, Signatures},
+        types::{DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures},
     };
 
     #[test]
@@ -478,5 +481,53 @@ mod tests {
         );
         assert_eq!(sender_unverified.compare_trust_level(&sender_verified), Ordering::Less);
         assert_eq!(sender_verified.compare_trust_level(&sender_unverified), Ordering::Greater);
+    }
+
+    #[test]
+    fn snapshot_sender_data() {
+        assert_json_snapshot!(SenderData::UnknownDevice {
+            legacy_session: false,
+            owner_check_failed: true,
+        });
+
+        assert_json_snapshot!(SenderData::UnknownDevice {
+            legacy_session: true,
+            owner_check_failed: false,
+        });
+
+        assert_json_snapshot!(SenderData::DeviceInfo {
+            device_keys: DeviceKeys::new(
+                owned_user_id!("@foo:bar.baz"),
+                owned_device_id!("DEV"),
+                vec![
+                    EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+                ],
+                BTreeMap::from_iter(vec![(
+                    DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("ABCDEFGH")),
+                    DeviceKey::Curve25519(Curve25519PublicKey::from_bytes([0u8; 32])),
+                )]),
+                Default::default(),
+            ),
+            legacy_session: false,
+        });
+
+        assert_json_snapshot!(SenderData::VerificationViolation(KnownSenderData {
+            user_id: owned_user_id!("@foo:bar.baz"),
+            device_id: Some(owned_device_id!("DEV")),
+            master_key: Box::new(Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap()),
+        }));
+
+        assert_json_snapshot!(SenderData::SenderUnverified(KnownSenderData {
+            user_id: owned_user_id!("@foo:bar.baz"),
+            device_id: None,
+            master_key: Box::new(Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap()),
+        }));
+
+        assert_json_snapshot!(SenderData::SenderVerified(KnownSenderData {
+            user_id: owned_user_id!("@foo:bar.baz"),
+            device_id: None,
+            master_key: Box::new(Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap()),
+        }));
     }
 }
