@@ -476,7 +476,7 @@ impl PersistedQueuedRequest {
             transaction_id: self.transaction_id,
             error,
             priority,
-            created_at: self.created_at,
+            created_at: self.created_at.unwrap_or(MilliSecondsSinceUnixEpoch::now()),
         })
     }
 }
@@ -1402,6 +1402,7 @@ impl_state_store!({
             || Ok(Vec::new()),
             |val| self.deserialize_value::<Vec<PersistedQueuedRequest>>(&val),
         )?;
+
         // Push the new request.
         prev.push(PersistedQueuedRequest {
             room_id: room_id.to_owned(),
@@ -1608,7 +1609,7 @@ impl_state_store!({
             parent_transaction_id: parent_txn_id.to_owned(),
             own_transaction_id: own_txn_id,
             parent_key: None,
-            created_at: Some(created_at),
+            created_at,
         });
 
         // Save the new vector into db.
