@@ -111,7 +111,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
-    use insta::assert_json_snapshot;
+    use insta::{assert_json_snapshot, with_settings};
     use ruma::{user_id, DeviceKeyAlgorithm, KeyId};
     use serde_json::{json, Value};
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
@@ -167,13 +167,17 @@ mod tests {
             extra: BTreeMap::from([("foo".to_owned(), Value::from("bar"))]),
         });
 
-        assert_json_snapshot!(info);
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot!(info)
+        });
 
         let info = RoomKeyBackupInfo::Other {
             algorithm: "caesar.cipher".to_owned(),
             auth_data: BTreeMap::from([("foo".to_owned(), Value::from("bar"))]),
         };
 
-        assert_json_snapshot!(info);
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot!(info);
+        })
     }
 }

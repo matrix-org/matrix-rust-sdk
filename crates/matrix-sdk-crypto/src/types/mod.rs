@@ -519,7 +519,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use insta::{assert_debug_snapshot, assert_json_snapshot};
+    use insta::{assert_debug_snapshot, assert_json_snapshot, with_settings};
     use ruma::{device_id, user_id};
     use serde_json::json;
     use similar_asserts::assert_eq;
@@ -590,7 +590,9 @@ mod test {
             ),
         ]));
 
-        assert_json_snapshot!(signatures);
+        with_settings!({sort_maps =>true}, {
+            assert_json_snapshot!(signatures)
+        });
     }
 
     #[test]
