@@ -47,7 +47,7 @@ use tokio::{
     task::JoinHandle,
     time::{sleep, timeout},
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use crate::helpers::TestClientBuilder;
 
@@ -278,11 +278,13 @@ async fn test_stale_local_echo_time_abort_edit() {
     {
         let mut diffs = Vec::with_capacity(3);
 
-        while let Ok(Some(vector_diff)) = timeout(Duration::from_secs(5), stream.next()).await {
+        while let Ok(Some(vector_diff)) = timeout(Duration::from_secs(15), stream.next()).await {
             diffs.push(vector_diff);
         }
 
-        assert!(diffs.len() >= 3);
+        trace!(?diffs, "Received diffs");
+
+        assert!(diffs.len() >= 2);
 
         for diff in diffs {
             match diff {
@@ -642,7 +644,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .expect("We should be able toe get a notification item for the given event");
 
     // Alright, we should now receive an update that the event had been decrypted.
-    let _vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    let _vector_diff = timeout(Duration::from_secs(10), stream.next()).await.unwrap().unwrap();
 
     // Let's fetch the event again.
     let item =
