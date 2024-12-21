@@ -137,9 +137,9 @@ impl Timeline {
 fn build_thumbnail_info(
     thumbnail_url: Option<String>,
     thumbnail_info: Option<ThumbnailInfo>,
-) -> Result<AttachmentConfig, RoomError> {
+) -> Result<Option<Thumbnail>, RoomError> {
     match (thumbnail_url, thumbnail_info) {
-        (None, None) => Ok(AttachmentConfig::new()),
+        (None, None) => Ok(None),
 
         (Some(thumbnail_url), Some(thumbnail_info)) => {
             let thumbnail_data =
@@ -163,15 +163,18 @@ fn build_thumbnail_info(
             let mime_type =
                 mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
 
-            let thumbnail =
-                Thumbnail { data: thumbnail_data, content_type: mime_type, height, width, size };
-
-            Ok(AttachmentConfig::with_thumbnail(thumbnail))
+            Ok(Some(Thumbnail {
+                data: thumbnail_data,
+                content_type: mime_type,
+                height,
+                width,
+                size,
+            }))
         }
 
         _ => {
             warn!("Ignoring thumbnail because either the thumbnail URL or info isn't defined");
-            Ok(AttachmentConfig::new())
+            Ok(None)
         }
     }
 }
@@ -304,8 +307,10 @@ impl Timeline {
             let base_image_info = BaseImageInfo::try_from(&image_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
             let attachment_info = AttachmentInfo::Image(base_image_info);
+            let thumbnail = build_thumbnail_info(thumbnail_url, image_info.thumbnail_info)?;
 
-            let attachment_config = build_thumbnail_info(thumbnail_url, image_info.thumbnail_info)?
+            let attachment_config = AttachmentConfig::new()
+                .thumbnail(thumbnail)
                 .info(attachment_info)
                 .caption(caption)
                 .formatted_caption(formatted_caption);
@@ -338,8 +343,10 @@ impl Timeline {
             let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(&video_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
             let attachment_info = AttachmentInfo::Video(base_video_info);
+            let thumbnail = build_thumbnail_info(thumbnail_url, video_info.thumbnail_info)?;
 
-            let attachment_config = build_thumbnail_info(thumbnail_url, video_info.thumbnail_info)?
+            let attachment_config = AttachmentConfig::new()
+                .thumbnail(thumbnail)
                 .info(attachment_info)
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));

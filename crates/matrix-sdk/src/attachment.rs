@@ -188,21 +188,21 @@ pub struct AttachmentConfig {
 }
 
 impl AttachmentConfig {
-    /// Create a new default `AttachmentConfig` without providing a thumbnail.
-    ///
-    /// To provide a thumbnail use [`AttachmentConfig::with_thumbnail()`].
+    /// Create a new empty `AttachmentConfig`.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create a new default `AttachmentConfig` with a `thumbnail`.
+    /// Set the thumbnail to send.
     ///
     /// # Arguments
     ///
     /// * `thumbnail` - The thumbnail of the media. If the `content_type` does
-    ///   not support it (eg audio clips), it is ignored.
-    pub fn with_thumbnail(thumbnail: Thumbnail) -> Self {
-        Self { thumbnail: Some(thumbnail), ..Default::default() }
+    ///   not support it (e.g. audio clips), it is ignored.
+    #[must_use]
+    pub fn thumbnail(mut self, thumbnail: Option<Thumbnail>) -> Self {
+        self.thumbnail = thumbnail;
+        self
     }
 
     /// Set the transaction ID to send.
