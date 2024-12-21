@@ -22,7 +22,7 @@ use matrix_sdk::{
     assert_let_timeout, attachment::AttachmentConfig, test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
-use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent};
+use matrix_sdk_ui::timeline::{AttachmentSource, EventSendState, RoomExt, TimelineItemContent};
 use ruma::{
     event_id,
     events::room::{message::MessageType, MediaSource},
@@ -52,7 +52,7 @@ fn get_filename_and_caption(msg: &MessageType) -> (&str, Option<&str>) {
 }
 
 #[async_test]
-async fn test_send_attachment() {
+async fn test_send_attachment_from_file() {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
@@ -127,6 +127,105 @@ async fn test_send_attachment() {
         assert_let!(TimelineItemContent::Message(msg) = item.content());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
         assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", Some("caption")));
+
+        // The URI now refers to the final MXC URI.
+        assert_let!(MessageType::File(file) = msg.msgtype());
+        assert_let!(MediaSource::Plain(uri) = &file.source);
+        assert_eq!(uri.to_string(), "mxc://sdk.rs/media");
+    }
+
+    // And eventually the event itself is sent.
+    {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
+        );
+        assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
+            assert_eq!(event_id, event_id!("$media"));
+        });
+    }
+
+    // That's all, folks!
+    assert!(timeline_stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_send_attachment_from_bytes() {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await.unwrap();
+
+    let (items, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    assert!(items.is_empty());
+
+    let f = EventFactory::new();
+    mock.sync_room(
+        &client,
+        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(&ALICE)),
+    )
+    .await;
+
+    // Sanity check.
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_eq!(msg.body(), "hello");
+
+    // No other updates.
+    assert!(timeline_stream.next().now_or_never().is_none());
+
+    // The data of the file.
+    let filename = "test.bin";
+    let source =
+        AttachmentSource::Data { bytes: b"hello world".to_vec(), filename: filename.to_owned() };
+
+    // Set up mocks for the file upload.
+    mock.mock_upload()
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)).set_body_json(
+            json!({
+              "content_uri": "mxc://sdk.rs/media"
+            }),
+        ))
+        .mock_once()
+        .mount()
+        .await;
+
+    mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
+
+    // Queue sending of an attachment.
+    let config = AttachmentConfig::new().caption(Some("caption".to_owned()));
+    timeline.send_attachment(source, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
+
+    {
+        assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_let!(TimelineItemContent::Message(msg) = item.content());
+
+        // Body is the caption, because there's both a caption and filename.
+        assert_eq!(msg.body(), "caption");
+        assert_eq!(get_filename_and_caption(msg.msgtype()), (filename, Some("caption")));
+
+        // The URI refers to the local cache.
+        assert_let!(MessageType::File(file) = msg.msgtype());
+        assert_let!(MediaSource::Plain(uri) = &file.source);
+        assert!(uri.to_string().contains("localhost"));
+    }
+
+    // Eventually, the media is updated with the final MXC IDs…
+    sleep(Duration::from_secs(2)).await;
+
+    {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
+        );
+        assert_let!(TimelineItemContent::Message(msg) = item.content());
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_eq!(get_filename_and_caption(msg.msgtype()), (filename, Some("caption")));
 
         // The URI now refers to the final MXC URI.
         assert_let!(MessageType::File(file) = msg.msgtype());

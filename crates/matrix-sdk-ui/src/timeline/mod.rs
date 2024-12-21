@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
+use std::{fs, path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
 use event_item::{extract_room_msg_edit_content, TimelineItemHandle};
 use eyeball_im::VectorDiff;
@@ -540,7 +540,7 @@ impl Timeline {
     ///
     /// # Arguments
     ///
-    /// * `path` - The path of the file to be sent.
+    /// * `source` - The source of the attachment to send.
     ///
     /// * `mime_type` - The attachment's mime type.
     ///
@@ -551,11 +551,11 @@ impl Timeline {
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
-        path: impl Into<PathBuf>,
+        source: impl Into<AttachmentSource>,
         mime_type: Mime,
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
-        SendAttachment::new(self, path.into(), mime_type, config)
+        SendAttachment::new(self, source.into(), mime_type, config)
     }
 
     /// Redact an event given its [`TimelineEventItemId`] and an optional
@@ -885,3 +885,52 @@ impl<S: Stream> Stream for TimelineStream<S> {
 
 pub type TimelineEventFilterFn =
     dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
+
+/// A source for sending an attachment.
+///
+/// The [`AttachmentSource::File`] variant can be constructed from any type that
+/// implements `Into<PathBuf>`.
+#[derive(Debug, Clone)]
+pub enum AttachmentSource {
+    /// The data of the attachment.
+    Data {
+        /// The bytes of the attachment.
+        bytes: Vec<u8>,
+
+        /// The filename of the attachment.
+        filename: String,
+    },
+
+    /// An attachment loaded from a file.
+    ///
+    /// The bytes and the filename will be read from the file at the given path.
+    File(PathBuf),
+}
+
+impl AttachmentSource {
+    /// Try to convert this attachment source into a `(bytes, filename)` tuple.
+    pub(crate) fn try_into_bytes_and_filename(self) -> Result<(Vec<u8>, String), Error> {
+        match self {
+            Self::Data { bytes, filename } => Ok((bytes, filename)),
+            Self::File(path) => {
+                let filename = path
+                    .file_name()
+                    .ok_or(Error::InvalidAttachmentFileName)?
+                    .to_str()
+                    .ok_or(Error::InvalidAttachmentFileName)?
+                    .to_owned();
+                let bytes = fs::read(&path).map_err(|_| Error::InvalidAttachmentData)?;
+                Ok((bytes, filename))
+            }
+        }
+    }
+}
+
+impl<P> From<P> for AttachmentSource
+where
+    P: Into<PathBuf>,
+{
+    fn from(value: P) -> Self {
+        Self::File(value.into())
+    }
+}
