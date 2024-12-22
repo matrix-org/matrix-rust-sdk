@@ -105,7 +105,7 @@ impl RoomSendQueue {
     #[instrument(skip_all, fields(event_txn))]
     pub async fn send_attachment(
         &self,
-        filename: &str,
+        filename: impl Into<String>,
         content_type: Mime,
         data: Vec<u8>,
         mut config: AttachmentConfig,
@@ -118,6 +118,7 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
+        let filename = filename.into();
         let upload_file_txn = TransactionId::new();
         let send_event_txn = config.txn_id.map_or_else(ChildTransactionId::new, Into::into);
 
