@@ -204,19 +204,20 @@ async fn test_room_attachment_send_info_thumbnail() {
     let _ = client.media().get_media_content(&thumbnail_request, true).await.unwrap_err();
 
     // Send the attachment with a thumbnail.
-    let config = AttachmentConfig::with_thumbnail(Thumbnail {
-        data: b"Thumbnail".to_vec(),
-        content_type: mime::IMAGE_JPEG,
-        height: uint!(360),
-        width: uint!(480),
-        size: uint!(3600),
-    })
-    .info(AttachmentInfo::Image(BaseImageInfo {
-        height: Some(uint!(600)),
-        width: Some(uint!(800)),
-        size: None,
-        blurhash: None,
-    }));
+    let config = AttachmentConfig::new()
+        .thumbnail(Some(Thumbnail {
+            data: b"Thumbnail".to_vec(),
+            content_type: mime::IMAGE_JPEG,
+            height: uint!(360),
+            width: uint!(480),
+            size: uint!(3600),
+        }))
+        .info(AttachmentInfo::Image(BaseImageInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            size: None,
+            blurhash: None,
+        }));
 
     let response = room
         .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
