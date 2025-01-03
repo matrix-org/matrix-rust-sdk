@@ -20,10 +20,13 @@ use std::{
     time::Duration,
 };
 
+use hkdf::Hkdf;
 use js_option::JsOption;
+#[cfg(test)]
+use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
 use ruma::{
     api::client::{
-        dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV1},
+        dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{
             upload_keys,
             upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
@@ -692,12 +695,12 @@ impl Account {
     }
 
     pub(crate) fn dehydrate(&self, pickle_key: &[u8; 32]) -> Raw<DehydratedDeviceData> {
-        let device_pickle = self
+        let (device_pickle, nonce) = self
             .inner
             .to_dehydrated_device(pickle_key)
             .expect("We should be able to convert a freshly created Account into a libolm pickle");
 
-        let data = DehydratedDeviceData::V1(DehydratedDeviceV1::new(device_pickle));
+        let data = DehydratedDeviceData::V2(DehydratedDeviceV2::new(device_pickle, nonce));
         Raw::from_json(to_raw_value(&data).expect("Couldn't serialize our dehydrated device data"))
     }
 
@@ -711,11 +714,14 @@ impl Account {
 
         match data {
             DehydratedDeviceData::V1(d) => {
-                let account = InnerAccount::from_dehydrated_device(
-                    &d.device_pickle,
-                    device_id.as_str(),
-                    pickle_key,
-                )?;
+                let pickle_key = expand_legacy_pickle_key(pickle_key, device_id);
+                let account =
+                    InnerAccount::from_libolm_pickle(&d.device_pickle, pickle_key.as_ref())?;
+                Ok(Self::new_helper(account, user_id, device_id))
+            }
+            DehydratedDeviceData::V2(d) => {
+                let account =
+                    InnerAccount::from_dehydrated_device(&d.device_pickle, &d.nonce, pickle_key)?;
                 Ok(Self::new_helper(account, user_id, device_id))
             }
             _ => Err(DehydrationError::Json(serde_json::Error::custom(format!(
@@ -723,6 +729,20 @@ impl Account {
                 data.algorithm()
             )))),
         }
+    }
+
+    /// Produce a dehydrated device using a format described in an older version
+    /// of MSC3814.
+    #[cfg(test)]
+    pub(crate) fn legacy_dehydrate(&self, pickle_key: &[u8; 32]) -> Raw<DehydratedDeviceData> {
+        let pickle_key = expand_legacy_pickle_key(pickle_key, &self.device_id);
+        let device_pickle = self
+            .inner
+            .to_libolm_pickle(pickle_key.as_ref())
+            .expect("We should be able to convert a freshly created Account into a libolm pickle");
+
+        let data = DehydratedDeviceData::V1(DehydratedDeviceV1::new(device_pickle));
+        Raw::from_json(to_raw_value(&data).expect("Couldn't serialize our dehydrated device data"))
     }
 
     /// Restore an account from a previously pickled one.
@@ -1486,6 +1506,34 @@ impl PartialEq for Account {
     fn eq(&self, other: &Self) -> bool {
         self.identity_keys() == other.identity_keys() && self.shared() == other.shared()
     }
+}
+
+/// Expand the pickle key for an older version of dehydrated devices
+///
+/// The `org.matrix.msc3814.v1.olm` variant of dehydrated devices used the
+/// libolm Account pickle format for the dehydrated device. The libolm pickle
+/// encryption scheme uses HKDF to deterministically expand an input key
+/// material, usually 32 bytes, into a AES key, MAC key, and the initialization
+/// vector (IV).
+///
+/// This means that the same input key material will always end up producing the
+/// same AES key, and IV.
+///
+/// This encryption scheme is used in the Olm double ratchet and was designed to
+/// minimize the size of the ciphertext. As a tradeof, it requires a unique
+/// input key material for each plaintext that gets encrypted, otherwise IV
+/// reuse happens.
+///
+/// To combat the IV reuse, we're going to create a per-dehydrated-device unique
+/// pickle key by expanding the key itself with the device ID used as the salt.
+fn expand_legacy_pickle_key(key: &[u8; 32], device_id: &DeviceId) -> Box<[u8; 32]> {
+    let kdf: Hkdf<Sha256> = Hkdf::new(Some(device_id.as_bytes()), key);
+    let mut key = Box::new([0u8; 32]);
+
+    kdf.expand(b"dehydrated-device-pickle-key", key.as_mut_slice())
+        .expect("We should be able to expand the 32 byte pickle key");
+
+    key
 }
 
 #[cfg(test)]

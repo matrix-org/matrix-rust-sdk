@@ -52,7 +52,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tracing::{instrument, trace};
-use vodozemac::LibolmPickleError;
+use vodozemac::{DehydratedDeviceError, LibolmPickleError};
 
 use crate::{
     store::{Changes, CryptoStoreWrapper, DehydratedDeviceKey, MemoryStore, RoomKeyInfo, Store},
@@ -63,9 +63,13 @@ use crate::{
 /// Error type for device dehydration issues.
 #[derive(Debug, Error)]
 pub enum DehydrationError {
+    /// The legacy dehydrated device could not be unpickled.
+    #[error(transparent)]
+    LegacyPickle(#[from] LibolmPickleError),
+
     /// The dehydrated device could not be unpickled.
     #[error(transparent)]
-    Pickle(#[from] LibolmPickleError),
+    Pickle(#[from] DehydratedDeviceError),
 
     /// The dehydrated device could not be signed by our user identity,
     /// we're missing the self-signing key.
@@ -608,5 +612,84 @@ mod tests {
 
         let stored_key = dehydrated_manager.get_dehydrated_device_pickle_key().await.unwrap();
         assert!(stored_key.is_none());
+    }
+
+    /// Test that we can rehydrate an older version of dehydrated device
+    #[async_test]
+    async fn test_legacy_dehydrated_device_rehydration() {
+        let room_id = room_id!("!test:example.org");
+        let alice = get_olm_machine().await;
+
+        let dehydrated_device = alice.dehydrated_devices().create().await.unwrap();
+
+        let mut transaction = dehydrated_device.store.transaction().await;
+        let account = transaction.account().await.unwrap();
+        account.generate_fallback_key_if_needed();
+
+        let (device_keys, mut one_time_keys, _fallback_keys) = account.keys_for_upload();
+        let device_keys = device_keys.unwrap();
+
+        let device_data = account.legacy_dehydrate(&pickle_key().inner);
+        let device_id = account.device_id().to_owned();
+        transaction.commit().await.unwrap();
+
+        let (key_id, one_time_key) = one_time_keys
+            .pop_first()
+            .expect("The dehydrated device creation request should contain a one-time key");
+
+        // Ensure that we know about the public keys of the dehydrated device.
+        receive_device_keys(&alice, user_id(), &device_id, device_keys.to_raw()).await;
+        // Create a 1-to-1 Olm session with the dehydrated device.
+        create_session(&alice, user_id(), &device_id, key_id, one_time_key).await;
+
+        // Send a room key to the dehydrated device.
+        let (event, group_session) = send_room_key(&alice, room_id, user_id()).await;
+
+        // Let's now create a new `OlmMachine` which doesn't know about the room key.
+        let bob = get_olm_machine().await;
+
+        let room_key = bob
+            .store()
+            .get_inbound_group_session(room_id, group_session.session_id())
+            .await
+            .unwrap();
+
+        assert!(
+            room_key.is_none(),
+            "We should not have access to the room key that was only sent to the dehydrated device"
+        );
+
+        // Rehydrate the device.
+        let rehydrated = bob
+            .dehydrated_devices()
+            .rehydrate(&pickle_key(), &device_id, device_data)
+            .await
+            .expect("We should be able to rehydrate the device");
+
+        assert_eq!(rehydrated.rehydrated.device_id(), &device_id);
+        assert_eq!(rehydrated.original.device_id(), alice.device_id());
+
+        // Push the to-device event containing the room key into the rehydrated device.
+        let ret = rehydrated
+            .receive_events(vec![event])
+            .await
+            .expect("We should be able to push to-device events into the rehydrated device");
+
+        assert_eq!(ret.len(), 1, "The rehydrated device should have imported a room key");
+
+        // The `OlmMachine` now does know about the room key since the rehydrated device
+        // shared it with us.
+        let room_key = bob
+            .store()
+            .get_inbound_group_session(room_id, group_session.session_id())
+            .await
+            .unwrap()
+            .expect("We should now have access to the room key, since the rehydrated device imported it for us");
+
+        assert_eq!(
+            room_key.session_id(),
+            group_session.session_id(),
+            "The session ids of the imported room key and the outbound group session should match"
+        );
     }
 }

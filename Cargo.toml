@@ -146,6 +146,8 @@ tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = 
 tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
 paranoid-android = { git = "https://github.com/element-hq/paranoid-android.git", rev = "69388ac5b4afeed7be4401c70ce17f6d9a2cf19b" }
 vodozemac = { git = "https://github.com/uhoreg/vodozemac.git", branch = "dehydration_format" }
+ruma = { git = "https://github.com/uhoreg/ruma.git", branch = "dehydration_format" }
+ruma-common = { git = "https://github.com/uhoreg/ruma.git", branch = "dehydration_format" }
 
 
 [workspace.lints.rust]
