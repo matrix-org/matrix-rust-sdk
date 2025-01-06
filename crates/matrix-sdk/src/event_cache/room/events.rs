@@ -15,13 +15,11 @@
 use std::cmp::Ordering;
 
 use eyeball_im::VectorDiff;
+use matrix_sdk_base::event_cache::store::DEFAULT_CHUNK_CAPACITY;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
-use matrix_sdk_base::{
-    event_cache::store::DEFAULT_CHUNK_CAPACITY,
-    linked_chunk::{AsVector, IterBackward, ObservableUpdates},
-};
 use matrix_sdk_common::linked_chunk::{
-    Chunk, ChunkIdentifier, EmptyChunk, Error, LinkedChunk, Position,
+    AsVector, Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, IterBackward, LinkedChunk,
+    ObservableUpdates, Position,
 };
 use ruma::OwnedEventId;
 use tracing::{debug, error, warn};
@@ -211,9 +209,7 @@ impl RoomEvents {
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
-    pub fn chunks(
-        &self,
-    ) -> matrix_sdk_common::linked_chunk::Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+    pub fn chunks(&self) -> Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
         self.chunks.chunks()
     }
 
