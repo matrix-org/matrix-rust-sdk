@@ -101,10 +101,10 @@ impl RoomEvents {
     where
         I: IntoIterator<Item = Event>,
     {
-        let (unique_events, duplicated_event_ids) =
-            self.filter_duplicated_events(events.into_iter());
+        let (events, duplicated_event_ids) =
+            self.collect_valid_and_duplicated_events(events.into_iter());
 
-        if deduplicated_all_new_events(unique_events.len(), duplicated_event_ids.len()) {
+        if deduplicated_all_new_events(events.len(), duplicated_event_ids.len()) {
             return false;
         }
 
@@ -115,7 +115,7 @@ impl RoomEvents {
         self.remove_events(duplicated_event_ids);
 
         // Push new `events`.
-        self.chunks.push_items_back(unique_events);
+        self.chunks.push_items_back(events);
 
         true
     }
@@ -132,10 +132,10 @@ impl RoomEvents {
     where
         I: IntoIterator<Item = Event>,
     {
-        let (unique_events, duplicated_event_ids) =
-            self.filter_duplicated_events(events.into_iter());
+        let (events, duplicated_event_ids) =
+            self.collect_valid_and_duplicated_events(events.into_iter());
 
-        if deduplicated_all_new_events(unique_events.len(), duplicated_event_ids.len()) {
+        if deduplicated_all_new_events(events.len(), duplicated_event_ids.len()) {
             return Ok(false);
         }
 
@@ -146,7 +146,7 @@ impl RoomEvents {
         // argument value for each removal.
         self.remove_events_and_update_insert_position(duplicated_event_ids, &mut position);
 
-        self.chunks.insert_items_at(unique_events, position)?;
+        self.chunks.insert_items_at(events, position)?;
 
         Ok(true)
     }
@@ -163,8 +163,8 @@ impl RoomEvents {
     ///
     /// This method returns:
     /// - a boolean indicating if we updated the linked chunk,
-    /// - a reference to the (first if many) newly created `Chunk` that contains
-    ///   the `items`.
+    /// - the position of the (first if many) newly created `Chunk` that
+    ///   contains the `items`.
     pub fn replace_gap_at<I>(
         &mut self,
         events: I,
@@ -173,10 +173,10 @@ impl RoomEvents {
     where
         I: IntoIterator<Item = Event>,
     {
-        let (unique_events, duplicated_event_ids) =
-            self.filter_duplicated_events(events.into_iter());
+        let (events, duplicated_event_ids) =
+            self.collect_valid_and_duplicated_events(events.into_iter());
 
-        if deduplicated_all_new_events(unique_events.len(), duplicated_event_ids.len()) {
+        if deduplicated_all_new_events(events.len(), duplicated_event_ids.len()) {
             let pos = self.chunks.remove_gap_at(gap_identifier)?;
             return Ok((false, pos));
         }
@@ -188,13 +188,13 @@ impl RoomEvents {
         // because of the removals.
         self.remove_events(duplicated_event_ids);
 
-        let next_pos = if unique_events.is_empty() {
+        let next_pos = if events.is_empty() {
             // There are no new events, so there's no need to create a new empty items
             // chunk; instead, remove the gap.
             self.chunks.remove_gap_at(gap_identifier)?
         } else {
             // Replace the gap by new events.
-            Some(self.chunks.replace_gap_at(unique_events, gap_identifier)?.first_position())
+            Some(self.chunks.replace_gap_at(events, gap_identifier)?.first_position())
         };
 
         Ok((true, next_pos))
@@ -257,15 +257,18 @@ impl RoomEvents {
 
     /// Deduplicate `events` considering all events in `Self::chunks`.
     ///
-    /// The returned tuple contains (i) the unique events, and (ii) the
+    /// The returned tuple contains (i) all events with an ID, and (ii) the
     /// duplicated events (by ID).
-    fn filter_duplicated_events<'a, I>(&'a mut self, events: I) -> (Vec<Event>, Vec<OwnedEventId>)
+    fn collect_valid_and_duplicated_events<'a, I>(
+        &'a mut self,
+        events: I,
+    ) -> (Vec<Event>, Vec<OwnedEventId>)
     where
         I: Iterator<Item = Event> + 'a,
     {
         let mut duplicated_event_ids = Vec::new();
 
-        let deduplicated_events = self
+        let events = self
             .deduplicator
             .scan_and_learn(events, self)
             .filter_map(|decorated_event| match decorated_event {
@@ -292,7 +295,7 @@ impl RoomEvents {
             })
             .collect();
 
-        (deduplicated_events, duplicated_event_ids)
+        (events, duplicated_event_ids)
     }
 
     /// Return a nice debug string (a vector of lines) for the linked chunk of
