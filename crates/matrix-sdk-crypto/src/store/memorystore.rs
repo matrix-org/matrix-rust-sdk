@@ -16,14 +16,13 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     sync::RwLock as StdRwLock,
-    time::Instant,
 };
 
 use async_trait::async_trait;
 use matrix_sdk_common::store_locks::memory_store_helper::try_take_leased_lock;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, time::Instant, DeviceId, OwnedDeviceId, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::warn;

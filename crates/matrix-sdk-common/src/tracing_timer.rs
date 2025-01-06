@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Instant;
-
+use ruma::time::Instant;
 use tracing::{callsite::DefaultCallsite, Callsite as _};
 
 /// A named RAII that will show on Drop how long its covered section took to
