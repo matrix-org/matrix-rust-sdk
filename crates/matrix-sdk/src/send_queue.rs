@@ -159,7 +159,7 @@ use ruma::{
             message::{FormattedBody, RoomMessageEventContent},
             MediaSource,
         },
-        AnyMessageLikeEventContent, EventContent as _,
+        AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
     serde::Raw,
     OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
@@ -1995,12 +1995,13 @@ impl SendHandle {
         &self,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
     ) -> Result<bool, RoomSendQueueStorageError> {
         if let Some(new_content) = self
             .room
             .inner
             .queue
-            .edit_media_caption(&self.transaction_id, caption, formatted_caption)
+            .edit_media_caption(&self.transaction_id, caption, formatted_caption, mentions)
             .await?
         {
             trace!("successful edit of media caption");

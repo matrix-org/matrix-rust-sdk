@@ -71,8 +71,8 @@ use crate::{
     event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
     ruma::{
-        AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo,
-        VideoInfo,
+        AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, PollKind,
+        ThumbnailInfo, VideoInfo,
     },
     task_handle::TaskHandle,
     utils::Timestamp,
@@ -1295,22 +1295,32 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
 
 #[derive(Clone, uniffi::Enum)]
 pub enum EditedContent {
-    RoomMessage { content: Arc<RoomMessageEventContentWithoutRelation> },
-    MediaCaption { caption: Option<String>, formatted_caption: Option<FormattedBody> },
-    PollStart { poll_data: PollData },
+    RoomMessage {
+        content: Arc<RoomMessageEventContentWithoutRelation>,
+    },
+    MediaCaption {
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
+    },
+    PollStart {
+        poll_data: PollData,
+    },
 }
 
 impl TryFrom<EditedContent> for SdkEditedContent {
     type Error = ClientError;
+
     fn try_from(value: EditedContent) -> Result<Self, Self::Error> {
         match value {
             EditedContent::RoomMessage { content } => {
                 Ok(SdkEditedContent::RoomMessage((*content).clone()))
             }
-            EditedContent::MediaCaption { caption, formatted_caption } => {
+            EditedContent::MediaCaption { caption, formatted_caption, mentions } => {
                 Ok(SdkEditedContent::MediaCaption {
                     caption,
                     formatted_caption: formatted_caption.map(Into::into),
+                    mentions: mentions.map(Into::into),
                 })
             }
             EditedContent::PollStart { poll_data } => {
@@ -1332,12 +1342,14 @@ impl TryFrom<EditedContent> for SdkEditedContent {
 fn create_caption_edit(
     caption: Option<String>,
     formatted_caption: Option<FormattedBody>,
+    mentions: Option<Mentions>,
 ) -> EditedContent {
     let formatted_caption =
         formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
     EditedContent::MediaCaption {
         caption,
         formatted_caption: formatted_caption.as_ref().map(Into::into),
+        mentions,
     }
 }
 
