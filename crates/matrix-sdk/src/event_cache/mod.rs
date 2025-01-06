@@ -662,16 +662,6 @@ pub enum RoomEventCacheUpdate {
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
 
-    /// The room has received new timeline events.
-    // TODO: remove once `UpdateTimelineEvents` is stabilized
-    AddTimelineEvents {
-        /// All the new events that have been added to the room's timeline.
-        events: Vec<SyncTimelineEvent>,
-
-        /// Where the events are coming from.
-        origin: EventsOrigin,
-    },
-
     /// The room has received updates for the timeline as _diffs_.
     UpdateTimelineEvents {
         /// Diffs to apply to the timeline.

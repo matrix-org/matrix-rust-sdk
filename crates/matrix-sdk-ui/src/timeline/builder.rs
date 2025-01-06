@@ -290,23 +290,6 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
-                        // TODO: remove once `UpdateTimelineEvents` is stabilized.
-                        RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
-                            if !settings_vectordiffs_as_inputs {
-                                trace!("Received new timeline events.");
-
-                                inner.add_events_at(
-                                    events.into_iter(),
-                                    TimelineNewItemPosition::End {
-                                        origin: match origin {
-                                            EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                                            EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
-                                        }
-                                    }
-                                ).await;
-                            }
-                        }
-
                         RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
                             if settings_vectordiffs_as_inputs {
                                 trace!("Received new timeline events diffs");
