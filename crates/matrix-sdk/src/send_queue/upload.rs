@@ -26,7 +26,7 @@ use mime::Mime;
 use ruma::{
     events::{
         room::message::{FormattedBody, MessageType, RoomMessageEventContent},
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, Mentions,
     },
     OwnedTransactionId, TransactionId,
 };
@@ -488,6 +488,7 @@ impl QueueStorage {
         txn: &TransactionId,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
     ) -> Result<Option<AnyMessageLikeEventContent>, RoomSendQueueStorageError> {
         // This error will be popular here.
         use RoomSendQueueStorageError::InvalidMediaCaptionEdit;
@@ -522,7 +523,7 @@ impl QueueStorage {
                     return Err(InvalidMediaCaptionEdit);
                 };
 
-                if !update_media_caption(&mut local_echo, caption, formatted_caption) {
+                if !update_media_caption(&mut local_echo, caption, formatted_caption, mentions) {
                     return Err(InvalidMediaCaptionEdit);
                 }
 
@@ -561,7 +562,7 @@ impl QueueStorage {
             return Err(InvalidMediaCaptionEdit);
         };
 
-        if !update_media_caption(&mut content, caption, formatted_caption) {
+        if !update_media_caption(&mut content, caption, formatted_caption, mentions) {
             return Err(InvalidMediaCaptionEdit);
         }
 

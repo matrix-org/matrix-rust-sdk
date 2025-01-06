@@ -486,9 +486,9 @@ impl Timeline {
                         }
                     }
 
-                    EditedContent::MediaCaption { caption, formatted_caption } => {
+                    EditedContent::MediaCaption { caption, formatted_caption, mentions } => {
                         if handle
-                            .edit_media_caption(caption, formatted_caption)
+                            .edit_media_caption(caption, formatted_caption, mentions)
                             .await
                             .map_err(RoomSendQueueError::StorageError)?
                         {

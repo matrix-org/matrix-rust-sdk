@@ -2631,7 +2631,8 @@ async fn test_update_caption_while_sending_media() {
     assert_eq!(local_content.filename(), filename);
 
     // We can edit the caption while the file is being uploaded.
-    let edited = upload_handle.edit_media_caption(Some("caption".to_owned()), None).await.unwrap();
+    let edited =
+        upload_handle.edit_media_caption(Some("caption".to_owned()), None, None).await.unwrap();
     assert!(edited);
 
     {
@@ -2740,7 +2741,8 @@ async fn test_update_caption_before_event_is_sent() {
     assert!(watch.is_empty());
 
     // We can edit the caption here.
-    let edited = upload_handle.edit_media_caption(Some("caption".to_owned()), None).await.unwrap();
+    let edited =
+        upload_handle.edit_media_caption(Some("caption".to_owned()), None, None).await.unwrap();
     assert!(edited);
 
     // The media event is updated with the captions.
@@ -2755,6 +2757,105 @@ async fn test_update_caption_before_event_is_sent() {
         // But kept the mxc.
         let new_mxc = as_variant!(image.source, MediaSource::Plain).unwrap();
         assert_eq!(new_mxc, mxc);
+    }
+
+    // Re-enable the send queue.
+    q.set_enabled(true);
+
+    // Then the event is sent.
+    assert_update!(watch => sent { txn = upload_txn, });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_add_mention_to_caption_before_media_sent() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // File upload will take a second.
+    mock.mock_upload()
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
+            json!({
+              "content_uri": "mxc://sdk.rs/media"
+            }),
+        ))
+        .mock_once()
+        .named("file upload")
+        .mount()
+        .await;
+
+    // Sending of the media event will succeed.
+    mock.mock_room_send()
+        .ok(event_id!("$media"))
+        .mock_once()
+        .named("send event")
+        .mock_once()
+        .mount()
+        .await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+
+    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+
+    // Let the upload request start.
+    sleep(Duration::from_millis(300)).await;
+
+    // Stop the send queue before upload is done. This will stall sending of the
+    // media event.
+    q.set_enabled(false);
+
+    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(local_content) = content.msgtype);
+    assert_eq!(local_content.filename(), filename);
+
+    // Wait for the media to be uploaded.
+    sleep(Duration::from_secs(1)).await;
+    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+
+    // The media event is updated with the remote MXC ID.
+    {
+        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(MessageType::Image(image) = new_content.msgtype);
+        assert_eq!(image.filename(), filename);
+        assert_eq!(image.caption(), None);
+        assert!(image.formatted_caption().is_none());
+
+        let mxc = as_variant!(image.source, MediaSource::Plain).unwrap();
+        assert!(!mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
+    };
+
+    assert!(watch.is_empty());
+
+    // We can edit the caption here.
+    let mentioned_user_id = owned_user_id!("@damir:rust.sdk");
+    let mentions = Mentions::with_user_ids([mentioned_user_id.clone()]);
+    let edited = upload_handle
+        .edit_media_caption(Some("caption".to_owned()), None, Some(mentions))
+        .await
+        .unwrap();
+    assert!(edited);
+
+    // The media event is updated with the captions, including the mention.
+    {
+        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(Some(mentions) = edit_msg.mentions);
+        assert!(!mentions.room);
+        assert_eq!(mentions.user_ids.into_iter().collect::<Vec<_>>(), vec![mentioned_user_id]);
     }
 
     // Re-enable the send queue.
@@ -2855,7 +2956,8 @@ async fn test_update_caption_while_sending_media_event() {
     };
 
     // We can edit the caption while the event is beint sent.
-    let edited = upload_handle.edit_media_caption(Some("caption".to_owned()), None).await.unwrap();
+    let edited =
+        upload_handle.edit_media_caption(Some("caption".to_owned()), None, None).await.unwrap();
     assert!(edited);
 
     // The media event is updated with the captions.
