@@ -8,10 +8,8 @@ use matrix_sdk_test::{
     async_test, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder,
 };
 #[cfg(feature = "experimental-sliding-sync")]
-use ruma::{api::client::sync::sync_events::v5::response::Hero, assign};
-use ruma::{
-    events::room::member::MembershipState, owned_user_id, room_id, space::SpaceRoomJoinRule, RoomId,
-};
+use ruma::{api::client::sync::sync_events::v5::response::Hero, assign, owned_user_id};
+use ruma::{events::room::member::MembershipState, room_id, space::SpaceRoomJoinRule, RoomId};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
