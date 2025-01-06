@@ -1197,6 +1197,11 @@ async fn test_edit_wakes_the_sending_task() {
 
     // Now edit the event's content (imagine we make it "shorter").
     drop(send_mock_scope);
+
+    // And re-enable the send queue (it was disabled since the edit caused a
+    // permanent error).
+    q.set_enabled(true);
+
     mock.mock_room_send().ok(event_id!("$1")).mount().await;
 
     let edited = handle
@@ -1436,10 +1441,13 @@ async fn test_unrecoverable_errors() {
     // too.
     assert_update!(watch => error { recoverable=false, txn=txn1 });
 
+    // The permanent error disables the room send queue.
+    assert!(!room.send_queue().is_enabled());
+    room.send_queue().set_enabled(true);
+
     // The second message will be properly sent.
     assert_update!(watch => sent { txn=txn2, event_id=event_id!("$42") });
 
-    // No queue is being disabled, because the error was unrecoverable.
     assert!(room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
 }
@@ -1495,9 +1503,14 @@ async fn test_unwedge_unrecoverable_errors() {
     // too.
     assert_update!(watch => error { recoverable=false, txn=txn1 });
 
-    // No queue is being disabled, because the error was unrecoverable.
-    assert!(room.send_queue().is_enabled());
+    // The queue is disabled, because it ran into an error.
+    assert!(!room.send_queue().is_enabled());
+    // Not *all* rooms' queues are disabled, though.
     assert!(client.send_queue().is_enabled());
+
+    // Re-enable the room queue.
+    room.send_queue().set_enabled(true);
+    assert!(watch.is_empty());
 
     // Unwedge the previously failed message and try sending it again
     send_handle.unwedge().await.unwrap();
@@ -2105,11 +2118,14 @@ async fn test_unwedging_media_upload() {
     let error = assert_update!(watch => error { recoverable=false, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 413);
-    assert!(q.is_enabled());
+    assert!(!q.is_enabled());
 
     // Mount the mock for the upload and sending the event.
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+
+    // Re-enable the room queue.
+    q.set_enabled(true);
 
     // Unwedge the upload.
     send_handle.unwedge().await.unwrap();
@@ -2201,6 +2217,9 @@ async fn test_media_event_is_sent_in_order() {
         let (text_txn, _send_handle) = assert_update!(watch => local echo { body = "error" });
         assert_update!(watch => error { recoverable = false, txn = text_txn });
     }
+
+    // Re-enable the send queue after the permanent error.
+    q.set_enabled(true);
 
     // We'll then send a media event, and then a text event with success.
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
