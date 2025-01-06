@@ -245,7 +245,6 @@ impl RoomEvents {
     /// See [`AsVector`] to learn more.
     ///
     /// [`Update`]: matrix_sdk_base::linked_chunk::Update
-    #[allow(unused)] // gonna be useful very soon! but we need it now for test purposes
     pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
         self.chunks_updates_as_vectordiffs.take()
     }

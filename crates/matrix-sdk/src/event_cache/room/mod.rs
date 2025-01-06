@@ -534,7 +534,7 @@ impl RoomEventCacheInner {
         // Add the previous back-pagination token (if present), followed by the timeline
         // events themselves.
         let sync_timeline_events_diffs = {
-            let sync_timeline_events_diffs = state
+            let (_, sync_timeline_events_diffs) = state
                 .with_events_mut(|room_events| {
                     if let Some(prev_token) = &prev_batch {
                         room_events.push_gap(Gap { prev_token: prev_token.clone() });
@@ -556,8 +556,6 @@ impl RoomEventCacheInner {
                             .replace_gap_at([], prev_gap_id)
                             .expect("we obtained the valid position beforehand");
                     }
-
-                    room_events.updates_as_vector_diffs()
                 })
                 .await?;
 
@@ -641,6 +639,7 @@ fn chunk_debug_string(content: &ChunkContent<SyncTimelineEvent, Gap>) -> String 
 mod private {
     use std::sync::Arc;
 
+    use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         deserialized_responses::{SyncTimelineEvent, TimelineEventKind},
         event_cache::{
@@ -846,13 +845,18 @@ mod private {
 
         /// Gives a temporary mutable handle to the underlying in-memory events,
         /// and will propagate changes to the storage once done.
+        ///
+        /// Returns the output of the given callback, as well as updates to the
+        /// linked chunk, as vector diff, so the caller may propagate
+        /// such updates, if needs be.
         pub async fn with_events_mut<O, F: FnOnce(&mut RoomEvents) -> O>(
             &mut self,
             func: F,
-        ) -> Result<O, EventCacheError> {
+        ) -> Result<(O, Vec<VectorDiff<SyncTimelineEvent>>), EventCacheError> {
             let output = func(&mut self.events);
             self.propagate_changes().await?;
-            Ok(output)
+            let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
+            Ok((output, updates_as_vector_diffs))
         }
     }
 
