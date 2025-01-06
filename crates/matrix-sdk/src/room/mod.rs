@@ -1933,12 +1933,12 @@ impl Room {
     #[instrument(skip_all)]
     pub fn send_attachment<'a>(
         &'a self,
-        filename: &'a str,
+        filename: impl Into<String>,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
     ) -> SendAttachment<'a> {
-        SendAttachment::new(self, filename, content_type, data, config)
+        SendAttachment::new(self, filename.into(), content_type, data, config)
     }
 
     /// Prepare and send an attachment to this room.
@@ -1971,7 +1971,7 @@ impl Room {
     #[instrument(skip_all)]
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
-        filename: &'a str,
+        filename: String,
         content_type: &'a Mime,
         data: Vec<u8>,
         mut config: AttachmentConfig,
@@ -2076,7 +2076,7 @@ impl Room {
     pub(crate) fn make_attachment_type(
         &self,
         content_type: &Mime,
-        filename: &str,
+        filename: String,
         source: MediaSource,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
@@ -2087,8 +2087,8 @@ impl Room {
         // body is the filename, and the filename is not set.
         // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
         let (body, filename) = match caption {
-            Some(caption) => (caption, Some(filename.to_owned())),
-            None => (filename.to_owned(), None),
+            Some(caption) => (caption, Some(filename)),
+            None => (filename, None),
         };
 
         let (thumbnail_source, thumbnail_info) = thumbnail.unzip();
