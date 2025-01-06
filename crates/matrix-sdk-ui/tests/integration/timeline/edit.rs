@@ -260,6 +260,9 @@ async fn test_edit_local_echo() {
     let edit_message = item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "hello, world");
 
+    // Re-enable the room's queue.
+    timeline.room().send_queue().set_enabled(true);
+
     // Observe the event being sent, and replacing the local echo.
     assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
 

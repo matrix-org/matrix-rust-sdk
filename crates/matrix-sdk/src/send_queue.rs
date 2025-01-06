@@ -622,6 +622,9 @@ impl RoomSendQueue {
                         _ => false,
                     };
 
+                    // Disable the queue for this room after any kind of error happened.
+                    locally_enabled.store(false, Ordering::SeqCst);
+
                     if is_recoverable {
                         warn!(txn_id = %txn_id, error = ?err, "Recoverable error when sending request: {err}, disabling send queue");
 
@@ -629,15 +632,11 @@ impl RoomSendQueue {
                         // as not being sent anymore.
                         queue.mark_as_not_being_sent(&txn_id).await;
 
-                        // Let observers know about a failure *after* we've marked the item as not
-                        // being sent anymore. Otherwise, there's a possible race where a caller
-                        // might try to remove an item, while it's still marked as being sent,
-                        // resulting in a cancellation failure.
-
-                        // Disable the queue for this room after a recoverable error happened. This
-                        // should be the sign that this error is temporary (maybe network
-                        // disconnected, maybe the server had a hiccup).
-                        locally_enabled.store(false, Ordering::SeqCst);
+                        // Let observers know about a failure *after* we've
+                        // marked the item as not being sent anymore. Otherwise,
+                        // there's a possible race where a caller might try to
+                        // remove an item, while it's still marked as being
+                        // sent, resulting in a cancellation failure.
                     } else {
                         warn!(txn_id = %txn_id, error = ?err, "Unrecoverable error when sending request: {err}");
 
