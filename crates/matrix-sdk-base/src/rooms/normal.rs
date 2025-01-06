@@ -623,15 +623,15 @@ impl Room {
         self.inner.read().active_room_call_participants()
     }
 
-    /// Return the cached display name of the room if it was provided via sync,
-    /// or otherwise calculate it, taking into account its name, aliases and
-    /// members.
+    /// Calculate a room's display name, taking into account its name, aliases
+    /// and members.
     ///
     /// The display name is calculated according to [this algorithm][spec].
     ///
-    /// This is automatically recomputed on every successful sync, and the
-    /// cached result can be retrieved in
-    /// [`Self::cached_display_name`].
+    /// ⚠ This may be slowish to compute. As such, the result is cached and can
+    /// be retrieved via [`Room::cached_display_name`], which should be
+    /// preferred in general. Indeed, the cached value is automatically
+    /// recomputed on every sync.
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
