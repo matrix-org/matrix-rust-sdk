@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   `Client::send()` method to the `with_request_config()` builder method. You
   should call `Client::send(request).with_request_config(request_config).await`
   now instead.
+- [**breaking**] Remove the `AttachmentConfig::with_thumbnail()` constructor and
+  replace it with the `AttachmentConfig::thumbnail()` builder method. You should
+  call `AttachmentConfig::new().thumbnail(thumbnail)` now instead.
 - [**breaking**] `Room::send_attachment()` and `RoomSendQueue::send_attachment()`
   now take any type that implements `Into<String>` for the filename.
 

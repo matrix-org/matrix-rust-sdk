@@ -167,7 +167,7 @@ impl RoomPagination {
 
         let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
 
-        let result = state
+        let (backpagination_outcome, updates_as_vector_diffs) = state
             .with_events_mut(move |room_events| {
                 // Note: The chunk could be empty.
                 //
@@ -227,20 +227,18 @@ impl RoomPagination {
                     debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
                 }
 
-                let sync_timeline_events_diffs = room_events.updates_as_vector_diffs();
-
-                if !sync_timeline_events_diffs.is_empty() {
-                    let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                        diffs: sync_timeline_events_diffs,
-                        origin: EventsOrigin::Sync,
-                    });
-                }
-
                 BackPaginationOutcome { events, reached_start }
             })
             .await?;
 
-        Ok(Some(result))
+        if !updates_as_vector_diffs.is_empty() {
+            let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs: updates_as_vector_diffs,
+                origin: EventsOrigin::Sync,
+            });
+        }
+
+        Ok(Some(backpagination_outcome))
     }
 
     /// Get the latest pagination token, as stored in the room events linked

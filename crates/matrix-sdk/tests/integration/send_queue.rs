@@ -79,13 +79,14 @@ async fn queue_attachment_with_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'st
         size: uint!(42),
     };
 
-    let config =
-        AttachmentConfig::with_thumbnail(thumbnail).info(AttachmentInfo::Image(BaseImageInfo {
+    let config = AttachmentConfig::new().thumbnail(Some(thumbnail)).info(AttachmentInfo::Image(
+        BaseImageInfo {
             height: Some(uint!(13)),
             width: Some(uint!(37)),
             size: Some(uint!(42)),
             blurhash: None,
-        }));
+        },
+    ));
 
     let handle = q
         .send_attachment(filename, content_type, data, config)
@@ -1801,7 +1802,8 @@ async fn test_media_uploads() {
 
     let transaction_id = TransactionId::new();
     let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
-    let config = AttachmentConfig::with_thumbnail(thumbnail)
+    let config = AttachmentConfig::new()
+        .thumbnail(Some(thumbnail))
         .txn_id(&transaction_id)
         .caption(Some("caption".to_owned()))
         .mentions(Some(mentions.clone()))
