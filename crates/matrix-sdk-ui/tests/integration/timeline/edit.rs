@@ -165,38 +165,19 @@ async fn test_edit() {
 #[async_test]
 async fn test_edit_local_echo() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-    let mounted_send = Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(413).set_body_json(json!({
-            "errcode": "M_TOO_LARGE",
-        })))
-        .expect(1)
-        .mount_as_scoped(&server)
-        .await;
+    let mounted_send =
+        server.mock_room_send().error_too_large().mock_once().mount_as_scoped().await;
 
     // Redacting a local event works.
     timeline.send(RoomMessageEventContent::text_plain("hello, just you").into()).await.unwrap();
@@ -230,12 +211,7 @@ async fn test_edit_local_echo() {
     // retry (the room's send queue is not blocked, since the one event it couldn't
     // send failed in an unrecoverable way).
     drop(mounted_send);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" })))
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_room_send().ok(event_id!("$1")).mount().await;
 
     // Editing the local echo works, since it was in the failed state.
     timeline
