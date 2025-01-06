@@ -15,9 +15,8 @@
 //! A wrapper around a hash map that tracks pending requests and makes sure
 //! that expired requests are removed.
 
-use std::time::{Duration, Instant};
-
 use indexmap::{map::Entry, IndexMap};
+use ruma::time::{Duration, Instant};
 use tracing::warn;
 use uuid::Uuid;
 

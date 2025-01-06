@@ -1,7 +1,4 @@
-use std::{
-    ops::Not,
-    time::{Duration, Instant},
-};
+use std::ops::Not;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -27,8 +24,11 @@ use matrix_sdk_ui::{
     RoomListService,
 };
 use ruma::{
-    api::client::room::create_room::v3::Request as CreateRoomRequest, event_id,
-    events::room::message::RoomMessageEventContent, mxc_uri, room_id,
+    api::client::room::create_room::v3::Request as CreateRoomRequest,
+    event_id,
+    events::room::message::RoomMessageEventContent,
+    mxc_uri, room_id,
+    time::{Duration, Instant},
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
