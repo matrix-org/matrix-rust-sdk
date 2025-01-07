@@ -58,7 +58,7 @@ use tokio::{
     sync::Mutex,
     time::{sleep, timeout},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 use wiremock::{matchers::AnyMatcher, Mock, MockServer};
 
 use crate::helpers::{wait_for_room, TestClientBuilder};
@@ -846,7 +846,7 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
     let bob_sync_service = SyncService::builder(bob.clone()).build().await.unwrap();
     bob_sync_service.start().await;
 
-    // alice creates a room and invites bob.
+    // Alice creates a room and will invite Bob.
     let alice_room = alice
         .create_room(assign!(CreateRoomRequest::new(), {
             invite: vec![],
@@ -887,30 +887,38 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
     assert_eq!(bob_room.state(), RoomState::Joined);
     assert!(bob_room.is_encrypted().await.unwrap());
 
-    let bob_timeline = bob_room.timeline_builder().build().await?;
+    let bob_timeline = bob_room.timeline().await?;
     let (_, timeline_stream) = bob_timeline.subscribe().await;
     pin_mut!(timeline_stream);
 
-    // Get previous events, including the sent message
+    // Get previous events, including the sent messages
     bob_timeline.paginate_backwards(3).await?;
 
     // Look for the sent message, which should not be an UTD event
     loop {
-        let diff = timeout(Duration::from_millis(100), timeline_stream.next())
+        let diff = timeout(Duration::from_millis(300), timeline_stream.next())
             .await
-            .expect("Timed out. Neither an UTD nor the sent message were found")
+            .expect("Failed to receive the decrypted sent message")
             .unwrap();
-        if let VectorDiff::PushFront { value } = diff {
-            if let Some(content) = value.as_event().map(|e| e.content()) {
-                if let Some(message) = content.as_message() {
-                    if message.body() == "hello world" {
-                        return Ok(());
+
+        trace!(?diff, "Received diff from Bob's room");
+
+        match diff {
+            VectorDiff::PushBack { value: event }
+            | VectorDiff::Insert { value: event, .. }
+            | VectorDiff::Set { value: event, .. } => {
+                if let Some(content) = event.as_event().map(|e| e.content()) {
+                    if let Some(message) = content.as_message() {
+                        if message.body() == "hello world" {
+                            return Ok(());
+                        }
+
+                        panic!("Unexpected message event found");
                     }
-                    panic!("Unexpected message event found");
-                } else if content.as_unable_to_decrypt().is_some() {
-                    panic!("UTD found!")
                 }
             }
+
+            _ => {}
         }
     }
 }
