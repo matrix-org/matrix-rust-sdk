@@ -51,7 +51,6 @@ const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
 /// data. This allows you to configure, how these cases should be handled.
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MigrationConflictStrategy {
     /// Just drop the data, we don't care that we have to sync again
