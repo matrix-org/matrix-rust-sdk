@@ -34,7 +34,7 @@ use ruma::{
 };
 use tokio::sync::{
     broadcast::{Receiver, Sender},
-    Notify, RwLock, RwLockReadGuard, RwLockWriteGuard,
+    Notify, RwLock, RwLockReadGuard,
 };
 use tracing::{debug, trace, warn};
 
@@ -192,7 +192,7 @@ impl RoomEventCache {
         if let Some(event_id) = event.event_id() {
             let mut cache = self.inner.all_events.write().await;
 
-            self.inner.append_related_event(&mut cache, &event);
+            RoomEventCacheInner::append_related_event(&mut cache, &event);
             cache.events.insert(event_id, (self.inner.room_id.clone(), event));
         } else {
             warn!("couldn't save event without event id in the event cache");
@@ -209,7 +209,7 @@ impl RoomEventCache {
         let mut cache = self.inner.all_events.write().await;
         for event in events {
             if let Some(event_id) = event.event_id() {
-                self.inner.append_related_event(&mut cache, &event);
+                RoomEventCacheInner::append_related_event(&mut cache, &event);
                 cache.events.insert(event_id, (self.inner.room_id.clone(), event));
             } else {
                 warn!("couldn't save event without event id in the event cache");
@@ -443,11 +443,7 @@ impl RoomEventCacheInner {
 
     /// If the event is related to another one, its id is added to the
     /// relations map.
-    fn append_related_event(
-        &self,
-        cache: &mut RwLockWriteGuard<'_, AllEventsCache>,
-        event: &SyncTimelineEvent,
-    ) {
+    fn append_related_event(cache: &mut AllEventsCache, event: &SyncTimelineEvent) {
         // Handle and cache events and relations.
         let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() else {
             return;
@@ -563,7 +559,7 @@ impl RoomEventCacheInner {
 
             for sync_timeline_event in &sync_timeline_events {
                 if let Some(event_id) = sync_timeline_event.event_id() {
-                    self.append_related_event(&mut all_events, sync_timeline_event);
+                    Self::append_related_event(&mut all_events, sync_timeline_event);
                     all_events.events.insert(
                         event_id.to_owned(),
                         (self.room_id.clone(), sync_timeline_event.clone()),
