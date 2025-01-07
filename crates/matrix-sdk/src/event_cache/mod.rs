@@ -379,9 +379,7 @@ impl AllEventsCache {
 
         // Handle redactions separately, as their logic is slightly different.
         if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) = &ev {
-            if let Some(redacted_event_id) =
-                ev.content.redacts.as_ref().or_else(|| ev.redacts.as_ref())
-            {
+            if let Some(redacted_event_id) = ev.content.redacts.as_ref().or(ev.redacts.as_ref()) {
                 self.relations
                     .entry(redacted_event_id.to_owned())
                     .or_default()
