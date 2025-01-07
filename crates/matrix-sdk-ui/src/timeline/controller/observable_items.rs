@@ -438,64 +438,64 @@ mod observable_items_tests {
     }
 
     macro_rules! assert_mapping {
-    ( on $transaction:ident:
-      | event_id | event_index | timeline_item_index |
-      | $( - )+ | $( - )+ | $( - )+ |
-      $(
-        | $event_id:literal | $event_index:literal | $( $timeline_item_index:literal )? |
-      )+
-    ) => {
-        let all_remote_events = $transaction .all_remote_events();
+        ( on $transaction:ident:
+          | event_id | event_index | timeline_item_index |
+          | $( - )+ | $( - )+ | $( - )+ |
+          $(
+            | $event_id:literal | $event_index:literal | $( $timeline_item_index:literal )? |
+          )+
+        ) => {
+            let all_remote_events = $transaction .all_remote_events();
 
-        $(
-            // Remote event exists at this index…
-            assert_matches!(all_remote_events.0.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
-                // … this is the remote event with the expected event ID
-                assert_eq!(
-                    event_id.as_str(),
-                    $event_id ,
-                    concat!("event #", $event_index, " should have ID ", $event_id)
-                );
-
-
-                // (tiny hack to handle the case where `$timeline_item_index` is absent)
-                #[allow(unused_variables)]
-                let timeline_item_index_is_expected = false;
-                $(
-                    let timeline_item_index_is_expected = true;
-                    let _ = $timeline_item_index;
-                )?
-
-                if timeline_item_index_is_expected.not() {
-                    // … this remote event does NOT map to a timeline item index
-                    assert!(
-                        timeline_item_index.is_none(),
-                        concat!("event #", $event_index, " with ID ", $event_id, " should NOT map to a timeline item index" )
-                    );
-                }
-
-                $(
-                    // … this remote event maps to a timeline item index
+            $(
+                // Remote event exists at this index…
+                assert_matches!(all_remote_events.0.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
+                    // … this is the remote event with the expected event ID
                     assert_eq!(
-                        *timeline_item_index,
-                        Some( $timeline_item_index ),
-                        concat!("event #", $event_index, " with ID ", $event_id, " should map to timeline item #", $timeline_item_index )
+                        event_id.as_str(),
+                        $event_id ,
+                        concat!("event #", $event_index, " should have ID ", $event_id)
                     );
 
-                    // … this timeline index exists
-                    assert_matches!( $transaction .get( $timeline_item_index ), Some(timeline_item) => {
-                        // … this timelime item has the expected event ID
-                        assert_event_id!(
-                            timeline_item,
-                            $event_id ,
-                            concat!("timeline item #", $timeline_item_index, " should map to event ID ", $event_id )
+
+                    // (tiny hack to handle the case where `$timeline_item_index` is absent)
+                    #[allow(unused_variables)]
+                    let timeline_item_index_is_expected = false;
+                    $(
+                        let timeline_item_index_is_expected = true;
+                        let _ = $timeline_item_index;
+                    )?
+
+                    if timeline_item_index_is_expected.not() {
+                        // … this remote event does NOT map to a timeline item index
+                        assert!(
+                            timeline_item_index.is_none(),
+                            concat!("event #", $event_index, " with ID ", $event_id, " should NOT map to a timeline item index" )
                         );
-                    });
-                )?
-            });
-        )*
+                    }
+
+                    $(
+                        // … this remote event maps to a timeline item index
+                        assert_eq!(
+                            *timeline_item_index,
+                            Some( $timeline_item_index ),
+                            concat!("event #", $event_index, " with ID ", $event_id, " should map to timeline item #", $timeline_item_index )
+                        );
+
+                        // … this timeline index exists
+                        assert_matches!( $transaction .get( $timeline_item_index ), Some(timeline_item) => {
+                            // … this timelime item has the expected event ID
+                            assert_event_id!(
+                                timeline_item,
+                                $event_id ,
+                                concat!("timeline item #", $timeline_item_index, " should map to event ID ", $event_id )
+                            );
+                        });
+                    )?
+                });
+            )*
+        }
     }
-}
 
     #[test]
     fn test_is_empty() {
