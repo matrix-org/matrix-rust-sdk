@@ -22,26 +22,20 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-#[cfg(feature = "e2e-encryption")]
-use ruma::api::client::sync::sync_events::v5;
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom, KnockedRoom},
     events::{
         room::member::MembershipState, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, StateEventType,
+        AnySyncStateEvent,
     },
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt, UserId,
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::{api::client::sync::sync_events::v5, events::AnyToDeviceEvent, events::StateEventType};
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::BaseClient;
-#[cfg(feature = "e2e-encryption")]
-use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
-#[cfg(feature = "e2e-encryption")]
-use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
@@ -54,6 +48,11 @@ use crate::{
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
+};
+#[cfg(feature = "e2e-encryption")]
+use crate::{
+    latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent},
+    RoomMemberships,
 };
 
 impl BaseClient {
