@@ -542,7 +542,7 @@ mod private {
     };
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedRoomId, RoomId};
-    use tracing::{error, trace};
+    use tracing::{error, instrument, trace};
 
     use super::{chunk_debug_string, events::RoomEvents};
     use crate::event_cache::EventCacheError;
@@ -668,53 +668,58 @@ mod private {
         }
 
         /// Propagate changes to the underlying storage.
+        #[instrument(skip_all)]
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let mut updates = self.events.updates().take();
 
-            if !updates.is_empty() {
-                if let Some(store) = self.store.get() {
-                    // Strip relations from the `PushItems` updates.
-                    for up in updates.iter_mut() {
-                        match up {
-                            Update::PushItems { items, .. } => {
-                                Self::strip_relations_from_events(items)
-                            }
-                            // Other update kinds don't involve adding new events.
-                            Update::NewItemsChunk { .. }
-                            | Update::NewGapChunk { .. }
-                            | Update::RemoveChunk(_)
-                            | Update::RemoveItem { .. }
-                            | Update::DetachLastItems { .. }
-                            | Update::StartReattachItems
-                            | Update::EndReattachItems
-                            | Update::Clear => {}
-                        }
-                    }
+            if updates.is_empty() {
+                return Ok(());
+            }
 
-                    // Spawn a task to make sure that all the changes are effectively forwarded to
-                    // the store, even if the call to this method gets aborted.
-                    //
-                    // The store cross-process locking involves an actual mutex, which ensures that
-                    // storing updates happens in the expected order.
+            let Some(store) = self.store.get() else {
+                return Ok(());
+            };
 
-                    let store = store.clone();
-                    let room_id = self.room.clone();
+            trace!("propagating {} updates", updates.len());
 
-                    matrix_sdk_common::executor::spawn(async move {
-                        let locked = store.lock().await?;
-
-                        if let Err(err) =
-                            locked.handle_linked_chunk_updates(&room_id, updates).await
-                        {
-                            error!("unable to handle linked chunk updates: {err}");
-                        }
-
-                        super::Result::Ok(())
-                    })
-                    .await
-                    .expect("joining failed")?;
+            // Strip relations from the `PushItems` updates.
+            for up in updates.iter_mut() {
+                match up {
+                    Update::PushItems { items, .. } => Self::strip_relations_from_events(items),
+                    // Other update kinds don't involve adding new events.
+                    Update::NewItemsChunk { .. }
+                    | Update::NewGapChunk { .. }
+                    | Update::RemoveChunk(_)
+                    | Update::RemoveItem { .. }
+                    | Update::DetachLastItems { .. }
+                    | Update::StartReattachItems
+                    | Update::EndReattachItems
+                    | Update::Clear => {}
                 }
             }
+
+            // Spawn a task to make sure that all the changes are effectively forwarded to
+            // the store, even if the call to this method gets aborted.
+            //
+            // The store cross-process locking involves an actual mutex, which ensures that
+            // storing updates happens in the expected order.
+
+            let store = store.clone();
+            let room_id = self.room.clone();
+
+            matrix_sdk_common::executor::spawn(async move {
+                let locked = store.lock().await?;
+
+                if let Err(err) = locked.handle_linked_chunk_updates(&room_id, updates).await {
+                    error!("unable to handle linked chunk updates: {err}");
+                }
+
+                super::Result::Ok(())
+            })
+            .await
+            .expect("joining failed")?;
+
+            trace!("done propagating store changes");
 
             Ok(())
         }
