@@ -277,10 +277,45 @@ impl KeyDistributionTestData {
         response
     }
 
-    /// Dan has cross-signing setup, one device is cross signed `JHPUERYQUW`,
-    /// but not the other one `FRGNMZVOKA`.
-    /// `@dan` identity is signed by `@me` identity (alice trust dan)
+    /// Dan has cross-signing set up; one device is cross-signed (`JHPUERYQUW`),
+    /// but not the other one (`FRGNMZVOKA`).
+    ///
+    /// `@dan`'s identity is signed by `@me`'s identity (Alice trusts Dan).
     pub fn dan_keys_query_response() -> KeyQueryResponse {
+        let response = Self::dan_keys_query_response_common();
+        with_settings!({sort_maps => true}, {
+            assert_json_snapshot!(
+                "KeyDistributionTestData::dan_keys_query_response",
+                ruma_response_to_json(response.clone()),
+            );
+        });
+        response
+    }
+
+    /// Same as `dan_keys_query_response` but `FRGNMZVOKA` was removed.
+    pub fn dan_keys_query_response_device_loggedout() -> KeyQueryResponse {
+        let mut response = Self::dan_keys_query_response_common();
+        response
+            .device_keys
+            .get_mut(Self::dan_id())
+            .unwrap()
+            .remove(Self::dan_unsigned_device_id());
+
+        with_settings!({sort_maps => true}, {
+            assert_json_snapshot!(
+                "KeyDistributionTestData::dan_keys_query_response_device_loggedout",
+                ruma_response_to_json(response.clone()),
+            );
+        });
+        response
+    }
+
+    /// Common helper for [`Self::dan_keys_query_response`] and
+    /// [`Self::dan_keys_query_response_device_loggedout`].
+    ///
+    /// Returns the full response, including both devices, without writing the
+    /// snapshot.
+    fn dan_keys_query_response_common() -> KeyQueryResponse {
         let data: Value = json!({
                 "device_keys": {
                     "@dan:localhost": {
@@ -377,102 +412,6 @@ impl KeyDistributionTestData {
         });
 
         let response: KeyQueryResponse = ruma_response_from_json(&data);
-        with_settings!({sort_maps => true}, {
-            assert_json_snapshot!(
-                "KeyDistributionTestData::dan_keys_query_response",
-                ruma_response_to_json(response.clone()),
-            );
-        });
-        response
-    }
-
-    /// Same as `dan_keys_query_response` but `FRGNMZVOKA` was removed.
-    pub fn dan_keys_query_response_device_loggedout() -> KeyQueryResponse {
-        let data = json!({
-                "device_keys": {
-                    "@dan:localhost": {
-                        "JHPUERYQUW": {
-                            "algorithms": [
-                                "m.olm.v1.curve25519-aes-sha2",
-                                "m.megolm.v1.aes-sha2"
-                            ],
-                            "device_id": "JHPUERYQUW",
-                            "keys": {
-                                "curve25519:JHPUERYQUW": "PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4",
-                                "ed25519:JHPUERYQUW": "jZ5Ca/J5RXn3qnNWIHFz9EQBZ4637QI/9ExSiEcGC7I"
-                            },
-                            "signatures": {
-                                "@dan:localhost": {
-                                    "ed25519:JHPUERYQUW": "PaVfCE9QODgluq0gYMpjCarfDbraRXU71uRcUN5MoqtiJYlB0bjzY6bD5/qxugrsgcx4DZOgCLgiyoEZ/vW4DQ",
-                                    "ed25519:aX+O6rO/RxzkygPd7XXilKM07aSFK4gSPK1Zxenr6ak": "2sZcF5aSyEuryTfWgsw3rNDevnZisH2Df6fCO5pmGwweiaD+n6+pyrzB75mvA1sOwzm9jfTsjv/2+Uj1CNOTBA"
-                                }
-                            },
-                            "user_id": "@dan:localhost",
-                        },
-                    }
-                },
-                "failures": {},
-                "master_keys": {
-                    "@dan:localhost": {
-                        "keys": {
-                            "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k"
-                        },
-                        "signatures": {
-                            "@dan:localhost": {
-                                "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "DI/zpWA/wG1tdK9aLof1TGBHtihtQZQ+7e62QRSBbo+RAHlQ+akGcaVskLbtLdEKbcJEt61F+Auol+XVGlCEBA",
-                                "ed25519:SNEBMNPLHN": "5Y8byBteGZo1SvPf8QM88pvThJu+2mJ4020YsTLPhCQ4DfdalHWTPOvE7gw09cCONhX/cKY7YHMyH8R26Yd9DA"
-                            },
-                            "@me:localhost": {
-                                "ed25519:mvzOc2EuHoVfZTk1hX3y0hyjUs4MrfPv2V/PUFzMQJY": "vg2MLJx36Usti4NfsbOfk0ipW7koOoTlBibZkQNrPTMX88V+geTgDjvIMEU/OAyEsgsDHjg3C+2t/yUUDE7hBA"
-                            }
-                        },
-                        "usage": [
-                            "master"
-                        ],
-                        "user_id": "@dan:localhost"
-                    }
-                },
-                "self_signing_keys": {
-                    "@dan:localhost": {
-                        "keys": {
-                            "ed25519:aX+O6rO/RxzkygPd7XXilKM07aSFK4gSPK1Zxenr6ak": "aX+O6rO/RxzkygPd7XXilKM07aSFK4gSPK1Zxenr6ak"
-                        },
-                        "signatures": {
-                            "@dan:localhost": {
-                                "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "vxUCzOO4EGwLp+tzfoFbPOVicynvmWgxVx/bv/3fG/Xfl7piJVmeHP+1qDstOewiREuO4W+ti/tYkOXd7GgoAw"
-                            }
-                        },
-                        "usage": [
-                            "self_signing"
-                        ],
-                        "user_id": "@dan:localhost"
-                    }
-                },
-                "user_signing_keys": {
-                    "@dan:localhost": {
-                        "keys": {
-                            "ed25519:N4y+jN6GctRXyNDa1CFRdjofTTxHkNK9t430jE9DxrU": "N4y+jN6GctRXyNDa1CFRdjofTTxHkNK9t430jE9DxrU"
-                        },
-                        "signatures": {
-                            "@dan:localhost": {
-                                "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "gbcD579EGVDRePnKV9j6YNwGhssgFeJWhF1NRJhFNAcpbGL8911cW54jyiFKFCev89QemfqyFFljldFLfyN9DA"
-                            }
-                        },
-                        "usage": [
-                            "user_signing"
-                        ],
-                        "user_id": "@dan:localhost"
-                    }
-                }
-        });
-
-        let response: KeyQueryResponse = ruma_response_from_json(&data);
-        with_settings!({sort_maps => true}, {
-            assert_json_snapshot!(
-                "KeyDistributionTestData::dan_keys_query_response_device_loggedout",
-                ruma_response_to_json(response.clone()),
-            );
-        });
         response
     }
 
