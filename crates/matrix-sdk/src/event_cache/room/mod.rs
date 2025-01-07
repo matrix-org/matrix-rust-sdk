@@ -325,7 +325,9 @@ impl RoomEventCacheInner {
             // so we wouldn't make use of the given previous-batch token.
             let prev_batch = if timeline.limited { timeline.prev_batch } else { None };
 
-            self.append_new_events(
+            let mut state = self.state.write().await;
+            self.append_events_locked(
+                &mut state,
                 timeline.events,
                 prev_batch,
                 ephemeral_events,
@@ -366,7 +368,7 @@ impl RoomEventCacheInner {
         let _ = self.sender.send(RoomEventCacheUpdate::Clear);
 
         // Push the new events.
-        self.append_events_locked_impl(
+        self.append_events_locked(
             &mut state,
             sync_timeline_events,
             prev_batch.clone(),
@@ -383,28 +385,9 @@ impl RoomEventCacheInner {
 
     /// Append a set of events to the room cache and storage, notifying
     /// observers.
-    async fn append_new_events(
-        &self,
-        sync_timeline_events: Vec<SyncTimelineEvent>,
-        prev_batch: Option<String>,
-        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
-    ) -> Result<()> {
-        let mut state = self.state.write().await;
-        self.append_events_locked_impl(
-            &mut state,
-            sync_timeline_events,
-            prev_batch,
-            ephemeral_events,
-            ambiguity_changes,
-        )
-        .await
-    }
-
-    /// Append a set of events and associated room data.
     ///
     /// This is a private implementation. It must not be exposed publicly.
-    async fn append_events_locked_impl(
+    async fn append_events_locked(
         &self,
         state: &mut RoomEventCacheState,
         sync_timeline_events: Vec<SyncTimelineEvent>,
