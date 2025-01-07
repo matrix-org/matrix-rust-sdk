@@ -31,10 +31,7 @@ use super::{
     to_device::{handle_forwarded_room_key_event, handle_room_key_event},
     DateDividerMode, Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
-use crate::{
-    timeline::{controller::TimelineNewItemPosition, event_item::RemoteEventOrigin},
-    unable_to_decrypt_hook::UtdHookManager,
-};
+use crate::{timeline::event_item::RemoteEventOrigin, unable_to_decrypt_hook::UtdHookManager};
 
 /// Builder that allows creating and configuring various parts of a
 /// [`Timeline`].
@@ -145,14 +142,6 @@ impl TimelineBuilder {
         self
     }
 
-    /// Use `VectorDiff`s as the new “input mechanism” for the `Timeline`.
-    ///
-    /// Read `TimelineSettings::vectordiffs_as_inputs` to learn more.
-    pub fn with_vectordiffs_as_inputs(mut self) -> Self {
-        self.settings.vectordiffs_as_inputs = true;
-        self
-    }
-
     /// Create a [`Timeline`] with the options set on this builder.
     #[tracing::instrument(
         skip(self),
@@ -162,16 +151,10 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> Result<Timeline, Error> {
-        let Self { room, mut settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
+        let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
         let client = room.client();
         let event_cache = client.event_cache();
-
-        // Enable `TimelineSettings::vectordiffs_as_inputs` if and only if the event
-        // cache storage is enabled.
-        settings.vectordiffs_as_inputs = event_cache.has_storage();
-
-        let settings_vectordiffs_as_inputs = settings.vectordiffs_as_inputs;
 
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
         event_cache.subscribe()?;
@@ -291,17 +274,15 @@ impl TimelineBuilder {
                         }
 
                         RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
-                            if settings_vectordiffs_as_inputs {
-                                trace!("Received new timeline events diffs");
+                            trace!("Received new timeline events diffs");
 
-                                inner.handle_remote_events_with_diffs(
-                                    diffs,
-                                    match origin {
-                                        EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                                        EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
-                                    }
-                                ).await;
-                            }
+                            inner.handle_remote_events_with_diffs(
+                                diffs,
+                                match origin {
+                                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                    EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                                }
+                            ).await;
                         }
 
                         RoomEventCacheUpdate::AddEphemeralEvents { events } => {

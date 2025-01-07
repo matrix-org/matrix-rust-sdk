@@ -318,6 +318,7 @@ impl TimelineItemContent {
         as_variant!(self, Self::UnableToDecrypt)
     }
 
+    #[cfg(test)]
     pub(crate) fn is_redacted(&self) -> bool {
         matches!(self, Self::RedactedMessage)
     }

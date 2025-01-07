@@ -141,12 +141,6 @@ pub(super) struct TimelineSettings {
 
     /// Should the timeline items be grouped by day or month?
     pub(super) date_divider_mode: DateDividerMode,
-
-    /// Whether `VectorDiff` is the “input mechanism” to use.
-    ///
-    /// This mechanism will replace the existing one, but this runtime feature
-    /// flag is necessary for the transition and the testing phase.
-    pub(super) vectordiffs_as_inputs: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -155,7 +149,6 @@ impl fmt::Debug for TimelineSettings {
         f.debug_struct("TimelineSettings")
             .field("track_read_receipts", &self.track_read_receipts)
             .field("add_failed_to_parse", &self.add_failed_to_parse)
-            .field("vectordiffs_as_inputs", &self.vectordiffs_as_inputs)
             .finish_non_exhaustive()
     }
 }
@@ -167,7 +160,6 @@ impl Default for TimelineSettings {
             event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
             date_divider_mode: DateDividerMode::Daily,
-            vectordiffs_as_inputs: false,
         }
     }
 }
@@ -789,7 +781,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 txn_id,
                 send_handle,
                 content,
-                &self.settings,
             )
             .await;
     }
