@@ -36,14 +36,14 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timer};
+use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, executor::spawn, timer};
 use ruma::{
     api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    select, spawn,
+    select,
     sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
