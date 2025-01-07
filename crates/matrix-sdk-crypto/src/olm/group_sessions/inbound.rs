@@ -221,27 +221,6 @@ impl InboundGroupSession {
         Self::try_from(exported_session)
     }
 
-    #[allow(dead_code)]
-    fn from_backup(
-        room_id: &RoomId,
-        backup: BackedUpRoomKey,
-    ) -> Result<Self, SessionCreationError> {
-        // We're using this session only to get the session id, the session
-        // config doesn't matter here.
-        let session = InnerSession::import(&backup.session_key, SessionConfig::default());
-        let session_id = session.session_id();
-
-        Self::from_export(&ExportedRoomKey {
-            algorithm: backup.algorithm,
-            room_id: room_id.to_owned(),
-            sender_key: backup.sender_key,
-            session_id,
-            forwarding_curve25519_key_chain: vec![],
-            session_key: backup.session_key,
-            sender_claimed_keys: backup.sender_claimed_keys,
-        })
-    }
-
     /// Store the group session as a base64 encoded string.
     ///
     /// # Arguments
