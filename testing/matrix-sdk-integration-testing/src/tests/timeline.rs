@@ -526,6 +526,13 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .await
         .expect("We should be able to check that the room is encrypted"));
 
+    // Create stream listening for devices.
+    let devices_stream = alice
+        .encryption()
+        .devices_stream()
+        .await
+        .expect("We should be able to listen to the devices stream");
+
     // Now here comes bob.
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await.unwrap();
     bob.encryption().wait_for_e2ee_initialization_tasks().await;
@@ -568,6 +575,21 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     debug!("Bob joined the room");
     assert_eq!(bob_room.state(), RoomState::Joined);
     assert!(bob_room.is_encrypted().await.unwrap());
+
+    // Now we need to wait for Bob's device to turn up.
+    let wait_for_bob_device = async {
+        pin_mut!(devices_stream);
+
+        while let Some(devices) = devices_stream.next().await {
+            if devices.new.contains_key(bob.user_id().unwrap()) {
+                break;
+            }
+        }
+    };
+
+    timeout(Duration::from_secs(5), wait_for_bob_device)
+        .await
+        .expect("We should be able to load the room list");
 
     // Let's stop the sync so we don't receive the room key using the usual channel.
     sync_service.stop().await.expect("We should be able to stop the sync service");
