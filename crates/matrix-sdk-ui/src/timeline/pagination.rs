@@ -26,7 +26,6 @@ use matrix_sdk::event_cache::{
 use tracing::{instrument, trace, warn};
 
 use super::Error;
-use crate::timeline::{controller::TimelineNewItemPosition, event_item::RemoteEventOrigin};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -76,17 +75,6 @@ impl super::Timeline {
                  _timeline_has_been_reset| async move {
                     let num_events = events.len();
                     trace!("Back-pagination succeeded with {num_events} events");
-
-                    // If `TimelineSettings::vectordiffs_as_inputs` is enabled,
-                    // we don't need to add events manually: everything we need
-                    // is to let the `EventCache` receive the events from this
-                    // pagination, and emit its updates as `VectorDiff`s, which
-                    // will be handled by the `Timeline` naturally.
-                    if !self.controller.settings.vectordiffs_as_inputs {
-                        self.controller
-                            .add_events_at(events.into_iter(), TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination })
-                            .await;
-                    }
 
                     if num_events == 0 && !reached_start {
                         // As an exceptional contract: if there were no events in the response,
