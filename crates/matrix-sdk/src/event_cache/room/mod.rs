@@ -117,7 +117,7 @@ impl RoomEventCache {
 
         let cache = self.inner.all_events.read().await;
         if let Some((_, event)) = cache.events.get(event_id) {
-            Self::collect_related_events(&cache, event_id, filter.as_deref(), &mut relation_events);
+            cache.collect_related_events(event_id, filter.as_deref(), &mut relation_events);
             Some((event.clone(), relation_events))
         } else {
             None
@@ -143,42 +143,6 @@ impl RoomEventCache {
         let _ = self.inner.sender.send(RoomEventCacheUpdate::Clear);
 
         Ok(())
-    }
-
-    /// Looks for related event ids for the passed event id, and appends them to
-    /// the `results` parameter. Then it'll recursively get the related
-    /// event ids for those too.
-    fn collect_related_events(
-        cache: &AllEventsCache,
-        event_id: &EventId,
-        filter: Option<&[RelationType]>,
-        results: &mut Vec<SyncTimelineEvent>,
-    ) {
-        let Some(related_event_ids) = cache.relations.get(event_id) else {
-            return;
-        };
-
-        for (related_event_id, relation_type) in related_event_ids {
-            if let Some(filter) = filter {
-                if !filter.contains(relation_type) {
-                    continue;
-                }
-            }
-
-            // If the event was already added to the related ones, skip it.
-            if results.iter().any(|event| {
-                event.event_id().is_some_and(|added_related_event_id| {
-                    added_related_event_id == *related_event_id
-                })
-            }) {
-                continue;
-            }
-
-            if let Some((_, ev)) = cache.events.get(related_event_id) {
-                results.push(ev.clone());
-                Self::collect_related_events(cache, related_event_id, filter, results);
-            }
-        }
     }
 
     /// Save a single event in the event cache, for further retrieval with
