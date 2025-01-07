@@ -248,11 +248,12 @@ impl EventCache {
 
         async move {
             while ignore_user_list_stream.next().await.is_some() {
-                info!("received an ignore user list change");
+                info!("Received an ignore user list change");
                 if let Err(err) = inner.clear_all_rooms().await {
-                    error!("error when clearing room storage: {err}");
+                    error!("when clearing room storage after ignore user list change: {err}");
                 }
             }
+            info!("Ignore user list stream has closed");
         }
         .instrument(span)
         .await;
@@ -271,6 +272,7 @@ impl EventCache {
                         match err {
                             EventCacheError::ClientDropped => {
                                 // The client has dropped, exit the listen task.
+                                info!("Closing the event cache global listen task because client dropped");
                                 break;
                             }
                             err => {
@@ -286,12 +288,13 @@ impl EventCache {
                     // TODO: implement Smart Matching™,
                     warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
                     if let Err(err) = inner.clear_all_rooms().await {
-                        error!("error when clearing storage: {err}");
+                        error!("when clearing storage after lag in listen_task: {err}");
                     }
                 }
 
                 Err(RecvError::Closed) => {
                     // The sender has shut down, exit.
+                    info!("Closing the event cache global listen task because receiver closed");
                     break;
                 }
             }
