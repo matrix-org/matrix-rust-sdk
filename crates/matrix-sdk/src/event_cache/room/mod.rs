@@ -29,7 +29,7 @@ use ruma::{
 };
 use tokio::sync::{
     broadcast::{Receiver, Sender},
-    Notify, RwLock, RwLockReadGuard,
+    Notify, RwLock,
 };
 use tracing::{debug, trace, warn};
 
@@ -117,7 +117,7 @@ impl RoomEventCache {
 
         let cache = self.inner.all_events.read().await;
         if let Some((_, event)) = cache.events.get(event_id) {
-            Self::collect_related_events(&cache, event_id, &filter, &mut relation_events);
+            Self::collect_related_events(&cache, event_id, filter.as_deref(), &mut relation_events);
             Some((event.clone(), relation_events))
         } else {
             None
@@ -149,31 +149,34 @@ impl RoomEventCache {
     /// the `results` parameter. Then it'll recursively get the related
     /// event ids for those too.
     fn collect_related_events(
-        cache: &RwLockReadGuard<'_, AllEventsCache>,
+        cache: &AllEventsCache,
         event_id: &EventId,
-        filter: &Option<Vec<RelationType>>,
+        filter: Option<&[RelationType]>,
         results: &mut Vec<SyncTimelineEvent>,
     ) {
-        if let Some(related_event_ids) = cache.relations.get(event_id) {
-            for (related_event_id, relation_type) in related_event_ids {
-                if let Some(filter) = filter {
-                    if !filter.contains(relation_type) {
-                        continue;
-                    }
-                }
+        let Some(related_event_ids) = cache.relations.get(event_id) else {
+            return;
+        };
 
-                // If the event was already added to the related ones, skip it.
-                if results.iter().any(|e| {
-                    e.event_id().is_some_and(|added_related_event_id| {
-                        added_related_event_id == *related_event_id
-                    })
-                }) {
+        for (related_event_id, relation_type) in related_event_ids {
+            if let Some(filter) = filter {
+                if !filter.contains(relation_type) {
                     continue;
                 }
-                if let Some((_, ev)) = cache.events.get(related_event_id) {
-                    results.push(ev.clone());
-                    Self::collect_related_events(cache, related_event_id, filter, results);
-                }
+            }
+
+            // If the event was already added to the related ones, skip it.
+            if results.iter().any(|event| {
+                event.event_id().is_some_and(|added_related_event_id| {
+                    added_related_event_id == *related_event_id
+                })
+            }) {
+                continue;
+            }
+
+            if let Some((_, ev)) = cache.events.get(related_event_id) {
+                results.push(ev.clone());
+                Self::collect_related_events(cache, related_event_id, filter, results);
             }
         }
     }
