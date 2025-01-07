@@ -14,8 +14,6 @@
 
 //! A sqlite-based backend for the [`EventCacheStore`].
 
-#![allow(dead_code)] // Most of the unused code may be used soonish.
-
 use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 
 use async_trait::async_trait;
@@ -142,28 +140,6 @@ impl SqliteEventCacheStore {
             row.get::<_, Option<u64>>(2)?,
             row.get::<_, String>(3)?,
         ))
-    }
-
-    async fn load_chunk_with_id(
-        &self,
-        room_id: &RoomId,
-        chunk_id: ChunkIdentifier,
-    ) -> Result<RawChunk<Event, Gap>> {
-        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
-
-        let this = self.clone();
-
-        self
-            .acquire()
-            .await?
-            .with_transaction(move |txn| -> Result<_> {
-                let (id, previous, next, chunk_type) = txn.query_row(
-                    "SELECT id, previous, next, type FROM linked_chunks WHERE room_id = ? AND chunk_id = ?", 
-                    (&hashed_room_id, chunk_id.index()),
-                    Self::map_row_to_chunk
-                )?;
-                txn.rebuild_chunk(&this, &hashed_room_id, previous, id, next, chunk_type.as_str())
-            }).await
     }
 }
 
