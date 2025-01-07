@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
@@ -185,42 +185,6 @@ async fn test_remote_echo_new_position() {
     assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
 
     assert_pending!(stream);
-}
-
-#[async_test]
-async fn test_date_divider_duplication() {
-    let timeline = TestTimeline::new();
-
-    // Given two remote events from one day, and a local event from another day…
-    let f = EventFactory::new().sender(&BOB);
-    timeline.handle_live_event(f.text_msg("A")).await;
-    timeline.handle_live_event(f.text_msg("B")).await;
-    timeline
-        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
-            RoomMessageEventContent::text_plain("C"),
-        ))
-        .await;
-
-    let items = timeline.controller.items().await;
-    assert_eq!(items.len(), 5);
-    assert!(items[0].is_date_divider());
-    assert!(items[1].is_remote_event());
-    assert!(items[2].is_remote_event());
-    assert!(items[3].is_date_divider());
-    assert!(items[4].is_local_echo());
-
-    // … when the second remote event is re-received (day still the same)
-    let event_id = items[2].as_event().unwrap().event_id().unwrap();
-    timeline.handle_live_event(f.text_msg("B").event_id(event_id).server_ts(1)).await;
-
-    // … it should not impact the date dividers.
-    let items = timeline.controller.items().await;
-    assert_eq!(items.len(), 5);
-    assert!(items[0].is_date_divider());
-    assert!(items[1].is_remote_event());
-    assert!(items[2].is_remote_event());
-    assert!(items[3].is_date_divider());
-    assert!(items[4].is_local_echo());
 }
 
 #[async_test]

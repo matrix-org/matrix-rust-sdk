@@ -442,6 +442,11 @@ async fn test_enabling_backups_retries_decryption() {
         .await
         .expect("We should be able to paginate the timeline to fetch the history");
 
+    // Wait for the event cache and the timeline to do their job.
+    // Timeline triggers a pagination, that inserts events in the event cache, that
+    // then broadcasts new events into the timeline. All this is async.
+    sleep(Duration::from_millis(300)).await;
+
     let item =
         timeline.item_by_event_id(&event_id).await.expect("The event should be in the timeline");
 
@@ -621,6 +626,11 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
             .paginate_backwards(50)
             .await
             .expect("We should be able to paginate the timeline to fetch the history");
+
+        // Wait for the event cache and the timeline to do their job.
+        // Timeline triggers a pagination, that inserts events in the event cache, that
+        // then broadcasts new events into the timeline. All this is async.
+        sleep(Duration::from_millis(300)).await;
 
         if let Some(timeline_item) = timeline.item_by_event_id(&event_id).await {
             item = Some(timeline_item);

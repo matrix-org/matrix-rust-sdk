@@ -318,11 +318,6 @@ impl TimelineItemContent {
         as_variant!(self, Self::UnableToDecrypt)
     }
 
-    #[cfg(test)]
-    pub(crate) fn is_redacted(&self) -> bool {
-        matches!(self, Self::RedactedMessage)
-    }
-
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(

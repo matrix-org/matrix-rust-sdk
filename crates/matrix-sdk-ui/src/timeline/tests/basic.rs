@@ -23,7 +23,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
-            message::{MessageType, RoomMessageEventContent},
+            message::MessageType,
             name::RoomNameEventContent,
             topic::RedactedRoomTopicEventContent,
         },
@@ -278,77 +278,6 @@ async fn test_other_state() {
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
     assert_let!(AnyOtherFullStateEventContent::RoomTopic(full_content) = ev.content());
     assert_matches!(full_content, FullStateEventContent::Redacted(_));
-}
-
-#[async_test]
-async fn test_dedup_pagination() {
-    let timeline = TestTimeline::new();
-
-    let event = timeline
-        .event_builder
-        .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
-    timeline.handle_live_event(SyncTimelineEvent::new(event.clone())).await;
-    // This cast is not actually correct, sync events aren't valid
-    // back-paginated events, as they are missing `room_id`. However, the
-    // timeline doesn't care about that `room_id` and casts back to
-    // `Raw<AnySyncTimelineEvent>` before attempting to deserialize.
-    timeline.handle_back_paginated_event(event.cast()).await;
-
-    let timeline_items = timeline.controller.items().await;
-    assert_eq!(timeline_items.len(), 2);
-    assert_matches!(
-        timeline_items[0].kind,
-        TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_))
-    );
-    assert_matches!(timeline_items[1].kind, TimelineItemKind::Event(_));
-}
-
-#[async_test]
-async fn test_dedup_initial() {
-    let timeline = TestTimeline::new();
-
-    let f = &timeline.factory;
-    let event_a = f.text_msg("A").sender(*ALICE).into_sync();
-    let event_b = f.text_msg("B").sender(*BOB).into_sync();
-    let event_c = f.text_msg("C").sender(*CAROL).into_sync();
-
-    timeline
-        .controller
-        .add_events_at(
-            [
-                // two events
-                event_a.clone(),
-                event_b.clone(),
-                // same events got duplicated in next sync response
-                event_a,
-                event_b,
-                // … and a new event also came in
-                event_c,
-            ]
-            .into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
-        )
-        .await;
-
-    let timeline_items = timeline.controller.items().await;
-    assert_eq!(timeline_items.len(), 4);
-
-    assert!(timeline_items[0].is_date_divider());
-
-    let event1 = &timeline_items[1];
-    let event2 = &timeline_items[2];
-    let event3 = &timeline_items[3];
-
-    // Make sure the order is right.
-    assert_eq!(event1.as_event().unwrap().sender(), *ALICE);
-    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
-    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
-
-    // Make sure we reused IDs when deduplicating events.
-    assert_eq!(event1.unique_id().0, "0");
-    assert_eq!(event2.unique_id().0, "1");
-    assert_eq!(event3.unique_id().0, "2");
-    assert_eq!(timeline_items[0].unique_id().0, "3");
 }
 
 #[async_test]

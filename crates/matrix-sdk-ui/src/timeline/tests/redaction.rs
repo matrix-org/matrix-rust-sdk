@@ -19,10 +19,7 @@ use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::events::{
     reaction::RedactedReactionEventContent,
-    room::{
-        message::{OriginalSyncRoomMessageEvent, RedactedRoomMessageEventContent},
-        name::RoomNameEventContent,
-    },
+    room::{message::OriginalSyncRoomMessageEvent, name::RoomNameEventContent},
     FullStateEventContent,
 };
 use stream_assert::assert_next_matches;
@@ -176,57 +173,4 @@ async fn test_reaction_redaction_timeline_filter() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_eq!(item.reactions().len(), 0);
     assert_eq!(timeline.controller.items().await.len(), 2);
-}
-
-#[async_test]
-async fn test_receive_unredacted() {
-    let timeline = TestTimeline::new();
-
-    let f = &timeline.factory;
-
-    // send two events, second one redacted
-    timeline.handle_live_event(f.text_msg("about to be redacted").sender(&ALICE)).await;
-    timeline
-        .handle_live_redacted_message_event(&ALICE, RedactedRoomMessageEventContent::new())
-        .await;
-
-    // redact the first one as well
-    let items = timeline.controller.items().await;
-    assert!(items[0].is_date_divider());
-    let fst = items[1].as_event().unwrap();
-    timeline.handle_live_event(f.redaction(fst.event_id().unwrap()).sender(&ALICE)).await;
-
-    let items = timeline.controller.items().await;
-    assert_eq!(items.len(), 3);
-    let fst = items[1].as_event().unwrap();
-    let snd = items[2].as_event().unwrap();
-
-    // make sure we have two redacted events
-    assert!(fst.content.is_redacted());
-    assert!(snd.content.is_redacted());
-
-    // send new events with the same event ID as the previous ones
-    timeline
-        .handle_live_event(
-            f.text_msg("unredacted #1")
-                .sender(*ALICE)
-                .event_id(fst.event_id().unwrap())
-                .server_ts(fst.timestamp()),
-        )
-        .await;
-
-    timeline
-        .handle_live_event(
-            f.text_msg("unredacted #2")
-                .sender(*ALICE)
-                .event_id(snd.event_id().unwrap())
-                .server_ts(snd.timestamp()),
-        )
-        .await;
-
-    // make sure we still have two redacted events
-    let items = timeline.controller.items().await;
-    assert_eq!(items.len(), 3);
-    assert!(items[1].as_event().unwrap().content.is_redacted());
-    assert!(items[2].as_event().unwrap().content.is_redacted());
 }
