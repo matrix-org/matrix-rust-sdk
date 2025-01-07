@@ -31,7 +31,6 @@ use super::{
 /// which will get resolved later when re-building the full data structure. This
 /// allows using chunks that references other chunks that aren't known yet.
 struct TemporaryChunk<Item, Gap> {
-    id: ChunkIdentifier,
     previous: Option<ChunkIdentifier>,
     next: Option<ChunkIdentifier>,
     content: ChunkContent<Item, Gap>,
@@ -79,7 +78,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
         next: Option<ChunkIdentifier>,
         content: Gap,
     ) {
-        let chunk = TemporaryChunk { id, previous, next, content: ChunkContent::Gap(content) };
+        let chunk = TemporaryChunk { previous, next, content: ChunkContent::Gap(content) };
         self.chunks.insert(id, chunk);
     }
 
@@ -96,7 +95,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
         items: impl IntoIterator<Item = Item>,
     ) {
         let chunk = TemporaryChunk {
-            id,
             previous,
             next,
             content: ChunkContent::Items(items.into_iter().collect()),
