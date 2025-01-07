@@ -195,9 +195,9 @@ pub(super) struct RoomEventCacheInner {
     /// State for this room's event cache.
     pub state: RwLock<RoomEventCacheState>,
 
-    /// See comment of [`EventCacheInner::all_events`].
+    /// See comment of [`super::EventCacheInner::all_events`].
     ///
-    /// This is shared between the [`EventCacheInner`] singleton and all
+    /// This is shared between the [`super::EventCacheInner`] singleton and all
     /// [`RoomEventCacheInner`] instances.
     all_events: Arc<RwLock<AllEventsCache>>,
 
