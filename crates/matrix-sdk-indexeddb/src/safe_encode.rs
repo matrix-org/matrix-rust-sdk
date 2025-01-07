@@ -1,6 +1,5 @@
 //! Helpers for wasm32/browser environments
 
-#![allow(dead_code)]
 use base64::{
     alphabet,
     engine::{general_purpose, GeneralPurpose},
