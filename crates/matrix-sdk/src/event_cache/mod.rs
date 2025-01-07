@@ -45,7 +45,12 @@ use matrix_sdk_common::executor::{spawn, JoinHandle};
 use once_cell::sync::OnceCell;
 use room::RoomEventCacheState;
 use ruma::{
-    events::{relation::RelationType, AnySyncEphemeralRoomEvent},
+    events::{
+        relation::RelationType,
+        room::{message::Relation, redaction::SyncRoomRedactionEvent},
+        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent,
+    },
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, RoomId,
 };
@@ -362,6 +367,71 @@ impl AllEventsCache {
     fn clear(&mut self) {
         self.events.clear();
         self.relations.clear();
+    }
+
+    /// If the event is related to another one, its id is added to the relations
+    /// map.
+    fn append_related_event(&mut self, event: &SyncTimelineEvent) {
+        // Handle and cache events and relations.
+        let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() else {
+            return;
+        };
+
+        // Handle redactions separately, as their logic is slightly different.
+        if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) = &ev {
+            if let Some(redacted_event_id) =
+                ev.content.redacts.as_ref().or_else(|| ev.redacts.as_ref())
+            {
+                self.relations
+                    .entry(redacted_event_id.to_owned())
+                    .or_default()
+                    .insert(ev.event_id.to_owned(), RelationType::Replacement);
+            }
+            return;
+        }
+
+        let relationship = match ev.original_content() {
+            Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                if let Some(relation) = c.relates_to {
+                    match relation {
+                        Relation::Replacement(replacement) => {
+                            Some((replacement.event_id, RelationType::Replacement))
+                        }
+                        Relation::Reply { in_reply_to } => {
+                            Some((in_reply_to.event_id, RelationType::Reference))
+                        }
+                        Relation::Thread(thread) => Some((thread.event_id, RelationType::Thread)),
+                        // Do nothing for custom
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            Some(AnyMessageLikeEventContent::PollResponse(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::PollEnd(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::Reaction(c)) => {
+                Some((c.relates_to.event_id, RelationType::Annotation))
+            }
+            _ => None,
+        };
+
+        if let Some(relationship) = relationship {
+            self.relations
+                .entry(relationship.0)
+                .or_default()
+                .insert(ev.event_id().to_owned(), relationship.1);
+        }
     }
 }
 

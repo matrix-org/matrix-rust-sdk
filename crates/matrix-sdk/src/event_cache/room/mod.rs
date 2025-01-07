@@ -23,12 +23,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    events::{
-        relation::RelationType,
-        room::{message::Relation, redaction::SyncRoomRedactionEvent},
-        AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    },
+    events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId,
 };
@@ -192,7 +187,7 @@ impl RoomEventCache {
         if let Some(event_id) = event.event_id() {
             let mut cache = self.inner.all_events.write().await;
 
-            RoomEventCacheInner::append_related_event(&mut cache, &event);
+            cache.append_related_event(&event);
             cache.events.insert(event_id, (self.inner.room_id.clone(), event));
         } else {
             warn!("couldn't save event without event id in the event cache");
@@ -209,7 +204,7 @@ impl RoomEventCache {
         let mut cache = self.inner.all_events.write().await;
         for event in events {
             if let Some(event_id) = event.event_id() {
-                RoomEventCacheInner::append_related_event(&mut cache, &event);
+                cache.append_related_event(&event);
                 cache.events.insert(event_id, (self.inner.room_id.clone(), event));
             } else {
                 warn!("couldn't save event without event id in the event cache");
@@ -441,73 +436,6 @@ impl RoomEventCacheInner {
         .await
     }
 
-    /// If the event is related to another one, its id is added to the
-    /// relations map.
-    fn append_related_event(cache: &mut AllEventsCache, event: &SyncTimelineEvent) {
-        // Handle and cache events and relations.
-        let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() else {
-            return;
-        };
-
-        // Handle redactions separately, as their logic is slightly different.
-        if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) = &ev {
-            if let Some(redacted_event_id) =
-                ev.content.redacts.as_ref().or_else(|| ev.redacts.as_ref())
-            {
-                cache
-                    .relations
-                    .entry(redacted_event_id.to_owned())
-                    .or_default()
-                    .insert(ev.event_id.to_owned(), RelationType::Replacement);
-            }
-            return;
-        }
-
-        let relationship = match ev.original_content() {
-            Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
-                if let Some(relation) = c.relates_to {
-                    match relation {
-                        Relation::Replacement(replacement) => {
-                            Some((replacement.event_id, RelationType::Replacement))
-                        }
-                        Relation::Reply { in_reply_to } => {
-                            Some((in_reply_to.event_id, RelationType::Reference))
-                        }
-                        Relation::Thread(thread) => Some((thread.event_id, RelationType::Thread)),
-                        // Do nothing for custom
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            }
-            Some(AnyMessageLikeEventContent::PollResponse(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::PollEnd(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::Reaction(c)) => {
-                Some((c.relates_to.event_id, RelationType::Annotation))
-            }
-            _ => None,
-        };
-
-        if let Some(relationship) = relationship {
-            cache
-                .relations
-                .entry(relationship.0)
-                .or_default()
-                .insert(ev.event_id().to_owned(), relationship.1);
-        }
-    }
-
     /// Append a set of events and associated room data.
     ///
     /// This is a private implementation. It must not be exposed publicly.
@@ -559,7 +487,7 @@ impl RoomEventCacheInner {
 
             for sync_timeline_event in &sync_timeline_events {
                 if let Some(event_id) = sync_timeline_event.event_id() {
-                    Self::append_related_event(&mut all_events, sync_timeline_event);
+                    all_events.append_related_event(sync_timeline_event);
                     all_events.events.insert(
                         event_id.to_owned(),
                         (self.room_id.clone(), sync_timeline_event.clone()),
