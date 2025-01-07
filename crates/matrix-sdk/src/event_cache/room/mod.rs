@@ -449,66 +449,66 @@ impl RoomEventCacheInner {
         event: &SyncTimelineEvent,
     ) {
         // Handle and cache events and relations.
-        if let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() {
-            // Handle redactions separately, as their logic is slightly different.
-            if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) =
-                &ev
-            {
-                if let Some(redacted_event_id) = ev.content.redacts.as_ref().or(ev.redacts.as_ref())
-                {
-                    cache
-                        .relations
-                        .entry(redacted_event_id.to_owned())
-                        .or_default()
-                        .insert(ev.event_id.to_owned(), RelationType::Replacement);
-                }
-            } else {
-                let relationship = match ev.original_content() {
-                    Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
-                        if let Some(relation) = c.relates_to {
-                            match relation {
-                                Relation::Replacement(replacement) => {
-                                    Some((replacement.event_id, RelationType::Replacement))
-                                }
-                                Relation::Reply { in_reply_to } => {
-                                    Some((in_reply_to.event_id, RelationType::Reference))
-                                }
-                                Relation::Thread(thread) => {
-                                    Some((thread.event_id, RelationType::Thread))
-                                }
-                                // Do nothing for custom
-                                _ => None,
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                    Some(AnyMessageLikeEventContent::PollResponse(c)) => {
-                        Some((c.relates_to.event_id, RelationType::Reference))
-                    }
-                    Some(AnyMessageLikeEventContent::PollEnd(c)) => {
-                        Some((c.relates_to.event_id, RelationType::Reference))
-                    }
-                    Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
-                        Some((c.relates_to.event_id, RelationType::Reference))
-                    }
-                    Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
-                        Some((c.relates_to.event_id, RelationType::Reference))
-                    }
-                    Some(AnyMessageLikeEventContent::Reaction(c)) => {
-                        Some((c.relates_to.event_id, RelationType::Annotation))
-                    }
-                    _ => None,
-                };
+        let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() else {
+            return;
+        };
 
-                if let Some(relationship) = relationship {
-                    cache
-                        .relations
-                        .entry(relationship.0)
-                        .or_default()
-                        .insert(ev.event_id().to_owned(), relationship.1);
+        // Handle redactions separately, as their logic is slightly different.
+        if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) = &ev {
+            if let Some(redacted_event_id) =
+                ev.content.redacts.as_ref().or_else(|| ev.redacts.as_ref())
+            {
+                cache
+                    .relations
+                    .entry(redacted_event_id.to_owned())
+                    .or_default()
+                    .insert(ev.event_id.to_owned(), RelationType::Replacement);
+            }
+            return;
+        }
+
+        let relationship = match ev.original_content() {
+            Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                if let Some(relation) = c.relates_to {
+                    match relation {
+                        Relation::Replacement(replacement) => {
+                            Some((replacement.event_id, RelationType::Replacement))
+                        }
+                        Relation::Reply { in_reply_to } => {
+                            Some((in_reply_to.event_id, RelationType::Reference))
+                        }
+                        Relation::Thread(thread) => Some((thread.event_id, RelationType::Thread)),
+                        // Do nothing for custom
+                        _ => None,
+                    }
+                } else {
+                    None
                 }
             }
+            Some(AnyMessageLikeEventContent::PollResponse(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::PollEnd(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::Reaction(c)) => {
+                Some((c.relates_to.event_id, RelationType::Annotation))
+            }
+            _ => None,
+        };
+
+        if let Some(relationship) = relationship {
+            cache
+                .relations
+                .entry(relationship.0)
+                .or_default()
+                .insert(ev.event_id().to_owned(), relationship.1);
         }
     }
 
