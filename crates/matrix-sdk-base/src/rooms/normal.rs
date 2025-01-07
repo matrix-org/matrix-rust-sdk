@@ -623,18 +623,40 @@ impl Room {
         self.inner.read().active_room_call_participants()
     }
 
-    /// Calculate a room's display name, taking into account its name, aliases
-    /// and members.
+    /// Calculate a room's display name, or return the cached value, taking into
+    /// account its name, aliases and members.
+    ///
+    /// The display name is calculated according to [this algorithm][spec].
+    ///
+    /// While the underlying computation can be slow, the result is cached and
+    /// returned on the following calls. The cache is also filled on every
+    /// successful sync, since a sync may cause a change in the display
+    /// name.
+    ///
+    /// If you need a variant that's sync (but with the drawback that it returns
+    /// an `Option`), consider using [`Room::cached_display_name`].
+    ///
+    /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+    pub async fn display_name(&self) -> StoreResult<RoomDisplayName> {
+        if let Some(name) = self.cached_display_name() {
+            Ok(name)
+        } else {
+            self.compute_display_name().await
+        }
+    }
+
+    /// Force recalculating a room's display name, taking into account its name,
+    /// aliases and members.
     ///
     /// The display name is calculated according to [this algorithm][spec].
     ///
     /// ⚠ This may be slowish to compute. As such, the result is cached and can
-    /// be retrieved via [`Room::cached_display_name`], which should be
-    /// preferred in general. Indeed, the cached value is automatically
-    /// recomputed on every sync.
+    /// be retrieved via [`Room::cached_display_name`] (sync, returns an option)
+    /// or [`Room::display_name`] (async, always returns a value), which should
+    /// be preferred in general.
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
+    pub(crate) async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
         enum DisplayNameOrSummary {
             Summary(RoomSummary),
             DisplayName(RoomDisplayName),
@@ -871,8 +893,7 @@ impl Room {
 
     /// Returns the cached computed display name, if available.
     ///
-    /// This cache is refilled every time we call
-    /// [`Self::compute_display_name`].
+    /// This cache is refilled every time we call [`Self::display_name`].
     pub fn cached_display_name(&self) -> Option<RoomDisplayName> {
         self.inner.read().cached_display_name.clone()
     }

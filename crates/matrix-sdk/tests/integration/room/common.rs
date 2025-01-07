@@ -65,7 +65,7 @@ async fn test_calculate_room_names_from_summary() {
 
     assert_eq!(
         RoomDisplayName::Calculated("example2".to_owned()),
-        room.compute_display_name().await.unwrap()
+        room.display_name().await.unwrap()
     );
 }
 
@@ -83,10 +83,7 @@ async fn test_room_names() {
     assert_eq!(client.rooms().len(), 1);
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    assert_eq!(
-        RoomDisplayName::Aliased("tutorial".to_owned()),
-        room.compute_display_name().await.unwrap()
-    );
+    assert_eq!(RoomDisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
     // Room with a name.
     mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
@@ -99,7 +96,7 @@ async fn test_room_names() {
 
     assert_eq!(
         RoomDisplayName::Named("My Room Name".to_owned()),
-        invited_room.compute_display_name().await.unwrap()
+        invited_room.display_name().await.unwrap()
     );
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -137,7 +134,7 @@ async fn test_room_names() {
         RoomDisplayName::Calculated(
             "user_0, user_1, user_10, user_11, user_12, and 10 others".to_owned()
         ),
-        room.compute_display_name().await.unwrap()
+        room.display_name().await.unwrap()
     );
 
     // Room with joined and invited members.
@@ -185,7 +182,7 @@ async fn test_room_names() {
 
     assert_eq!(
         RoomDisplayName::Calculated("Bob, example1".to_owned()),
-        room.compute_display_name().await.unwrap()
+        room.display_name().await.unwrap()
     );
 
     // Room with only left members.
@@ -205,7 +202,7 @@ async fn test_room_names() {
 
     assert_eq!(
         RoomDisplayName::EmptyWas("user_0, user_1, user_2".to_owned()),
-        room.compute_display_name().await.unwrap()
+        room.display_name().await.unwrap()
     );
 }
 
