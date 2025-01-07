@@ -50,23 +50,6 @@ pub trait SafeEncode {
             .encode(store_cipher.hash_key(table_name, self.as_encoded_string().as_bytes()))
     }
 
-    /// encode self into a JsValue, internally using `as_encoded_string`
-    /// to escape the value of self, and append the given counter
-    fn encode_with_counter(&self, i: usize) -> JsValue {
-        format!("{}{KEY_SEPARATOR}{i:016x}", self.as_encoded_string()).into()
-    }
-
-    /// encode self into a JsValue, internally using `as_secure_string`
-    /// to escape the value of self, and append the given counter
-    fn encode_with_counter_secure(
-        &self,
-        table_name: &str,
-        store_cipher: &StoreCipher,
-        i: usize,
-    ) -> JsValue {
-        format!("{}{KEY_SEPARATOR}{i:016x}", self.as_secure_string(table_name, store_cipher)).into()
-    }
-
     /// Encode self into a IdbKeyRange for searching all keys that are
     /// prefixed with this key, followed by `KEY_SEPARATOR`. Internally
     /// uses `as_encoded_string` to ensure the given key is escaped properly.
