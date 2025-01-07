@@ -113,12 +113,10 @@ impl RoomEventCache {
         event_id: &EventId,
         filter: Option<Vec<RelationType>>,
     ) -> Option<(SyncTimelineEvent, Vec<SyncTimelineEvent>)> {
-        let mut relation_events = Vec::new();
-
         let cache = self.inner.all_events.read().await;
         if let Some((_, event)) = cache.events.get(event_id) {
-            cache.collect_related_events(event_id, filter.as_deref(), &mut relation_events);
-            Some((event.clone(), relation_events))
+            let related_events = cache.collect_related_events(event_id, filter.as_deref());
+            Some((event.clone(), related_events))
         } else {
             None
         }

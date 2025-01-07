@@ -441,6 +441,16 @@ impl AllEventsCache {
         &self,
         event_id: &EventId,
         filter: Option<&[RelationType]>,
+    ) -> Vec<SyncTimelineEvent> {
+        let mut results = Vec::new();
+        self.collect_related_events_rec(event_id, filter, &mut results);
+        results
+    }
+
+    fn collect_related_events_rec(
+        &self,
+        event_id: &EventId,
+        filter: Option<&[RelationType]>,
         results: &mut Vec<SyncTimelineEvent>,
     ) {
         let Some(related_event_ids) = self.relations.get(event_id) else {
@@ -465,7 +475,7 @@ impl AllEventsCache {
 
             if let Some((_, ev)) = self.events.get(related_event_id) {
                 results.push(ev.clone());
-                self.collect_related_events(related_event_id, filter, results);
+                self.collect_related_events_rec(related_event_id, filter, results);
             }
         }
     }
