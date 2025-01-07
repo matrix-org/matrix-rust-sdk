@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Breaking changes
+
+- Replaced `Room::compute_display_name` with the reintroduced `Room::display_name()`. The new
+  method computes a display name, or return a cached value from the previous successful computation.
+  If you need a sync variant, consider using `Room::cached_display_name()`.
+
+### Features
+
+### Bug Fixes
+
 ## [0.9.0] - 2024-12-18
 
 ### Features

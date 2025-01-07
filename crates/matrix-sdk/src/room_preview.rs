@@ -130,7 +130,7 @@ impl RoomPreview {
     pub(crate) async fn from_joined(room: &Room) -> Self {
         let is_direct = room.is_direct().await.ok();
 
-        let display_name = room.compute_display_name().await.ok().map(|name| name.to_string());
+        let display_name = room.display_name().await.ok().map(|name| name.to_string());
 
         Self::from_room_info(
             room.clone_info(),
