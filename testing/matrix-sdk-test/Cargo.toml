@@ -18,6 +18,7 @@ doctest = false
 [dependencies]
 as_variant = { workspace = true }
 http = { workspace = true }
+insta = { workspace = true }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 matrix-sdk-test-macros = { version = "0.7.0", path = "../matrix-sdk-test-macros" }
 once_cell = { workspace = true }

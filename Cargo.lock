@@ -3469,6 +3469,7 @@ dependencies = [
  "ctor",
  "getrandom",
  "http",
+ "insta",
  "matrix-sdk-common",
  "matrix-sdk-test-macros",
  "once_cell",

@@ -1,3 +1,4 @@
+use insta::{assert_json_snapshot, with_settings};
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id,
     encryption::DeviceKeys, serde::Raw, user_id, DeviceId, OwnedDeviceId, UserId,
@@ -98,6 +99,9 @@ impl KeyDistributionTestData {
             }
         });
 
+        with_settings!({sort_maps => true}, {
+            assert_json_snapshot!("KeyDistributionTestData::me_keys_query_response", data);
+        });
         ruma_response_from_json(&data)
     }
 
@@ -200,6 +204,10 @@ impl KeyDistributionTestData {
                 }
         });
 
+        with_settings!({sort_maps => true}, {
+            assert_json_snapshot!("KeyDistributionTestData::dan_keys_query_response", data);
+        });
+
         ruma_response_from_json(&data)
     }
 
@@ -281,6 +289,13 @@ impl KeyDistributionTestData {
                         "user_id": "@dan:localhost"
                     }
                 }
+        });
+
+        with_settings!({sort_maps => true}, {
+            assert_json_snapshot!(
+                "KeyDistributionTestData::dan_keys_query_response_device_loggedout",
+                data
+            );
         });
 
         ruma_response_from_json(&data)
@@ -631,6 +646,9 @@ impl VerificationViolationTestData {
             }
         });
 
+        with_settings!({sort_maps => true}, {
+            assert_json_snapshot!("VerificationViolationTestData::own_keys_query_response_1", data);
+        });
         ruma_response_from_json(&data)
     }
 
