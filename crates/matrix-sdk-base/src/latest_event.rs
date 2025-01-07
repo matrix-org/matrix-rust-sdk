@@ -5,24 +5,20 @@
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
-    poll::unstable_start::SyncUnstablePollStartEvent,
-    relation::RelationType,
-    room::message::SyncRoomMessageEvent,
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-};
 use ruma::{
     events::{
-        room::{
-            member::{MembershipState, SyncRoomMemberEvent},
-            power_levels::RoomPowerLevels,
-        },
+        call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
+        poll::unstable_start::SyncUnstablePollStartEvent,
+        relation::RelationType,
+        room::member::{MembershipState, SyncRoomMemberEvent},
+        room::message::SyncRoomMessageEvent,
+        room::power_levels::RoomPowerLevels,
         sticker::SyncStickerEvent,
-        AnySyncStateEvent,
+        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
     },
-    MxcUri, OwnedEventId, UserId,
+    UserId,
 };
+use ruma::{MxcUri, OwnedEventId};
 use serde::{Deserialize, Serialize};
 
 use crate::MinimalRoomMemberEvent;
