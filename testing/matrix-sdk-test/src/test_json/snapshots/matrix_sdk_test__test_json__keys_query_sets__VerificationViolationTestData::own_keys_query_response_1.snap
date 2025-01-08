@@ -10,8 +10,7 @@ expression: data
       },
       "signatures": {
         "@alice:localhost": {
-          "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "FX+srrw9SRmi12fexYHH1jrlEIWgOfre1aPNzDZWcAlaP9WKRdhcQGh70/3F9hk/PGr51I+ux62YgU4xnRTqAA",
-          "ed25519:PWVCNMMGCT": "teLq0rCYKX9h8WXu6kH8UE6HPKAtkF/DwCncxJGvVBCyZRtLHD8W1yYEzJXjTNynn+4fibQZBhR3th1RGLn4Ag"
+          "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "FX+srrw9SRmi12fexYHH1jrlEIWgOfre1aPNzDZWcAlaP9WKRdhcQGh70/3F9hk/PGr51I+ux62YgU4xnRTqAA"
         }
       },
       "usage": [
