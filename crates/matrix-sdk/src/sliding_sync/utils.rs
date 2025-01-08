@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::task::{JoinError, JoinHandle};
+use matrix_sdk_common::executor::{JoinError, JoinHandle};
 
 /// Private type to ensure a task is aborted on drop.
 pub(crate) struct AbortOnDrop<T>(JoinHandle<T>);
