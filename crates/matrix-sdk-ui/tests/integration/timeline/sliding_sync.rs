@@ -20,8 +20,8 @@ use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
 use matrix_sdk::{
-    test_utils::{logged_in_client, logged_in_client_with_server},
-    Client, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
+    test_utils::logged_in_client_with_server, Client, SlidingSync, SlidingSyncList,
+    SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
 use matrix_sdk_ui::{
