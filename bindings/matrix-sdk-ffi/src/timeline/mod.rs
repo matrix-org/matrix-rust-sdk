@@ -152,15 +152,15 @@ impl Timeline {
 }
 
 fn build_thumbnail_info(
-    thumbnail_url: Option<String>,
+    thumbnail_path: Option<String>,
     thumbnail_info: Option<ThumbnailInfo>,
 ) -> Result<Option<Thumbnail>, RoomError> {
-    match (thumbnail_url, thumbnail_info) {
+    match (thumbnail_path, thumbnail_info) {
         (None, None) => Ok(None),
 
-        (Some(thumbnail_url), Some(thumbnail_info)) => {
+        (Some(thumbnail_path), Some(thumbnail_info)) => {
             let thumbnail_data =
-                fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
+                fs::read(thumbnail_path).map_err(|_| RoomError::InvalidThumbnailData)?;
 
             let height = thumbnail_info
                 .height
@@ -190,7 +190,7 @@ fn build_thumbnail_info(
         }
 
         _ => {
-            warn!("Ignoring thumbnail because either the thumbnail URL or info isn't defined");
+            warn!("Ignoring thumbnail because either the thumbnail path or info isn't defined");
             Ok(None)
         }
     }
@@ -326,14 +326,14 @@ impl Timeline {
     pub fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
-        thumbnail_url: Option<String>,
+        thumbnail_path: Option<String>,
         image_info: ImageInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Image(
             BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        let thumbnail = build_thumbnail_info(thumbnail_url, image_info.thumbnail_info)?;
+        let thumbnail = build_thumbnail_info(thumbnail_path, image_info.thumbnail_info)?;
         self.send_attachment(
             params,
             attachment_info,
@@ -346,14 +346,14 @@ impl Timeline {
     pub fn send_video(
         self: Arc<Self>,
         params: UploadParameters,
-        thumbnail_url: Option<String>,
+        thumbnail_path: Option<String>,
         video_info: VideoInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Video(
             BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        let thumbnail = build_thumbnail_info(thumbnail_url, video_info.thumbnail_info)?;
+        let thumbnail = build_thumbnail_info(thumbnail_path, video_info.thumbnail_info)?;
         self.send_attachment(
             params,
             attachment_info,
