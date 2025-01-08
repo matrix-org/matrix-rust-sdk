@@ -102,35 +102,52 @@ impl Timeline {
         unsafe { Arc::from_raw(Arc::into_raw(inner) as _) }
     }
 
-    async fn send_attachment(
-        &self,
-        filename: String,
+    fn send_attachment(
+        self: Arc<Self>,
+        params: UploadParameters,
+        attachment_info: AttachmentInfo,
         mime_type: Option<String>,
-        attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-        use_send_queue: bool,
-    ) -> Result<(), RoomError> {
+        thumbnail: Option<Thumbnail>,
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
         let mime_type =
             mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
 
-        let mut request = self.inner.send_attachment(filename, mime_type, attachment_config);
+        let formatted_caption = formatted_body_from(
+            params.caption.as_deref(),
+            params.formatted_caption.map(Into::into),
+        );
 
-        if use_send_queue {
-            request = request.use_send_queue();
-        }
+        let attachment_config = AttachmentConfig::new()
+            .thumbnail(thumbnail)
+            .info(attachment_info)
+            .caption(params.caption)
+            .formatted_caption(formatted_caption.map(Into::into))
+            .mentions(params.mentions.map(Into::into));
 
-        if let Some(progress_watcher) = progress_watcher {
-            let mut subscriber = request.subscribe_to_send_progress();
-            RUNTIME.spawn(async move {
-                while let Some(progress) = subscriber.next().await {
-                    progress_watcher.transmission_progress(progress.into());
-                }
-            });
-        }
+        let handle = SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
+            let mut request =
+                self.inner.send_attachment(params.filename, mime_type, attachment_config);
 
-        request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
-        Ok(())
+            if params.use_send_queue {
+                request = request.use_send_queue();
+            }
+
+            if let Some(progress_watcher) = progress_watcher {
+                let mut subscriber = request.subscribe_to_send_progress();
+                RUNTIME.spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        progress_watcher.transmission_progress(progress.into());
+                    }
+                });
+            }
+
+            request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
+            Ok(())
+        }));
+
+        Ok(handle)
     }
 }
 
@@ -312,34 +329,18 @@ impl Timeline {
         thumbnail_url: Option<String>,
         image_info: ImageInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-    ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_body_from(
-            params.caption.as_deref(),
-            params.formatted_caption.map(Into::into),
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
+        let attachment_info = AttachmentInfo::Image(
+            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-
-        SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let base_image_info = BaseImageInfo::try_from(&image_info)
-                .map_err(|_| RoomError::InvalidAttachmentData)?;
-            let attachment_info = AttachmentInfo::Image(base_image_info);
-            let thumbnail = build_thumbnail_info(thumbnail_url, image_info.thumbnail_info)?;
-
-            let attachment_config = AttachmentConfig::new()
-                .thumbnail(thumbnail)
-                .info(attachment_info)
-                .caption(params.caption)
-                .formatted_caption(formatted_caption)
-                .mentions(params.mentions.map(Into::into));
-
-            self.send_attachment(
-                params.filename,
-                image_info.mimetype,
-                attachment_config,
-                progress_watcher,
-                params.use_send_queue,
-            )
-            .await
-        }))
+        let thumbnail = build_thumbnail_info(thumbnail_url, image_info.thumbnail_info)?;
+        self.send_attachment(
+            params,
+            attachment_info,
+            image_info.mimetype,
+            progress_watcher,
+            thumbnail,
+        )
     }
 
     pub fn send_video(
@@ -348,34 +349,18 @@ impl Timeline {
         thumbnail_url: Option<String>,
         video_info: VideoInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-    ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_body_from(
-            params.caption.as_deref(),
-            params.formatted_caption.map(Into::into),
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
+        let attachment_info = AttachmentInfo::Video(
+            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-
-        SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(&video_info)
-                .map_err(|_| RoomError::InvalidAttachmentData)?;
-            let attachment_info = AttachmentInfo::Video(base_video_info);
-            let thumbnail = build_thumbnail_info(thumbnail_url, video_info.thumbnail_info)?;
-
-            let attachment_config = AttachmentConfig::new()
-                .thumbnail(thumbnail)
-                .info(attachment_info)
-                .caption(params.caption)
-                .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(params.mentions.map(Into::into));
-
-            self.send_attachment(
-                params.filename,
-                video_info.mimetype,
-                attachment_config,
-                progress_watcher,
-                params.use_send_queue,
-            )
-            .await
-        }))
+        let thumbnail = build_thumbnail_info(thumbnail_url, video_info.thumbnail_info)?;
+        self.send_attachment(
+            params,
+            attachment_info,
+            video_info.mimetype,
+            progress_watcher,
+            thumbnail,
+        )
     }
 
     pub fn send_audio(
@@ -383,32 +368,11 @@ impl Timeline {
         params: UploadParameters,
         audio_info: AudioInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-    ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_body_from(
-            params.caption.as_deref(),
-            params.formatted_caption.map(Into::into),
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
+        let attachment_info = AttachmentInfo::Audio(
+            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-
-        SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
-                .map_err(|_| RoomError::InvalidAttachmentData)?;
-            let attachment_info = AttachmentInfo::Audio(base_audio_info);
-
-            let attachment_config = AttachmentConfig::new()
-                .info(attachment_info)
-                .caption(params.caption)
-                .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(params.mentions.map(Into::into));
-
-            self.send_attachment(
-                params.filename,
-                audio_info.mimetype,
-                attachment_config,
-                progress_watcher,
-                params.use_send_queue,
-            )
-            .await
-        }))
+        self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
     }
 
     pub fn send_voice_message(
@@ -417,33 +381,13 @@ impl Timeline {
         audio_info: AudioInfo,
         waveform: Vec<u16>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-    ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_body_from(
-            params.caption.as_deref(),
-            params.formatted_caption.map(Into::into),
-        );
-
-        SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
-                .map_err(|_| RoomError::InvalidAttachmentData)?;
-            let attachment_info =
-                AttachmentInfo::Voice { audio_info: base_audio_info, waveform: Some(waveform) };
-
-            let attachment_config = AttachmentConfig::new()
-                .info(attachment_info)
-                .caption(params.caption)
-                .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(params.mentions.map(Into::into));
-
-            self.send_attachment(
-                params.filename,
-                audio_info.mimetype,
-                attachment_config,
-                progress_watcher,
-                params.use_send_queue,
-            )
-            .await
-        }))
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
+        let attachment_info = AttachmentInfo::Voice {
+            audio_info: BaseAudioInfo::try_from(&audio_info)
+                .map_err(|_| RoomError::InvalidAttachmentData)?,
+            waveform: Some(waveform),
+        };
+        self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
     }
 
     pub fn send_file(
@@ -451,32 +395,11 @@ impl Timeline {
         params: UploadParameters,
         file_info: FileInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-    ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_body_from(
-            params.caption.as_deref(),
-            params.formatted_caption.map(Into::into),
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
+        let attachment_info = AttachmentInfo::File(
+            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-
-        SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let base_file_info: BaseFileInfo =
-                BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
-            let attachment_info = AttachmentInfo::File(base_file_info);
-
-            let attachment_config = AttachmentConfig::new()
-                .info(attachment_info)
-                .caption(params.caption)
-                .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(params.mentions.map(Into::into));
-
-            self.send_attachment(
-                params.filename,
-                file_info.mimetype,
-                attachment_config,
-                progress_watcher,
-                params.use_send_queue,
-            )
-            .await
-        }))
+        self.send_attachment(params, attachment_info, file_info.mimetype, progress_watcher, None)
     }
 
     pub async fn create_poll(
