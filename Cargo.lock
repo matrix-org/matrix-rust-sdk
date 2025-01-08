@@ -3478,6 +3478,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing-subscriber",
+ "vodozemac",
  "wasm-bindgen-test",
  "wiremock",
 ]
