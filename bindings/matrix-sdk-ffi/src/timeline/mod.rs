@@ -293,7 +293,7 @@ impl Timeline {
     #[allow(clippy::too_many_arguments)]
     pub fn send_image(
         self: Arc<Self>,
-        url: String,
+        filename: String,
         thumbnail_url: Option<String>,
         image_info: ImageInfo,
         caption: Option<String>,
@@ -318,7 +318,7 @@ impl Timeline {
                 .mentions(mentions.map(Into::into));
 
             self.send_attachment(
-                url,
+                filename,
                 image_info.mimetype,
                 attachment_config,
                 progress_watcher,
@@ -331,7 +331,7 @@ impl Timeline {
     #[allow(clippy::too_many_arguments)]
     pub fn send_video(
         self: Arc<Self>,
-        url: String,
+        filename: String,
         thumbnail_url: Option<String>,
         video_info: VideoInfo,
         caption: Option<String>,
@@ -356,7 +356,7 @@ impl Timeline {
                 .mentions(mentions.map(Into::into));
 
             self.send_attachment(
-                url,
+                filename,
                 video_info.mimetype,
                 attachment_config,
                 progress_watcher,
@@ -369,7 +369,7 @@ impl Timeline {
     #[allow(clippy::too_many_arguments)]
     pub fn send_audio(
         self: Arc<Self>,
-        url: String,
+        filename: String,
         audio_info: AudioInfo,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
@@ -391,7 +391,7 @@ impl Timeline {
                 .mentions(mentions.map(Into::into));
 
             self.send_attachment(
-                url,
+                filename,
                 audio_info.mimetype,
                 attachment_config,
                 progress_watcher,
@@ -404,7 +404,7 @@ impl Timeline {
     #[allow(clippy::too_many_arguments)]
     pub fn send_voice_message(
         self: Arc<Self>,
-        url: String,
+        filename: String,
         audio_info: AudioInfo,
         waveform: Vec<u16>,
         caption: Option<String>,
@@ -428,7 +428,7 @@ impl Timeline {
                 .mentions(mentions.map(Into::into));
 
             self.send_attachment(
-                url,
+                filename,
                 audio_info.mimetype,
                 attachment_config,
                 progress_watcher,
@@ -441,7 +441,7 @@ impl Timeline {
     #[allow(clippy::too_many_arguments)]
     pub fn send_file(
         self: Arc<Self>,
-        url: String,
+        filename: String,
         file_info: FileInfo,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
@@ -463,7 +463,7 @@ impl Timeline {
                 .mentions(mentions.map(Into::into));
 
             self.send_attachment(
-                url,
+                filename,
                 file_info.mimetype,
                 attachment_config,
                 progress_watcher,
