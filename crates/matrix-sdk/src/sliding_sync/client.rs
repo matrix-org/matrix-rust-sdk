@@ -361,7 +361,7 @@ async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Re
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::collections::BTreeMap;
 

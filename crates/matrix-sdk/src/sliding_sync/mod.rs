@@ -36,14 +36,14 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timer};
+use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, executor::spawn, timer};
 use ruma::{
     api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    select, spawn,
+    select,
     sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
@@ -1090,7 +1090,7 @@ fn compute_limited(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 #[allow(clippy::dbg_macro)]
 mod tests {
     use std::{
@@ -2857,7 +2857,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // b/o tokio::time::sleep
     #[async_test]
     async fn test_aborted_request_doesnt_update_future_requests() -> Result<()> {
         let server = MockServer::start().await;
