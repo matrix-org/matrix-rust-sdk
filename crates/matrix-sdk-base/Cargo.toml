@@ -21,10 +21,6 @@ e2e-encryption = ["dep:matrix-sdk-crypto"]
 js = ["matrix-sdk-common/js", "matrix-sdk-crypto?/js", "ruma/js", "matrix-sdk-store-encryption/js"]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
-experimental-sliding-sync = [
-    "ruma/unstable-msc3575",
-    "ruma/unstable-msc4186",
-]
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see
@@ -65,7 +61,14 @@ matrix-sdk-store-encryption = { workspace = true }
 matrix-sdk-test = { workspace = true, optional = true }
 once_cell = { workspace = true }
 regex = "1.11.1"
-ruma = { workspace = true, features = ["canonical-json", "unstable-msc3381", "unstable-msc2867", "rand"] }
+ruma = { workspace = true, features = [
+    "canonical-json",
+    "unstable-msc2867",
+    "unstable-msc3381",
+    "unstable-msc3575",
+    "unstable-msc4186",
+    "rand",
+] }
 unicode-normalization = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }

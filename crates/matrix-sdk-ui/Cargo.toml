@@ -35,7 +35,7 @@ growable-bloom-filter = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
 itertools = { workspace = true }
-matrix-sdk = { workspace = true, features = ["experimental-sliding-sync", "e2e-encryption"] }
+matrix-sdk = { workspace = true, features = ["e2e-encryption"] }
 matrix-sdk-base = { workspace = true }
 mime = { workspace = true }
 once_cell = { workspace = true }

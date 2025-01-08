@@ -193,7 +193,7 @@ fn check_clippy() -> Result<()> {
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
-            --features native-tls,experimental-sliding-sync,sso-login,testing
+            --features native-tls,sso-login,testing
             -- -D warnings"
     )
     .run()?;
@@ -214,10 +214,7 @@ fn check_docs() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (
-            FeatureSet::NoEncryption,
-            "--no-default-features --features sqlite,native-tls,experimental-sliding-sync,testing",
-        ),
+        (FeatureSet::NoEncryption, "--no-default-features --features sqlite,native-tls,testing"),
         (
             FeatureSet::NoSqlite,
             "--no-default-features --features e2e-encryption,native-tls,testing",

@@ -75,7 +75,7 @@ async fn clean_storage(
 /// Store the `SlidingSync`'s state in the storage.
 pub(super) async fn store_sliding_sync_state(
     sliding_sync: &SlidingSync,
-    position: &SlidingSyncPositionMarkers,
+    _position: &SlidingSyncPositionMarkers,
 ) -> Result<()> {
     let storage_key = &sliding_sync.inner.storage_key;
     let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
@@ -94,6 +94,8 @@ pub(super) async fn store_sliding_sync_state(
 
     #[cfg(feature = "e2e-encryption")]
     {
+        let position = _position;
+
         // FIXME (TERRIBLE HACK): we want to save `pos` in a cross-process safe manner,
         // with both processes sharing the same database backend; that needs to
         // go in the crypto process store at the moment, but should be fixed
