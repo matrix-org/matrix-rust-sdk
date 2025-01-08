@@ -243,8 +243,22 @@ pub struct TracingConfiguration {
 }
 
 #[matrix_sdk_ffi_macros::export]
-pub fn setup_tracing(config: TracingConfiguration) {
+pub fn setup_tracing(mut config: TracingConfiguration) {
     log_panics();
+
+    // If there's no global directive, and a non-empty set of module/crate
+    // directives, then logs from modules and crates *not* appearing in the list
+    // of directives will be silently swallowed. This is bad, especially at the
+    // `error` level, for which we always want to see logs (notably because the
+    // panic logger uses the error level and a target that may not be specified in
+    // the list of user-provided directives).
+    //
+    // As a result, always make sure there's a global directive. If it's not there,
+    // we insert it at the beginning of the filter line.
+
+    if !config.filter.split(',').any(|pair| !pair.contains('=')) {
+        config.filter = "error,".to_owned() + config.filter.as_str();
+    }
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(&config.filter))
