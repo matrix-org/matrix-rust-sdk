@@ -408,8 +408,8 @@ impl Timeline {
         audio_info: AudioInfo,
         waveform: Vec<u16>,
         caption: Option<String>,
-        mentions: Option<Mentions>,
         formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
