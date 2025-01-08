@@ -689,22 +689,13 @@ mod tests {
         assert!(image.caption().is_none());
         assert!(image.formatted_caption().is_none());
 
-        // The raw event doesn't contain the mention :(
-        // TODO: this is a bug in Ruma! When Ruma gets upgraded in the SDK, this test
-        // may start failing. In this case, remove the following code, and replace it
-        // with the commented code below.
-
-        assert_matches!(msg.mentions, None);
-
-        /*
-            // The raw event contains the mention.
-            assert_let!(Some(mentions) = msg.mentions);
-            assert!(!mentions.room);
-            assert_eq!(
-                mentions.user_ids.into_iter().collect::<Vec<_>>(),
-                vec![mentioned_user_id.clone()]
-            );
-        */
+        // The raw event contains the mention.
+        assert_let!(Some(mentions) = msg.mentions);
+        assert!(!mentions.room);
+        assert_eq!(
+            mentions.user_ids.into_iter().collect::<Vec<_>>(),
+            vec![mentioned_user_id.clone()]
+        );
 
         assert_let!(Some(Relation::Replacement(repl)) = msg.relates_to);
         assert_let!(MessageType::Image(new_image) = repl.new_content.msgtype);
