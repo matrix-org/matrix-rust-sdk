@@ -179,6 +179,22 @@ fn build_thumbnail_info(
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct UploadParameters {
+    /// Filename (previously called "url") for the media to be sent.
+    filename: String,
+    /// Optional non-formatted caption, for clients that support it.
+    caption: Option<String>,
+    /// Optional HTML-formatted caption, for clients that support it.
+    formatted_caption: Option<FormattedBody>,
+    // Optional intentional mentions to be sent with the media.
+    mentions: Option<Mentions>,
+    /// Should the media be sent with the send queue, or synchronously?
+    ///
+    /// Watching progress only works with the synchronous method, at the moment.
+    use_send_queue: bool,
+}
+
 #[matrix_sdk_ffi_macros::export]
 impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
@@ -290,20 +306,18 @@ impl Timeline {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn send_image(
         self: Arc<Self>,
-        filename: String,
+        params: UploadParameters,
         thumbnail_url: Option<String>,
         image_info: ImageInfo,
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
-        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-        use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption =
-            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
+        let formatted_caption = formatted_body_from(
+            params.caption.as_deref(),
+            params.formatted_caption.map(Into::into),
+        );
+
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_image_info = BaseImageInfo::try_from(&image_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -313,35 +327,33 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new()
                 .thumbnail(thumbnail)
                 .info(attachment_info)
-                .caption(caption)
+                .caption(params.caption)
                 .formatted_caption(formatted_caption)
-                .mentions(mentions.map(Into::into));
+                .mentions(params.mentions.map(Into::into));
 
             self.send_attachment(
-                filename,
+                params.filename,
                 image_info.mimetype,
                 attachment_config,
                 progress_watcher,
-                use_send_queue,
+                params.use_send_queue,
             )
             .await
         }))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn send_video(
         self: Arc<Self>,
-        filename: String,
+        params: UploadParameters,
         thumbnail_url: Option<String>,
         video_info: VideoInfo,
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
-        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-        use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption =
-            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
+        let formatted_caption = formatted_body_from(
+            params.caption.as_deref(),
+            params.formatted_caption.map(Into::into),
+        );
+
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(&video_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -351,34 +363,32 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new()
                 .thumbnail(thumbnail)
                 .info(attachment_info)
-                .caption(caption)
+                .caption(params.caption)
                 .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(mentions.map(Into::into));
+                .mentions(params.mentions.map(Into::into));
 
             self.send_attachment(
-                filename,
+                params.filename,
                 video_info.mimetype,
                 attachment_config,
                 progress_watcher,
-                use_send_queue,
+                params.use_send_queue,
             )
             .await
         }))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn send_audio(
         self: Arc<Self>,
-        filename: String,
+        params: UploadParameters,
         audio_info: AudioInfo,
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
-        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-        use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption =
-            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
+        let formatted_caption = formatted_body_from(
+            params.caption.as_deref(),
+            params.formatted_caption.map(Into::into),
+        );
+
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -386,35 +396,33 @@ impl Timeline {
 
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
-                .caption(caption)
+                .caption(params.caption)
                 .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(mentions.map(Into::into));
+                .mentions(params.mentions.map(Into::into));
 
             self.send_attachment(
-                filename,
+                params.filename,
                 audio_info.mimetype,
                 attachment_config,
                 progress_watcher,
-                use_send_queue,
+                params.use_send_queue,
             )
             .await
         }))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn send_voice_message(
         self: Arc<Self>,
-        filename: String,
+        params: UploadParameters,
         audio_info: AudioInfo,
         waveform: Vec<u16>,
-        caption: Option<String>,
-        mentions: Option<Mentions>,
-        formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-        use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption =
-            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
+        let formatted_caption = formatted_body_from(
+            params.caption.as_deref(),
+            params.formatted_caption.map(Into::into),
+        );
+
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -423,34 +431,32 @@ impl Timeline {
 
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
-                .caption(caption)
+                .caption(params.caption)
                 .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(mentions.map(Into::into));
+                .mentions(params.mentions.map(Into::into));
 
             self.send_attachment(
-                filename,
+                params.filename,
                 audio_info.mimetype,
                 attachment_config,
                 progress_watcher,
-                use_send_queue,
+                params.use_send_queue,
             )
             .await
         }))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn send_file(
         self: Arc<Self>,
-        filename: String,
+        params: UploadParameters,
         file_info: FileInfo,
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
-        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
-        use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption =
-            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
+        let formatted_caption = formatted_body_from(
+            params.caption.as_deref(),
+            params.formatted_caption.map(Into::into),
+        );
+
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_file_info: BaseFileInfo =
                 BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -458,16 +464,16 @@ impl Timeline {
 
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
-                .caption(caption)
+                .caption(params.caption)
                 .formatted_caption(formatted_caption.map(Into::into))
-                .mentions(mentions.map(Into::into));
+                .mentions(params.mentions.map(Into::into));
 
             self.send_attachment(
-                filename,
+                params.filename,
                 file_info.mimetype,
                 attachment_config,
                 progress_watcher,
-                use_send_queue,
+                params.use_send_queue,
             )
             .await
         }))
