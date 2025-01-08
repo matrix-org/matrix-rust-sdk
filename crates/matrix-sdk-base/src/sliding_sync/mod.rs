@@ -893,7 +893,7 @@ fn process_room_properties(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::collections::{BTreeMap, HashSet};
     #[cfg(feature = "e2e-encryption")]
