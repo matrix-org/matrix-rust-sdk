@@ -1587,7 +1587,7 @@ pub struct OidcSessionTokens {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for OidcSessionTokens {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SessionTokens").finish_non_exhaustive()
+        f.debug_struct("OidcSessionTokens").finish_non_exhaustive()
     }
 }
 

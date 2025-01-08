@@ -264,7 +264,7 @@ pub struct NoOlmWithheldContent {
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for CommonWithheldCodeContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AnyWithheldContent")
+        f.debug_struct("CommonWithheldCodeContent")
             .field("room_id", &self.room_id)
             .field("session_id", &self.session_id)
             .field("sender_key", &self.sender_key)

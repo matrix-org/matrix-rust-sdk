@@ -102,7 +102,7 @@ impl RoomUpdates {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for RoomUpdates {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Rooms")
+        f.debug_struct("RoomUpdates")
             .field("leave", &self.leave)
             .field("join", &self.join)
             .field("invite", &DebugInvitedRoomUpdates(&self.invite))
@@ -138,7 +138,7 @@ pub struct JoinedRoomUpdate {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for JoinedRoomUpdate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JoinedRoom")
+        f.debug_struct("JoinedRoomUpdate")
             .field("unread_notifications", &self.unread_notifications)
             .field("timeline", &self.timeline)
             .field("state", &DebugListOfRawEvents(&self.state))

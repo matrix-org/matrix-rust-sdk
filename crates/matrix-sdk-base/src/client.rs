@@ -129,7 +129,7 @@ pub struct BaseClient {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Client")
+        f.debug_struct("BaseClient")
             .field("session_meta", &self.store.session_meta())
             .field("sync_token", &self.store.sync_token)
             .finish_non_exhaustive()
