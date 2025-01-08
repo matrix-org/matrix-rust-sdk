@@ -17,11 +17,12 @@ use std::{
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc,
     },
 };
 
 use as_variant::as_variant;
+use matrix_sdk_common::locks::RwLock;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
@@ -684,7 +685,7 @@ impl From<OtherUserIdentityData> for OtherUserIdentityDataSerializer {
             user_id: value.user_id.clone(),
             master_key: value.master_key().to_owned(),
             self_signing_key: value.self_signing_key().to_owned(),
-            pinned_master_key: value.pinned_master_key.read().unwrap().clone(),
+            pinned_master_key: value.pinned_master_key.read().clone(),
             previously_verified: value.previously_verified.load(Ordering::SeqCst),
         };
         OtherUserIdentityDataSerializer {
@@ -787,7 +788,7 @@ impl OtherUserIdentityData {
     /// which is not verified and is in pin violation. See
     /// [`OtherUserIdentity::identity_needs_user_approval`].
     pub(crate) fn pin(&self) {
-        let mut m = self.pinned_master_key.write().unwrap();
+        let mut m = self.pinned_master_key.write();
         *m = self.master_key.as_ref().clone()
     }
 
@@ -828,7 +829,7 @@ impl OtherUserIdentityData {
     /// accept and pin the new identity, perform a verification, or
     /// stop communications.
     pub(crate) fn has_pin_violation(&self) -> bool {
-        let pinned_master_key = self.pinned_master_key.read().unwrap();
+        let pinned_master_key = self.pinned_master_key.read();
         pinned_master_key.get_first_key() != self.master_key().get_first_key()
     }
 
@@ -858,7 +859,7 @@ impl OtherUserIdentityData {
         // the previous pinned master key.
         // This identity will have a pin violation until the new master key is pinned
         // (see `has_pin_violation()`).
-        let pinned_master_key = self.pinned_master_key.read().unwrap().clone();
+        let pinned_master_key = self.pinned_master_key.read().clone();
 
         // Check if the new master_key is signed by our own **verified**
         // user_signing_key. If the identity was verified we remember it.
@@ -947,7 +948,7 @@ impl PartialEq for OwnUserIdentityData {
             && self.master_key == other.master_key
             && self.self_signing_key == other.self_signing_key
             && self.user_signing_key == other.user_signing_key
-            && *self.verified.read().unwrap() == *other.verified.read().unwrap()
+            && *self.verified.read() == *other.verified.read()
             && self.master_key.signatures() == other.master_key.signatures()
     }
 }
@@ -1067,12 +1068,12 @@ impl OwnUserIdentityData {
 
     /// Mark our identity as verified.
     pub fn mark_as_verified(&self) {
-        *self.verified.write().unwrap() = OwnUserIdentityVerifiedState::Verified;
+        *self.verified.write() = OwnUserIdentityVerifiedState::Verified;
     }
 
     /// Mark our identity as unverified.
     pub(crate) fn mark_as_unverified(&self) {
-        let mut guard = self.verified.write().unwrap();
+        let mut guard = self.verified.write();
         if *guard == OwnUserIdentityVerifiedState::Verified {
             *guard = OwnUserIdentityVerifiedState::VerificationViolation;
         }
@@ -1080,7 +1081,7 @@ impl OwnUserIdentityData {
 
     /// Check if our identity is verified.
     pub fn is_verified(&self) -> bool {
-        *self.verified.read().unwrap() == OwnUserIdentityVerifiedState::Verified
+        *self.verified.read() == OwnUserIdentityVerifiedState::Verified
     }
 
     /// True if we verified our own identity at some point in the past.
@@ -1089,7 +1090,7 @@ impl OwnUserIdentityData {
     /// [`OwnUserIdentityData::withdraw_verification()`].
     pub fn was_previously_verified(&self) -> bool {
         matches!(
-            *self.verified.read().unwrap(),
+            *self.verified.read(),
             OwnUserIdentityVerifiedState::Verified
                 | OwnUserIdentityVerifiedState::VerificationViolation
         )
@@ -1101,7 +1102,7 @@ impl OwnUserIdentityData {
     /// reported to the user. In order to remove this notice users have to
     /// verify again or to withdraw the verification requirement.
     pub fn withdraw_verification(&self) {
-        let mut guard = self.verified.write().unwrap();
+        let mut guard = self.verified.write();
         if *guard == OwnUserIdentityVerifiedState::VerificationViolation {
             *guard = OwnUserIdentityVerifiedState::NeverVerified;
         }
@@ -1117,7 +1118,7 @@ impl OwnUserIdentityData {
     /// - Or by withdrawing the verification requirement
     ///   [`OwnUserIdentity::withdraw_verification`].
     pub fn has_verification_violation(&self) -> bool {
-        *self.verified.read().unwrap() == OwnUserIdentityVerifiedState::VerificationViolation
+        *self.verified.read() == OwnUserIdentityVerifiedState::VerificationViolation
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -1523,7 +1524,7 @@ pub(crate) mod tests {
         });
         let migrated: OtherUserIdentityData = serde_json::from_value(serialized_value).unwrap();
 
-        let pinned_master_key = migrated.pinned_master_key.read().unwrap();
+        let pinned_master_key = migrated.pinned_master_key.read();
         assert_eq!(*pinned_master_key, migrated.master_key().clone());
 
         // Serialize back
@@ -1547,12 +1548,12 @@ pub(crate) mod tests {
         // Set `"verified": false`
         *json.get_mut("verified").unwrap() = false.into();
         let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
-        assert_eq!(*id.verified.read().unwrap(), OwnUserIdentityVerifiedState::NeverVerified);
+        assert_eq!(*id.verified.read(), OwnUserIdentityVerifiedState::NeverVerified);
 
         // Tweak the json to have `"verified": true`, and repeat
         *json.get_mut("verified").unwrap() = true.into();
         let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
-        assert_eq!(*id.verified.read().unwrap(), OwnUserIdentityVerifiedState::Verified);
+        assert_eq!(*id.verified.read(), OwnUserIdentityVerifiedState::Verified);
     }
 
     #[test]
@@ -1565,10 +1566,7 @@ pub(crate) mod tests {
         let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
 
         // Then the value is correctly populated
-        assert_eq!(
-            *id.verified.read().unwrap(),
-            OwnUserIdentityVerifiedState::VerificationViolation
-        );
+        assert_eq!(*id.verified.read(), OwnUserIdentityVerifiedState::VerificationViolation);
     }
 
     #[test]
@@ -1581,10 +1579,7 @@ pub(crate) mod tests {
         let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
 
         // Then the old value is re-interpreted as VerificationViolation
-        assert_eq!(
-            *id.verified.read().unwrap(),
-            OwnUserIdentityVerifiedState::VerificationViolation
-        );
+        assert_eq!(*id.verified.read(), OwnUserIdentityVerifiedState::VerificationViolation);
     }
 
     #[test]

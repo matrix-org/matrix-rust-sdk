@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    sync::{Arc, RwLock as StdRwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -25,6 +25,7 @@ use matrix_sdk_common::{
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
         VerificationState,
     },
+    locks::RwLock as StdRwLock,
     BoxFuture,
 };
 use ruma::{

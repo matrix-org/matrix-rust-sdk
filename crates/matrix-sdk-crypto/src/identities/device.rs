@@ -17,11 +17,11 @@ use std::{
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc,
     },
 };
 
-use matrix_sdk_common::deserialized_responses::WithheldCode;
+use matrix_sdk_common::{deserialized_responses::WithheldCode, locks::RwLock};
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
@@ -470,7 +470,7 @@ impl Device {
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let (used_session, raw_encrypted) = self.encrypt(event_type, content).await?;
 
-        // perist the used session
+        // Persist the used session
         self.verification_machine
             .store
             .save_changes(Changes { sessions: vec![used_session], ..Default::default() })
@@ -626,7 +626,7 @@ impl DeviceData {
 
     /// Get the trust state of the device.
     pub fn local_trust_state(&self) -> LocalTrust {
-        *self.trust_state.read().unwrap()
+        *self.trust_state.read()
     }
 
     /// Is the device locally marked as trusted.
@@ -646,7 +646,7 @@ impl DeviceData {
     /// Note: This should only done in the crypto store where the trust state
     /// can be stored.
     pub(crate) fn set_trust_state(&self, state: LocalTrust) {
-        *self.trust_state.write().unwrap() = state;
+        *self.trust_state.write() = state;
     }
 
     pub(crate) fn mark_withheld_code_as_sent(&self) {

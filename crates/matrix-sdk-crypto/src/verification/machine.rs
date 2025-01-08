@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock as StdRwLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
+use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -153,13 +151,12 @@ impl VerificationMachine {
         user_id: &UserId,
         flow_id: impl AsRef<str>,
     ) -> Option<VerificationRequest> {
-        self.requests.read().unwrap().get(user_id)?.get(flow_id.as_ref()).cloned()
+        self.requests.read().get(user_id)?.get(flow_id.as_ref()).cloned()
     }
 
     pub fn get_requests(&self, user_id: &UserId) -> Vec<VerificationRequest> {
         self.requests
             .read()
-            .unwrap()
             .get(user_id)
             .map(|v| v.iter().map(|(_, value)| value.clone()).collect())
             .unwrap_or_default()
@@ -174,7 +171,7 @@ impl VerificationMachine {
             return;
         }
 
-        let mut requests = self.requests.write().unwrap();
+        let mut requests = self.requests.write();
         let user_requests = requests.entry(request.other_user().to_owned()).or_default();
 
         // Cancel all the old verifications requests as well as the new one we
@@ -247,7 +244,7 @@ impl VerificationMachine {
         let mut events = vec![];
 
         let mut requests: Vec<OutgoingVerificationRequest> = {
-            let mut requests = self.requests.write().unwrap();
+            let mut requests = self.requests.write();
 
             for user_verification in requests.values_mut() {
                 user_verification.retain(|_, v| !(v.is_done() || v.is_cancelled()));

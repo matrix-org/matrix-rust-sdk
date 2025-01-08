@@ -14,11 +14,11 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, RwLock as StdRwLock},
+    sync::Arc,
     time::Duration,
 };
 
-use matrix_sdk_common::failures_cache::FailuresCache;
+use matrix_sdk_common::{failures_cache::FailuresCache, locks::RwLock as StdRwLock};
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
@@ -98,7 +98,7 @@ impl SessionManager {
 
     /// Mark the outgoing request as sent.
     pub fn mark_outgoing_request_as_sent(&self, id: &TransactionId) {
-        self.outgoing_to_device_requests.write().unwrap().remove(id);
+        self.outgoing_to_device_requests.write().remove(id);
     }
 
     pub async fn mark_device_as_wedged(
@@ -121,13 +121,11 @@ impl SessionManager {
                 if should_unwedge {
                     self.users_for_key_claim
                         .write()
-                        .unwrap()
                         .entry(device.user_id().to_owned())
                         .or_default()
                         .insert(device.device_id().into());
                     self.wedged_devices
                         .write()
-                        .unwrap()
                         .entry(device.user_id().to_owned())
                         .or_default()
                         .insert(device.device_id().into());
@@ -142,7 +140,6 @@ impl SessionManager {
     pub fn is_device_wedged(&self, device: &DeviceData) -> bool {
         self.wedged_devices
             .read()
-            .unwrap()
             .get(device.user_id())
             .is_some_and(|d| d.contains(device.device_id()))
     }
@@ -151,13 +148,7 @@ impl SessionManager {
     ///
     /// If the device was wedged this will queue up a dummy to-device message.
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
-        if self
-            .wedged_devices
-            .write()
-            .unwrap()
-            .get_mut(user_id)
-            .is_some_and(|d| d.remove(device_id))
-        {
+        if self.wedged_devices.write().get_mut(user_id).is_some_and(|d| d.remove(device_id)) {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
                 let (_, content) =
                     device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
@@ -176,7 +167,6 @@ impl SessionManager {
 
                 self.outgoing_to_device_requests
                     .write()
-                    .unwrap()
                     .insert(request.request_id.clone(), request);
             }
         }
@@ -278,7 +268,7 @@ impl SessionManager {
 
         // Add the list of sessions that for some reason automatically need to
         // create an Olm session.
-        for (user, device_ids) in self.users_for_key_claim.read().unwrap().iter() {
+        for (user, device_ids) in self.users_for_key_claim.read().iter() {
             missing_session_devices_by_user.entry(user.to_owned()).or_default().extend(
                 device_ids
                     .iter()
@@ -319,12 +309,12 @@ impl SessionManager {
 
         // stash the details of the request so that we can refer to it when handling the
         // response
-        *(self.current_key_claim_request.write().unwrap()) = result.clone();
+        *(self.current_key_claim_request.write()) = result.clone();
         Ok(result)
     }
 
     fn is_user_timed_out(&self, user_id: &UserId, device_id: &DeviceId) -> bool {
-        self.failed_devices.read().unwrap().get(user_id).is_some_and(|d| d.contains(device_id))
+        self.failed_devices.read().get(user_id).is_some_and(|d| d.contains(device_id))
     }
 
     /// This method will try to figure out for which devices a one-time key was
@@ -354,7 +344,7 @@ impl SessionManager {
     ) {
         // First check that the response is for the request we were expecting.
         let request = {
-            let mut guard = self.current_key_claim_request.write().unwrap();
+            let mut guard = self.current_key_claim_request.write();
             let expected_request_id = guard.as_ref().map(|e| e.0.as_ref());
 
             if Some(request_id) == expected_request_id {
@@ -416,7 +406,7 @@ impl SessionManager {
                     "Tried to create new Olm sessions, but the signed one-time key was missing for some devices",
                 );
 
-                let mut failed_devices_lock = self.failed_devices.write().unwrap();
+                let mut failed_devices_lock = self.failed_devices.write();
 
                 for (user_id, device_set) in missing_devices_by_user {
                     failed_devices_lock.entry(user_id.clone()).or_default().extend(device_set);
@@ -542,7 +532,6 @@ impl SessionManager {
 
                         self.failed_devices
                             .write()
-                            .unwrap()
                             .entry(user_id.to_owned())
                             .or_default()
                             .insert(device_id.to_owned());
@@ -573,7 +562,7 @@ impl SessionManager {
         info!(sessions = ?new_sessions, "Established new Olm sessions");
 
         for (user, device_map) in new_sessions {
-            if let Some(user_cache) = self.failed_devices.read().unwrap().get(user) {
+            if let Some(user_cache) = self.failed_devices.read().get(user) {
                 user_cache.remove(device_map.into_keys());
             }
         }
@@ -597,14 +586,9 @@ impl SessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::BTreeMap,
-        iter,
-        ops::Deref,
-        sync::{Arc, RwLock as StdRwLock},
-        time::Duration,
-    };
+    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc, time::Duration};
 
+    use matrix_sdk_common::locks::RwLock as StdRwLock;
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
         api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
@@ -861,11 +845,11 @@ mod tests {
 
         let curve_key = bob_device.curve25519_key().unwrap();
 
-        assert!(!manager.users_for_key_claim.read().unwrap().contains_key(bob.user_id()));
+        assert!(!manager.users_for_key_claim.read().contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
         manager.mark_device_as_wedged(bob_device.user_id(), curve_key).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
-        assert!(manager.users_for_key_claim.read().unwrap().contains_key(bob.user_id()));
+        assert!(manager.users_for_key_claim.read().contains_key(bob.user_id()));
 
         let (txn_id, request) =
             manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().unwrap();
@@ -885,13 +869,13 @@ mod tests {
 
         let response = KeyClaimResponse::new(one_time_keys);
 
-        assert!(manager.outgoing_to_device_requests.read().unwrap().is_empty());
+        assert!(manager.outgoing_to_device_requests.read().is_empty());
 
         manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
 
         assert!(!manager.is_device_wedged(&bob_device));
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
-        assert!(!manager.outgoing_to_device_requests.read().unwrap().is_empty())
+        assert!(!manager.outgoing_to_device_requests.read().is_empty())
     }
 
     #[async_test]
@@ -1012,7 +996,6 @@ mod tests {
         manager
             .failed_devices
             .write()
-            .unwrap()
             .get(alice)
             .unwrap()
             .expire(&alice_account.device_id().to_owned());
@@ -1027,7 +1010,6 @@ mod tests {
         assert!(manager
             .failed_devices
             .read()
-            .unwrap()
             .get(alice)
             .unwrap()
             .failure_count(alice_account.device_id())

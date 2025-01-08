@@ -22,10 +22,11 @@ use std::{
     fmt::Display,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock as StdRwLock, Weak,
+        Arc, Weak,
     },
 };
 
+use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
@@ -104,7 +105,6 @@ impl GroupSessionStore {
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
             .write()
-            .unwrap()
             .entry(session.room_id().to_owned())
             .or_default()
             .insert(session.session_id().to_owned(), session)
@@ -113,12 +113,12 @@ impl GroupSessionStore {
 
     /// Get all the group sessions the store knows about.
     pub fn get_all(&self) -> Vec<InboundGroupSession> {
-        self.entries.read().unwrap().values().flat_map(HashMap::values).cloned().collect()
+        self.entries.read().values().flat_map(HashMap::values).cloned().collect()
     }
 
     /// Get the number of `InboundGroupSession`s we have.
     pub fn count(&self) -> usize {
-        self.entries.read().unwrap().values().map(HashMap::len).sum()
+        self.entries.read().values().map(HashMap::len).sum()
     }
 
     /// Get a inbound group session from our store.
@@ -128,7 +128,7 @@ impl GroupSessionStore {
     ///
     /// * `session_id` - The unique id of the session.
     pub fn get(&self, room_id: &RoomId, session_id: &str) -> Option<InboundGroupSession> {
-        self.entries.read().unwrap().get(room_id)?.get(session_id).cloned()
+        self.entries.read().get(room_id)?.get(session_id).cloned()
     }
 }
 
@@ -151,7 +151,6 @@ impl DeviceStore {
         let user_id = device.user_id();
         self.entries
             .write()
-            .unwrap()
             .entry(user_id.to_owned())
             .or_default()
             .insert(device.device_id().into(), device)
@@ -160,7 +159,7 @@ impl DeviceStore {
 
     /// Get the device with the given device_id and belonging to the given user.
     pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceData> {
-        Some(self.entries.read().unwrap().get(user_id)?.get(device_id)?.clone())
+        Some(self.entries.read().get(user_id)?.get(device_id)?.clone())
     }
 
     /// Remove the device with the given device_id and belonging to the given
@@ -168,14 +167,13 @@ impl DeviceStore {
     ///
     /// Returns the device if it was removed, None if it wasn't in the store.
     pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceData> {
-        self.entries.write().unwrap().get_mut(user_id)?.remove(device_id)
+        self.entries.write().get_mut(user_id)?.remove(device_id)
     }
 
     /// Get a read-only view over all devices of the given user.
     pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, DeviceData> {
         self.entries
             .write()
-            .unwrap()
             .entry(user_id.to_owned())
             .or_default()
             .iter()
