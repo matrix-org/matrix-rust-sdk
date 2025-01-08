@@ -297,8 +297,10 @@ impl TimelineBuilder {
 
                                 inner.add_events_at(
                                     events.into_iter(),
-                                    TimelineNewItemPosition::End {                                    origin: match origin {
+                                    TimelineNewItemPosition::End {
+                                        origin: match origin {
                                             EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                            EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
                                         }
                                     }
                                 ).await;
@@ -313,6 +315,7 @@ impl TimelineBuilder {
                                     diffs,
                                     match origin {
                                         EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                        EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
                                     }
                                 ).await;
                             }

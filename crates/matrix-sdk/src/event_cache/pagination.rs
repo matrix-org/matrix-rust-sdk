@@ -234,7 +234,7 @@ impl RoomPagination {
         if !updates_as_vector_diffs.is_empty() {
             let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                 diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Sync,
+                origin: EventsOrigin::Pagination,
             });
         }
 
