@@ -63,7 +63,7 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+#[cfg(feature = "e2e-encryption")]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -766,15 +766,11 @@ impl BaseClient {
             let (events, room_key_updates) =
                 o.receive_sync_changes(encryption_sync_changes).await?;
 
-            #[cfg(feature = "experimental-sliding-sync")]
             for room_key_update in room_key_updates {
                 if let Some(room) = self.get_room(&room_key_update.room_id) {
                     self.decrypt_latest_events(&room, changes, room_info_notable_updates).await;
                 }
             }
-
-            #[cfg(not(feature = "experimental-sliding-sync"))] // Silence unused variable warnings.
-            let _ = (room_key_updates, changes, room_info_notable_updates);
 
             Ok(events)
         } else {
@@ -789,7 +785,7 @@ impl BaseClient {
     /// that we can and if we can, change latest_event to reflect what we
     /// found, and remove any older encrypted events from
     /// latest_encrypted_events.
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+    #[cfg(feature = "e2e-encryption")]
     async fn decrypt_latest_events(
         &self,
         room: &Room,
@@ -810,7 +806,7 @@ impl BaseClient {
     /// (i.e. we can usefully display it as a message preview). Returns the
     /// decrypted event if we found one, along with its index in the
     /// latest_encrypted_events list, or None if we didn't find one.
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+    #[cfg(feature = "e2e-encryption")]
     async fn decrypt_latest_suitable_event(
         &self,
         room: &Room,
@@ -1747,7 +1743,9 @@ mod tests {
         async_test, ruma_response_from_json, sync_timeline_event, InvitedRoomBuilder,
         LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
     };
-    use ruma::{api::client as api, room_id, serde::Raw, user_id, UserId};
+    #[cfg(feature = "e2e-encryption")]
+    use ruma::UserId;
+    use ruma::{api::client as api, room_id, serde::Raw, user_id};
     use serde_json::{json, value::to_raw_value};
 
     use super::BaseClient;
@@ -1889,7 +1887,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
         use std::collections::BTreeMap;

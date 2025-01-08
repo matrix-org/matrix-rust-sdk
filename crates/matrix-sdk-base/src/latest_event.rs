@@ -1,8 +1,6 @@
 //! Utilities for working with events to decide whether they are suitable for
 //! use as a [crate::Room::latest_event].
 
-#![cfg(any(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
-
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::{
@@ -10,9 +8,11 @@ use ruma::{
         call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
         poll::unstable_start::SyncUnstablePollStartEvent,
         relation::RelationType,
-        room::member::{MembershipState, SyncRoomMemberEvent},
-        room::message::SyncRoomMessageEvent,
-        room::power_levels::RoomPowerLevels,
+        room::{
+            member::{MembershipState, SyncRoomMemberEvent},
+            message::SyncRoomMessageEvent,
+            power_levels::RoomPowerLevels,
+        },
         sticker::SyncStickerEvent,
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
     },
@@ -294,11 +294,16 @@ impl LatestEvent {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "e2e-encryption")]
     use std::collections::BTreeMap;
 
+    #[cfg(feature = "e2e-encryption")]
     use assert_matches::assert_matches;
+    #[cfg(feature = "e2e-encryption")]
     use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    use ruma::serde::Raw;
+    #[cfg(feature = "e2e-encryption")]
     use ruma::{
         events::{
             call::{
@@ -336,14 +341,16 @@ mod tests {
             RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
             UnsignedRoomRedactionEvent,
         },
-        owned_event_id, owned_mxc_uri, owned_user_id,
-        serde::Raw,
-        MilliSecondsSinceUnixEpoch, UInt, VoipVersionId,
+        owned_event_id, owned_mxc_uri, owned_user_id, MilliSecondsSinceUnixEpoch, UInt,
+        VoipVersionId,
     };
     use serde_json::json;
 
-    use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
+    use super::LatestEvent;
+    #[cfg(feature = "e2e-encryption")]
+    use super::{is_suitable_for_latest_event, PossibleLatestEvent};
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_room_messages_are_suitable() {
         let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
@@ -368,6 +375,7 @@ mod tests {
         assert_eq!(m.content.msgtype.msgtype(), "m.image");
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_polls_are_suitable() {
         let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(
@@ -391,6 +399,7 @@ mod tests {
         assert_eq!(m.content.poll_start().question.text, "do you like rust?");
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_call_invites_are_suitable() {
         let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallInvite(
@@ -413,6 +422,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_call_notifications_are_suitable() {
         let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(
@@ -435,6 +445,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_stickers_are_suitable() {
         let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(
@@ -457,6 +468,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_different_types_of_messagelike_are_unsuitable() {
         let event =
@@ -479,6 +491,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_redacted_messages_are_suitable() {
         // Ruma does not allow constructing UnsignedRoomRedactionEvent instances.
@@ -507,6 +520,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_encrypted_messages_are_unsuitable() {
         let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
@@ -530,6 +544,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_state_events_are_unsuitable() {
         let event = AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTopic(
@@ -549,6 +564,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_replacement_events_are_unsuitable() {
         let mut event_content = RoomMessageEventContent::text_plain("Bye bye, world!");

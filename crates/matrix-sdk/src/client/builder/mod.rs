@@ -36,12 +36,10 @@ use crate::encryption::EncryptionSettings;
 use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcCtx;
-#[cfg(feature = "experimental-sliding-sync")]
-use crate::sliding_sync::VersionBuilder as SlidingSyncVersionBuilder;
 use crate::{
     authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
-    error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData, HttpError,
-    IdParseError,
+    error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData,
+    sliding_sync::VersionBuilder as SlidingSyncVersionBuilder, HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -86,7 +84,6 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
-    #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
     http_cfg: Option<HttpConfig>,
     store_config: BuilderStoreConfig,
@@ -110,7 +107,6 @@ impl ClientBuilder {
     pub(crate) fn new() -> Self {
         Self {
             homeserver_cfg: None,
-            #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_version_builder: SlidingSyncVersionBuilder::Native,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::new(
@@ -195,7 +191,6 @@ impl ClientBuilder {
     }
 
     /// Set sliding sync to a specific version.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn sliding_sync_version_builder(
         mut self,
         version_builder: SlidingSyncVersionBuilder,
@@ -497,7 +492,6 @@ impl ClientBuilder {
         let HomeserverDiscoveryResult { server, homeserver, well_known, supported_versions } =
             homeserver_cfg.discover(&http_client).await?;
 
-        #[cfg(feature = "experimental-sliding-sync")]
         let sliding_sync_version = {
             let supported_versions = match supported_versions {
                 Some(versions) => Some(versions),
@@ -543,7 +537,6 @@ impl ClientBuilder {
             auth_ctx,
             server,
             homeserver,
-            #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_version,
             http_client,
             base_client,
@@ -742,7 +735,6 @@ pub enum ClientBuildError {
     AutoDiscovery(FromHttpResponseError<RumaApiError>),
 
     /// Error when building the sliding sync version.
-    #[cfg(feature = "experimental-sliding-sync")]
     #[error(transparent)]
     SlidingSyncVersion(#[from] crate::sliding_sync::VersionBuilderError),
 
@@ -771,7 +763,6 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use serde_json::{json_internal, Value as JsonValue};
-    #[cfg(feature = "experimental-sliding-sync")]
     use url::Url;
     use wiremock::{
         matchers::{method, path},
@@ -779,7 +770,6 @@ pub(crate) mod tests {
     };
 
     use super::*;
-    #[cfg(feature = "experimental-sliding-sync")]
     use crate::sliding_sync::Version as SlidingSyncVersion;
 
     #[test]
@@ -861,7 +851,6 @@ pub(crate) mod tests {
         let _client = builder.build().await.unwrap();
 
         // Then a client should be built with native support for sliding sync.
-        #[cfg(feature = "experimental-sliding-sync")]
         assert!(_client.sliding_sync_version().is_native());
     }
 
@@ -871,7 +860,6 @@ pub(crate) mod tests {
         // proxy injected.
         let homeserver = make_mock_homeserver().await;
         let mut builder = ClientBuilder::new();
-        #[cfg(feature = "experimental-sliding-sync")]
         let url = {
             let url = Url::parse("https://localhost:1234").unwrap();
             builder = builder.sliding_sync_version_builder(SlidingSyncVersionBuilder::Proxy {
@@ -883,12 +871,11 @@ pub(crate) mod tests {
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
-        let _client = builder.build().await.unwrap();
+        let client = builder.build().await.unwrap();
 
         // Then a client should be built with support for sliding sync.
-        #[cfg(feature = "experimental-sliding-sync")]
         assert_matches!(
-            _client.sliding_sync_version(),
+            client.sliding_sync_version(),
             SlidingSyncVersion::Proxy { url: given_url } => {
                 assert_eq!(given_url, url);
             }
@@ -940,16 +927,14 @@ pub(crate) mod tests {
 
         // When building a client with the base server.
         builder = builder.server_name_or_homeserver_url(server.uri());
-        let _client = builder.build().await.unwrap();
+        let client = builder.build().await.unwrap();
 
         // Then a client should be built with native support for sliding sync.
         // It's native support because it's the default. Nothing is checked here.
-        #[cfg(feature = "experimental-sliding-sync")]
-        assert!(_client.sliding_sync_version().is_native());
+        assert!(client.sliding_sync_version().is_native());
     }
 
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_discovery_well_known_with_sliding_sync() {
         // Given a base server with a well-known file that points to a homeserver with a
         // sliding sync proxy.
@@ -971,12 +956,11 @@ pub(crate) mod tests {
         builder = builder
             .server_name_or_homeserver_url(server.uri())
             .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverProxy);
-        let _client = builder.build().await.unwrap();
+        let client = builder.build().await.unwrap();
 
         // Then a client should be built with support for sliding sync.
-        #[cfg(feature = "experimental-sliding-sync")]
         assert_matches!(
-            _client.sliding_sync_version(),
+            client.sliding_sync_version(),
             SlidingSyncVersion::Proxy { url } => {
                 assert_eq!(url, Url::parse("https://localhost:1234").unwrap());
             }
@@ -984,7 +968,6 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_discovery_well_known_with_sliding_sync_override() {
         // Given a base server with a well-known file that points to a homeserver with a
         // sliding sync proxy.
@@ -1022,7 +1005,6 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_sliding_sync_discover_proxy() {
         // Given a homeserver with a `.well-known` file.
         let homeserver = make_mock_homeserver().await;
@@ -1057,7 +1039,6 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_sliding_sync_discover_native() {
         // Given a homeserver with a `/versions` file.
         let homeserver = make_mock_homeserver().await;

@@ -895,14 +895,15 @@ fn process_room_properties(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{BTreeMap, HashSet},
-        sync::{Arc, RwLock as SyncRwLock},
-    };
+    use std::collections::{BTreeMap, HashSet};
+    #[cfg(feature = "e2e-encryption")]
+    use std::sync::{Arc, RwLock as SyncRwLock};
 
     use assert_matches::assert_matches;
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    #[cfg(feature = "e2e-encryption")]
     use matrix_sdk_common::{
-        deserialized_responses::{SyncTimelineEvent, UnableToDecryptInfo, UnableToDecryptReason},
+        deserialized_responses::{UnableToDecryptInfo, UnableToDecryptReason},
         ring_buffer::RingBuffer,
     };
     use matrix_sdk_test::async_test;
@@ -928,13 +929,16 @@ mod tests {
     };
     use serde_json::json;
 
-    use super::{cache_latest_events, http};
+    #[cfg(feature = "e2e-encryption")]
+    use super::cache_latest_events;
+    use super::http;
     use crate::{
         rooms::normal::{RoomHero, RoomInfoNotableUpdateReasons},
-        store::MemoryStore,
         test_utils::logged_in_base_client,
-        BaseClient, Room, RoomInfoNotableUpdate, RoomState,
+        BaseClient, RoomInfoNotableUpdate, RoomState,
     };
+    #[cfg(feature = "e2e-encryption")]
+    use crate::{store::MemoryStore, Room};
 
     #[async_test]
     async fn test_notification_count_set() {
@@ -1938,6 +1942,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_when_no_events_we_dont_cache_any() {
         let events = &[];
@@ -1945,6 +1950,7 @@ mod tests {
         assert!(chosen.is_none());
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_when_only_one_event_we_cache_it() {
         let event1 = make_event("m.room.message", "$1");
@@ -1953,6 +1959,7 @@ mod tests {
         assert_eq!(ev_id(chosen), rawev_id(event1));
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_with_multiple_events_we_cache_the_last_one() {
         let event1 = make_event("m.room.message", "$1");
@@ -1962,6 +1969,7 @@ mod tests {
         assert_eq!(ev_id(chosen), rawev_id(event2));
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_cache_the_latest_relevant_event_and_ignore_irrelevant_ones_even_if_later() {
         let event1 = make_event("m.room.message", "$1");
@@ -1973,6 +1981,7 @@ mod tests {
         assert_eq!(ev_id(chosen), rawev_id(event2));
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_prefer_to_cache_nothing_rather_than_irrelevant_events() {
         let event1 = make_event("m.room.power_levels", "$1");
@@ -1981,6 +1990,7 @@ mod tests {
         assert!(chosen.is_none());
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_cache_encrypted_events_that_are_after_latest_message() {
         // Given two message events followed by two encrypted
@@ -2011,6 +2021,7 @@ mod tests {
         assert_eq!(rawevs_ids(&room.latest_encrypted_events), evs_ids(&[event3, event4]));
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_dont_cache_encrypted_events_that_are_before_latest_message() {
         // Given an encrypted event before and after the message
@@ -2035,6 +2046,7 @@ mod tests {
         assert_eq!(rawevs_ids(&room.latest_encrypted_events), evs_ids(&[event3]));
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_skip_irrelevant_events_eg_receipts_even_if_after_message() {
         // Given two message events followed by two encrypted, with a receipt in the
@@ -2062,6 +2074,7 @@ mod tests {
         assert_eq!(rawevs_ids(&room.latest_encrypted_events), evs_ids(&[event3, event5]));
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_only_store_the_max_number_of_encrypted_events() {
         // Given two message events followed by lots of encrypted and other irrelevant
@@ -2120,6 +2133,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_dont_overflow_capacity_if_previous_encrypted_events_exist() {
         // Given a RoomInfo with lots of encrypted events already inside it
@@ -2162,6 +2176,7 @@ mod tests {
         assert_eq!(rawevs_ids(&room.latest_encrypted_events)[9], "$a");
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_existing_encrypted_events_are_deleted_if_we_receive_unencrypted() {
         // Given a RoomInfo with some encrypted events already inside it
@@ -2590,6 +2605,7 @@ mod tests {
         assert!(room_2.is_direct().await.unwrap());
     }
 
+    #[cfg(feature = "e2e-encryption")]
     async fn choose_event_to_cache(events: &[SyncTimelineEvent]) -> Option<SyncTimelineEvent> {
         let room = make_room();
         let mut room_info = room.clone_info();
@@ -2598,6 +2614,7 @@ mod tests {
         room.latest_event().map(|latest_event| latest_event.event().clone())
     }
 
+    #[cfg(feature = "e2e-encryption")]
     fn rawev_id(event: SyncTimelineEvent) -> String {
         event.event_id().unwrap().to_string()
     }
@@ -2606,14 +2623,17 @@ mod tests {
         event.unwrap().event_id().unwrap().to_string()
     }
 
+    #[cfg(feature = "e2e-encryption")]
     fn rawevs_ids(events: &Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>) -> Vec<String> {
         events.read().unwrap().iter().map(|e| e.get_field("event_id").unwrap().unwrap()).collect()
     }
 
+    #[cfg(feature = "e2e-encryption")]
     fn evs_ids(events: &[SyncTimelineEvent]) -> Vec<String> {
         events.iter().map(|e| e.event_id().unwrap().to_string()).collect()
     }
 
+    #[cfg(feature = "e2e-encryption")]
     fn make_room() -> Room {
         let (sender, _receiver) = tokio::sync::broadcast::channel(1);
 
@@ -2640,10 +2660,12 @@ mod tests {
         .unwrap()
     }
 
+    #[cfg(feature = "e2e-encryption")]
     fn make_event(typ: &str, id: &str) -> SyncTimelineEvent {
         SyncTimelineEvent::new(make_raw_event(typ, id))
     }
 
+    #[cfg(feature = "e2e-encryption")]
     fn make_encrypted_event(id: &str) -> SyncTimelineEvent {
         SyncTimelineEvent::new_utd_event(
             Raw::from_json_string(

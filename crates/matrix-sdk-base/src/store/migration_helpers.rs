@@ -19,7 +19,6 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     events::{
@@ -42,10 +41,9 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "experimental-sliding-sync")]
-use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::SyncOrStrippedState,
+    latest_event::LatestEvent,
     rooms::{
         normal::{RoomSummary, SyncInfo},
         BaseRoomInfo, RoomNotableTags,
@@ -78,7 +76,6 @@ pub struct RoomInfoV1 {
     sync_info: SyncInfo,
     #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
     encryption_state_synced: bool,
-    #[cfg(feature = "experimental-sliding-sync")]
     latest_event: Option<SyncTimelineEvent>,
     base_info: BaseRoomInfoV1,
 }
@@ -106,7 +103,6 @@ impl RoomInfoV1 {
             last_prev_batch,
             sync_info,
             encryption_state_synced,
-            #[cfg(feature = "experimental-sliding-sync")]
             latest_event,
             base_info,
         } = self;
@@ -122,14 +118,12 @@ impl RoomInfoV1 {
             last_prev_batch,
             sync_info,
             encryption_state_synced,
-            #[cfg(feature = "experimental-sliding-sync")]
             latest_event: latest_event.map(|ev| Box::new(LatestEvent::new(ev))),
             read_receipts: Default::default(),
             base_info: base_info.migrate(create),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
-            #[cfg(feature = "experimental-sliding-sync")]
             recency_stamp: None,
         }
     }

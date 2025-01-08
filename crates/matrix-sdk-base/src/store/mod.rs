@@ -276,7 +276,6 @@ impl Store {
     }
 
     /// Check if a room exists.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn room_exists(&self, room_id: &RoomId) -> bool {
         self.rooms.read().unwrap().get(room_id).is_some()
     }

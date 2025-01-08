@@ -208,15 +208,6 @@ impl HttpClient {
                 span.record("request_size", ByteSize(request_size).to_string_as(true));
             }
 
-            // Since sliding sync is experimental, and the proxy might not do what we expect
-            // it to do given a specific request body, it's useful to log the
-            // request body here. This doesn't contain any personal information.
-            // TODO: Remove this once sliding sync isn't experimental anymore.
-            #[cfg(feature = "experimental-sliding-sync")]
-            if type_name::<R>() == "ruma_client_api::sync::sync_events::v4::Request" {
-                span.record("request_body", debug(request.body()));
-            }
-
             request
         };
 

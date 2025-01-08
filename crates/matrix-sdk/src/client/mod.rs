@@ -79,8 +79,6 @@ use url::Url;
 use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::Oidc;
-#[cfg(feature = "experimental-sliding-sync")]
-use crate::sliding_sync::Version as SlidingSyncVersion;
 use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
@@ -96,6 +94,7 @@ use crate::{
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
     send_queue::SendQueueData,
+    sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -258,7 +257,7 @@ pub(crate) struct ClientInner {
     /// This is the URL for the client-server Matrix API.
     homeserver: StdRwLock<Url>,
 
-    #[cfg(feature = "experimental-sliding-sync")]
+    /// The sliding sync version.
     sliding_sync_version: StdRwLock<SlidingSyncVersion>,
 
     /// The underlying HTTP client.
@@ -345,7 +344,7 @@ impl ClientInner {
         auth_ctx: Arc<AuthCtx>,
         server: Option<Url>,
         homeserver: Url,
-        #[cfg(feature = "experimental-sliding-sync")] sliding_sync_version: SlidingSyncVersion,
+        sliding_sync_version: SlidingSyncVersion,
         http_client: HttpClient,
         base_client: BaseClient,
         server_capabilities: ClientServerCapabilities,
@@ -359,7 +358,6 @@ impl ClientInner {
             server,
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
-            #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_version: StdRwLock::new(sliding_sync_version),
             http_client,
             base_client,
@@ -515,13 +513,11 @@ impl Client {
     }
 
     /// Get the sliding sync version.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
         self.inner.sliding_sync_version.read().unwrap().clone()
     }
 
     /// Override the sliding sync version.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn set_sliding_sync_version(&self, version: SlidingSyncVersion) {
         let mut lock = self.inner.sliding_sync_version.write().unwrap();
         *lock = version;
@@ -2390,7 +2386,6 @@ impl Client {
                 self.inner.auth_ctx.clone(),
                 self.server().cloned(),
                 self.homeserver(),
-                #[cfg(feature = "experimental-sliding-sync")]
                 self.sliding_sync_version(),
                 self.inner.http_client.clone(),
                 self.inner
