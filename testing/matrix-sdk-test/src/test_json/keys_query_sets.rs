@@ -277,6 +277,18 @@ impl KeyDistributionTestData {
         response
     }
 
+    /// Dan's (base64-encoded) private master cross-signing key.
+    const DAN_PRIVATE_MASTER_CROSS_SIGNING_KEY: &'static str =
+        "QGZo39k199RM0NYvPvFNXBspc5llftHWKKHqEi25q0U";
+
+    /// Dan's (base64-encoded) private self-signing key.
+    const DAN_PRIVATE_SELF_SIGNING_KEY: &'static str =
+        "0ES1HO5VXpy/BsXxadwsk6QcwH/ci99KkV9ZlPakHlU";
+
+    /// Dan's (base64-encoded) private user-signing key.
+    const DAN_PRIVATE_USER_SIGNING_KEY: &'static str =
+        "vSdfrHJO8sZH/54r1uCg8BE0CdcDVGkPQNOu7Ej8BBs";
+
     /// Dan has cross-signing set up; one device is cross-signed (`JHPUERYQUW`),
     /// but not the other one (`FRGNMZVOKA`).
     ///
@@ -327,16 +339,18 @@ impl KeyDistributionTestData {
                             "device_id": "JHPUERYQUW",
                             "keys": {
                                 "curve25519:JHPUERYQUW": "PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4",
-                                "ed25519:JHPUERYQUW": "jZ5Ca/J5RXn3qnNWIHFz9EQBZ4637QI/9ExSiEcGC7I"
+                                // Private key: "yzj53Kccfqx2yx9lcTwaRfPZX+7jU19harsDWWu5YnM"
+                                "ed25519:JHPUERYQUW": "+qMutlCB/eWCbI3bIskWhjYVGrRX8hF+F48sNsmg1YE"
                             },
                             "signatures": {
                                 "@dan:localhost": {
-                                    "ed25519:JHPUERYQUW": "PaVfCE9QODgluq0gYMpjCarfDbraRXU71uRcUN5MoqtiJYlB0bjzY6bD5/qxugrsgcx4DZOgCLgiyoEZ/vW4DQ",
-                                    "ed25519:aX+O6rO/RxzkygPd7XXilKM07aSFK4gSPK1Zxenr6ak": "2sZcF5aSyEuryTfWgsw3rNDevnZisH2Df6fCO5pmGwweiaD+n6+pyrzB75mvA1sOwzm9jfTsjv/2+Uj1CNOTBA"
+                                    "ed25519:JHPUERYQUW": "I9mcfT2BIwbWfga1P85rdbhEDh5qc/3pLgY8jsqlzXbjl4AfHKBZUvcgQ54kKFOf/jK9pTK2Ed35cDQ1QZ44Cw",
+                                    "ed25519:FZSpCr3lGMCfjgRtlLxxHkGJ8dMw5YSYvSYaf7bJ2QA": "msmrAwToOpBmSLeWyThuV7vS7fXGB291C3KUrM+2a0L6CS6pqpK12nBZG/dLeDzVSAamyWjB3OuwhTl0kE7UCA"
                                 }
                             },
                             "user_id": "@dan:localhost",
                         },
+
                         "FRGNMZVOKA": {
                             "algorithms": [
                                 "m.olm.v1.curve25519-aes-sha2",
@@ -345,11 +359,12 @@ impl KeyDistributionTestData {
                             "device_id": "FRGNMZVOKA",
                             "keys": {
                                 "curve25519:FRGNMZVOKA": "Hc/BC/xyQIEnScyZkEk+ilDMfOARxHMFoEcggPqqRw4",
-                                "ed25519:FRGNMZVOKA": "jVroR0JoRemjF0vJslY3HirJgwfX5gm5DCM64hZgkI0"
+                                // Private key: "/SlFtNKxTPN+i4pHzSPWZ1Oc6ymMB33sS32GXZkaLos"
+                                "ed25519:FRGNMZVOKA": "xp/IW9Sh8Jw/buUYlARWD20EV2TdUG/SZ+Pa4iEtcew"
                             },
                             "signatures": {
                                 "@dan:localhost": {
-                                    "ed25519:FRGNMZVOKA": "+row23EcWR2D8EKgwzZmy3dWz/l5DHvEHR6jHKnBohphEIsBl0o3Cp9rIztFpStFGRPSAa3xEqfMVW2dIaKkCg"
+                                    "ed25519:FRGNMZVOKA": "G6f8s4a3rXOnODPdSQTUOjJ0YtxlxwDSTPNkzbAMHEwdmnmUuFhTdEYNP/dzDDGd8kViWpMteaPqvlAKIlvlBg"
                                 }
                             },
                             "user_id": "@dan:localhost",
@@ -360,15 +375,14 @@ impl KeyDistributionTestData {
                 "master_keys": {
                     "@dan:localhost": {
                         "keys": {
-                            "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k"
+                            "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo"
                         },
                         "signatures": {
                             "@dan:localhost": {
-                                "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "DI/zpWA/wG1tdK9aLof1TGBHtihtQZQ+7e62QRSBbo+RAHlQ+akGcaVskLbtLdEKbcJEt61F+Auol+XVGlCEBA",
-                                "ed25519:SNEBMNPLHN": "5Y8byBteGZo1SvPf8QM88pvThJu+2mJ4020YsTLPhCQ4DfdalHWTPOvE7gw09cCONhX/cKY7YHMyH8R26Yd9DA"
+                                "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "WiSxmg/RpT8BTHcLvNS7vgKyonsRpX/K6E9EzEfLpNOxXfisPClbpuVtxEb3te/Cx/1UKaio1MJcDxqKFMVmDw"
                             },
                             "@me:localhost": {
-                                "ed25519:mvzOc2EuHoVfZTk1hX3y0hyjUs4MrfPv2V/PUFzMQJY": "vg2MLJx36Usti4NfsbOfk0ipW7koOoTlBibZkQNrPTMX88V+geTgDjvIMEU/OAyEsgsDHjg3C+2t/yUUDE7hBA"
+                                "ed25519:mvzOc2EuHoVfZTk1hX3y0hyjUs4MrfPv2V/PUFzMQJY": "lSa34sDcviLPgk8yECGxwdSt2074sf2R8uSmxpTuK5NBqv9dpu0NwTJkO4PLohQTvleIYZSH+uXc3mPZpFy8DQ"
                             }
                         },
                         "usage": [
@@ -380,11 +394,11 @@ impl KeyDistributionTestData {
                 "self_signing_keys": {
                     "@dan:localhost": {
                         "keys": {
-                            "ed25519:aX+O6rO/RxzkygPd7XXilKM07aSFK4gSPK1Zxenr6ak": "aX+O6rO/RxzkygPd7XXilKM07aSFK4gSPK1Zxenr6ak"
+                            "ed25519:FZSpCr3lGMCfjgRtlLxxHkGJ8dMw5YSYvSYaf7bJ2QA": "FZSpCr3lGMCfjgRtlLxxHkGJ8dMw5YSYvSYaf7bJ2QA"
                         },
                         "signatures": {
                             "@dan:localhost": {
-                                "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "vxUCzOO4EGwLp+tzfoFbPOVicynvmWgxVx/bv/3fG/Xfl7piJVmeHP+1qDstOewiREuO4W+ti/tYkOXd7GgoAw"
+                                "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "ZKjShHHjXbnkhAUk6P2c03FsUr4wB+3xH7llKV/7QD5wuOapgM7OucABCixivA6xiUVWPGjzZ76y6DFG6YloAA"
                             }
                         },
                         "usage": [
@@ -396,11 +410,11 @@ impl KeyDistributionTestData {
                 "user_signing_keys": {
                     "@dan:localhost": {
                         "keys": {
-                            "ed25519:N4y+jN6GctRXyNDa1CFRdjofTTxHkNK9t430jE9DxrU": "N4y+jN6GctRXyNDa1CFRdjofTTxHkNK9t430jE9DxrU"
+                            "ed25519:2MZakmHIYdjIvYEmUsoNJoAx8Rx2hviO2hq8q5jQ4Rk": "2MZakmHIYdjIvYEmUsoNJoAx8Rx2hviO2hq8q5jQ4Rk"
                         },
                         "signatures": {
                             "@dan:localhost": {
-                                "ed25519:Nj4qZEmWplA8tofkjcR+YOvRCYMRLDKY71BT9GFO32k": "gbcD579EGVDRePnKV9j6YNwGhssgFeJWhF1NRJhFNAcpbGL8911cW54jyiFKFCev89QemfqyFFljldFLfyN9DA"
+                                "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "bsjJnBMMYcRwcNysPhW9r8jOXuui7otHJH1/clnf7jhEHzj2v8ei4IjZaKLvodFdNLyl/DQE5eOKlhCgt5ekDQ"
                             }
                         },
                         "usage": [
