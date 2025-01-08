@@ -71,7 +71,7 @@ impl RoomExt for Room {
 }
 
 pub(super) trait RoomDataProvider:
-    Clone + Send + Sync + 'static + PaginableRoom + PinnedEventsRoom
+    Clone + PaginableRoom + PinnedEventsRoom + 'static
 {
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
