@@ -431,7 +431,7 @@ impl RoomEventCacheInner {
 
                     let added_unique_events = room_events.push_events(sync_timeline_events.clone());
 
-                    if !added_unique_events {
+                    if !added_unique_events && prev_batch.is_some() {
                         debug!(
                             "not storing previous batch token, because we deduplicated all new sync events"
                         );
