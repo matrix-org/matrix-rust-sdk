@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
 #![allow(rustdoc::private_intra_doc_links)]
 
 //! A linked chunk is the underlying data structure that holds all events.

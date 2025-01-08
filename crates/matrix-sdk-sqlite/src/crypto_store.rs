@@ -1420,8 +1420,7 @@ mod tests {
     struct TestDb {
         // Needs to be kept alive because the Drop implementation for TempDir deletes the
         // directory.
-        #[allow(dead_code)]
-        dir: TempDir,
+        _dir: TempDir,
         database: SqliteCryptoStore,
     }
 
@@ -1440,14 +1439,14 @@ mod tests {
         let database =
             SqliteCryptoStore::open(tmpdir.path(), None).await.expect("Can't open the test store");
 
-        TestDb { dir: tmpdir, database }
+        TestDb { _dir: tmpdir, database }
     }
 
     /// Test that we didn't regress in our storage layer by loading data from a
     /// pre-filled database, or in other words use a test vector for this.
     #[async_test]
     async fn test_open_test_vector_store() {
-        let TestDb { dir: _, database } = get_test_db().await;
+        let TestDb { _dir: _, database } = get_test_db().await;
 
         let account = database
             .load_account()

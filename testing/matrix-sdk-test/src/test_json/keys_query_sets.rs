@@ -36,7 +36,6 @@ use crate::{
 ///   devices are properly signed by `@good` (i.e were self-verified by @good)
 pub struct KeyDistributionTestData {}
 
-#[allow(dead_code)]
 impl KeyDistributionTestData {
     pub const MASTER_KEY_PRIVATE_EXPORT: &'static str =
         "9kquJqAtEUoTXljh5W2QSsCm4FH9WvWzIkDkIMUsM2k";
@@ -529,7 +528,6 @@ impl IdentityChangeDataSet {
 /// The `/keys/query` responses were generated using a local synapse.
 pub struct VerificationViolationTestData {}
 
-#[allow(dead_code)]
 impl VerificationViolationTestData {
     /// Secret part of Alice's master cross-signing key.
     ///
@@ -1130,7 +1128,6 @@ impl VerificationViolationTestData {
 /// For user @malo, that performed an identity change with the same device.
 pub struct MaloIdentityChangeDataSet {}
 
-#[allow(dead_code)]
 impl MaloIdentityChangeDataSet {
     pub fn user_id() -> &'static UserId {
         user_id!("@malo:localhost")
