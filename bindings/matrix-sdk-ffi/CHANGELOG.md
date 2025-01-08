@@ -34,3 +34,4 @@ Additions:
 - Add `Encryption::get_user_identity` which returns `UserIdentity`
 - Add `ClientBuilder::room_key_recipient_strategy`
 - Add `Room::send_raw`
+- Expose `withdraw_verification` to `UserIdentity`

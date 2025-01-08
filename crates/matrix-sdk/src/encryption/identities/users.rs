@@ -415,7 +415,7 @@ impl UserIdentity {
 
     /// Remove the requirement for this identity to be verified.
     ///
-    /// If an identity was previously verified and is not any more it will be
+    /// If an identity was previously verified and is not anymore it will be
     /// reported to the user. In order to remove this notice users have to
     /// verify again or to withdraw the verification requirement.
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
