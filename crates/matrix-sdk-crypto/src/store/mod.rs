@@ -43,13 +43,14 @@ use std::{
     fmt::Debug,
     ops::Deref,
     pin::pin,
-    sync::{atomic::Ordering, Arc, RwLock as StdRwLock},
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 
 use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::StreamExt;
+use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
     encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
     OwnedRoomId, OwnedUserId, UserId,
@@ -155,7 +156,7 @@ impl KeyQueryManager {
         let tracked_users = cache.store.load_tracked_users().await?;
 
         let mut query_users_lock = self.users_for_key_query.lock().await;
-        let mut tracked_users_cache = cache.tracked_users.write().unwrap();
+        let mut tracked_users_cache = cache.tracked_users.write();
         for user in tracked_users {
             tracked_users_cache.insert(user.user_id.to_owned());
 
@@ -245,7 +246,7 @@ impl SyncedKeyQueryManager<'_> {
         let mut key_query_lock = self.manager.users_for_key_query.lock().await;
 
         {
-            let mut tracked_users = self.cache.tracked_users.write().unwrap();
+            let mut tracked_users = self.cache.tracked_users.write();
             for user_id in users {
                 if tracked_users.insert(user_id.to_owned()) {
                     key_query_lock.insert_user(user_id);
@@ -271,7 +272,7 @@ impl SyncedKeyQueryManager<'_> {
         let mut key_query_lock = self.manager.users_for_key_query.lock().await;
 
         {
-            let tracked_users = &self.cache.tracked_users.read().unwrap();
+            let tracked_users = &self.cache.tracked_users.read();
             for user_id in users {
                 if tracked_users.contains(user_id) {
                     key_query_lock.insert_user(user_id);
@@ -297,7 +298,7 @@ impl SyncedKeyQueryManager<'_> {
         let mut key_query_lock = self.manager.users_for_key_query.lock().await;
 
         {
-            let tracked_users = self.cache.tracked_users.read().unwrap();
+            let tracked_users = self.cache.tracked_users.read();
             for user_id in users {
                 if tracked_users.contains(user_id) {
                     let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
@@ -330,7 +331,7 @@ impl SyncedKeyQueryManager<'_> {
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
     pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.cache.tracked_users.read().unwrap().iter().cloned().collect()
+        self.cache.tracked_users.read().iter().cloned().collect()
     }
 
     /// Mark the given user as being tracked for device lists, and mark that it
@@ -340,7 +341,7 @@ impl SyncedKeyQueryManager<'_> {
     /// next time [`Store::users_for_key_query()`] is called.
     pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
         self.manager.users_for_key_query.lock().await.insert_user(user);
-        self.cache.tracked_users.write().unwrap().insert(user.to_owned());
+        self.cache.tracked_users.write().insert(user.to_owned());
 
         self.cache.store.save_tracked_users(&[(user, true)]).await
     }

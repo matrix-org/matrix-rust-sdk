@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, RwLock as StdRwLock},
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 use as_variant::as_variant;
+use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
 #[cfg(feature = "qrcode")]
 use tracing::debug;
@@ -69,7 +67,7 @@ impl VerificationCache {
     #[cfg(test)]
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
-        self.inner.verification.read().unwrap().values().all(|m| m.is_empty())
+        self.inner.verification.read().values().all(|m| m.is_empty())
     }
 
     /// Add a new `Verification` object to the cache, this will cancel any
@@ -78,7 +76,7 @@ impl VerificationCache {
     pub fn insert(&self, verification: impl Into<Verification>) {
         let verification = verification.into();
 
-        let mut verification_write_guard = self.inner.verification.write().unwrap();
+        let mut verification_write_guard = self.inner.verification.write();
         let user_verifications =
             verification_write_guard.entry(verification.other_user().to_owned()).or_default();
 
@@ -150,22 +148,21 @@ impl VerificationCache {
         self.inner
             .verification
             .write()
-            .unwrap()
             .entry(verification.other_user().to_owned())
             .or_default()
             .insert(verification.flow_id().to_owned(), verification.clone());
     }
 
     pub fn get(&self, sender: &UserId, flow_id: &str) -> Option<Verification> {
-        self.inner.verification.read().unwrap().get(sender)?.get(flow_id).cloned()
+        self.inner.verification.read().get(sender)?.get(flow_id).cloned()
     }
 
     pub fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
-        self.inner.outgoing_requests.read().unwrap().values().cloned().collect()
+        self.inner.outgoing_requests.read().values().cloned().collect()
     }
 
     pub fn garbage_collect(&self) -> Vec<OutgoingVerificationRequest> {
-        let verification = &mut self.inner.verification.write().unwrap();
+        let verification = &mut self.inner.verification.write();
 
         for user_verification in verification.values_mut() {
             user_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
@@ -186,7 +183,7 @@ impl VerificationCache {
 
     pub fn add_request(&self, request: OutgoingRequest) {
         trace!("Adding an outgoing request {:?}", request);
-        self.inner.outgoing_requests.write().unwrap().insert(request.request_id.clone(), request);
+        self.inner.outgoing_requests.write().insert(request.request_id.clone(), request);
     }
 
     pub fn add_verification_request(&self, request: OutgoingVerificationRequest) {
@@ -211,7 +208,7 @@ impl VerificationCache {
                 "Storing the request info, waiting for the request to be marked as sent"
             );
 
-            self.inner.flow_ids_waiting_for_response.write().unwrap().insert(
+            self.inner.flow_ids_waiting_for_response.write().insert(
                 request_info.request_id.to_owned(),
                 (recipient.to_owned(), request_info.flow_id),
             );
@@ -235,7 +232,7 @@ impl VerificationCache {
                     request: Arc::new(request.into()),
                 };
 
-                self.inner.outgoing_requests.write().unwrap().insert(request_id, request);
+                self.inner.outgoing_requests.write().insert(request_id, request);
             }
 
             OutgoingContent::Room(r, c) => {
@@ -247,18 +244,18 @@ impl VerificationCache {
                     request_id: request_id.clone(),
                 };
 
-                self.inner.outgoing_requests.write().unwrap().insert(request_id, request);
+                self.inner.outgoing_requests.write().insert(request_id, request);
             }
         }
     }
 
     pub fn mark_request_as_sent(&self, request_id: &TransactionId) {
-        if let Some(request_id) = self.inner.outgoing_requests.write().unwrap().remove(request_id) {
+        if let Some(request_id) = self.inner.outgoing_requests.write().remove(request_id) {
             trace!(?request_id, "Marking a verification HTTP request as sent");
         }
 
         if let Some((user_id, flow_id)) =
-            self.inner.flow_ids_waiting_for_response.read().unwrap().get(request_id)
+            self.inner.flow_ids_waiting_for_response.read().get(request_id)
         {
             if let Some(verification) = self.get(user_id, flow_id.as_str()) {
                 match verification {

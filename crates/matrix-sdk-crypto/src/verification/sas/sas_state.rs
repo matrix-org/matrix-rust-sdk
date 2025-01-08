@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    matches,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{matches, sync::Arc, time::Duration};
 
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         key::verification::{
@@ -356,7 +353,7 @@ impl<S: Clone> SasState<S> {
         let their_public_key = Curve25519PublicKey::from_slice(content.public_key().as_bytes())
             .map_err(|_| CancelCode::from("Invalid public key"))?;
 
-        if let Some(sas) = self.inner.lock().unwrap().take() {
+        if let Some(sas) = self.inner.lock().take() {
             sas.diffie_hellman(their_public_key).map_err(|_| "Invalid public key".into())
         } else {
             Err(CancelCode::UnexpectedMessage)
@@ -1127,7 +1124,7 @@ impl SasState<KeysExchanged> {
     /// second element the English description of the emoji.
     pub fn get_emoji(&self) -> [Emoji; 7] {
         get_emoji(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             self.state.we_started,
@@ -1140,7 +1137,7 @@ impl SasState<KeysExchanged> {
     /// numbers can be converted to a unique emoji defined by the spec.
     pub fn get_emoji_index(&self) -> [u8; 7] {
         get_emoji_index(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             self.state.we_started,
@@ -1153,7 +1150,7 @@ impl SasState<KeysExchanged> {
     /// the short auth string.
     pub fn get_decimal(&self) -> (u16, u16, u16) {
         get_decimal(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             self.state.we_started,
@@ -1175,7 +1172,7 @@ impl SasState<KeysExchanged> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             sender,
@@ -1239,7 +1236,7 @@ impl SasState<Confirmed> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             sender,
@@ -1283,7 +1280,7 @@ impl SasState<Confirmed> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             sender,
@@ -1315,7 +1312,7 @@ impl SasState<Confirmed> {
     /// The content needs to be automatically sent to the other side.
     pub fn as_content(&self) -> OutgoingContent {
         get_mac_content(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             &self.verification_flow_id,
             self.state.accepted_protocols.message_auth_code,
@@ -1376,7 +1373,7 @@ impl SasState<MacReceived> {
     /// second element the English description of the emoji.
     pub fn get_emoji(&self) -> [Emoji; 7] {
         get_emoji(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             self.state.we_started,
@@ -1389,7 +1386,7 @@ impl SasState<MacReceived> {
     /// numbers can be converted to a unique emoji defined by the spec.
     pub fn get_emoji_index(&self) -> [u8; 7] {
         get_emoji_index(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             self.state.we_started,
@@ -1402,7 +1399,7 @@ impl SasState<MacReceived> {
     /// the short auth string.
     pub fn get_decimal(&self) -> (u16, u16, u16) {
         get_decimal(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             self.verification_flow_id.as_str(),
             self.state.we_started,
@@ -1417,7 +1414,7 @@ impl SasState<WaitingForDone> {
     /// wasn't already sent.
     pub fn as_content(&self) -> OutgoingContent {
         get_mac_content(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             &self.verification_flow_id,
             self.state.accepted_protocols.message_auth_code,
@@ -1480,7 +1477,7 @@ impl SasState<Done> {
     /// wasn't already sent.
     pub fn as_content(&self) -> OutgoingContent {
         get_mac_content(
-            &self.state.sas.lock().unwrap(),
+            &self.state.sas.lock(),
             &self.ids,
             &self.verification_flow_id,
             self.state.accepted_protocols.message_auth_code,
