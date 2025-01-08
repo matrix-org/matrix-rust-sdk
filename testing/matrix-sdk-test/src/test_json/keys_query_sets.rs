@@ -219,8 +219,6 @@ impl KeyQueryResponseTemplate {
 }
 
 /// This set of keys/query response was generated using a local synapse.
-/// Each users was created, device added according to needs and the payload
-/// of the keys query have been copy/pasted here.
 ///
 /// The current user is `@me:localhost`, the private part of the
 /// cross-signing keys have been exported using the console with the
@@ -327,105 +325,33 @@ impl KeyDistributionTestData {
     /// Returns the full response, including both devices, without writing the
     /// snapshot.
     fn dan_keys_query_response_common() -> KeyQueryResponse {
-        let data: Value = json!({
-                "device_keys": {
-                    "@dan:localhost": {
-                        "JHPUERYQUW": {
-                            "algorithms": [
-                                "m.olm.v1.curve25519-aes-sha2",
-                                "m.megolm.v1.aes-sha2"
-                            ],
-                            "device_id": "JHPUERYQUW",
-                            "keys": {
-                                "curve25519:JHPUERYQUW": "PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4",
-                                // Private key: "yzj53Kccfqx2yx9lcTwaRfPZX+7jU19harsDWWu5YnM"
-                                "ed25519:JHPUERYQUW": "+qMutlCB/eWCbI3bIskWhjYVGrRX8hF+F48sNsmg1YE"
-                            },
-                            "signatures": {
-                                "@dan:localhost": {
-                                    "ed25519:JHPUERYQUW": "I9mcfT2BIwbWfga1P85rdbhEDh5qc/3pLgY8jsqlzXbjl4AfHKBZUvcgQ54kKFOf/jK9pTK2Ed35cDQ1QZ44Cw",
-                                    "ed25519:FZSpCr3lGMCfjgRtlLxxHkGJ8dMw5YSYvSYaf7bJ2QA": "msmrAwToOpBmSLeWyThuV7vS7fXGB291C3KUrM+2a0L6CS6pqpK12nBZG/dLeDzVSAamyWjB3OuwhTl0kE7UCA"
-                                }
-                            },
-                            "user_id": "@dan:localhost",
-                        },
+        let builder = KeyQueryResponseTemplate::new(Self::dan_id().to_owned())
+            .with_cross_signing_keys(
+                Ed25519SecretKey::from_base64(Self::DAN_PRIVATE_MASTER_CROSS_SIGNING_KEY).unwrap(),
+                Ed25519SecretKey::from_base64(Self::DAN_PRIVATE_SELF_SIGNING_KEY).unwrap(),
+                Ed25519SecretKey::from_base64(Self::DAN_PRIVATE_USER_SIGNING_KEY).unwrap(),
+            )
+            .with_user_verification_signature(Self::me_id(), &Self::me_private_user_signing_key());
 
-                        "FRGNMZVOKA": {
-                            "algorithms": [
-                                "m.olm.v1.curve25519-aes-sha2",
-                                "m.megolm.v1.aes-sha2"
-                            ],
-                            "device_id": "FRGNMZVOKA",
-                            "keys": {
-                                "curve25519:FRGNMZVOKA": "Hc/BC/xyQIEnScyZkEk+ilDMfOARxHMFoEcggPqqRw4",
-                                // Private key: "/SlFtNKxTPN+i4pHzSPWZ1Oc6ymMB33sS32GXZkaLos"
-                                "ed25519:FRGNMZVOKA": "xp/IW9Sh8Jw/buUYlARWD20EV2TdUG/SZ+Pa4iEtcew"
-                            },
-                            "signatures": {
-                                "@dan:localhost": {
-                                    "ed25519:FRGNMZVOKA": "G6f8s4a3rXOnODPdSQTUOjJ0YtxlxwDSTPNkzbAMHEwdmnmUuFhTdEYNP/dzDDGd8kViWpMteaPqvlAKIlvlBg"
-                                }
-                            },
-                            "user_id": "@dan:localhost",
-                        },
-                    }
-                },
-                "failures": {},
-                "master_keys": {
-                    "@dan:localhost": {
-                        "keys": {
-                            "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo"
-                        },
-                        "signatures": {
-                            "@dan:localhost": {
-                                "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "WiSxmg/RpT8BTHcLvNS7vgKyonsRpX/K6E9EzEfLpNOxXfisPClbpuVtxEb3te/Cx/1UKaio1MJcDxqKFMVmDw"
-                            },
-                            "@me:localhost": {
-                                "ed25519:mvzOc2EuHoVfZTk1hX3y0hyjUs4MrfPv2V/PUFzMQJY": "lSa34sDcviLPgk8yECGxwdSt2074sf2R8uSmxpTuK5NBqv9dpu0NwTJkO4PLohQTvleIYZSH+uXc3mPZpFy8DQ"
-                            }
-                        },
-                        "usage": [
-                            "master"
-                        ],
-                        "user_id": "@dan:localhost"
-                    }
-                },
-                "self_signing_keys": {
-                    "@dan:localhost": {
-                        "keys": {
-                            "ed25519:FZSpCr3lGMCfjgRtlLxxHkGJ8dMw5YSYvSYaf7bJ2QA": "FZSpCr3lGMCfjgRtlLxxHkGJ8dMw5YSYvSYaf7bJ2QA"
-                        },
-                        "signatures": {
-                            "@dan:localhost": {
-                                "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "ZKjShHHjXbnkhAUk6P2c03FsUr4wB+3xH7llKV/7QD5wuOapgM7OucABCixivA6xiUVWPGjzZ76y6DFG6YloAA"
-                            }
-                        },
-                        "usage": [
-                            "self_signing"
-                        ],
-                        "user_id": "@dan:localhost"
-                    }
-                },
-                "user_signing_keys": {
-                    "@dan:localhost": {
-                        "keys": {
-                            "ed25519:2MZakmHIYdjIvYEmUsoNJoAx8Rx2hviO2hq8q5jQ4Rk": "2MZakmHIYdjIvYEmUsoNJoAx8Rx2hviO2hq8q5jQ4Rk"
-                        },
-                        "signatures": {
-                            "@dan:localhost": {
-                                "ed25519:ZzirLovLjBbJ9KkCl/w1+WevTSQdn0ngS4xl36bAuZo": "bsjJnBMMYcRwcNysPhW9r8jOXuui7otHJH1/clnf7jhEHzj2v8ei4IjZaKLvodFdNLyl/DQE5eOKlhCgt5ekDQ"
-                            }
-                        },
-                        "usage": [
-                            "user_signing"
-                        ],
-                        "user_id": "@dan:localhost"
-                    }
-                }
-        });
+        // Add signed device JHPUERYQUW
+        let builder = builder.with_device(
+            Self::dan_signed_device_id(),
+            &Curve25519PublicKey::from_base64("PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4")
+                .unwrap(),
+            &Ed25519SecretKey::from_base64("yzj53Kccfqx2yx9lcTwaRfPZX+7jU19harsDWWu5YnM").unwrap(),
+            true,
+        );
 
-        let response: KeyQueryResponse = ruma_response_from_json(&data);
-        response
+        // Add unsigned device FRGNMZVOKA
+        let builder = builder.with_device(
+            Self::dan_unsigned_device_id(),
+            &Curve25519PublicKey::from_base64("Hc/BC/xyQIEnScyZkEk+ilDMfOARxHMFoEcggPqqRw4")
+                .unwrap(),
+            &Ed25519SecretKey::from_base64("/SlFtNKxTPN+i4pHzSPWZ1Oc6ymMB33sS32GXZkaLos").unwrap(),
+            false,
+        );
+
+        builder.build_response()
     }
 
     /// Dave is a user that has not enabled cross-signing
