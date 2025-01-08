@@ -1,6 +1,6 @@
 use std::future::IntoFuture;
 
-use eyeball::{SharedObservable, Subscriber};
+use eyeball::SharedObservable;
 use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
@@ -48,10 +48,9 @@ impl<'a> SendAttachment<'a> {
         Self { use_send_queue: true, ..self }
     }
 
-    /// Get a subscriber to observe the progress of sending the request
-    /// body.
+    /// Get a subscriber to observe the progress of sending the request body.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
+    pub fn subscribe_to_send_progress(&self) -> eyeball::Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }
 }
