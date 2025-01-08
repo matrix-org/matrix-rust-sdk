@@ -478,6 +478,15 @@ impl UserIdentity {
         Ok(self.inner.pin().await?)
     }
 
+    /// Remove the requirement for this identity to be verified.
+    ///
+    /// If an identity was previously verified and is not anymore it will be
+    /// reported to the user. In order to remove this notice users have to
+    /// verify again or to withdraw the verification requirement.
+    pub(crate) async fn withdraw_verification(&self) -> Result<(), ClientError> {
+        Ok(self.inner.withdraw_verification().await?)
+    }
+
     /// Get the public part of the Master key of this user identity.
     ///
     /// The public part of the Master key is usually used to uniquely identify
