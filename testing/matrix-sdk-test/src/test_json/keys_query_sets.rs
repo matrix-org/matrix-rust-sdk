@@ -768,58 +768,14 @@ impl VerificationViolationTestData {
     /// `/keys/query` response for Alice, containing the public cross-signing
     /// keys.
     pub fn own_keys_query_response_1() -> KeyQueryResponse {
-        let data = json!({
-            "master_keys": {
-                "@alice:localhost": {
-                    "keys": {
-                        "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk"
-                    },
-                    "signatures": {
-                        "@alice:localhost": {
-                            "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "FX+srrw9SRmi12fexYHH1jrlEIWgOfre1aPNzDZWcAlaP9WKRdhcQGh70/3F9hk/PGr51I+ux62YgU4xnRTqAA",
-                        }
-                    },
-                    "usage": [
-                        "master"
-                    ],
-                    "user_id": "@alice:localhost"
-                }
-            },
-            "self_signing_keys": {
-                "@alice:localhost": {
-                    "keys": {
-                        "ed25519:WXLer0esHUanp8DCeu2Be0xB5ms9aKFFBrCFl50COjw": "WXLer0esHUanp8DCeu2Be0xB5ms9aKFFBrCFl50COjw"
-                    },
-                    "signatures": {
-                        "@alice:localhost": {
-                            "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "lCV9R1xjD34arzq/CAuej1XBv+Ip4dFfAGHfe7znbW7rnwKDaX5PaX3MHk+EIC7nXvUYEAn502WcUFme5c0cCQ"
-                        }
-                    },
-                    "usage": [
-                        "self_signing"
-                    ],
-                    "user_id": "@alice:localhost"
-                }
-            },
-            "user_signing_keys": {
-                "@alice:localhost": {
-                    "keys": {
-                        "ed25519:MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0": "MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0"
-                    },
-                    "signatures": {
-                        "@alice:localhost": {
-                            "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "A73QfZ5Dzhh7abdal/sEaq1bfgxzPFU8Bvwa9Y5TIe/a5jTmLVubNmsMSsO5tOT+b6aVJg1G4FtId0Q/cb1aAA"
-                        }
-                    },
-                    "usage": [
-                        "user_signing"
-                    ],
-                    "user_id": "@alice:localhost"
-                }
-            }
-        });
+        let builder = KeyQueryResponseTemplate::new(Self::own_id().to_owned())
+            .with_cross_signing_keys(
+                Ed25519SecretKey::from_base64(Self::MASTER_KEY_PRIVATE_EXPORT).unwrap(),
+                Ed25519SecretKey::from_base64(Self::SELF_SIGNING_KEY_PRIVATE_EXPORT).unwrap(),
+                Ed25519SecretKey::from_base64(Self::USER_SIGNING_KEY_PRIVATE_EXPORT).unwrap(),
+            );
 
-        let response: KeyQueryResponse = ruma_response_from_json(&data);
+        let response = builder.build_response();
         with_settings!({sort_maps => true}, {
             assert_json_snapshot!(
                 "VerificationViolationTestData::own_keys_query_response_1",
