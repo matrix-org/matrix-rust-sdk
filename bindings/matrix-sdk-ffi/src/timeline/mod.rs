@@ -298,6 +298,7 @@ impl Timeline {
         image_info: ImageInfo,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -313,7 +314,8 @@ impl Timeline {
                 .thumbnail(thumbnail)
                 .info(attachment_info)
                 .caption(caption)
-                .formatted_caption(formatted_caption);
+                .formatted_caption(formatted_caption)
+                .mentions(mentions.map(Into::into));
 
             self.send_attachment(
                 url,
@@ -334,6 +336,7 @@ impl Timeline {
         video_info: VideoInfo,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -349,7 +352,8 @@ impl Timeline {
                 .thumbnail(thumbnail)
                 .info(attachment_info)
                 .caption(caption)
-                .formatted_caption(formatted_caption.map(Into::into));
+                .formatted_caption(formatted_caption.map(Into::into))
+                .mentions(mentions.map(Into::into));
 
             self.send_attachment(
                 url,
@@ -362,12 +366,14 @@ impl Timeline {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_audio(
         self: Arc<Self>,
         url: String,
         audio_info: AudioInfo,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -381,7 +387,8 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
                 .caption(caption)
-                .formatted_caption(formatted_caption.map(Into::into));
+                .formatted_caption(formatted_caption.map(Into::into))
+                .mentions(mentions.map(Into::into));
 
             self.send_attachment(
                 url,
@@ -401,6 +408,7 @@ impl Timeline {
         audio_info: AudioInfo,
         waveform: Vec<u16>,
         caption: Option<String>,
+        mentions: Option<Mentions>,
         formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
@@ -416,7 +424,8 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
                 .caption(caption)
-                .formatted_caption(formatted_caption.map(Into::into));
+                .formatted_caption(formatted_caption.map(Into::into))
+                .mentions(mentions.map(Into::into));
 
             self.send_attachment(
                 url,
@@ -429,12 +438,14 @@ impl Timeline {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_file(
         self: Arc<Self>,
         url: String,
         file_info: FileInfo,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+        mentions: Option<Mentions>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
@@ -448,7 +459,8 @@ impl Timeline {
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
                 .caption(caption)
-                .formatted_caption(formatted_caption.map(Into::into));
+                .formatted_caption(formatted_caption.map(Into::into))
+                .mentions(mentions.map(Into::into));
 
             self.send_attachment(
                 url,
