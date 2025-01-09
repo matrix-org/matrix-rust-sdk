@@ -155,6 +155,12 @@ impl From<RoomSendQueueError> for ClientError {
     }
 }
 
+impl From<NotYetImplemented> for ClientError {
+    fn from(_: NotYetImplemented) -> Self {
+        Self::new("This functionality is not implemented yet.")
+    }
+}
+
 /// Bindings version of the sdk type replacing OwnedUserId/DeviceIds with simple
 /// String.
 ///

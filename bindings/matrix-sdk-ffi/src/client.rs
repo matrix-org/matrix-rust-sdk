@@ -1152,17 +1152,6 @@ impl Client {
         let alias = RoomAliasId::parse(alias)?;
         self.inner.is_room_alias_available(&alias).await.map_err(Into::into)
     }
-
-    /// Creates a new room alias associated with the provided room id.
-    pub async fn create_room_alias(
-        &self,
-        room_alias: String,
-        room_id: String,
-    ) -> Result<(), ClientError> {
-        let room_alias = RoomAliasId::parse(room_alias)?;
-        let room_id = RoomId::parse(room_id)?;
-        self.inner.create_room_alias(&room_alias, &room_id).await.map_err(Into::into)
-    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -1462,6 +1451,9 @@ pub enum RoomVisibility {
 
     /// Indicates that the room will not be shown in the published room list.
     Private,
+
+    /// A custom value that's not present in the spec.
+    Custom { value: String },
 }
 
 impl From<RoomVisibility> for Visibility {
@@ -1469,6 +1461,17 @@ impl From<RoomVisibility> for Visibility {
         match value {
             RoomVisibility::Public => Self::Public,
             RoomVisibility::Private => Self::Private,
+            RoomVisibility::Custom { value } => value.as_str().into(),
+        }
+    }
+}
+
+impl From<Visibility> for RoomVisibility {
+    fn from(value: Visibility) -> Self {
+        match value {
+            Visibility::Public => Self::Public,
+            Visibility::Private => Self::Private,
+            _ => Self::Custom { value: value.as_str().to_owned() },
         }
     }
 }
