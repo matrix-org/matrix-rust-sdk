@@ -288,9 +288,9 @@ pub struct TracingConfiguration {
     /// The desired log level
     log_level: LogLevel,
 
-    /// The target name under which the FFI client will log messages using
-    /// [`tracing::log_event`]
-    app_target: String,
+    /// Additional targets that the FFI client would like to use e.g.
+    /// the target names for created [`crate::tracing::Span`]
+    extra_targets: Option<Vec<String>>,
 
     /// Whether to log to stdout, or in the logcat on Android.
     write_to_stdout_or_system: bool,
@@ -306,9 +306,6 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
     // On 2025-01-08, `log_panics` uses the `panic` target, at the error log level.
     let mut filters = vec!["panic=error".to_owned()];
 
-    // We also need to include the target name that the FFI client uses
-    filters.push(format!("{}={}", config.app_target, config.log_level.as_str()));
-
     DEFAULT_TARGET_LOG_LEVELS.iter().for_each(|(target, level)| {
         // Use the default if the log level shouldn't be changed for this target or
         // if it's already logging more than requested
@@ -320,6 +317,13 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
 
         filters.push(format!("{}={}", target.as_str(), level));
     });
+
+    // Finally append the extra targets requested by the client
+    if let Some(extra_targets) = &config.extra_targets {
+        for target in extra_targets {
+            filters.push(format!("{}={}", target, config.log_level.as_str()));
+        }
+    }
 
     filters.join(",")
 }
@@ -342,7 +346,7 @@ mod tests {
     fn test_default_tracing_filter() {
         let config = super::TracingConfiguration {
             log_level: super::LogLevel::Error,
-            app_target: "super_duper_app".to_owned(),
+            extra_targets: Some(vec!["super_duper_app".to_owned()]),
             write_to_stdout_or_system: true,
             write_to_files: None,
         };
@@ -352,7 +356,6 @@ mod tests {
         assert_eq!(
             filter,
             "panic=error,\
-            super_duper_app=error,\
             hyper=warn,\
             matrix_sdk_ffi=info,\
             matrix_sdk::client=trace,\
@@ -364,7 +367,8 @@ mod tests {
             matrix_sdk_base::sliding_sync=info,\
             matrix_sdk_ui::timeline=info,\
             matrix_sdk::event_cache=info,\
-            matrix_sdk_sqlite::event_cache_store=info"
+            matrix_sdk_sqlite::event_cache_store=info,\
+            super_duper_app=error"
         );
     }
 
@@ -372,7 +376,7 @@ mod tests {
     fn test_trace_tracing_filter() {
         let config = super::TracingConfiguration {
             log_level: super::LogLevel::Trace,
-            app_target: "super_duper_app".to_owned(),
+            extra_targets: Some(vec!["super_duper_app".to_owned(), "some_other_span".to_owned()]),
             write_to_stdout_or_system: true,
             write_to_files: None,
         };
@@ -382,7 +386,6 @@ mod tests {
         assert_eq!(
             filter,
             "panic=error,\
-            super_duper_app=trace,\
             hyper=warn,\
             matrix_sdk_ffi=trace,\
             matrix_sdk::client=trace,\
@@ -394,7 +397,9 @@ mod tests {
             matrix_sdk_base::sliding_sync=trace,\
             matrix_sdk_ui::timeline=trace,\
             matrix_sdk::event_cache=trace,\
-            matrix_sdk_sqlite::event_cache_store=trace"
+            matrix_sdk_sqlite::event_cache_store=trace,\
+            super_duper_app=trace,\
+            some_other_span=trace"
         );
     }
 }
