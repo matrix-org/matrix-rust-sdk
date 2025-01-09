@@ -566,7 +566,7 @@ impl RoomListItem {
     }
 
     async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        Ok(RoomInfo::new(self.inner.inner_room()).await?)
+        RoomInfo::new(self.inner.inner_room()).await
     }
 
     /// The room's current membership state.

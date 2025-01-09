@@ -20,7 +20,8 @@ use ruma::{
         call::notify,
         room::{
             avatar::ImageInfo as RumaAvatarImageInfo,
-            message::RoomMessageEventContentWithoutRelation,
+            history_visibility::HistoryVisibility as RumaHistoryVisibility,
+            join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
             power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
         },
         AnyMessageLikeEventContent, AnySyncTimelineEvent, TimelineEventType,
@@ -33,7 +34,8 @@ use tracing::error;
 use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
-    error::{ClientError, MediaInfoError, RoomError},
+    client::{JoinRule, RoomVisibility},
+    error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
     event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
     identity_status_change::IdentityStatusChange,
     room_info::RoomInfo,
@@ -345,7 +347,7 @@ impl Room {
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        Ok(RoomInfo::new(&self.inner).await?)
+        RoomInfo::new(&self.inner).await
     }
 
     pub fn subscribe_to_room_info_updates(
@@ -941,6 +943,105 @@ impl Room {
         let (cache, _drop_guards) = self.inner.event_cache().await?;
         Ok(cache.debug_string().await)
     }
+
+    /// Update the canonical alias of the room.
+    ///
+    /// Note that publishing the alias in the room directory is done separately.
+    pub async fn update_canonical_alias(
+        &self,
+        alias: Option<String>,
+        alt_aliases: Vec<String>,
+    ) -> Result<(), ClientError> {
+        let new_alias = alias.map(TryInto::try_into).transpose()?;
+        let new_alt_aliases =
+            alt_aliases.into_iter().map(RoomAliasId::parse).collect::<Result<_, _>>()?;
+        self.inner
+            .privacy_settings()
+            .update_canonical_alias(new_alias, new_alt_aliases)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Publish a new room alias for this room in the room directory.
+    ///
+    /// Returns:
+    /// - `true` if the room alias didn't exist and it's now published.
+    /// - `false` if the room alias was already present so it couldn't be
+    ///   published.
+    pub async fn publish_room_alias_in_room_directory(
+        &self,
+        alias: String,
+    ) -> Result<bool, ClientError> {
+        let new_alias = RoomAliasId::parse(alias)?;
+        self.inner
+            .privacy_settings()
+            .publish_room_alias_in_room_directory(&new_alias)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Remove an existing room alias for this room in the room directory.
+    ///
+    /// Returns:
+    /// - `true` if the room alias was present and it's now removed from the
+    ///   room directory.
+    /// - `false` if the room alias didn't exist so it couldn't be removed.
+    pub async fn remove_room_alias_from_room_directory(
+        &self,
+        alias: String,
+    ) -> Result<bool, ClientError> {
+        let alias = RoomAliasId::parse(alias)?;
+        self.inner
+            .privacy_settings()
+            .remove_room_alias_from_room_directory(&alias)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Enable End-to-end encryption in this room.
+    pub async fn enable_encryption(&self) -> Result<(), ClientError> {
+        self.inner.enable_encryption().await.map_err(Into::into)
+    }
+
+    /// Update room history visibility for this room.
+    pub async fn update_history_visibility(
+        &self,
+        visibility: RoomHistoryVisibility,
+    ) -> Result<(), ClientError> {
+        let visibility: RumaHistoryVisibility = visibility.try_into()?;
+        self.inner
+            .privacy_settings()
+            .update_room_history_visibility(visibility)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Update the join rule for this room.
+    pub async fn update_join_rules(&self, new_rule: JoinRule) -> Result<(), ClientError> {
+        let new_rule: RumaJoinRule = new_rule.try_into()?;
+        self.inner.privacy_settings().update_join_rule(new_rule).await.map_err(Into::into)
+    }
+
+    /// Update the room's visibility in the room directory.
+    pub async fn update_room_visibility(
+        &self,
+        visibility: RoomVisibility,
+    ) -> Result<(), ClientError> {
+        self.inner
+            .privacy_settings()
+            .update_room_visibility(visibility.into())
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Returns the visibility for this room in the room directory.
+    ///
+    /// [Public](`RoomVisibility::Public`) rooms are listed in the room
+    /// directory and can be found using it.
+    pub async fn get_room_visibility(&self) -> Result<RoomVisibility, ClientError> {
+        let visibility = self.inner.privacy_settings().get_room_visibility().await?;
+        Ok(visibility.into())
+    }
 }
 
 impl From<matrix_sdk::room::knock_requests::KnockRequest> for KnockRequest {
@@ -1252,5 +1353,64 @@ impl TryFrom<ComposerDraftType> for SdkComposerDraftType {
         };
 
         Ok(draft_type)
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum RoomHistoryVisibility {
+    /// Previous events are accessible to newly joined members from the point
+    /// they were invited onwards.
+    ///
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *invite* or *join*.
+    Invited,
+
+    /// Previous events are accessible to newly joined members from the point
+    /// they joined the room onwards.
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *join*.
+    Joined,
+
+    /// Previous events are always accessible to newly joined members.
+    ///
+    /// All events in the room are accessible, even those sent when the member
+    /// was not a part of the room.
+    Shared,
+
+    /// All events while this is the `HistoryVisibility` value may be shared by
+    /// any participating homeserver with anyone, regardless of whether they
+    /// have ever joined the room.
+    WorldReadable,
+
+    /// A custom visibility value.
+    Custom { value: String },
+}
+
+impl TryFrom<RumaHistoryVisibility> for RoomHistoryVisibility {
+    type Error = NotYetImplemented;
+    fn try_from(value: RumaHistoryVisibility) -> Result<Self, Self::Error> {
+        match value {
+            RumaHistoryVisibility::Invited => Ok(RoomHistoryVisibility::Invited),
+            RumaHistoryVisibility::Shared => Ok(RoomHistoryVisibility::Shared),
+            RumaHistoryVisibility::WorldReadable => Ok(RoomHistoryVisibility::WorldReadable),
+            RumaHistoryVisibility::Joined => Ok(RoomHistoryVisibility::Joined),
+            RumaHistoryVisibility::_Custom(_) => {
+                Ok(RoomHistoryVisibility::Custom { value: value.to_string() })
+            }
+            _ => Err(NotYetImplemented),
+        }
+    }
+}
+
+impl TryFrom<RoomHistoryVisibility> for RumaHistoryVisibility {
+    type Error = NotYetImplemented;
+    fn try_from(value: RoomHistoryVisibility) -> Result<Self, Self::Error> {
+        match value {
+            RoomHistoryVisibility::Invited => Ok(RumaHistoryVisibility::Invited),
+            RoomHistoryVisibility::Shared => Ok(RumaHistoryVisibility::Shared),
+            RoomHistoryVisibility::Joined => Ok(RumaHistoryVisibility::Joined),
+            RoomHistoryVisibility::WorldReadable => Ok(RumaHistoryVisibility::WorldReadable),
+            RoomHistoryVisibility::Custom { .. } => Err(NotYetImplemented),
+        }
     }
 }
