@@ -50,6 +50,24 @@ impl<'a> RoomPrivacySettings<'a> {
         Ok(false)
     }
 
+    /// Remove an existing room alias for this room in the room directory.
+    ///
+    /// Returns:
+    /// - `true` if the room alias was present and it's now removed from the
+    ///   room directory.
+    /// - `false` if the room alias didn't exist so it couldn't be removed.
+    pub async fn remove_room_alias_from_room_directory(
+        &'a self,
+        alias: &RoomAliasId,
+    ) -> Result<bool> {
+        if self.client.resolve_room_alias(alias).await.is_ok() {
+            self.client.remove_room_alias(alias).await?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     /// Update the canonical alias of the room.
     ///
     /// # Arguments:
@@ -147,7 +165,7 @@ impl<'a> RoomPrivacySettings<'a> {
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent};
     use ruma::{
         api::client::room::Visibility,
         event_id,
@@ -218,6 +236,70 @@ mod tests {
             .await
             .expect("we should get a result value, not an error");
         assert!(published.not());
+    }
+
+    #[async_test]
+    async fn test_remove_room_alias() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let joined_room_builder =
+            JoinedRoomBuilder::new(room_id).add_state_event(StateTestEvent::Alias);
+        let room = server.sync_room(&client, joined_room_builder).await;
+
+        let room_alias = owned_room_alias_id!("#a:b.c");
+
+        // First we'd check if the alias exists
+        server
+            .mock_room_directory_resolve_alias()
+            .for_alias(room_alias.to_string())
+            .ok(room_id.as_ref(), Vec::new())
+            .mock_once()
+            .mount()
+            .await;
+
+        // After that we'd remove it
+        server.mock_room_directory_remove_room_alias().ok().mock_once().mount().await;
+
+        let removed = room
+            .privacy_settings()
+            .remove_room_alias_from_room_directory(&room_alias)
+            .await
+            .expect("we should get a result value, not an error");
+        assert!(removed);
+    }
+
+    #[async_test]
+    async fn test_remove_room_alias_if_it_does_not_exist() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let joined_room_builder =
+            JoinedRoomBuilder::new(room_id).add_state_event(StateTestEvent::Alias);
+        let room = server.sync_room(&client, joined_room_builder).await;
+
+        let room_alias = owned_room_alias_id!("#a:b.c");
+
+        // First we'd check if the alias exists. It doesn't.
+        server
+            .mock_room_directory_resolve_alias()
+            .for_alias(room_alias.to_string())
+            .not_found()
+            .mock_once()
+            .mount()
+            .await;
+
+        // So we can't remove it after the check.
+        server.mock_room_directory_remove_room_alias().ok().never().mount().await;
+
+        let removed = room
+            .privacy_settings()
+            .remove_room_alias_from_room_directory(&room_alias)
+            .await
+            .expect("we should get a result value, not an error");
+        assert!(removed.not());
     }
 
     #[async_test]
