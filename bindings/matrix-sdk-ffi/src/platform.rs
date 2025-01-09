@@ -235,6 +235,7 @@ pub struct TracingFileConfiguration {
 enum LogTarget {
     Hyper,
     MatrixSdkFfi,
+    MatrixSdk,
     MatrixSdkClient,
     MatrixSdkCrypto,
     MatrixSdkCryptoAccount,
@@ -244,6 +245,7 @@ enum LogTarget {
     MatrixSdkBaseSlidingSync,
     MatrixSdkUiTimeline,
     MatrixSdkEventCache,
+    MatrixSdkBaseEventCache,
     MatrixSdkEventCacheStore,
 }
 
@@ -252,6 +254,7 @@ impl LogTarget {
         match self {
             LogTarget::Hyper => "hyper",
             LogTarget::MatrixSdkFfi => "matrix_sdk_ffi",
+            LogTarget::MatrixSdk => "matrix_sdk",
             LogTarget::MatrixSdkClient => "matrix_sdk::client",
             LogTarget::MatrixSdkCrypto => "matrix_sdk_crypto",
             LogTarget::MatrixSdkCryptoAccount => "matrix_sdk_crypto::olm::account",
@@ -261,6 +264,7 @@ impl LogTarget {
             LogTarget::MatrixSdkBaseSlidingSync => "matrix_sdk_base::sliding_sync",
             LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
             LogTarget::MatrixSdkEventCache => "matrix_sdk::event_cache",
+            LogTarget::MatrixSdkBaseEventCache => "matrix_sdk_base::event_cache",
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
         }
     }
@@ -269,6 +273,7 @@ impl LogTarget {
 const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::Hyper, LogLevel::Warn),
     (LogTarget::MatrixSdkFfi, LogLevel::Info),
+    (LogTarget::MatrixSdk, LogLevel::Info),
     (LogTarget::MatrixSdkClient, LogLevel::Trace),
     (LogTarget::MatrixSdkCrypto, LogLevel::Debug),
     (LogTarget::MatrixSdkCryptoAccount, LogLevel::Trace),
@@ -278,10 +283,14 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkBaseSlidingSync, LogLevel::Info),
     (LogTarget::MatrixSdkUiTimeline, LogLevel::Info),
     (LogTarget::MatrixSdkEventCache, LogLevel::Info),
+    (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
 ];
 
-const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[LogTarget::Hyper];
+const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[
+    LogTarget::Hyper,     // Too verbose
+    LogTarget::MatrixSdk, // Too generic
+];
 
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
@@ -358,6 +367,7 @@ mod tests {
             "panic=error,\
             hyper=warn,\
             matrix_sdk_ffi=info,\
+            matrix_sdk=info,\
             matrix_sdk::client=trace,\
             matrix_sdk_crypto=debug,\
             matrix_sdk_crypto::olm::account=trace,\
@@ -367,6 +377,7 @@ mod tests {
             matrix_sdk_base::sliding_sync=info,\
             matrix_sdk_ui::timeline=info,\
             matrix_sdk::event_cache=info,\
+            matrix_sdk_base::event_cache=info,\
             matrix_sdk_sqlite::event_cache_store=info,\
             super_duper_app=error"
         );
@@ -388,6 +399,7 @@ mod tests {
             "panic=error,\
             hyper=warn,\
             matrix_sdk_ffi=trace,\
+            matrix_sdk=info,\
             matrix_sdk::client=trace,\
             matrix_sdk_crypto=trace,\
             matrix_sdk_crypto::olm::account=trace,\
@@ -397,6 +409,7 @@ mod tests {
             matrix_sdk_base::sliding_sync=trace,\
             matrix_sdk_ui::timeline=trace,\
             matrix_sdk::event_cache=trace,\
+            matrix_sdk_base::event_cache=trace,\
             matrix_sdk_sqlite::event_cache_store=trace,\
             super_duper_app=trace,\
             some_other_span=trace"
