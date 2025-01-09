@@ -185,6 +185,16 @@ impl LogLevel {
             LogLevel::Trace => tracing::Level::TRACE,
         }
     }
+
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]

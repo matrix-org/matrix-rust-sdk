@@ -14,24 +14,10 @@ use tracing_subscriber::{
     EnvFilter, Layer,
 };
 
-/// Add panic=error to a filter line, if it's missing from it.
-///
-/// Doesn't do anything if the directive is already present.
-fn add_panic_to_filter(filter: &mut String) {
-    if filter.split(',').all(|pair| pair.split('=').next().is_none_or(|lhs| lhs != "panic")) {
-        if !filter.is_empty() {
-            filter.push(',');
-        }
-        filter.push_str("panic=error");
-    }
-}
+use crate::tracing::LogLevel;
 
-pub fn log_panics(filter: &mut String) {
+pub fn log_panics() {
     std::env::set_var("RUST_BACKTRACE", "1");
-
-    // Make sure that panics will be properly logged. On 2025-01-08, `log_panics`
-    // uses the `panic` target, at the error log level.
-    add_panic_to_filter(filter);
 
     log_panics::init();
 }
@@ -245,12 +231,75 @@ pub struct TracingFileConfiguration {
     max_files: Option<u64>,
 }
 
+#[derive(PartialEq, PartialOrd)]
+enum LogTarget {
+    Hyper,
+    MatrixSdkFfi,
+    MatrixSdk,
+    MatrixSdkClient,
+    MatrixSdkCrypto,
+    MatrixSdkCryptoAccount,
+    MatrixSdkOidc,
+    MatrixSdkHttpClient,
+    MatrixSdkSlidingSync,
+    MatrixSdkBaseSlidingSync,
+    MatrixSdkUiTimeline,
+    MatrixSdkEventCache,
+    MatrixSdkBaseEventCache,
+    MatrixSdkEventCacheStore,
+}
+
+impl LogTarget {
+    fn as_str(&self) -> &'static str {
+        match self {
+            LogTarget::Hyper => "hyper",
+            LogTarget::MatrixSdkFfi => "matrix_sdk_ffi",
+            LogTarget::MatrixSdk => "matrix_sdk",
+            LogTarget::MatrixSdkClient => "matrix_sdk::client",
+            LogTarget::MatrixSdkCrypto => "matrix_sdk_crypto",
+            LogTarget::MatrixSdkCryptoAccount => "matrix_sdk_crypto::olm::account",
+            LogTarget::MatrixSdkOidc => "matrix_sdk::oidc",
+            LogTarget::MatrixSdkHttpClient => "matrix_sdk::http_client",
+            LogTarget::MatrixSdkSlidingSync => "matrix_sdk::sliding_sync",
+            LogTarget::MatrixSdkBaseSlidingSync => "matrix_sdk_base::sliding_sync",
+            LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
+            LogTarget::MatrixSdkEventCache => "matrix_sdk::event_cache",
+            LogTarget::MatrixSdkBaseEventCache => "matrix_sdk_base::event_cache",
+            LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
+        }
+    }
+}
+
+const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
+    (LogTarget::Hyper, LogLevel::Warn),
+    (LogTarget::MatrixSdkFfi, LogLevel::Info),
+    (LogTarget::MatrixSdk, LogLevel::Info),
+    (LogTarget::MatrixSdkClient, LogLevel::Trace),
+    (LogTarget::MatrixSdkCrypto, LogLevel::Debug),
+    (LogTarget::MatrixSdkCryptoAccount, LogLevel::Trace),
+    (LogTarget::MatrixSdkOidc, LogLevel::Trace),
+    (LogTarget::MatrixSdkHttpClient, LogLevel::Debug),
+    (LogTarget::MatrixSdkSlidingSync, LogLevel::Info),
+    (LogTarget::MatrixSdkBaseSlidingSync, LogLevel::Info),
+    (LogTarget::MatrixSdkUiTimeline, LogLevel::Info),
+    (LogTarget::MatrixSdkEventCache, LogLevel::Info),
+    (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
+    (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
+];
+
+const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[
+    LogTarget::Hyper,     // Too verbose
+    LogTarget::MatrixSdk, // Too generic
+];
+
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
-    /// A filter line following the [RUST_LOG format].
-    ///
-    /// [RUST_LOG format]: https://rust-lang-nursery.github.io/rust-cookbook/development_tools/debugging/config_log.html
-    filter: String,
+    /// The desired log level
+    log_level: LogLevel,
+
+    /// Additional targets that the FFI client would like to use e.g.
+    /// the target names for created [`crate::tracing::Span`]
+    extra_targets: Option<Vec<String>>,
 
     /// Whether to log to stdout, or in the logcat on Android.
     write_to_stdout_or_system: bool,
@@ -259,38 +308,111 @@ pub struct TracingConfiguration {
     write_to_files: Option<TracingFileConfiguration>,
 }
 
+fn build_tracing_filter(config: &TracingConfiguration) -> String {
+    // We are intentionally not setting a global log level because we don't want to
+    // risk third party crates logging sensitive information.
+    // As such we need to make sure that panics will be properly logged.
+    // On 2025-01-08, `log_panics` uses the `panic` target, at the error log level.
+    let mut filters = vec!["panic=error".to_owned()];
+
+    DEFAULT_TARGET_LOG_LEVELS.iter().for_each(|(target, level)| {
+        // Use the default if the log level shouldn't be changed for this target or
+        // if it's already logging more than requested
+        let level = if IMMUTABLE_TARGET_LOG_LEVELS.contains(target) || level > &config.log_level {
+            level.as_str()
+        } else {
+            config.log_level.as_str()
+        };
+
+        filters.push(format!("{}={}", target.as_str(), level));
+    });
+
+    // Finally append the extra targets requested by the client
+    if let Some(extra_targets) = &config.extra_targets {
+        for target in extra_targets {
+            filters.push(format!("{}={}", target, config.log_level.as_str()));
+        }
+    }
+
+    filters.join(",")
+}
+
 #[matrix_sdk_ffi_macros::export]
-pub fn setup_tracing(mut config: TracingConfiguration) {
-    log_panics(&mut config.filter);
+pub fn setup_tracing(config: TracingConfiguration) {
+    log_panics();
 
     tracing_subscriber::registry()
-        .with(EnvFilter::new(&config.filter))
+        .with(EnvFilter::new(build_tracing_filter(&config)))
         .with(text_layers(config))
         .init();
 }
 
 #[cfg(test)]
 mod tests {
-    use super::add_panic_to_filter;
+    use super::build_tracing_filter;
 
     #[test]
-    fn test_add_panic_when_not_provided_empty() {
-        let mut filter = String::from("");
-        add_panic_to_filter(&mut filter);
-        assert_eq!(filter, "panic=error");
+    fn test_default_tracing_filter() {
+        let config = super::TracingConfiguration {
+            log_level: super::LogLevel::Error,
+            extra_targets: Some(vec!["super_duper_app".to_owned()]),
+            write_to_stdout_or_system: true,
+            write_to_files: None,
+        };
+
+        let filter = build_tracing_filter(&config);
+
+        assert_eq!(
+            filter,
+            "panic=error,\
+            hyper=warn,\
+            matrix_sdk_ffi=info,\
+            matrix_sdk=info,\
+            matrix_sdk::client=trace,\
+            matrix_sdk_crypto=debug,\
+            matrix_sdk_crypto::olm::account=trace,\
+            matrix_sdk::oidc=trace,\
+            matrix_sdk::http_client=debug,\
+            matrix_sdk::sliding_sync=info,\
+            matrix_sdk_base::sliding_sync=info,\
+            matrix_sdk_ui::timeline=info,\
+            matrix_sdk::event_cache=info,\
+            matrix_sdk_base::event_cache=info,\
+            matrix_sdk_sqlite::event_cache_store=info,\
+            super_duper_app=error"
+        );
     }
 
     #[test]
-    fn test_add_panic_when_not_provided_non_empty() {
-        let mut filter = String::from("a=b,c=d");
-        add_panic_to_filter(&mut filter);
-        assert_eq!(filter, "a=b,c=d,panic=error");
-    }
+    fn test_trace_tracing_filter() {
+        let config = super::TracingConfiguration {
+            log_level: super::LogLevel::Trace,
+            extra_targets: Some(vec!["super_duper_app".to_owned(), "some_other_span".to_owned()]),
+            write_to_stdout_or_system: true,
+            write_to_files: None,
+        };
 
-    #[test]
-    fn test_do_nothing_when_provided() {
-        let mut filter = String::from("a=b,panic=info,c=d");
-        add_panic_to_filter(&mut filter);
-        assert_eq!(filter, "a=b,panic=info,c=d");
+        let filter = build_tracing_filter(&config);
+
+        assert_eq!(
+            filter,
+            "panic=error,\
+            hyper=warn,\
+            matrix_sdk_ffi=trace,\
+            matrix_sdk=info,\
+            matrix_sdk::client=trace,\
+            matrix_sdk_crypto=trace,\
+            matrix_sdk_crypto::olm::account=trace,\
+            matrix_sdk::oidc=trace,\
+            matrix_sdk::http_client=trace,\
+            matrix_sdk::sliding_sync=trace,\
+            matrix_sdk_base::sliding_sync=trace,\
+            matrix_sdk_ui::timeline=trace,\
+            matrix_sdk::event_cache=trace,\
+            matrix_sdk_base::event_cache=trace,\
+            matrix_sdk_sqlite::event_cache_store=trace,\
+            super_duper_app=trace,\
+            some_other_span=trace"
+        );
     }
 }
