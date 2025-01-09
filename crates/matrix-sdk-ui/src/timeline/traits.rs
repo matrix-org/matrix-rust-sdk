@@ -15,14 +15,12 @@
 use std::future::Future;
 
 use eyeball::Subscriber;
-use futures_util::FutureExt as _;
 use indexmap::IndexMap;
 #[cfg(test)]
 use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustRequirement};
 use matrix_sdk::{
     crypto::types::events::CryptoContextInfo, deserialized_responses::TimelineEvent,
-    event_cache::paginator::PaginableRoom, AsyncTraitDeps, BoxFuture, Result, Room,
-    SendOutsideWasm,
+    event_cache::paginator::PaginableRoom, AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
 use ruma::{
@@ -78,9 +76,13 @@ pub(super) trait RoomDataProvider:
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
 
-    fn crypto_context_info(&self) -> BoxFuture<'_, CryptoContextInfo>;
+    fn crypto_context_info(&self)
+        -> impl Future<Output = CryptoContextInfo> + SendOutsideWasm + '_;
 
-    fn profile_from_user_id<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<Profile>>;
+    fn profile_from_user_id<'a>(
+        &'a self,
+        user_id: &'a UserId,
+    ) -> impl Future<Output = Option<Profile>> + SendOutsideWasm + 'a;
     fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
 
     /// Loads a user receipt from the storage backend.
@@ -89,21 +91,26 @@ pub(super) trait RoomDataProvider:
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &'a UserId,
-    ) -> BoxFuture<'a, Option<(OwnedEventId, Receipt)>>;
+    ) -> impl Future<Output = Option<(OwnedEventId, Receipt)>> + SendOutsideWasm + 'a;
 
     /// Loads read receipts for an event from the storage backend.
     fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
-    ) -> BoxFuture<'a, IndexMap<OwnedUserId, Receipt>>;
+    ) -> impl Future<Output = IndexMap<OwnedUserId, Receipt>> + SendOutsideWasm + 'a;
 
     /// Load the current fully-read event id, from storage.
-    fn load_fully_read_marker(&self) -> BoxFuture<'_, Option<OwnedEventId>>;
+    fn load_fully_read_marker(&self) -> impl Future<Output = Option<OwnedEventId>> + '_;
 
-    fn push_rules_and_context(&self) -> BoxFuture<'_, Option<(Ruleset, PushConditionRoomCtx)>>;
+    fn push_rules_and_context(
+        &self,
+    ) -> impl Future<Output = Option<(Ruleset, PushConditionRoomCtx)>> + SendOutsideWasm + '_;
 
     /// Send an event to that room.
-    fn send(&self, content: AnyMessageLikeEventContent) -> BoxFuture<'_, Result<(), super::Error>>;
+    fn send(
+        &self,
+        content: AnyMessageLikeEventContent,
+    ) -> impl Future<Output = Result<(), super::Error>> + SendOutsideWasm + '_;
 
     /// Redact an event from that room.
     fn redact<'a>(
@@ -111,7 +118,7 @@ pub(super) trait RoomDataProvider:
         event_id: &'a EventId,
         reason: Option<&'a str>,
         transaction_id: Option<OwnedTransactionId>,
-    ) -> BoxFuture<'a, Result<(), super::Error>>;
+    ) -> impl Future<Output = Result<(), super::Error>> + SendOutsideWasm + 'a;
 
     fn room_info(&self) -> Subscriber<RoomInfo>;
 }
@@ -125,27 +132,24 @@ impl RoomDataProvider for Room {
         (**self).clone_info().room_version_or_default()
     }
 
-    fn crypto_context_info(&self) -> BoxFuture<'_, CryptoContextInfo> {
-        async move { self.crypto_context_info().await }.boxed()
+    async fn crypto_context_info(&self) -> CryptoContextInfo {
+        self.crypto_context_info().await
     }
 
-    fn profile_from_user_id<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<Profile>> {
-        async move {
-            match self.get_member_no_sync(user_id).await {
-                Ok(Some(member)) => Some(Profile {
-                    display_name: member.display_name().map(ToOwned::to_owned),
-                    display_name_ambiguous: member.name_ambiguous(),
-                    avatar_url: member.avatar_url().map(ToOwned::to_owned),
-                }),
-                Ok(None) if self.are_members_synced() => Some(Profile::default()),
-                Ok(None) => None,
-                Err(e) => {
-                    error!(%user_id, "Failed to fetch room member information: {e}");
-                    None
-                }
+    async fn profile_from_user_id<'a>(&'a self, user_id: &'a UserId) -> Option<Profile> {
+        match self.get_member_no_sync(user_id).await {
+            Ok(Some(member)) => Some(Profile {
+                display_name: member.display_name().map(ToOwned::to_owned),
+                display_name_ambiguous: member.name_ambiguous(),
+                avatar_url: member.avatar_url().map(ToOwned::to_owned),
+            }),
+            Ok(None) if self.are_members_synced() => Some(Profile::default()),
+            Ok(None) => None,
+            Err(e) => {
+                error!(%user_id, "Failed to fetch room member information: {e}");
+                None
             }
         }
-        .boxed()
     }
 
     fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile> {
@@ -160,128 +164,110 @@ impl RoomDataProvider for Room {
         })
     }
 
-    fn load_user_receipt<'a>(
+    async fn load_user_receipt<'a>(
         &'a self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
         user_id: &'a UserId,
-    ) -> BoxFuture<'a, Option<(OwnedEventId, Receipt)>> {
-        async move {
-            match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
-                Ok(receipt) => receipt,
-                Err(e) => {
-                    error!(
-                        ?receipt_type,
-                        ?thread,
-                        ?user_id,
-                        "Failed to get read receipt for user: {e}"
-                    );
-                    None
-                }
+    ) -> Option<(OwnedEventId, Receipt)> {
+        match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                error!(
+                    ?receipt_type,
+                    ?thread,
+                    ?user_id,
+                    "Failed to get read receipt for user: {e}"
+                );
+                None
             }
         }
-        .boxed()
     }
 
-    fn load_event_receipts<'a>(
+    async fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
-    ) -> BoxFuture<'a, IndexMap<OwnedUserId, Receipt>> {
-        async move {
-            let mut unthreaded_receipts = match self
-                .load_event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
-                .await
-            {
-                Ok(receipts) => receipts.into_iter().collect(),
-                Err(e) => {
-                    error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
-                    IndexMap::new()
-                }
-            };
+    ) -> IndexMap<OwnedUserId, Receipt> {
+        let mut unthreaded_receipts = match self
+            .load_event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+            .await
+        {
+            Ok(receipts) => receipts.into_iter().collect(),
+            Err(e) => {
+                error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
+                IndexMap::new()
+            }
+        };
 
-            let main_thread_receipts = match self
-                .load_event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id)
-                .await
-            {
-                Ok(receipts) => receipts,
-                Err(e) => {
-                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
-                    Vec::new()
-                }
-            };
+        let main_thread_receipts = match self
+            .load_event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id)
+            .await
+        {
+            Ok(receipts) => receipts,
+            Err(e) => {
+                error!(?event_id, "Failed to get main thread read receipts for event: {e}");
+                Vec::new()
+            }
+        };
 
-            unthreaded_receipts.extend(main_thread_receipts);
-            unthreaded_receipts
-        }
-        .boxed()
+        unthreaded_receipts.extend(main_thread_receipts);
+        unthreaded_receipts
     }
 
-    fn push_rules_and_context(&self) -> BoxFuture<'_, Option<(Ruleset, PushConditionRoomCtx)>> {
-        async {
-            match self.push_context().await {
-                Ok(Some(push_context)) => match self.client().account().push_rules().await {
-                    Ok(push_rules) => Some((push_rules, push_context)),
-                    Err(e) => {
-                        error!("Could not get push rules: {e}");
-                        None
-                    }
-                },
-                Ok(None) => {
-                    debug!("Could not aggregate push context");
-                    None
-                }
+    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
+        match self.push_context().await {
+            Ok(Some(push_context)) => match self.client().account().push_rules().await {
+                Ok(push_rules) => Some((push_rules, push_context)),
                 Err(e) => {
-                    error!("Could not get push context: {e}");
+                    error!("Could not get push rules: {e}");
                     None
                 }
+            },
+            Ok(None) => {
+                debug!("Could not aggregate push context");
+                None
+            }
+            Err(e) => {
+                error!("Could not get push context: {e}");
+                None
             }
         }
-        .boxed()
     }
 
-    fn load_fully_read_marker(&self) -> BoxFuture<'_, Option<OwnedEventId>> {
-        async {
-            match self.account_data_static::<FullyReadEventContent>().await {
-                Ok(Some(fully_read)) => match fully_read.deserialize() {
-                    Ok(fully_read) => Some(fully_read.content.event_id),
-                    Err(e) => {
-                        error!("Failed to deserialize fully-read account data: {e}");
-                        None
-                    }
-                },
+    async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
+        match self.account_data_static::<FullyReadEventContent>().await {
+            Ok(Some(fully_read)) => match fully_read.deserialize() {
+                Ok(fully_read) => Some(fully_read.content.event_id),
                 Err(e) => {
-                    error!("Failed to get fully-read account data from the store: {e}");
+                    error!("Failed to deserialize fully-read account data: {e}");
                     None
                 }
-                _ => None,
+            },
+            Err(e) => {
+                error!("Failed to get fully-read account data from the store: {e}");
+                None
             }
+            _ => None,
         }
-        .boxed()
     }
 
-    fn send(&self, content: AnyMessageLikeEventContent) -> BoxFuture<'_, Result<(), super::Error>> {
-        async move {
-            let _ = self.send_queue().send(content).await?;
-            Ok(())
-        }
-        .boxed()
+    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
+        let _ = self.send_queue().send(content).await?;
+        Ok(())
     }
 
-    fn redact<'a>(
+    async fn redact<'a>(
         &'a self,
         event_id: &'a EventId,
         reason: Option<&'a str>,
         transaction_id: Option<OwnedTransactionId>,
-    ) -> BoxFuture<'a, Result<(), super::Error>> {
-        async move {
-            let _ = self
-                .redact(event_id, reason, transaction_id)
-                .await
-                .map_err(RedactError::HttpError)
-                .map_err(super::Error::RedactError)?;
-            Ok(())
-        }
-        .boxed()
+    ) -> Result<(), super::Error> {
+        let _ = self
+            .redact(event_id, reason, transaction_id)
+            .await
+            .map_err(RedactError::HttpError)
+            .map_err(super::Error::RedactError)?;
+        Ok(())
     }
 
     fn room_info(&self) -> Subscriber<RoomInfo> {
