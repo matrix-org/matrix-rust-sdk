@@ -215,7 +215,7 @@ impl LeftRoomUpdate {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for LeftRoomUpdate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LeftRoom")
+        f.debug_struct("LeftRoomUpdate")
             .field("timeline", &self.timeline)
             .field("state", &DebugListOfRawEvents(&self.state))
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
