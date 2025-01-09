@@ -25,14 +25,10 @@ use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, warn};
 
 use super::{
-    controller::{
-        AllRemoteEvents, FullEventMeta, ObservableItemsTransaction, TimelineMetadata,
-        TimelineState, TimelineStateTransaction,
-    },
-    traits::RoomDataProvider,
-    util::{rfind_event_by_id, RelativePosition},
-    TimelineItem,
+    rfind_event_by_id, AllRemoteEvents, FullEventMeta, ObservableItemsTransaction,
+    RoomDataProvider, TimelineMetadata, TimelineState,
 };
+use crate::timeline::{controller::TimelineStateTransaction, util::RelativePosition, TimelineItem};
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
