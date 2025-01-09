@@ -28,6 +28,7 @@ use matrix_sdk_test::{
     SyncResponseBuilder,
 };
 use ruma::{
+    api::client::room::Visibility,
     directory::PublicRoomsChunk,
     events::{
         room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, MessageLikeEventType,
@@ -563,6 +564,46 @@ impl MatrixMockServer {
     pub fn mock_public_rooms(&self) -> MockEndpoint<'_, PublicRoomsEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"/_matrix/client/v3/publicRooms"));
         MockEndpoint { mock, server: &self.server, endpoint: PublicRoomsEndpoint }
+    }
+
+    /// Create a prebuilt mock for getting a room's visibility in the room
+    /// directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    /// use ruma::api::client::room::Visibility;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_get_room_visibility()
+    ///     .ok(Visibility::Public)
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// let visibility = room
+    ///     .privacy_settings()
+    ///     .get_room_visibility()
+    ///     .await
+    ///     .expect("We should be able to get the room's visibility");
+    /// assert_eq!(visibility, Visibility::Public);
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_directory_get_room_visibility(
+        &self,
+    ) -> MockEndpoint<'_, GetRoomVisibilityEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/v3/directory/list/room/.*$"));
+        MockEndpoint { mock, server: &self.server, endpoint: GetRoomVisibilityEndpoint }
     }
 
     /// Create a prebuilt mock for fetching information about key storage
@@ -1816,6 +1857,19 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
                 "total_room_count_estimate": chunk.len(),
             }))
         });
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for getting the room's visibility in the room directory.
+pub struct GetRoomVisibilityEndpoint;
+
+impl<'a> MockEndpoint<'a, GetRoomVisibilityEndpoint> {
+    /// Returns an endpoint that get the room's public visibility.
+    pub fn ok(self, visibility: Visibility) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "visibility": visibility,
+        })));
         MatrixMock { server: self.server, mock }
     }
 }

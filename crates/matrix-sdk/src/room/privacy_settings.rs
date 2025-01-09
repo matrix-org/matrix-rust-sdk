@@ -1,6 +1,6 @@
 use matrix_sdk_base::Room as BaseRoom;
 use ruma::{
-    api::client::state::send_state_event,
+    api::client::{directory::get_room_visibility, room::Visibility, state::send_state_event},
     assign,
     events::{
         room::{
@@ -96,6 +96,16 @@ impl<'a> RoomPrivacySettings<'a> {
         self.client.send(request).await?;
         Ok(())
     }
+
+    /// Returns the visibility for this room in the room directory.
+    ///
+    /// [Public](`Visibility::Public`) rooms are listed in the room directory
+    /// and can be found using it.
+    pub async fn get_room_visibility(&'a self) -> Result<Visibility> {
+        let request = get_room_visibility::v3::Request::new(self.room.room_id().to_owned());
+        let response = self.client.send(request).await?;
+        Ok(response.visibility)
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -179,6 +189,26 @@ mod tests {
 
     #[async_test]
     async fn test_update_join_rule() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        server
+            .mock_room_send_state()
+            .for_type(StateEventType::RoomJoinRules)
+            .ok(event_id!("$a:b.c"))
+            .mock_once()
+            .mount()
+            .await;
+
+        let ret = room.privacy_settings().update_join_rule(JoinRule::Public).await;
+        assert!(ret.is_ok());
+    }
+
+    #[async_test]
+    async fn test_get_room_visibility() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
