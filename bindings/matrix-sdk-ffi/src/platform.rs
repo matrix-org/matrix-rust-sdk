@@ -285,11 +285,11 @@ const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[LogTarget::Hyper];
 
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
-    /// The desired LogLevel, corresponding to https://docs.rs/log/latest/log/enum.Level.html
+    /// The desired log level
     log_level: LogLevel,
 
     /// The target name under which the FFI client will log messages using
-    /// `tracing::log_event`
+    /// [`tracing::log_event`]
     app_target: String,
 
     /// Whether to log to stdout, or in the logcat on Android.
@@ -301,12 +301,12 @@ pub struct TracingConfiguration {
 
 fn build_tracing_filter(config: &TracingConfiguration) -> String {
     // We are intentionally not setting a global log level because we don't want to
-    // risk 3rd party crates logging sensitive information.
+    // risk third party crates logging sensitive information.
     // As such we need to make sure that panics will be properly logged.
     // On 2025-01-08, `log_panics` uses the `panic` target, at the error log level.
     let mut filters = vec!["panic=error".to_owned()];
 
-    // We're also need to include the target name that the FII client uses
+    // We also need to include the target name that the FFI client uses
     filters.push(format!("{}={}", config.app_target, config.log_level.as_str()));
 
     DEFAULT_TARGET_LOG_LEVELS.iter().for_each(|(target, level)| {
