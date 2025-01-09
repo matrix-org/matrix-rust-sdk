@@ -14,7 +14,7 @@
 
 use std::{fmt::Formatter, sync::Arc};
 
-use futures_util::{stream, FutureExt as _, StreamExt};
+use futures_util::{stream, StreamExt};
 use matrix_sdk::{
     config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
     SendOutsideWasm, SyncOutsideWasm,
@@ -151,7 +151,7 @@ impl PinnedEventsRoom for Room {
         request_config: Option<RequestConfig>,
         related_event_filters: Option<Vec<RelationType>>,
     ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>> {
-        async move {
+        Box::pin(async move {
             if let Ok((cache, _handles)) = self.event_cache().await {
                 if let Some(ret) = cache.event_with_relations(event_id, related_event_filters).await
                 {
@@ -165,8 +165,7 @@ impl PinnedEventsRoom for Room {
                 .await
                 .map(|e| (e.into(), Vec::new()))
                 .map_err(|err| PaginatorError::SdkError(Box::new(err)))
-        }
-        .boxed()
+        })
     }
 
     fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {

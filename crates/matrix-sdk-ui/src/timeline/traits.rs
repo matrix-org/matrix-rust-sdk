@@ -21,7 +21,8 @@ use indexmap::IndexMap;
 use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustRequirement};
 use matrix_sdk::{
     crypto::types::events::CryptoContextInfo, deserialized_responses::TimelineEvent,
-    event_cache::paginator::PaginableRoom, BoxFuture, Result, Room,
+    event_cache::paginator::PaginableRoom, AsyncTraitDeps, BoxFuture, Result, Room,
+    SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
 use ruma::{
@@ -47,7 +48,8 @@ pub trait RoomExt {
     /// independent events.
     ///
     /// This is the same as using `room.timeline_builder().build()`.
-    fn timeline(&self) -> impl Future<Output = Result<Timeline, timeline::Error>> + Send;
+    fn timeline(&self)
+        -> impl Future<Output = Result<Timeline, timeline::Error>> + SendOutsideWasm;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -289,11 +291,11 @@ impl RoomDataProvider for Room {
 
 // Internal helper to make most of retry_event_decryption independent of a room
 // object, which is annoying to create for testing and not really needed
-pub(super) trait Decryptor: Clone + Send + Sync + 'static {
+pub(super) trait Decryptor: AsyncTraitDeps + Clone + 'static {
     fn decrypt_event_impl(
         &self,
         raw: &Raw<AnySyncTimelineEvent>,
-    ) -> impl Future<Output = Result<TimelineEvent>> + Send;
+    ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm;
 }
 
 impl Decryptor for Room {
