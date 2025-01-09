@@ -27,7 +27,7 @@ use matrix_sdk::{
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
-    Result, Room,
+    Result, Room, SendOutsideWasm,
 };
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
@@ -479,7 +479,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     pub(super) async fn subscribe(
         &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Send) {
+    ) -> (
+        Vector<Arc<TimelineItem>>,
+        impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
+    ) {
         trace!("Creating timeline items signal");
         let state = self.state.read().await;
         (state.items.clone_items(), state.items.subscribe().into_stream())
