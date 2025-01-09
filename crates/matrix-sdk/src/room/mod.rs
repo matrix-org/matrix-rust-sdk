@@ -145,6 +145,7 @@ use crate::{
     room::{
         knock_requests::{KnockRequest, KnockRequestMemberInfo},
         power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
+        privacy_settings::RoomPrivacySettings,
     },
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
@@ -161,6 +162,9 @@ pub mod knock_requests;
 mod member;
 mod messages;
 pub mod power_levels;
+
+/// Contains all the functionality for modifying the privacy settings in a room.
+pub mod privacy_settings;
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -3356,6 +3360,11 @@ impl Room {
                 ))
             })
             .collect())
+    }
+
+    /// Access the room settings related to privacy and visibility.
+    pub fn privacy_settings(&self) -> RoomPrivacySettings<'_> {
+        RoomPrivacySettings::new(&self.inner, &self.client)
     }
 }
 
