@@ -112,14 +112,3 @@ pub(super) fn rfind_event_by_item_id<'a>(
         TimelineEventItemId::EventId(event_id) => rfind_event_by_id(items, event_id),
     }
 }
-
-/// Result of comparing events position in the timeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum RelativePosition {
-    /// Event B is after (more recent than) event A.
-    After,
-    /// They are the same event.
-    Same,
-    /// Event B is before (older than) event A.
-    Before,
-}

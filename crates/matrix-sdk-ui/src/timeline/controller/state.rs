@@ -50,7 +50,7 @@ use super::{
         ObservableItemsTransactionEntry,
     },
     read_receipts::ReadReceipts,
-    DateDividerMode, HandleManyEventsResult, TimelineFocusKind, TimelineSettings,
+    DateDividerMode, HandleManyEventsResult, RelativePosition, TimelineFocusKind, TimelineSettings,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -64,7 +64,7 @@ use crate::{
         item::TimelineUniqueId,
         reactions::Reactions,
         traits::RoomDataProvider,
-        util::{rfind_event_by_id, RelativePosition},
+        util::rfind_event_by_id,
         Profile, TimelineItem, TimelineItemKind,
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -1110,7 +1110,7 @@ impl TimelineMetadata {
     /// known.
     ///
     /// Returns `None` if none of the two events could be found in the timeline.
-    pub fn compare_events_positions(
+    pub(in crate::timeline) fn compare_events_positions(
         &self,
         event_a: &EventId,
         event_b: &EventId,
