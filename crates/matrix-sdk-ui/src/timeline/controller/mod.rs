@@ -86,6 +86,7 @@ use crate::{
 };
 
 mod observable_items;
+mod read_receipts;
 mod state;
 
 /// Data associated to the current timeline focus.

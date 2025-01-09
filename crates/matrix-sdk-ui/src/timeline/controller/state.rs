@@ -49,6 +49,7 @@ use super::{
         AllRemoteEvents, ObservableItems, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
     },
+    read_receipts::ReadReceipts,
     DateDividerMode, HandleManyEventsResult, TimelineFocusKind, TimelineSettings,
 };
 use crate::{
@@ -62,7 +63,6 @@ use crate::{
         event_item::{PollState, RemoteEventOrigin, ResponseData},
         item::TimelineUniqueId,
         reactions::Reactions,
-        read_receipts::ReadReceipts,
         traits::RoomDataProvider,
         util::{rfind_event_by_id, RelativePosition},
         Profile, TimelineItem, TimelineItemKind,
@@ -1058,7 +1058,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// Read receipts related state.
     ///
     /// TODO: move this over to the event cache (see also #3058).
-    pub read_receipts: ReadReceipts,
+    pub(in crate::timeline::controller) read_receipts: ReadReceipts,
 }
 
 /// Maximum number of stash pending edits.

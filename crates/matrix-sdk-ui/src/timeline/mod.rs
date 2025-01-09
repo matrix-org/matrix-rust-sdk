@@ -69,7 +69,6 @@ mod item;
 mod pagination;
 mod pinned_events_loader;
 mod reactions;
-mod read_receipts;
 #[cfg(test)]
 mod tests;
 mod to_device;
