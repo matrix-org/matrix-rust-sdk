@@ -68,7 +68,7 @@ use super::{
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     traits::{Decryptor, RoomDataProvider},
-    util::{rfind_event_by_id, rfind_event_item, RelativePosition},
+    util::{rfind_event_by_id, rfind_event_item},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
     PaginationError, Profile, ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId,
     TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
@@ -1648,4 +1648,15 @@ async fn fetch_replied_to_event(
         Err(e) => TimelineDetails::Error(Arc::new(e)),
     };
     Ok(res)
+}
+
+/// Result of comparing events position in the timeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::timeline) enum RelativePosition {
+    /// Event B is after (more recent than) event A.
+    After,
+    /// They are the same event.
+    Same,
+    /// Event B is before (older than) event A.
+    Before,
 }

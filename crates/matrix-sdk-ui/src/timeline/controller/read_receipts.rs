@@ -26,9 +26,9 @@ use tracing::{debug, error, warn};
 
 use super::{
     rfind_event_by_id, AllRemoteEvents, FullEventMeta, ObservableItemsTransaction,
-    RoomDataProvider, TimelineMetadata, TimelineState,
+    RelativePosition, RoomDataProvider, TimelineMetadata, TimelineState,
 };
-use crate::timeline::{controller::TimelineStateTransaction, util::RelativePosition, TimelineItem};
+use crate::timeline::{controller::TimelineStateTransaction, TimelineItem};
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
