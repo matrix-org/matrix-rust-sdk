@@ -1,6 +1,10 @@
 use matrix_sdk_base::Room as BaseRoom;
 use ruma::{
-    api::client::{directory::get_room_visibility, room::Visibility, state::send_state_event},
+    api::client::{
+        directory::{get_room_visibility, set_room_visibility},
+        room::Visibility,
+        state::send_state_event,
+    },
     assign,
     events::{
         room::{
@@ -10,9 +14,9 @@ use ruma::{
         },
         EmptyStateKey,
     },
-    OwnedRoomAliasId,
+    OwnedRoomAliasId, RoomAliasId,
 };
-use ruma::api::client::directory::set_room_visibility;
+
 use crate::{Client, Result};
 
 /// A helper to group the methods in [Room](crate::Room) related to the room's
@@ -26,6 +30,24 @@ pub struct RoomPrivacySettings<'a> {
 impl<'a> RoomPrivacySettings<'a> {
     pub(crate) fn new(room: &'a BaseRoom, client: &'a Client) -> Self {
         Self { room, client }
+    }
+
+    /// Publish a new room alias for this room in the room directory.
+    ///
+    /// Returns:
+    /// - `true` if the room alias didn't exist and it's now published.
+    /// - `false` if the room alias was already present so it couldn't be
+    ///   published.
+    pub async fn publish_room_alias_in_room_directory(
+        &'a self,
+        alias: &RoomAliasId,
+    ) -> Result<bool> {
+        if self.client.is_room_alias_available(alias).await? {
+            self.client.create_room_alias(alias, self.room.room_id()).await?;
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     /// Update the canonical alias of the room.
@@ -123,8 +145,11 @@ impl<'a> RoomPrivacySettings<'a> {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    use std::ops::Not;
+
     use matrix_sdk_test::async_test;
     use ruma::{
+        api::client::room::Visibility,
         event_id,
         events::{
             room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
@@ -132,8 +157,68 @@ mod tests {
         },
         owned_room_alias_id, room_id,
     };
-    use ruma::api::client::room::Visibility;
+
     use crate::test_utils::mocks::MatrixMockServer;
+
+    #[async_test]
+    async fn test_publish_room_alias_to_room_directory() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        let room_alias = owned_room_alias_id!("#a:b.c");
+
+        // First we'd check if the new alias needs to be created
+        server
+            .mock_room_directory_resolve_alias()
+            .for_alias(room_alias.to_string())
+            .not_found()
+            .mock_once()
+            .mount()
+            .await;
+
+        // After that, we'd create a new room alias association in the room directory
+        server.mock_room_directory_create_room_alias().ok().mock_once().mount().await;
+
+        let published = room
+            .privacy_settings()
+            .publish_room_alias_in_room_directory(&room_alias)
+            .await
+            .expect("we should get a result value, not an error");
+        assert!(published);
+    }
+
+    #[async_test]
+    async fn test_publish_room_alias_to_room_directory_when_alias_exists() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        let room_alias = owned_room_alias_id!("#a:b.c");
+
+        // First we'd check if the new alias needs to be created. It does not.
+        server
+            .mock_room_directory_resolve_alias()
+            .for_alias(room_alias.to_string())
+            .ok(room_id.as_ref(), Vec::new())
+            .mock_once()
+            .mount()
+            .await;
+
+        // Since the room alias already exists we won't create it again.
+        server.mock_room_directory_create_room_alias().ok().never().mount().await;
+
+        let published = room
+            .privacy_settings()
+            .publish_room_alias_in_room_directory(&room_alias)
+            .await
+            .expect("we should get a result value, not an error");
+        assert!(published.not());
+    }
 
     #[async_test]
     async fn test_update_canonical_alias_with_some_value() {

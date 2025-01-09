@@ -27,6 +27,7 @@ use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
 };
+use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
     api::client::room::Visibility,
     directory::PublicRoomsChunk,
@@ -510,14 +511,69 @@ impl MatrixMockServer {
     }
 
     /// Create a prebuilt mock for resolving room aliases.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{owned_room_id, room_alias_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_resolve_alias()
+    ///     .ok("!a:b.c", Vec::new())
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let res = client
+    ///     .resolve_room_alias(room_alias_id!("#a:b.c"))
+    ///     .await
+    ///     .expect("We should be able to resolve the room alias");
+    /// assert_eq!(res.room_id, owned_room_id!("!a:b.c"));
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn mock_room_directory_resolve_alias(&self) -> MockEndpoint<'_, ResolveRoomAliasEndpoint> {
         let mock =
             Mock::given(method("GET")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: ResolveRoomAliasEndpoint }
     }
 
-    /// Create a prebuilt mock for creating room aliases.
-    pub fn mock_create_room_alias(&self) -> MockEndpoint<'_, CreateRoomAliasEndpoint> {
+    /// Create a prebuilt mock for publishing room aliases in the room
+    /// directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{room_alias_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_create_room_alias()
+    ///     .ok()
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// client
+    ///     .create_room_alias(room_alias_id!("#a:b.c"), room_id!("!a:b.c"))
+    ///     .await
+    ///     .expect("We should be able to create a room alias");
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_directory_create_room_alias(
+        &self,
+    ) -> MockEndpoint<'_, CreateRoomAliasEndpoint> {
         let mock =
             Mock::given(method("PUT")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: CreateRoomAliasEndpoint }
@@ -871,6 +927,29 @@ impl From<KnockedRoomBuilder> for AnyRoomBuilder {
     }
 }
 
+/// The [path percent-encode set] as defined in the WHATWG URL standard + `/`
+/// since we always encode single segments of the path.
+///
+/// [path percent-encode set]: https://url.spec.whatwg.org/#path-percent-encode-set
+///
+/// Copied from Ruma:
+/// https://github.com/ruma/ruma/blob/e4cb409ff3aaa16f31a7fe1e61fee43b2d144f7b/crates/ruma-common/src/percent_encode.rs#L7
+const PATH_PERCENT_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}')
+    .add(b'/');
+
+fn percent_encoded_path(path: &str) -> String {
+    percent_encoding::utf8_percent_encode(path, PATH_PERCENT_ENCODE_SET).to_string()
+}
+
 /// A wrapper for a [`Mock`] as well as a [`MockServer`], allowing us to call
 /// [`Mock::mount`] or [`Mock::mount_as_scoped`] without having to pass the
 /// [`MockServer`] reference (i.e. call `mount()` instead of `mount(&server)`).
@@ -909,6 +988,11 @@ impl MatrixMock<'_> {
     /// Also verifies that it's been called once.
     pub fn mock_once(self) -> Self {
         Self { mock: self.mock.up_to_n_times(1).expect(1), ..self }
+    }
+
+    /// Makes sure the endpoint is never reached.
+    pub fn never(self) -> Self {
+        Self { mock: self.mock.expect(0), ..self }
     }
 
     /// Specify an upper limit to the number of times you would like this
@@ -1816,6 +1900,19 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
 pub struct ResolveRoomAliasEndpoint;
 
 impl<'a> MockEndpoint<'a, ResolveRoomAliasEndpoint> {
+    /// Sets up the endpoint to only intercept requests for the given room
+    /// alias.
+    pub fn for_alias(self, alias: impl Into<String>) -> Self {
+        let alias = alias.into();
+        Self {
+            mock: self.mock.and(path_regex(format!(
+                r"^/_matrix/client/v3/directory/room/{}",
+                percent_encoded_path(&alias)
+            ))),
+            ..self
+        }
+    }
+
     /// Returns a data endpoint with a resolved room alias.
     pub fn ok(self, room_id: &str, servers: Vec<String>) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
