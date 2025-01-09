@@ -41,7 +41,7 @@ use ruma::{
     api::{
         client::{
             account::whoami,
-            alias::{create_alias, get_alias},
+            alias::{create_alias, delete_alias, get_alias},
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
@@ -1204,6 +1204,13 @@ impl Client {
     /// Adds a new room alias associated with a room to the room directory.
     pub async fn create_room_alias(&self, alias: &RoomAliasId, room_id: &RoomId) -> HttpResult<()> {
         let request = create_alias::v3::Request::new(alias.to_owned(), room_id.to_owned());
+        self.send(request).await?;
+        Ok(())
+    }
+
+    /// Removes a room alias from the room directory.
+    pub async fn remove_room_alias(&self, alias: &RoomAliasId) -> HttpResult<()> {
+        let request = delete_alias::v3::Request::new(alias.to_owned());
         self.send(request).await?;
         Ok(())
     }

@@ -579,6 +579,41 @@ impl MatrixMockServer {
         MockEndpoint { mock, server: &self.server, endpoint: CreateRoomAliasEndpoint }
     }
 
+    /// Create a prebuilt mock for removing room aliases from the room
+    /// directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::room_alias_id, test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_remove_room_alias()
+    ///     .ok()
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// client
+    ///     .remove_room_alias(room_alias_id!("#a:b.c"))
+    ///     .await
+    ///     .expect("We should be able to remove the room alias");
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_directory_remove_room_alias(
+        &self,
+    ) -> MockEndpoint<'_, RemoveRoomAliasEndpoint> {
+        let mock =
+            Mock::given(method("DELETE")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
+        MockEndpoint { mock, server: &self.server, endpoint: RemoveRoomAliasEndpoint }
+    }
+
     /// Create a prebuilt mock for listing public rooms.
     ///
     /// # Examples
@@ -1937,6 +1972,17 @@ pub struct CreateRoomAliasEndpoint;
 
 impl<'a> MockEndpoint<'a, CreateRoomAliasEndpoint> {
     /// Returns a data endpoint for creating a room alias.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for removing a room alias.
+pub struct RemoveRoomAliasEndpoint;
+
+impl<'a> MockEndpoint<'a, RemoveRoomAliasEndpoint> {
+    /// Returns a data endpoint for removing a room alias.
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
         MatrixMock { server: self.server, mock }
