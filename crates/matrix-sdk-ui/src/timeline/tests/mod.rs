@@ -16,7 +16,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    future::ready,
     ops::Sub,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -25,7 +24,6 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use futures_util::FutureExt as _;
 use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
@@ -380,8 +378,8 @@ impl RoomDataProvider for TestRoomDataProvider {
         RoomVersionId::V10
     }
 
-    fn crypto_context_info(&self) -> BoxFuture<'_, CryptoContextInfo> {
-        ready(CryptoContextInfo {
+    async fn crypto_context_info(&self) -> CryptoContextInfo {
+        CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch::from_system_time(
                 SystemTime::now().sub(Duration::from_secs(60 * 3)),
             )
@@ -389,47 +387,42 @@ impl RoomDataProvider for TestRoomDataProvider {
             is_backup_configured: false,
             this_device_is_verified: true,
             backup_exists_on_server: true,
-        })
-        .boxed()
+        }
     }
 
-    fn profile_from_user_id<'a>(&'a self, _user_id: &'a UserId) -> BoxFuture<'a, Option<Profile>> {
-        ready(None).boxed()
+    async fn profile_from_user_id<'a>(&'a self, _user_id: &'a UserId) -> Option<Profile> {
+        None
     }
 
     fn profile_from_latest_event(&self, _latest_event: &LatestEvent) -> Option<Profile> {
         None
     }
 
-    fn load_user_receipt(
-        &self,
+    async fn load_user_receipt<'a>(
+        &'a self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
-        user_id: &UserId,
-    ) -> BoxFuture<'_, Option<(OwnedEventId, Receipt)>> {
-        ready(
-            self.initial_user_receipts
-                .get(&receipt_type)
-                .and_then(|thread_map| thread_map.get(&thread))
-                .and_then(|user_map| user_map.get(user_id))
-                .cloned(),
-        )
-        .boxed()
+        user_id: &'a UserId,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        self.initial_user_receipts
+            .get(&receipt_type)
+            .and_then(|thread_map| thread_map.get(&thread))
+            .and_then(|user_map| user_map.get(user_id))
+            .cloned()
     }
 
-    fn load_event_receipts(
-        &self,
-        event_id: &EventId,
-    ) -> BoxFuture<'_, IndexMap<OwnedUserId, Receipt>> {
-        ready(if event_id == event_id!("$event_with_bob_receipt") {
+    async fn load_event_receipts<'a>(
+        &'a self,
+        event_id: &'a EventId,
+    ) -> IndexMap<OwnedUserId, Receipt> {
+        if event_id == event_id!("$event_with_bob_receipt") {
             [(BOB.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch(uint!(10))))].into()
         } else {
             IndexMap::new()
-        })
-        .boxed()
+        }
     }
 
-    fn push_rules_and_context(&self) -> BoxFuture<'_, Option<(Ruleset, PushConditionRoomCtx)>> {
+    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
         let push_rules = Ruleset::server_default(&ALICE);
         let power_levels = PushConditionPowerLevelsCtx {
             users: BTreeMap::new(),
@@ -444,32 +437,26 @@ impl RoomDataProvider for TestRoomDataProvider {
             power_levels: Some(power_levels),
         };
 
-        ready(Some((push_rules, push_context))).boxed()
+        Some((push_rules, push_context))
     }
 
-    fn load_fully_read_marker(&self) -> BoxFuture<'_, Option<OwnedEventId>> {
-        ready(self.fully_read_marker.clone()).boxed()
+    async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
+        self.fully_read_marker.clone()
     }
 
-    fn send(&self, content: AnyMessageLikeEventContent) -> BoxFuture<'_, Result<(), super::Error>> {
-        async move {
-            self.sent_events.write().await.push(content);
-            Ok(())
-        }
-        .boxed()
+    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
+        self.sent_events.write().await.push(content);
+        Ok(())
     }
 
-    fn redact<'a>(
+    async fn redact<'a>(
         &'a self,
         event_id: &'a EventId,
         _reason: Option<&'a str>,
         _transaction_id: Option<OwnedTransactionId>,
-    ) -> BoxFuture<'a, Result<(), super::Error>> {
-        async move {
-            self.redacted.write().await.push(event_id.to_owned());
-            Ok(())
-        }
-        .boxed()
+    ) -> Result<(), super::Error> {
+        self.redacted.write().await.push(event_id.to_owned());
+        Ok(())
     }
 
     fn room_info(&self) -> Subscriber<RoomInfo> {
