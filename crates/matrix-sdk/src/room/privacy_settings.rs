@@ -1,12 +1,11 @@
 use matrix_sdk_base::Room as BaseRoom;
 use ruma::{
-    api::client::{
-        state::send_state_event,
-    },
+    api::client::state::send_state_event,
     assign,
     events::{
         room::{
             canonical_alias::RoomCanonicalAliasEventContent,
+            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
         },
         EmptyStateKey,
     },
@@ -61,16 +60,33 @@ impl<'a> RoomPrivacySettings<'a> {
 
         Ok(())
     }
+
+    /// Update room history visibility for this room.
+    ///
+    /// The history visibility controls whether a user can see the events that
+    /// happened in a room before they joined.
+    ///
+    /// See <https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias> for more info.
+    pub async fn update_room_history_visibility(
+        &'a self,
+        new_value: HistoryVisibility,
+    ) -> Result<()> {
+        let request = send_state_event::v3::Request::new(
+            self.room.room_id().to_owned(),
+            &EmptyStateKey,
+            &RoomHistoryVisibilityEventContent::new(new_value),
+        )?;
+        self.client.send(request).await?;
+        Ok(())
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_test::{async_test};
+    use matrix_sdk_test::async_test;
     use ruma::{
         event_id,
-        events::{
-            StateEventType,
-        },
+        events::{room::history_visibility::HistoryVisibility, StateEventType},
         owned_room_alias_id, room_id,
     };
 
@@ -117,6 +133,27 @@ mod tests {
             .await;
 
         let ret = room.privacy_settings().update_canonical_alias(None, Vec::new()).await;
+        assert!(ret.is_ok());
+    }
+
+    #[async_test]
+    async fn test_update_room_history_visibility() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        server
+            .mock_room_send_state()
+            .for_type(StateEventType::RoomHistoryVisibility)
+            .ok(event_id!("$a:b.c"))
+            .mock_once()
+            .mount()
+            .await;
+
+        let ret =
+            room.privacy_settings().update_room_history_visibility(HistoryVisibility::Joined).await;
         assert!(ret.is_ok());
     }
 }
