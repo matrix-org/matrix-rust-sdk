@@ -1160,8 +1160,7 @@ impl Oidc {
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )
-            .await
-            .map_err(crate::Error::from)?;
+            .await?;
         // At this point the Olm machine has been set up.
 
         // Enable the cross-process lock for refreshes, if needs be.
@@ -1313,8 +1312,7 @@ impl Oidc {
                 refresh_token.clone(),
                 latest_id_token.clone(),
             )
-            .await
-            .map_err(OidcError::from)?;
+            .await?;
 
         trace!(
             "Token refresh: new refresh_token: {} / access_token: {:x}",

@@ -803,7 +803,7 @@ mod tests {
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d']);
 
         // Empty updates first.
-        let _ = linked_chunk.updates().take();
+        let _ = linked_chunk.updates().unwrap().take();
 
         // Start observing future updates.
         let mut as_vector = linked_chunk.as_vector().unwrap();
