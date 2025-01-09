@@ -979,6 +979,84 @@ async fn test_limited_timeline_with_storage() {
 }
 
 #[async_test]
+async fn test_limited_timeline_without_storage() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+    // Get a sync for a non-limited timeline, but with a prev-batch token.
+    //
+    // When we don't have storage, we should still keep this prev-batch around,
+    // because the previous sync events may not have been saved to disk in the
+    // first place.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hey yo"))
+                .set_timeline_prev_batch("prev-batch".to_owned()),
+        )
+        .await;
+
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+
+    // This is racy: either the sync has been handled, or it hasn't yet.
+    if initial_events.is_empty() {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+
+        assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "hey yo");
+    } else {
+        assert_eq!(initial_events.len(), 1);
+        assert_event_matches_msg(&initial_events[0], "hey yo");
+    }
+
+    // Back-pagination should thus work. The real assertion is in the "mock_once"
+    // call, which checks this endpoint is called once.
+    server
+        .mock_room_messages()
+        .from("prev-batch")
+        .ok(
+            "start-token-unused2".to_owned(),
+            None,
+            vec![f.text_msg("oh well").event_id(event_id!("$1"))],
+            Vec::new(),
+        )
+        .mock_once()
+        .mount()
+        .await;
+
+    // We run back-pagination with success.
+    room_event_cache.pagination().run_backwards(20, once).await.unwrap();
+
+    // And we get the back-paginated event.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+
+    assert_let!(VectorDiff::Insert { index: 0, value: event } = &diffs[0]);
+    assert_event_matches_msg(event, "oh well");
+
+    // That's all, folks!
+    assert!(subscriber.is_empty());
+}
+
+#[async_test]
 async fn test_backpaginate_with_no_initial_events() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;

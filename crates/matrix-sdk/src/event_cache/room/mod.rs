@@ -320,10 +320,15 @@ impl RoomEventCacheInner {
             // Add all the events to the backend.
             trace!("adding new events");
 
-            // Only keep the previous-batch token if we have a limited timeline; otherwise,
-            // we know about all the events, and we don't need to back-paginate,
-            // so we wouldn't make use of the given previous-batch token.
-            let prev_batch = if timeline.limited { timeline.prev_batch } else { None };
+            // If we have storage, only keep the previous-batch token if we have a limited
+            // timeline. Otherwise, we know about all the events, and we don't need to
+            // back-paginate, so we wouldn't make use of the given previous-batch token.
+            //
+            // If we don't have storage, even if the timeline isn't limited, we may not have
+            // saved the previous events in any cache, so we should always be
+            // able to retrieve those.
+            let prev_batch =
+                if has_storage && !timeline.limited { None } else { timeline.prev_batch };
 
             let mut state = self.state.write().await;
             self.append_events_locked(
