@@ -12,7 +12,7 @@ use ruma::{
     },
     OwnedRoomAliasId,
 };
-
+use ruma::api::client::directory::set_room_visibility;
 use crate::{Client, Result};
 
 /// A helper to group the methods in [Room](crate::Room) related to the room's
@@ -106,6 +106,19 @@ impl<'a> RoomPrivacySettings<'a> {
         let response = self.client.send(request).await?;
         Ok(response.visibility)
     }
+
+    /// Update the visibility for this room in the room directory.
+    ///
+    /// [Public](`Visibility::Public`) rooms are listed in the room directory
+    /// and can be found using it.
+    pub async fn update_room_visibility(&'a self, visibility: Visibility) -> Result<()> {
+        let request =
+            set_room_visibility::v3::Request::new(self.room.room_id().to_owned(), visibility);
+
+        self.client.send(request).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -119,7 +132,7 @@ mod tests {
         },
         owned_room_alias_id, room_id,
     };
-
+    use ruma::api::client::room::Visibility;
     use crate::test_utils::mocks::MatrixMockServer;
 
     #[async_test]
@@ -224,6 +237,20 @@ mod tests {
             .await;
 
         let ret = room.privacy_settings().update_join_rule(JoinRule::Public).await;
+        assert!(ret.is_ok());
+    }
+
+    #[async_test]
+    async fn test_update_room_visibility() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        server.mock_room_directory_set_room_visibility().ok().mock_once().mount().await;
+
+        let ret = room.privacy_settings().update_room_visibility(Visibility::Private).await;
         assert!(ret.is_ok());
     }
 }

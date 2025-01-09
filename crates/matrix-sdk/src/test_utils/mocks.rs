@@ -566,6 +566,44 @@ impl MatrixMockServer {
         MockEndpoint { mock, server: &self.server, endpoint: PublicRoomsEndpoint }
     }
 
+    /// Create a prebuilt mock for setting a room's visibility in the room
+    /// directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    /// use ruma::api::client::room::Visibility;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_set_room_visibility()
+    ///     .ok()
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// room.privacy_settings()
+    ///     .update_room_visibility(Visibility::Private)
+    ///     .await
+    ///     .expect("We should be able to update the room's visibility");
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_directory_set_room_visibility(
+        &self,
+    ) -> MockEndpoint<'_, SetRoomVisibilityEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/directory/list/room/.*$"));
+        MockEndpoint { mock, server: &self.server, endpoint: SetRoomVisibilityEndpoint }
+    }
+
     /// Create a prebuilt mock for getting a room's visibility in the room
     /// directory.
     ///
@@ -1870,6 +1908,17 @@ impl<'a> MockEndpoint<'a, GetRoomVisibilityEndpoint> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "visibility": visibility,
         })));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for setting the room's visibility in the room directory.
+pub struct SetRoomVisibilityEndpoint;
+
+impl<'a> MockEndpoint<'a, SetRoomVisibilityEndpoint> {
+    /// Returns an endpoint that updates the room's visibility.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
         MatrixMock { server: self.server, mock }
     }
 }
