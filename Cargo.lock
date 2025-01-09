@@ -6407,7 +6407,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.8.1"
-source = "git+https://github.com/uhoreg/vodozemac.git?branch=dehydration_format#6778b11756c5c272a9d6747f8ef4998f52eac379"
+source = "git+https://github.com/uhoreg/vodozemac.git?branch=dehydration_format#e22dfcb47046f4a75b171a24929326c3979fa930"
 dependencies = [
  "aes",
  "arrayvec",

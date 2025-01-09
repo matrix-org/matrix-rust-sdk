@@ -695,12 +695,15 @@ impl Account {
     }
 
     pub(crate) fn dehydrate(&self, pickle_key: &[u8; 32]) -> Raw<DehydratedDeviceData> {
-        let (device_pickle, nonce) = self
+        let dehydration_result = self
             .inner
             .to_dehydrated_device(pickle_key)
             .expect("We should be able to convert a freshly created Account into a libolm pickle");
 
-        let data = DehydratedDeviceData::V2(DehydratedDeviceV2::new(device_pickle, nonce));
+        let data = DehydratedDeviceData::V2(DehydratedDeviceV2::new(
+            dehydration_result.ciphertext,
+            dehydration_result.nonce,
+        ));
         Raw::from_json(to_raw_value(&data).expect("Couldn't serialize our dehydrated device data"))
     }
 
