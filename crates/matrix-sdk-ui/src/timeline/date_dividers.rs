@@ -17,14 +17,40 @@
 
 use std::{fmt::Display, sync::Arc};
 
+use chrono::{Datelike, Local, TimeZone};
 use ruma::MilliSecondsSinceUnixEpoch;
 use tracing::{error, event_enabled, instrument, trace, warn, Level};
 
 use super::{
     controller::{ObservableItemsTransaction, TimelineMetadata},
-    util::timestamp_to_date,
     DateDividerMode, TimelineItem, TimelineItemKind, VirtualTimelineItem,
 };
+
+#[derive(Debug, PartialEq)]
+struct Date {
+    year: i32,
+    month: u32,
+    day: u32,
+}
+
+impl Date {
+    fn is_same_month_as(&self, date: Date) -> bool {
+        self.year == date.year && self.month == date.month
+    }
+}
+
+/// Converts a timestamp since Unix Epoch to a year, month and day.
+fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
+    let datetime = Local
+        .timestamp_millis_opt(ts.0.into())
+        // Only returns `None` if date is after Dec 31, 262143 BCE.
+        .single()
+        // Fallback to the current date to avoid issues with malicious
+        // homeservers.
+        .unwrap_or_else(Local::now);
+
+    Date { year: datetime.year(), month: datetime.month(), day: datetime.day() }
+}
 
 /// Algorithm ensuring that date dividers are adjusted correctly, according to
 /// new items that have been inserted.
@@ -618,8 +644,8 @@ mod tests {
     use super::{super::controller::ObservableItems, DateDividerAdjuster};
     use crate::timeline::{
         controller::TimelineMetadata,
+        date_dividers::timestamp_to_date,
         event_item::{EventTimelineItemKind, RemoteEventTimelineItem},
-        util::timestamp_to_date,
         DateDividerMode, EventTimelineItem, TimelineItemContent, VirtualTimelineItem,
     };
 
