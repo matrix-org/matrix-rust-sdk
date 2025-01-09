@@ -897,6 +897,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// It returns `None` if updates are disabled, i.e. if this linked chunk has
     /// been constructed with [`Self::new`], otherwise, if it's been constructed
     /// with [`Self::new_with_update_history`], it returns `Some(…)`.
+    #[must_use]
     pub fn updates(&mut self) -> Option<&mut ObservableUpdates<Item, Gap>> {
         self.updates.as_mut()
     }
