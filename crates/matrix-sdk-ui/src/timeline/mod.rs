@@ -18,6 +18,7 @@
 
 use std::{fs, path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
+use algorithms::rfind_event_by_item_id;
 use event_item::{extract_room_msg_edit_content, TimelineItemHandle};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
@@ -53,10 +54,13 @@ use ruma::{
 };
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
-use util::rfind_event_by_item_id;
 
+use self::{
+    algorithms::rfind_event_by_id, controller::TimelineController, futures::SendAttachment,
+};
 use crate::timeline::pinned_events_loader::PinnedEventsRoom;
 
+mod algorithms;
 mod builder;
 mod controller;
 mod date_dividers;
@@ -73,7 +77,6 @@ mod reactions;
 mod tests;
 mod to_device;
 mod traits;
-mod util;
 mod virtual_item;
 
 pub use self::{
@@ -93,7 +96,6 @@ pub use self::{
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
-use self::{controller::TimelineController, futures::SendAttachment, util::rfind_event_by_id};
 
 /// Information needed to reply to an event.
 #[derive(Debug, Clone)]

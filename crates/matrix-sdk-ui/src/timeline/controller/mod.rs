@@ -64,22 +64,22 @@ pub(super) use self::{
     },
 };
 use super::{
+    algorithms::{rfind_event_by_id, rfind_event_item},
     event_handler::TimelineEventKind,
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     traits::{Decryptor, RoomDataProvider},
-    util::{rfind_event_by_id, rfind_event_item},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
     PaginationError, Profile, ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId,
     TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
 use crate::{
     timeline::{
+        algorithms::rfind_event_by_item_id,
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
         reactions::FullReactionKey,
-        util::rfind_event_by_item_id,
         TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
