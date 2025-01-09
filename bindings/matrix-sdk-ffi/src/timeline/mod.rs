@@ -123,7 +123,7 @@ impl Timeline {
             .thumbnail(thumbnail)
             .info(attachment_info)
             .caption(params.caption)
-            .formatted_caption(formatted_caption.map(Into::into))
+            .formatted_caption(formatted_caption)
             .mentions(params.mentions.map(Into::into));
 
         let handle = SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {

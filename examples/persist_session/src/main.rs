@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
         (login(&data_dir, &session_file).await?, None)
     };
 
-    sync(client, sync_token, &session_file).await.map_err(Into::into)
+    sync(client, sync_token, &session_file).await
 }
 
 /// Restore a previous session.
