@@ -23,8 +23,6 @@ use std::{
 };
 
 use async_stream::stream;
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
-use async_trait::async_trait;
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::{
@@ -47,7 +45,13 @@ use matrix_sdk_base::{
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
 };
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+use matrix_sdk_common::BoxFuture;
+use matrix_sdk_common::{
+    deserialized_responses::SyncTimelineEvent,
+    executor::{spawn, JoinHandle},
+    timeout::timeout,
+};
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -199,7 +203,7 @@ impl Room {
         }
 
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         self.client.base_client().room_left(self.room_id()).await?;
         Ok(())
     }
@@ -311,7 +315,7 @@ impl Room {
     pub async fn messages(&self, options: MessagesOptions) -> Result<Messages> {
         let room_id = self.inner.room_id();
         let request = options.into_request(room_id);
-        let http_response = self.client.send(request, None).await?;
+        let http_response = self.client.send(request).await?;
 
         #[allow(unused_mut)]
         let mut response = Messages {
@@ -468,7 +472,7 @@ impl Room {
         let request =
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
-        let raw_event = self.client.send(request, request_config).await?.event;
+        let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
         let event = self.try_decrypt_event(raw_event).await?;
 
         // Save the event into the event cache, if it's set up.
@@ -498,7 +502,7 @@ impl Room {
                 LazyLoadOptions::Enabled { include_redundant_members: false };
         }
 
-        let response = self.client.send(request, request_config).await?;
+        let response = self.client.send(request).with_request_config(request_config).await?;
 
         let target_event = if let Some(event) = response.event {
             Some(self.try_decrypt_event(event).await?)
@@ -551,11 +555,11 @@ impl Room {
                 let request = get_member_events::v3::Request::new(self.inner.room_id().to_owned());
                 let response = self
                     .client
-                    .send(
-                        request.clone(),
+                    .send(request.clone())
+                    .with_request_config(
                         // In some cases it can take longer than 30s to load:
                         // https://github.com/element-hq/synapse/issues/16872
-                        Some(RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3)),
+                        RequestConfig::new().timeout(Duration::from_secs(60)).retry_limit(3),
                     )
                     .await?;
 
@@ -583,7 +587,7 @@ impl Room {
                     StateEventType::RoomEncryption,
                     "".to_owned(),
                 );
-                let response = match self.client.send(request, None).await {
+                let response = match self.client.send(request).await {
                     Ok(response) => {
                         Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
                     }
@@ -1055,7 +1059,7 @@ impl Room {
             &content,
         )?;
 
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Set the given raw account data event in this room.
@@ -1096,7 +1100,7 @@ impl Room {
             content,
         );
 
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Adds a tag to the room, or updates it if it already exists.
@@ -1141,7 +1145,7 @@ impl Room {
             tag.to_string(),
             tag_info,
         );
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Removes a tag from the room.
@@ -1157,7 +1161,7 @@ impl Room {
             self.inner.room_id().to_owned(),
             tag.to_string(),
         );
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Add or remove the `m.favourite` flag for this room.
@@ -1255,7 +1259,7 @@ impl Room {
 
         let request = set_global_account_data::v3::Request::new(user_id.to_owned(), &content)?;
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1331,7 +1335,7 @@ impl Room {
             ban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1348,7 +1352,7 @@ impl Room {
             unban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1366,7 +1370,7 @@ impl Room {
             kick_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
             { reason: reason.map(ToOwned::to_owned) }
         );
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1379,7 +1383,7 @@ impl Room {
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         // Force a future room members reload before sending any event to prevent UTDs
         // that can happen when some event is sent after a room member has been invited
@@ -1398,7 +1402,7 @@ impl Room {
     pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         // Force a future room members reload before sending any event to prevent UTDs
         // that can happen when some event is sent after a room member has been invited
@@ -1493,7 +1497,7 @@ impl Room {
             typing,
         );
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
 
         Ok(())
     }
@@ -1534,7 +1538,7 @@ impl Room {
                 );
                 request.thread = thread;
 
-                self.client.send(request, None).await?;
+                self.client.send(request).await?;
                 Ok(())
             })
             .await
@@ -1560,7 +1564,7 @@ impl Room {
             private_read_receipt,
         });
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -1813,7 +1817,7 @@ impl Room {
         // A member has no unknown devices iff it was tracked *and* the tracking is
         // not considered dirty.
         let members_with_unknown_devices =
-            members.iter().filter(|member| tracked.get(*member).map_or(true, |dirty| *dirty));
+            members.iter().filter(|member| tracked.get(*member).is_none_or(|dirty| *dirty));
 
         let (req_id, request) =
             olm.query_keys_for_users(members_with_unknown_devices.map(|owned| owned.borrow()));
@@ -1929,12 +1933,12 @@ impl Room {
     #[instrument(skip_all)]
     pub fn send_attachment<'a>(
         &'a self,
-        filename: &'a str,
+        filename: impl Into<String>,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,
     ) -> SendAttachment<'a> {
-        SendAttachment::new(self, filename, content_type, data, config)
+        SendAttachment::new(self, filename.into(), content_type, data, config)
     }
 
     /// Prepare and send an attachment to this room.
@@ -1967,7 +1971,7 @@ impl Room {
     #[instrument(skip_all)]
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
-        filename: &'a str,
+        filename: String,
         content_type: &'a Mime,
         data: Vec<u8>,
         mut config: AttachmentConfig,
@@ -2072,7 +2076,7 @@ impl Room {
     pub(crate) fn make_attachment_type(
         &self,
         content_type: &Mime,
-        filename: &str,
+        filename: String,
         source: MediaSource,
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
@@ -2083,8 +2087,8 @@ impl Room {
         // body is the filename, and the filename is not set.
         // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
         let (body, filename) = match caption {
-            Some(caption) => (caption, Some(filename.to_owned())),
-            None => (filename.to_owned(), None),
+            Some(caption) => (caption, Some(filename)),
+            None => (filename, None),
         };
 
         let (thumbnail_source, thumbnail_info) = thumbnail.unzip();
@@ -2409,7 +2413,7 @@ impl Room {
         self.ensure_room_joined()?;
         let request =
             send_state_event::v3::Request::new(self.room_id().to_owned(), state_key, &content)?;
-        let response = self.client.send(request, None).await?;
+        let response = self.client.send(request).await?;
         Ok(response)
     }
 
@@ -2463,7 +2467,7 @@ impl Room {
             content.into_raw_state_event_content(),
         );
 
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Strips all information out of an event of the room.
@@ -2513,7 +2517,7 @@ impl Room {
             { reason: reason.map(ToOwned::to_owned) }
         );
 
-        self.client.send(request, None).await
+        self.client.send(request).await
     }
 
     /// Returns true if the user with the given user_id is able to redact
@@ -2856,7 +2860,7 @@ impl Room {
         }
 
         let request = forget_room::v3::Request::new(self.inner.room_id().to_owned());
-        let _response = self.client.send(request, None).await?;
+        let _response = self.client.send(request).await?;
 
         // If it was a DM, remove the room from the `m.direct` global account data.
         if self.inner.direct_targets_length() != 0 {
@@ -2967,7 +2971,7 @@ impl Room {
             score.map(Into::into),
             reason,
         );
-        Ok(self.client.send(request, None).await?)
+        Ok(self.client.send(request).await?)
     }
 
     /// Set a flag on the room to indicate that the user has explicitly marked
@@ -2983,7 +2987,7 @@ impl Room {
             &content,
         )?;
 
-        self.client.send(request, None).await?;
+        self.client.send(request).await?;
         Ok(())
     }
 
@@ -3185,14 +3189,11 @@ impl Room {
     pub async fn load_pinned_events(&self) -> Result<Option<Vec<OwnedEventId>>> {
         let response = self
             .client
-            .send(
-                get_state_events_for_key::v3::Request::new(
-                    self.room_id().to_owned(),
-                    StateEventType::RoomPinnedEvents,
-                    "".to_owned(),
-                ),
-                None,
-            )
+            .send(get_state_events_for_key::v3::Request::new(
+                self.room_id().to_owned(),
+                StateEventType::RoomPinnedEvents,
+                "".to_owned(),
+            ))
             .await;
 
         match response {
@@ -3224,9 +3225,12 @@ impl Room {
     /// - A knock request is marked as seen.
     /// - A sync is gappy (limited), so room membership information may be
     ///   outdated.
+    ///
+    /// Returns both a stream of knock requests and a handle for a task that
+    /// will clean up the seen knock request ids when possible.
     pub async fn subscribe_to_knock_requests(
         &self,
-    ) -> Result<impl Stream<Item = Vec<KnockRequest>>> {
+    ) -> Result<(impl Stream<Item = Vec<KnockRequest>>, JoinHandle<()>)> {
         let this = Arc::new(self.clone());
 
         let room_member_events_observer =
@@ -3240,6 +3244,21 @@ impl Room {
             .map(|values| values.unwrap_or_default());
 
         let mut room_info_stream = self.subscribe_info();
+
+        // Spawn a task that will clean up the seen knock request ids when updated room
+        // members are received
+        let clear_seen_ids_handle = spawn({
+            let this = self.clone();
+            async move {
+                let mut member_updates_stream = this.room_member_updates_sender.subscribe();
+                while member_updates_stream.recv().await.is_ok() {
+                    // If room members were updated, try to remove outdated seen knock request ids
+                    if let Err(err) = this.remove_outdated_seen_knock_requests_ids().await {
+                        warn!("Failed to remove seen knock requests: {err}")
+                    }
+                }
+            }
+        });
 
         let combined_stream = stream! {
             // Emit current requests to join
@@ -3315,7 +3334,7 @@ impl Room {
             }
         };
 
-        Ok(combined_stream)
+        Ok((combined_stream, clear_seen_ids_handle))
     }
 
     async fn get_current_join_requests(
@@ -3341,34 +3360,37 @@ impl Room {
 }
 
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
-#[async_trait]
 impl RoomIdentityProvider for Room {
-    async fn is_member(&self, user_id: &UserId) -> bool {
-        self.get_member(user_id).await.unwrap_or(None).is_some()
+    fn is_member<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, bool> {
+        Box::pin(async { self.get_member(user_id).await.unwrap_or(None).is_some() })
     }
 
-    async fn member_identities(&self) -> Vec<UserIdentity> {
-        let members = self
-            .members(RoomMemberships::JOIN | RoomMemberships::INVITE)
-            .await
-            .unwrap_or_else(|_| Default::default());
+    fn member_identities(&self) -> BoxFuture<'_, Vec<UserIdentity>> {
+        Box::pin(async {
+            let members = self
+                .members(RoomMemberships::JOIN | RoomMemberships::INVITE)
+                .await
+                .unwrap_or_else(|_| Default::default());
 
-        let mut ret: Vec<UserIdentity> = Vec::new();
-        for member in members {
-            if let Some(i) = self.user_identity(member.user_id()).await {
-                ret.push(i);
+            let mut ret: Vec<UserIdentity> = Vec::new();
+            for member in members {
+                if let Some(i) = self.user_identity(member.user_id()).await {
+                    ret.push(i);
+                }
             }
-        }
-        ret
+            ret
+        })
     }
 
-    async fn user_identity(&self, user_id: &UserId) -> Option<UserIdentity> {
-        self.client
-            .encryption()
-            .get_user_identity(user_id)
-            .await
-            .unwrap_or(None)
-            .map(|u| u.underlying_identity())
+    fn user_identity<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<UserIdentity>> {
+        Box::pin(async {
+            self.client
+                .encryption()
+                .get_user_identity(user_id)
+                .await
+                .unwrap_or(None)
+                .map(|u| u.underlying_identity())
+        })
     }
 }
 

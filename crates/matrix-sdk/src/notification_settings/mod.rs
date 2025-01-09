@@ -453,32 +453,39 @@ impl NotificationSettings {
             match command {
                 Command::DeletePushRule { kind, rule_id } => {
                     let request = delete_pushrule::v3::Request::new(kind.clone(), rule_id.clone());
-                    self.client.send(request, request_config).await.map_err(|error| {
-                        error!("Unable to delete {kind} push rule `{rule_id}`: {error}");
-                        NotificationSettingsError::UnableToRemovePushRule
-                    })?;
+                    self.client.send(request).with_request_config(request_config).await.map_err(
+                        |error| {
+                            error!("Unable to delete {kind} push rule `{rule_id}`: {error}");
+                            NotificationSettingsError::UnableToRemovePushRule
+                        },
+                    )?;
                 }
                 Command::SetRoomPushRule { room_id, notify: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(push_rule);
-                    self.client.send(request, request_config).await.map_err(|error| {
-                        error!("Unable to set room push rule `{room_id}`: {error}");
-                        NotificationSettingsError::UnableToAddPushRule
-                    })?;
+                    self.client.send(request).with_request_config(request_config).await.map_err(
+                        |error| {
+                            error!("Unable to set room push rule `{room_id}`: {error}");
+                            NotificationSettingsError::UnableToAddPushRule
+                        },
+                    )?;
                 }
                 Command::SetOverridePushRule { rule_id, room_id: _, notify: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(push_rule);
-                    self.client.send(request, request_config).await.map_err(|error| {
-                        error!("Unable to set override push rule `{rule_id}`: {error}");
-                        NotificationSettingsError::UnableToAddPushRule
-                    })?;
+                    self.client.send(request).with_request_config(request_config).await.map_err(
+                        |error| {
+                            error!("Unable to set override push rule `{rule_id}`: {error}");
+                            NotificationSettingsError::UnableToAddPushRule
+                        },
+                    )?;
                 }
                 Command::SetKeywordPushRule { keyword: _ } => {
                     let push_rule = command.to_push_rule()?;
                     let request = set_pushrule::v3::Request::new(push_rule);
                     self.client
-                        .send(request, request_config)
+                        .send(request)
+                        .with_request_config(request_config)
                         .await
                         .map_err(|_| NotificationSettingsError::UnableToAddPushRule)?;
                 }
@@ -488,10 +495,12 @@ impl NotificationSettings {
                         rule_id.clone(),
                         *enabled,
                     );
-                    self.client.send(request, request_config).await.map_err(|error| {
-                        error!("Unable to set {kind} push rule `{rule_id}` enabled: {error}");
-                        NotificationSettingsError::UnableToUpdatePushRule
-                    })?;
+                    self.client.send(request).with_request_config(request_config).await.map_err(
+                        |error| {
+                            error!("Unable to set {kind} push rule `{rule_id}` enabled: {error}");
+                            NotificationSettingsError::UnableToUpdatePushRule
+                        },
+                    )?;
                 }
                 Command::SetPushRuleActions { kind, rule_id, actions } => {
                     let request = set_pushrule_actions::v3::Request::new(
@@ -499,10 +508,12 @@ impl NotificationSettings {
                         rule_id.clone(),
                         actions.clone(),
                     );
-                    self.client.send(request, request_config).await.map_err(|error| {
-                        error!("Unable to set {kind} push rule `{rule_id}` actions: {error}");
-                        NotificationSettingsError::UnableToUpdatePushRule
-                    })?;
+                    self.client.send(request).with_request_config(request_config).await.map_err(
+                        |error| {
+                            error!("Unable to set {kind} push rule `{rule_id}` actions: {error}");
+                            NotificationSettingsError::UnableToUpdatePushRule
+                        },
+                    )?;
                 }
             }
         }

@@ -86,7 +86,7 @@ impl SasVerification {
         }
 
         if let Some(s) = signature {
-            self.client.send(s, None).await?;
+            self.client.send(s).await?;
         }
 
         Ok(())

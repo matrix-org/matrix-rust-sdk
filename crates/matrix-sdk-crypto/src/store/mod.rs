@@ -43,13 +43,14 @@ use std::{
     fmt::Debug,
     ops::Deref,
     pin::pin,
-    sync::{atomic::Ordering, Arc, RwLock as StdRwLock},
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 
 use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::StreamExt;
+use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
     encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
     OwnedRoomId, OwnedUserId, UserId,
@@ -57,6 +58,7 @@ use ruma::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, MutexGuard, Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -96,7 +98,10 @@ use matrix_sdk_common::{store_locks::CrossProcessStoreLock, timeout::timeout};
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
-pub use crate::gossiping::{GossipRequest, SecretInfo};
+pub use crate::{
+    dehydrated_devices::DehydrationError,
+    gossiping::{GossipRequest, SecretInfo},
+};
 
 /// A wrapper for our CryptoStore trait object.
 ///
@@ -151,7 +156,7 @@ impl KeyQueryManager {
         let tracked_users = cache.store.load_tracked_users().await?;
 
         let mut query_users_lock = self.users_for_key_query.lock().await;
-        let mut tracked_users_cache = cache.tracked_users.write().unwrap();
+        let mut tracked_users_cache = cache.tracked_users.write();
         for user in tracked_users {
             tracked_users_cache.insert(user.user_id.to_owned());
 
@@ -241,7 +246,7 @@ impl SyncedKeyQueryManager<'_> {
         let mut key_query_lock = self.manager.users_for_key_query.lock().await;
 
         {
-            let mut tracked_users = self.cache.tracked_users.write().unwrap();
+            let mut tracked_users = self.cache.tracked_users.write();
             for user_id in users {
                 if tracked_users.insert(user_id.to_owned()) {
                     key_query_lock.insert_user(user_id);
@@ -267,7 +272,7 @@ impl SyncedKeyQueryManager<'_> {
         let mut key_query_lock = self.manager.users_for_key_query.lock().await;
 
         {
-            let tracked_users = &self.cache.tracked_users.read().unwrap();
+            let tracked_users = &self.cache.tracked_users.read();
             for user_id in users {
                 if tracked_users.contains(user_id) {
                     key_query_lock.insert_user(user_id);
@@ -293,7 +298,7 @@ impl SyncedKeyQueryManager<'_> {
         let mut key_query_lock = self.manager.users_for_key_query.lock().await;
 
         {
-            let tracked_users = self.cache.tracked_users.read().unwrap();
+            let tracked_users = self.cache.tracked_users.read();
             for user_id in users {
                 if tracked_users.contains(user_id) {
                     let clean = key_query_lock.maybe_remove_user(user_id, sequence_number);
@@ -326,7 +331,7 @@ impl SyncedKeyQueryManager<'_> {
 
     /// See the docs for [`crate::OlmMachine::tracked_users()`].
     pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        self.cache.tracked_users.read().unwrap().iter().cloned().collect()
+        self.cache.tracked_users.read().iter().cloned().collect()
     }
 
     /// Mark the given user as being tracked for device lists, and mark that it
@@ -336,7 +341,7 @@ impl SyncedKeyQueryManager<'_> {
     /// next time [`Store::users_for_key_query()`] is called.
     pub async fn mark_user_as_changed(&self, user: &UserId) -> Result<()> {
         self.manager.users_for_key_query.lock().await.insert_user(user);
-        self.cache.tracked_users.write().unwrap().insert(user.to_owned());
+        self.cache.tracked_users.write().insert(user.to_owned());
 
         self.cache.store.save_tracked_users(&[(user, true)]).await
     }
@@ -775,6 +780,19 @@ impl DehydratedDeviceKey {
         Ok(Self { inner: key })
     }
 
+    /// Creates a new dehydration pickle key from the given slice.
+    ///
+    /// Fail if the slice length is not 32.
+    pub fn from_slice(slice: &[u8]) -> Result<Self, DehydrationError> {
+        if slice.len() == 32 {
+            let mut key = Box::new([0u8; 32]);
+            key.copy_from_slice(slice);
+            Ok(DehydratedDeviceKey { inner: key })
+        } else {
+            Err(DehydrationError::PickleKeyLength(slice.len()))
+        }
+    }
+
     /// Creates a dehydration pickle key from the given bytes.
     pub fn from_bytes(raw_key: &[u8; 32]) -> Self {
         let mut inner = Box::new([0u8; Self::KEY_SIZE]);
@@ -786,6 +804,18 @@ impl DehydratedDeviceKey {
     /// Export the [`DehydratedDeviceKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
         base64_encode(self.inner.as_slice())
+    }
+}
+
+impl From<&[u8; 32]> for DehydratedDeviceKey {
+    fn from(value: &[u8; 32]) -> Self {
+        DehydratedDeviceKey { inner: Box::new(*value) }
+    }
+}
+
+impl From<DehydratedDeviceKey> for Vec<u8> {
+    fn from(key: DehydratedDeviceKey) -> Self {
+        key.inner.to_vec()
     }
 }
 
@@ -1565,12 +1595,14 @@ impl Store {
     /// the stream. Updates that happen at the same time are batched into a
     /// [`Vec`].
     ///
-    /// If the reader of the stream lags too far behind, a warning will be
-    /// logged and items will be dropped.
+    /// If the reader of the stream lags too far behind an error will be sent to
+    /// the reader.
     ///
     /// The stream will terminate once all references to the underlying
     /// `CryptoStoreWrapper` are dropped.
-    pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
+    pub fn room_keys_received_stream(
+        &self,
+    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> {
         self.inner.store.room_keys_received_stream()
     }
 
@@ -1992,7 +2024,10 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{room_id, user_id};
 
-    use crate::{machine::test_helpers::get_machine_pair, types::EventEncryptionAlgorithm};
+    use crate::{
+        machine::test_helpers::get_machine_pair, store::DehydratedDeviceKey,
+        types::EventEncryptionAlgorithm,
+    };
 
     #[async_test]
     async fn test_import_room_keys_notifies_stream() {
@@ -2012,7 +2047,8 @@ mod tests {
             .next()
             .now_or_never()
             .flatten()
-            .expect("We should have received an update of room key infos");
+            .expect("We should have received an update of room key infos")
+            .unwrap();
         assert_eq!(room_keys.len(), 1);
         assert_eq!(room_keys[0].room_id, "!room1:localhost");
     }
@@ -2128,5 +2164,30 @@ mod tests {
         assert!(identity.is_verified(), "The public identity should be marked as verified.");
 
         assert!(status.is_complete(), "We should have imported all the cross-signing keys");
+    }
+
+    #[async_test]
+    async fn test_create_dehydrated_device_key() {
+        let pickle_key = DehydratedDeviceKey::new()
+            .expect("Should be able to create a random dehydrated device key");
+
+        let to_vec = pickle_key.inner.to_vec();
+        let pickle_key_from_slice = DehydratedDeviceKey::from_slice(to_vec.as_slice())
+            .expect("Should be able to create a dehydrated device key from slice");
+
+        assert_eq!(pickle_key_from_slice.to_base64(), pickle_key.to_base64());
+    }
+
+    #[async_test]
+    async fn test_create_dehydrated_errors() {
+        let too_small = [0u8; 22];
+        let pickle_key = DehydratedDeviceKey::from_slice(&too_small);
+
+        assert!(pickle_key.is_err());
+
+        let too_big = [0u8; 40];
+        let pickle_key = DehydratedDeviceKey::from_slice(&too_big);
+
+        assert!(pickle_key.is_err());
     }
 }

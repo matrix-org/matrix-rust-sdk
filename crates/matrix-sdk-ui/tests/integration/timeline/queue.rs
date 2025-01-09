@@ -508,20 +508,21 @@ async fn test_no_duplicate_date_divider() {
         assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
     });
 
-    // The second message is replaced -> [First DD Second]
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
+    // The second message is replaced -> [First Second DD]
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
+    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 1, value } => {
         let value = value.as_event().unwrap();
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
         assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
     });
 
-    // A new date divider is inserted -> [DD First DD Second]
+    // A new date divider is inserted -> [DD First Second DD]
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
         assert!(value.is_date_divider());
     });
 
     // The useless date divider is removed. -> [DD First Second]
-    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 3 });
 
     assert_pending!(timeline_stream);
 }

@@ -2596,6 +2596,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "insta"
+version = "1.41.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e9ffc4d4892617c50a928c52b2961cb5174b6fc6ebf252b2fac9d21955c48b8"
+dependencies = [
+ "console",
+ "lazy_static",
+ "linked-hash-map",
+ "serde",
+ "similar",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2788,6 +2801,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"
@@ -3048,7 +3067,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -3124,7 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "as_variant",
  "assert_matches",
@@ -3160,7 +3179,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-common"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -3170,6 +3189,7 @@ dependencies = [
  "getrandom",
  "gloo-timers",
  "imbl",
+ "insta",
  "js-sys",
  "matrix-sdk-test-macros",
  "proptest",
@@ -3189,7 +3209,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3210,6 +3230,7 @@ dependencies = [
  "hmac",
  "http",
  "indoc",
+ "insta",
  "itertools 0.13.0",
  "js_option",
  "matrix-sdk-common",
@@ -3313,7 +3334,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-indexeddb"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3381,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "byteorder",
  "image",
@@ -3393,7 +3414,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sqlite"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -3421,7 +3442,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-store-encryption"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3469,7 +3490,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ui"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "as_variant",
@@ -4765,7 +4786,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.12.0"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "assign",
  "js_int",
@@ -4781,7 +4802,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.20.0"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "as_variant",
  "assign",
@@ -4804,7 +4825,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.15.0"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "as_variant",
  "base64 0.22.1",
@@ -4836,7 +4857,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.30.0"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "as_variant",
  "indexmap 2.6.0",
@@ -4861,7 +4882,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.11.0"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "http",
  "js_int",
@@ -4875,7 +4896,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.4.0"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -4887,7 +4908,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.10.1"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "js_int",
  "thiserror 2.0.3",
@@ -4896,7 +4917,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.15.0"
-source = "git+https://github.com/uhoreg/ruma.git?branch=dehydration_format#abffebc290f467db6e5972a1fe250558534f3067"
+source = "git+https://github.com/ruma/ruma?rev=71be4a316198d6db91f512b2ceb8eb91238581f1#71be4a316198d6db91f512b2ceb8eb91238581f1"
 dependencies = [
  "cfg-if",
  "proc-macro-crate",

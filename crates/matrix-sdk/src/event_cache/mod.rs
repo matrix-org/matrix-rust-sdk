@@ -34,6 +34,7 @@ use std::{
 };
 
 use eyeball::Subscriber;
+use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent, TimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
@@ -44,7 +45,12 @@ use matrix_sdk_common::executor::{spawn, JoinHandle};
 use once_cell::sync::OnceCell;
 use room::RoomEventCacheState;
 use ruma::{
-    events::{relation::RelationType, AnySyncEphemeralRoomEvent},
+    events::{
+        relation::RelationType,
+        room::{message::Relation, redaction::SyncRoomRedactionEvent},
+        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent,
+    },
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, RoomId,
 };
@@ -62,7 +68,7 @@ mod pagination;
 mod room;
 
 pub mod paginator;
-pub use pagination::{RoomPagination, TimelineHasBeenResetWhilePaginating};
+pub use pagination::{PaginationToken, RoomPagination, TimelineHasBeenResetWhilePaginating};
 pub use room::RoomEventCache;
 
 /// An error observed in the [`EventCache`].
@@ -172,6 +178,11 @@ impl EventCache {
             Ok(client.event_cache_store().clone())
         })?;
         Ok(())
+    }
+
+    /// Check whether the storage is enabled or not.
+    pub fn has_storage(&self) -> bool {
+        self.inner.has_storage()
     }
 
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
@@ -356,6 +367,115 @@ impl AllEventsCache {
     fn clear(&mut self) {
         self.events.clear();
         self.relations.clear();
+    }
+
+    /// If the event is related to another one, its id is added to the relations
+    /// map.
+    fn append_related_event(&mut self, event: &SyncTimelineEvent) {
+        // Handle and cache events and relations.
+        let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() else {
+            return;
+        };
+
+        // Handle redactions separately, as their logic is slightly different.
+        if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) = &ev {
+            if let Some(redacted_event_id) = ev.content.redacts.as_ref().or(ev.redacts.as_ref()) {
+                self.relations
+                    .entry(redacted_event_id.to_owned())
+                    .or_default()
+                    .insert(ev.event_id.to_owned(), RelationType::Replacement);
+            }
+            return;
+        }
+
+        let relationship = match ev.original_content() {
+            Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                if let Some(relation) = c.relates_to {
+                    match relation {
+                        Relation::Replacement(replacement) => {
+                            Some((replacement.event_id, RelationType::Replacement))
+                        }
+                        Relation::Reply { in_reply_to } => {
+                            Some((in_reply_to.event_id, RelationType::Reference))
+                        }
+                        Relation::Thread(thread) => Some((thread.event_id, RelationType::Thread)),
+                        // Do nothing for custom
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            Some(AnyMessageLikeEventContent::PollResponse(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::PollEnd(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
+                Some((c.relates_to.event_id, RelationType::Reference))
+            }
+            Some(AnyMessageLikeEventContent::Reaction(c)) => {
+                Some((c.relates_to.event_id, RelationType::Annotation))
+            }
+            _ => None,
+        };
+
+        if let Some(relationship) = relationship {
+            self.relations
+                .entry(relationship.0)
+                .or_default()
+                .insert(ev.event_id().to_owned(), relationship.1);
+        }
+    }
+
+    /// Looks for related event ids for the passed event id, and appends them to
+    /// the `results` parameter. Then it'll recursively get the related
+    /// event ids for those too.
+    fn collect_related_events(
+        &self,
+        event_id: &EventId,
+        filter: Option<&[RelationType]>,
+    ) -> Vec<SyncTimelineEvent> {
+        let mut results = Vec::new();
+        self.collect_related_events_rec(event_id, filter, &mut results);
+        results
+    }
+
+    fn collect_related_events_rec(
+        &self,
+        event_id: &EventId,
+        filter: Option<&[RelationType]>,
+        results: &mut Vec<SyncTimelineEvent>,
+    ) {
+        let Some(related_event_ids) = self.relations.get(event_id) else {
+            return;
+        };
+
+        for (related_event_id, relation_type) in related_event_ids {
+            if let Some(filter) = filter {
+                if !filter.contains(relation_type) {
+                    continue;
+                }
+            }
+
+            // If the event was already added to the related ones, skip it.
+            if results.iter().any(|event| {
+                event.event_id().is_some_and(|added_related_event_id| {
+                    added_related_event_id == *related_event_id
+                })
+            }) {
+                continue;
+            }
+
+            if let Some((_, ev)) = self.events.get(related_event_id) {
+                results.push(ev.clone());
+                self.collect_related_events_rec(related_event_id, filter, results);
+            }
+        }
     }
 }
 
@@ -542,12 +662,12 @@ pub enum RoomEventCacheUpdate {
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     },
 
-    /// The room has received new timeline events.
-    AddTimelineEvents {
-        /// All the new events that have been added to the room's timeline.
-        events: Vec<SyncTimelineEvent>,
+    /// The room has received updates for the timeline as _diffs_.
+    UpdateTimelineEvents {
+        /// Diffs to apply to the timeline.
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
 
-        /// Where the events are coming from.
+        /// Where the diffs are coming from.
         origin: EventsOrigin,
     },
 
@@ -564,6 +684,9 @@ pub enum RoomEventCacheUpdate {
 pub enum EventsOrigin {
     /// Events are coming from a sync.
     Sync,
+
+    /// Events are coming from pagination.
+    Pagination,
 }
 
 #[cfg(test)]

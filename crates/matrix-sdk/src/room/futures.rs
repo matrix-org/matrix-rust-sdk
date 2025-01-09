@@ -224,7 +224,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                 content,
             );
 
-            let response = room.client.send(request, request_config).await?;
+            let response = room.client.send(request).with_request_config(request_config).await?;
 
             Span::current().record("event_id", tracing::field::debug(&response.event_id));
             info!("Sent event in room");
@@ -240,7 +240,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 #[allow(missing_debug_implementations)]
 pub struct SendAttachment<'a> {
     room: &'a Room,
-    filename: &'a str,
+    filename: String,
     content_type: &'a Mime,
     data: Vec<u8>,
     config: AttachmentConfig,
@@ -252,7 +252,7 @@ pub struct SendAttachment<'a> {
 impl<'a> SendAttachment<'a> {
     pub(crate) fn new(
         room: &'a Room,
-        filename: &'a str,
+        filename: String,
         content_type: &'a Mime,
         data: Vec<u8>,
         config: AttachmentConfig,

@@ -9,7 +9,7 @@ name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.8.0"
+version = "0.9.0"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -21,16 +21,15 @@ e2e-encryption = ["dep:matrix-sdk-crypto"]
 js = ["matrix-sdk-common/js", "matrix-sdk-crypto?/js", "ruma/js", "matrix-sdk-store-encryption/js"]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
-experimental-sliding-sync = [
-    "ruma/unstable-msc3575",
-    "ruma/unstable-msc4186",
-]
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see
 # https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
 # details.
-test-send-sync = ["matrix-sdk-crypto?/test-send-sync"]
+test-send-sync = [
+    "matrix-sdk-common/test-send-sync",
+    "matrix-sdk-crypto?/test-send-sync",
+]
 
 # "message-ids" feature doesn't do anything and is deprecated.
 message-ids = []
@@ -62,7 +61,14 @@ matrix-sdk-store-encryption = { workspace = true }
 matrix-sdk-test = { workspace = true, optional = true }
 once_cell = { workspace = true }
 regex = "1.11.1"
-ruma = { workspace = true, features = ["canonical-json", "unstable-msc3381", "unstable-msc2867", "rand"] }
+ruma = { workspace = true, features = [
+    "canonical-json",
+    "unstable-msc2867",
+    "unstable-msc3381",
+    "unstable-msc3575",
+    "unstable-msc4186",
+    "rand",
+] }
 unicode-normalization = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }

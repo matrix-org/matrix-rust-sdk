@@ -714,7 +714,6 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 }
 
 #[async_test]
-#[cfg(feature = "experimental-sliding-sync")]
 async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
     use tokio::task::spawn_blocking;
 

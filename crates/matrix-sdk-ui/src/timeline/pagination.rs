@@ -26,7 +26,6 @@ use matrix_sdk::event_cache::{
 use tracing::{instrument, trace, warn};
 
 use super::Error;
-use crate::timeline::{controller::TimelineNewItemPosition, event_item::RemoteEventOrigin};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -76,13 +75,6 @@ impl super::Timeline {
                  _timeline_has_been_reset| async move {
                     let num_events = events.len();
                     trace!("Back-pagination succeeded with {num_events} events");
-
-                    // TODO(hywan): Remove, and let spread events via
-                    // `matrix_sdk::event_cache::RoomEventCacheUpdate` from
-                    // `matrix_sdk::event_cache::RoomPagination::run_backwards`.
-                    self.controller
-                        .add_events_at(events.into_iter(), TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination })
-                        .await;
 
                     if num_events == 0 && !reached_start {
                         // As an exceptional contract: if there were no events in the response,

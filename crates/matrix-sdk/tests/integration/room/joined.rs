@@ -1,16 +1,18 @@
 use std::{
+    collections::BTreeSet,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use assert_matches2::assert_let;
 use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
-    assert_next_with_timeout,
+    assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
     room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_base::RoomState;
+use matrix_sdk_base::{RoomMembersUpdate, RoomState};
 use matrix_sdk_test::{
     async_test,
     event_factory::EventFactory,
@@ -35,6 +37,7 @@ use ruma::{
 };
 use serde_json::{from_value, json, Value};
 use stream_assert::assert_pending;
+use tokio::time::sleep;
 use wiremock::{
     matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
@@ -840,7 +843,7 @@ async fn test_enable_encryption_doesnt_stay_unencrypted() {
 }
 
 #[async_test]
-async fn test_subscribe_to_requests_to_join() {
+async fn test_subscribe_to_knock_requests() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -862,7 +865,7 @@ async fn test_subscribe_to_requests_to_join() {
     server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let stream = room.subscribe_to_knock_requests().await.unwrap();
+    let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
     pin_mut!(stream);
 
@@ -893,16 +896,30 @@ async fn test_subscribe_to_requests_to_join() {
         .cast()]);
     server.sync_room(&client, joined_room_builder).await;
 
-    // The knock requests are now empty
+    // The knock requests are now empty because we have new member events
+    let updated_requests = assert_next_with_timeout!(stream, 100);
+    assert!(updated_requests.is_empty());
+
+    // And it's emitted again because the seen id value has changed
     let updated_requests = assert_next_with_timeout!(stream, 100);
     assert!(updated_requests.is_empty());
 
     // There should be no other knock requests
-    assert_pending!(stream)
+    assert_pending!(stream);
+
+    // The seen knock request id is no longer there because the associated knock
+    // request doesn't exist anymore
+    let seen_knock_request_ids = room
+        .get_seen_knock_request_ids()
+        .await
+        .expect("could not get current seen knock request ids");
+    assert!(seen_knock_request_ids.is_empty());
+
+    handle.abort();
 }
 
 #[async_test]
-async fn test_subscribe_to_requests_to_join_reloads_members_on_limited_sync() {
+async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -930,7 +947,7 @@ async fn test_subscribe_to_requests_to_join_reloads_members_on_limited_sync() {
         .await;
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let stream = room.subscribe_to_knock_requests().await.unwrap();
+    let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
     pin_mut!(stream);
 
@@ -946,5 +963,258 @@ async fn test_subscribe_to_requests_to_join_reloads_members_on_limited_sync() {
     assert_next_with_timeout!(stream, 500);
 
     // There should be no other knock requests
-    assert_pending!(stream)
+    assert_pending!(stream);
+
+    handle.abort();
+}
+
+#[async_test]
+async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id);
+
+    let user_id = user_id!("@alice:b.c");
+    let knock_event_id = event_id!("$alice-knock:b.c");
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(knock_event_id)
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    // When syncing the room, we'll have a knock request coming from alice
+    let room = server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![knock_event]))
+        .await;
+
+    // We then mark the knock request as seen
+    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+
+    // Now it's received again as seen
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert_eq!(seen.len(), 1);
+
+    // If we then load the members again and the previously knocking member is in
+    // another state now
+    let joined_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Join))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
+
+    room.mark_members_missing();
+    room.sync_members().await.expect("could not reload room members");
+
+    // Calling remove outdated seen knock request ids will remove the seen id
+    room.remove_outdated_seen_knock_requests_ids()
+        .await
+        .expect("could not remove outdated seen knock request ids");
+
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert!(seen.is_empty());
+}
+
+#[async_test]
+async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_knock() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id);
+
+    let user_id = user_id!("@alice:b.c");
+    let knock_event_id = event_id!("$alice-knock:b.c");
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(knock_event_id)
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    // When syncing the room, we'll have a knock request coming from alice
+    let room = server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![knock_event]))
+        .await;
+
+    // We then mark the knock request as seen
+    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+
+    // Now it's received again as seen
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert_eq!(seen.len(), 1);
+
+    // If we then load the members again and the previously knocking member has a
+    // different event id
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(event_id!("$knock-2:b.c"))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
+
+    room.mark_members_missing();
+    room.sync_members().await.expect("could not reload room members");
+
+    // Calling remove outdated seen knock request ids will remove the seen id
+    room.remove_outdated_seen_knock_requests_ids()
+        .await
+        .expect("could not remove outdated seen knock request ids");
+
+    let seen = room.get_seen_knock_request_ids().await.unwrap();
+    assert!(seen.is_empty());
+}
+
+#[async_test]
+async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id);
+
+    let user_id = user_id!("@alice:b.c");
+    let knock_event_id = event_id!("$alice-knock:b.c");
+    let knock_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .event_id(knock_event_id)
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
+
+    pin_mut!(stream);
+
+    // We receive an initial knock request from Alice
+    let initial = assert_next_with_timeout!(stream, 100);
+    assert_eq!(initial.len(), 1);
+
+    let knock_request = &initial[0];
+    assert_eq!(knock_request.event_id, knock_event_id);
+    assert!(!knock_request.is_seen);
+
+    // We then mark the knock request as seen
+    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+
+    // Now it's received again as seen
+    let seen = assert_next_with_timeout!(stream, 100);
+    assert_eq!(seen.len(), 1);
+    let seen_knock = &seen[0];
+    assert_eq!(seen_knock.event_id, knock_event_id);
+    assert!(seen_knock.is_seen);
+
+    // If we then load the members again and the previously knocking member is in
+    // another state now
+    let joined_event = f
+        .event(RoomMemberEventContent::new(MembershipState::Join))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+
+    server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
+
+    room.mark_members_missing();
+    room.sync_members().await.expect("could not reload room members");
+
+    // The knock requests are now empty because we have new member events
+    let updated_requests = assert_next_with_timeout!(stream, 100);
+    assert!(updated_requests.is_empty());
+
+    // There should be no other knock requests
+    assert_pending!(stream);
+
+    // Give some time for the seen ids purging to be done
+    sleep(Duration::from_millis(100)).await;
+
+    // The seen knock request id is no longer there because the associated knock
+    // request doesn't exist anymore
+    let seen_knock_request_ids = room
+        .get_seen_knock_request_ids()
+        .await
+        .expect("could not get current seen knock request ids");
+    assert!(seen_knock_request_ids.is_empty());
+
+    handle.abort();
+}
+
+#[async_test]
+async fn test_room_member_updates_sender_on_full_member_reload() {
+    use assert_matches::assert_matches;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let mut receiver = room.room_member_updates_sender.subscribe();
+    assert!(receiver.is_empty());
+
+    // When loading the full room member list
+    let user_id = user_id!("@alice:b.c");
+    let joined_event = EventFactory::new()
+        .room(room_id)
+        .event(RoomMemberEventContent::new(MembershipState::Join))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast();
+    server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
+    room.sync_members().await.expect("could not reload room members");
+
+    // The member updates sender emits a full reload
+    let next = assert_recv_with_timeout!(receiver, 100);
+    assert_matches!(next, RoomMembersUpdate::FullReload);
+}
+
+#[async_test]
+async fn test_room_member_updates_sender_on_partial_members_update() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let mut receiver = room.room_member_updates_sender.subscribe();
+    assert!(receiver.is_empty());
+
+    // When loading a few room member updates
+    let user_id = user_id!("@alice:b.c");
+    let joined_event = EventFactory::new()
+        .room(room_id)
+        .event(RoomMemberEventContent::new(MembershipState::Join))
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_sync()
+        .cast();
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![joined_event]))
+        .await;
+
+    // The member updates sender emits a partial update with the user ids of the
+    // members
+    let next = assert_recv_with_timeout!(receiver, 100);
+    assert_let!(RoomMembersUpdate::Partial(user_ids) = next);
+    assert_eq!(user_ids, BTreeSet::from_iter(vec![user_id!("@alice:b.c").to_owned()]));
 }

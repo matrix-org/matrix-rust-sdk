@@ -71,9 +71,15 @@ impl<R> SendRequest<R> {
     ///
     /// This is useful at the moment because the current sliding sync
     /// implementation uses a proxy server.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn with_homeserver_override(mut self, homeserver_override: Option<String>) -> Self {
         self.homeserver_override = homeserver_override;
+        self
+    }
+
+    /// Use the given [`RequestConfig`] for this send request, instead of the
+    /// one provided by default.
+    pub fn with_request_config(mut self, request_config: impl Into<Option<RequestConfig>>) -> Self {
+        self.config = request_config.into();
         self
     }
 

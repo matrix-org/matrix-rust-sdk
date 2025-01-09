@@ -204,19 +204,17 @@ impl SlidingSyncList {
     pub(super) fn invalidate_sticky_data(&self) {
         let _ = self.inner.sticky.write().unwrap().data_mut();
     }
-}
-
-#[cfg(any(test, feature = "testing"))]
-#[allow(dead_code)]
-impl SlidingSyncList {
-    /// Set the maximum number of rooms.
-    pub(super) fn set_maximum_number_of_rooms(&self, maximum_number_of_rooms: Option<u32>) {
-        self.inner.maximum_number_of_rooms.set(maximum_number_of_rooms);
-    }
 
     /// Get the sync-mode.
+    #[cfg(feature = "testing")]
     pub fn sync_mode(&self) -> SlidingSyncMode {
         self.inner.sync_mode.read().unwrap().clone()
+    }
+
+    /// Set the maximum number of rooms.
+    #[cfg(test)]
+    pub(super) fn set_maximum_number_of_rooms(&self, maximum_number_of_rooms: Option<u32>) {
+        self.inner.maximum_number_of_rooms.set(maximum_number_of_rooms);
     }
 }
 

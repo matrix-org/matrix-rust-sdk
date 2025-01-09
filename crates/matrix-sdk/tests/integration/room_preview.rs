@@ -1,16 +1,13 @@
-#[cfg(feature = "experimental-sliding-sync")]
 use js_int::uint;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
-#[cfg(feature = "experimental-sliding-sync")]
-use matrix_sdk_base::sliding_sync;
-use matrix_sdk_base::RoomState;
+use matrix_sdk_base::{sliding_sync, RoomState};
 use matrix_sdk_test::{
     async_test, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder,
 };
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::{api::client::sync::sync_events::v5::response::Hero, assign};
 use ruma::{
-    events::room::member::MembershipState, owned_user_id, room_id, space::SpaceRoomJoinRule, RoomId,
+    api::client::sync::sync_events::v5::response::Hero, assign,
+    events::room::member::MembershipState, owned_user_id, room_id, space::SpaceRoomJoinRule,
+    RoomId,
 };
 use serde_json::json;
 use wiremock::{
@@ -117,7 +114,6 @@ async fn test_room_preview_leave_unknown_room_fails() {
     assert!(client.get_room(room_id).is_none());
 }
 
-#[cfg(feature = "experimental-sliding-sync")]
 #[async_test]
 async fn test_room_preview_computes_name_if_room_is_known() {
     let (client, _) = logged_in_client_with_server().await;

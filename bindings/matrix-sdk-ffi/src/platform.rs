@@ -14,8 +14,25 @@ use tracing_subscriber::{
     EnvFilter, Layer,
 };
 
-pub fn log_panics() {
+/// Add panic=error to a filter line, if it's missing from it.
+///
+/// Doesn't do anything if the directive is already present.
+fn add_panic_to_filter(filter: &mut String) {
+    if filter.split(',').all(|pair| pair.split('=').next().is_none_or(|lhs| lhs != "panic")) {
+        if !filter.is_empty() {
+            filter.push(',');
+        }
+        filter.push_str("panic=error");
+    }
+}
+
+pub fn log_panics(filter: &mut String) {
     std::env::set_var("RUST_BACKTRACE", "1");
+
+    // Make sure that panics will be properly logged. On 2025-01-08, `log_panics`
+    // uses the `panic` target, at the error log level.
+    add_panic_to_filter(filter);
+
     log_panics::init();
 }
 
@@ -243,11 +260,37 @@ pub struct TracingConfiguration {
 }
 
 #[matrix_sdk_ffi_macros::export]
-pub fn setup_tracing(config: TracingConfiguration) {
-    log_panics();
+pub fn setup_tracing(mut config: TracingConfiguration) {
+    log_panics(&mut config.filter);
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(&config.filter))
         .with(text_layers(config))
         .init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add_panic_to_filter;
+
+    #[test]
+    fn test_add_panic_when_not_provided_empty() {
+        let mut filter = String::from("");
+        add_panic_to_filter(&mut filter);
+        assert_eq!(filter, "panic=error");
+    }
+
+    #[test]
+    fn test_add_panic_when_not_provided_non_empty() {
+        let mut filter = String::from("a=b,c=d");
+        add_panic_to_filter(&mut filter);
+        assert_eq!(filter, "a=b,c=d,panic=error");
+    }
+
+    #[test]
+    fn test_do_nothing_when_provided() {
+        let mut filter = String::from("a=b,panic=info,c=d");
+        add_panic_to_filter(&mut filter);
+        assert_eq!(filter, "a=b,panic=info,c=d");
+    }
 }

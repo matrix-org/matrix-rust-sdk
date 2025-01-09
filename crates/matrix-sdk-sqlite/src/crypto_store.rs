@@ -1402,7 +1402,7 @@ impl CryptoStore for SqliteCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::Path;
 
     use matrix_sdk_crypto::{
         cryptostore_integration_tests, cryptostore_integration_tests_time, store::CryptoStore,
@@ -1420,15 +1420,14 @@ mod tests {
     struct TestDb {
         // Needs to be kept alive because the Drop implementation for TempDir deletes the
         // directory.
-        #[allow(dead_code)]
-        dir: TempDir,
+        _dir: TempDir,
         database: SqliteCryptoStore,
     }
 
     async fn get_test_db() -> TestDb {
         let db_name = "matrix-sdk-crypto.sqlite3";
 
-        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let database_path = manifest_path.join("testing/data/storage").join(db_name);
 
         let tmpdir = tempdir().unwrap();
@@ -1440,14 +1439,14 @@ mod tests {
         let database =
             SqliteCryptoStore::open(tmpdir.path(), None).await.expect("Can't open the test store");
 
-        TestDb { dir: tmpdir, database }
+        TestDb { _dir: tmpdir, database }
     }
 
     /// Test that we didn't regress in our storage layer by loading data from a
     /// pre-filled database, or in other words use a test vector for this.
     #[async_test]
     async fn test_open_test_vector_store() {
-        let TestDb { dir: _, database } = get_test_db().await;
+        let TestDb { _dir: _, database } = get_test_db().await;
 
         let account = database
             .load_account()

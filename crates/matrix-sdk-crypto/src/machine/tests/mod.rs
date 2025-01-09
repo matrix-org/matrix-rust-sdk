@@ -530,7 +530,8 @@ async fn test_megolm_encryption() {
         .next()
         .now_or_never()
         .flatten()
-        .expect("We should have received an update of room key infos");
+        .expect("We should have received an update of room key infos")
+        .unwrap();
     assert_eq!(room_keys.len(), 1);
     assert_eq!(room_keys[0].session_id, group_session.session_id());
 

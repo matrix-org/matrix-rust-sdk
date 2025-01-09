@@ -1,12 +1,14 @@
 //! Moaaar features for Sliding Sync.
 
+#![cfg(feature = "e2e-encryption")]
+
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use tokio::task::{JoinError, JoinHandle};
+use matrix_sdk_common::executor::{JoinError, JoinHandle};
 
 /// Private type to ensure a task is aborted on drop.
 pub(crate) struct AbortOnDrop<T>(JoinHandle<T>);
@@ -23,7 +25,7 @@ impl<T> Drop for AbortOnDrop<T> {
     }
 }
 
-impl<T> Future for AbortOnDrop<T> {
+impl<T: 'static> Future for AbortOnDrop<T> {
     type Output = Result<T, JoinError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

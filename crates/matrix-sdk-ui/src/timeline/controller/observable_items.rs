@@ -15,7 +15,7 @@
 use std::{
     cmp::Ordering,
     collections::{vec_deque::Iter, VecDeque},
-    ops::Deref,
+    ops::{Deref, RangeBounds},
     sync::Arc,
 };
 
@@ -218,6 +218,13 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     /// Not to be confused with pushing a timeline item to the back!
     pub fn push_back_remote_event(&mut self, event_meta: EventMeta) {
         self.all_remote_events.push_back(event_meta);
+    }
+
+    /// Insert a new remote event at a specific index.
+    ///
+    /// Not to be confused with inserting a timeline item!
+    pub fn insert_remote_event(&mut self, event_index: usize, event_meta: EventMeta) {
+        self.all_remote_events.insert(event_index, event_meta);
     }
 
     /// Get a remote event by using an event ID.
@@ -431,64 +438,64 @@ mod observable_items_tests {
     }
 
     macro_rules! assert_mapping {
-    ( on $transaction:ident:
-      | event_id | event_index | timeline_item_index |
-      | $( - )+ | $( - )+ | $( - )+ |
-      $(
-        | $event_id:literal | $event_index:literal | $( $timeline_item_index:literal )? |
-      )+
-    ) => {
-        let all_remote_events = $transaction .all_remote_events();
+        ( on $transaction:ident:
+          | event_id | event_index | timeline_item_index |
+          | $( - )+ | $( - )+ | $( - )+ |
+          $(
+            | $event_id:literal | $event_index:literal | $( $timeline_item_index:literal )? |
+          )+
+        ) => {
+            let all_remote_events = $transaction .all_remote_events();
 
-        $(
-            // Remote event exists at this index…
-            assert_matches!(all_remote_events.0.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
-                // … this is the remote event with the expected event ID
-                assert_eq!(
-                    event_id.as_str(),
-                    $event_id ,
-                    concat!("event #", $event_index, " should have ID ", $event_id)
-                );
-
-
-                // (tiny hack to handle the case where `$timeline_item_index` is absent)
-                #[allow(unused_variables)]
-                let timeline_item_index_is_expected = false;
-                $(
-                    let timeline_item_index_is_expected = true;
-                    let _ = $timeline_item_index;
-                )?
-
-                if timeline_item_index_is_expected.not() {
-                    // … this remote event does NOT map to a timeline item index
-                    assert!(
-                        timeline_item_index.is_none(),
-                        concat!("event #", $event_index, " with ID ", $event_id, " should NOT map to a timeline item index" )
-                    );
-                }
-
-                $(
-                    // … this remote event maps to a timeline item index
+            $(
+                // Remote event exists at this index…
+                assert_matches!(all_remote_events.0.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
+                    // … this is the remote event with the expected event ID
                     assert_eq!(
-                        *timeline_item_index,
-                        Some( $timeline_item_index ),
-                        concat!("event #", $event_index, " with ID ", $event_id, " should map to timeline item #", $timeline_item_index )
+                        event_id.as_str(),
+                        $event_id ,
+                        concat!("event #", $event_index, " should have ID ", $event_id)
                     );
 
-                    // … this timeline index exists
-                    assert_matches!( $transaction .get( $timeline_item_index ), Some(timeline_item) => {
-                        // … this timelime item has the expected event ID
-                        assert_event_id!(
-                            timeline_item,
-                            $event_id ,
-                            concat!("timeline item #", $timeline_item_index, " should map to event ID ", $event_id )
+
+                    // (tiny hack to handle the case where `$timeline_item_index` is absent)
+                    #[allow(unused_variables)]
+                    let timeline_item_index_is_expected = false;
+                    $(
+                        let timeline_item_index_is_expected = true;
+                        let _ = $timeline_item_index;
+                    )?
+
+                    if timeline_item_index_is_expected.not() {
+                        // … this remote event does NOT map to a timeline item index
+                        assert!(
+                            timeline_item_index.is_none(),
+                            concat!("event #", $event_index, " with ID ", $event_id, " should NOT map to a timeline item index" )
                         );
-                    });
-                )?
-            });
-        )*
+                    }
+
+                    $(
+                        // … this remote event maps to a timeline item index
+                        assert_eq!(
+                            *timeline_item_index,
+                            Some( $timeline_item_index ),
+                            concat!("event #", $event_index, " with ID ", $event_id, " should map to timeline item #", $timeline_item_index )
+                        );
+
+                        // … this timeline index exists
+                        assert_matches!( $transaction .get( $timeline_item_index ), Some(timeline_item) => {
+                            // … this timelime item has the expected event ID
+                            assert_event_id!(
+                                timeline_item,
+                                $event_id ,
+                                concat!("timeline item #", $timeline_item_index, " should map to event ID ", $event_id )
+                            );
+                        });
+                    )?
+                });
+            )*
+        }
     }
-}
 
     #[test]
     fn test_is_empty() {
@@ -1155,9 +1162,23 @@ mod observable_items_tests {
 pub struct AllRemoteEvents(VecDeque<EventMeta>);
 
 impl AllRemoteEvents {
+    /// Return a reference to a remote event.
+    pub fn get(&self, event_index: usize) -> Option<&EventMeta> {
+        self.0.get(event_index)
+    }
+
     /// Return a front-to-back iterator over all remote events.
     pub fn iter(&self) -> Iter<'_, EventMeta> {
         self.0.iter()
+    }
+
+    /// Return a front-to-back iterator covering ranges of all remote events
+    /// described by `range`.
+    pub fn range<R>(&self, range: R) -> Iter<'_, EventMeta>
+    where
+        R: RangeBounds<usize>,
+    {
+        self.0.range(range)
     }
 
     /// Remove all remote events.
@@ -1187,6 +1208,18 @@ impl AllRemoteEvents {
 
         // Push the event.
         self.0.push_back(event_meta)
+    }
+
+    /// Insert a new remote event at a specific index.
+    fn insert(&mut self, event_index: usize, event_meta: EventMeta) {
+        // If there is an associated `timeline_item_index`, shift all the
+        // `timeline_item_index` that come after this one.
+        if let Some(new_timeline_item_index) = event_meta.timeline_item_index {
+            self.increment_all_timeline_item_index_after(new_timeline_item_index);
+        }
+
+        // Insert the event.
+        self.0.insert(event_index, event_meta)
     }
 
     /// Remove one remote event at a specific index, and return it if it exists.
@@ -1261,8 +1294,7 @@ impl AllRemoteEvents {
     }
 
     /// Notify that a timeline item has been removed at
-    /// `new_timeline_item_index`. If `event_index` is `Some(_)`, it means the
-    /// remote event at `event_index` must be unmapped.
+    /// `new_timeline_item_index`.
     fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
         for event_meta in self.0.iter_mut() {
             let mut remove_timeline_item_index = false;
@@ -1316,6 +1348,34 @@ mod all_remote_events_tests {
 
             assert!(iter.next().is_none(), "Not all events have been asserted");
         }
+    }
+
+    #[test]
+    fn test_range() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push some events.
+        events.push_back(event_meta("$ev0", None));
+        events.push_back(event_meta("$ev1", None));
+        events.push_back(event_meta("$ev2", None));
+
+        assert_eq!(events.iter().count(), 3);
+
+        // Test a few combinations.
+        assert_eq!(events.range(..).count(), 3);
+        assert_eq!(events.range(1..).count(), 2);
+        assert_eq!(events.range(0..=1).count(), 2);
+
+        // Iterate on some of them.
+        let mut some_events = events.range(1..);
+
+        assert_matches!(some_events.next(), Some(EventMeta { event_id, .. }) => {
+            assert_eq!(event_id.as_str(), "$ev1");
+        });
+        assert_matches!(some_events.next(), Some(EventMeta { event_id, .. }) => {
+            assert_eq!(event_id.as_str(), "$ev2");
+        });
+        assert!(some_events.next().is_none());
     }
 
     #[test]
@@ -1395,6 +1455,37 @@ mod all_remote_events_tests {
                 ("$ev2", Some(2)),
                 // `timeline_item_index` is untouched
                 ("$ev3", Some(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert() {
+        let mut events = AllRemoteEvents::default();
+
+        // Insert on an empty set, nothing particular.
+        events.insert(0, event_meta("$ev0", Some(0)));
+
+        // Insert at the end with no `timeline_item_index`.
+        events.insert(1, event_meta("$ev1", None));
+
+        // Insert at the end with a `timeline_item_index`.
+        events.insert(2, event_meta("$ev2", Some(1)));
+
+        // Insert at the start, with a `timeline_item_index`.
+        events.insert(0, event_meta("$ev3", Some(0)));
+
+        assert_events!(
+            events,
+            [
+                // `timeline_item_index` is untouched
+                ("$ev3", Some(0)),
+                // `timeline_item_index` has been shifted once
+                ("$ev0", Some(1)),
+                // no `timeline_item_index`
+                ("$ev1", None),
+                // `timeline_item_index` has been shifted once
+                ("$ev2", Some(2)),
             ]
         );
     }

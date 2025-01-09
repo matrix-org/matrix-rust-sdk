@@ -21,13 +21,15 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
 use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError};
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId};
+use ruma::{
+    time::{Duration, Instant},
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId,
+};
 use tokio::{
     spawn,
     sync::{Mutex as AsyncMutex, MutexGuard},

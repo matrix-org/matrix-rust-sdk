@@ -16,10 +16,11 @@ mod machine;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, RwLock as StdRwLock},
+    sync::Arc,
 };
 
 pub(crate) use machine::GossipMachine;
+use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
     events::{
         room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
@@ -323,7 +324,7 @@ impl WaitQueue {
 
     #[cfg(all(test, feature = "automatic-room-key-forwarding"))]
     fn is_empty(&self) -> bool {
-        let read_guard = self.inner.read().unwrap();
+        let read_guard = self.inner.read();
         read_guard.requests_ids_waiting.is_empty()
             && read_guard.requests_waiting_for_session.is_empty()
     }
@@ -337,13 +338,14 @@ impl WaitQueue {
         );
         let ids_waiting_key = (device.user_id().to_owned(), device.device_id().into());
 
-        let mut write_guard = self.inner.write().unwrap();
+        let mut write_guard = self.inner.write();
         write_guard.requests_waiting_for_session.insert(requests_waiting_key, event);
         write_guard.requests_ids_waiting.entry(ids_waiting_key).or_default().insert(request_id);
     }
 
     fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Vec<(RequestInfo, RequestEvent)> {
-        let mut write_guard = self.inner.write().unwrap();
+        let mut write_guard = self.inner.write();
+
         write_guard
             .requests_ids_waiting
             .remove(&(user_id.to_owned(), device_id.into()))

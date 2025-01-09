@@ -318,7 +318,7 @@ fn build_path_for_target(target: &Target, profile: &str) -> Result<Utf8PathBuf> 
 /// Lipo's together the libraries for each platform into a single library.
 fn lipo_platform_libraries(
     platform_build_paths: &HashMap<Platform, Vec<Utf8PathBuf>>,
-    generated_dir: &Utf8PathBuf,
+    generated_dir: &Utf8Path,
 ) -> Result<Vec<Utf8PathBuf>> {
     let mut libs = Vec::new();
     let sh = sh();
@@ -350,7 +350,7 @@ fn lipo_platform_libraries(
 
 /// Moves all files of the specified file extension from one directory into
 /// another.
-fn move_files(extension: &str, source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+fn move_files(extension: &str, source: &Utf8Path, destination: &Utf8Path) -> Result<()> {
     for entry in source.read_dir_utf8()? {
         let entry = entry?;
 
@@ -368,7 +368,7 @@ fn move_files(extension: &str, source: &Utf8PathBuf, destination: &Utf8PathBuf) 
 /// Consolidates the contents of each modulemap file found in the source
 /// directory into a single `module.modulemap` file in the destination
 /// directory.
-fn consolidate_modulemap_files(source: &Utf8PathBuf, destination: &Utf8PathBuf) -> Result<()> {
+fn consolidate_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Result<()> {
     let mut modulemap = String::new();
     for entry in source.read_dir_utf8()? {
         let entry = entry?;

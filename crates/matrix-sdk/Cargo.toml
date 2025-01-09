@@ -9,7 +9,7 @@ name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.8.0"
+version = "0.9.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
@@ -54,10 +54,6 @@ experimental-oidc = [
     "dep:sha2",
     "dep:tower",
     "dep:openidconnect",
-]
-experimental-sliding-sync = [
-    "matrix-sdk-base/experimental-sliding-sync",
-    "reqwest/gzip",
 ]
 experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
@@ -119,7 +115,7 @@ zeroize = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["gzip"] }
 tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -127,7 +123,7 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 openidconnect = { version = "4.0.0-rc.1", optional = true }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
-reqwest = { workspace = true, features = ["stream"] }
+reqwest = { workspace = true, features = ["stream", "gzip"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 tokio-util = "0.7.12"
 wiremock = { workspace = true, optional = true }

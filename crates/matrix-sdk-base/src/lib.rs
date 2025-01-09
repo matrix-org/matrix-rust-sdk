@@ -37,7 +37,7 @@ mod rooms;
 
 pub mod read_receipts;
 pub use read_receipts::PreviousEventsProvider;
-#[cfg(feature = "experimental-sliding-sync")]
+pub use rooms::RoomMembersUpdate;
 pub mod sliding_sync;
 
 pub mod store;

@@ -31,6 +31,7 @@ use futures_util::{
     stream::{self, StreamExt},
 };
 use matrix_sdk_base::crypto::{
+    store::RoomKeyInfo,
     types::requests::{
         OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
     },
@@ -58,6 +59,7 @@ use ruma::{
 };
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLockReadGuard};
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
@@ -279,7 +281,7 @@ impl CrossSigningResetHandle {
         let mut upload_request = self.upload_request.clone();
         upload_request.auth = auth;
 
-        while let Err(e) = self.client.send(upload_request.clone(), None).await {
+        while let Err(e) = self.client.send(upload_request.clone()).await {
             if *self.is_cancelled.lock().await {
                 return Ok(());
             }
@@ -289,7 +291,7 @@ impl CrossSigningResetHandle {
             }
         }
 
-        self.client.send(self.signatures_request.clone(), None).await?;
+        self.client.send(self.signatures_request.clone()).await?;
 
         Ok(())
     }
@@ -409,7 +411,7 @@ impl Client {
     ) -> Result<get_keys::v3::Response> {
         let request = assign!(get_keys::v3::Request::new(), { device_keys });
 
-        let response = self.send(request, None).await?;
+        let response = self.send(request).await?;
         self.mark_request_as_sent(request_id, &response).await?;
         self.encryption().update_state_after_keys_query(&response).await;
 
@@ -521,7 +523,7 @@ impl Client {
             .get_missing_sessions(users)
             .await?
         {
-            let response = self.send(request, None).await?;
+            let response = self.send(request).await?;
             self.mark_request_as_sent(&request_id, &response).await?;
         }
 
@@ -549,7 +551,7 @@ impl Client {
             "Uploading public encryption keys",
         );
 
-        let response = self.send(request.clone(), None).await?;
+        let response = self.send(request.clone()).await?;
         self.mark_request_as_sent(request_id, &response).await?;
 
         Ok(response)
@@ -580,7 +582,7 @@ impl Client {
             request.messages.clone(),
         );
 
-        self.send(request, None).await
+        self.send(request).await
     }
 
     pub(crate) async fn send_verification_request(
@@ -630,7 +632,7 @@ impl Client {
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
             AnyOutgoingRequest::SignatureUpload(request) => {
-                let response = self.send(request.clone(), None).await?;
+                let response = self.send(request.clone()).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
             AnyOutgoingRequest::RoomMessage(request) => {
@@ -638,7 +640,7 @@ impl Client {
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
             AnyOutgoingRequest::KeysClaim(request) => {
-                let response = self.send(request.clone(), None).await?;
+                let response = self.send(request.clone()).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
         }
@@ -1144,8 +1146,8 @@ impl Encryption {
         if let Some(req) = upload_keys_req {
             self.client.send_outgoing_request(req).await?;
         }
-        self.client.send(upload_signing_keys_req, None).await?;
-        self.client.send(upload_signatures_req, None).await?;
+        self.client.send(upload_signing_keys_req).await?;
+        self.client.send(upload_signatures_req).await?;
 
         Ok(())
     }
@@ -1207,7 +1209,7 @@ impl Encryption {
             self.client.send_outgoing_request(req).await?;
         }
 
-        if let Err(error) = self.client.send(upload_signing_keys_req.clone(), None).await {
+        if let Err(error) = self.client.send(upload_signing_keys_req.clone()).await {
             if let Some(auth_type) = CrossSigningResetAuthType::new(&self.client, &error).await? {
                 let client = self.client.clone();
 
@@ -1221,7 +1223,7 @@ impl Encryption {
                 Err(error.into())
             }
         } else {
-            self.client.send(upload_signatures_req, None).await?;
+            self.client.send(upload_signatures_req).await?;
 
             Ok(None)
         }
@@ -1442,6 +1444,45 @@ impl Encryption {
         self.backups().maybe_trigger_backup();
 
         Ok(ret)
+    }
+
+    /// Receive notifications of room keys being received as a [`Stream`].
+    ///
+    /// Each time a room key is updated in any way, an update will be sent to
+    /// the stream. Updates that happen at the same time are batched into a
+    /// [`Vec`].
+    ///
+    /// If the reader of the stream lags too far behind, an error is broadcast
+    /// containing the number of skipped items.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// use futures_util::StreamExt;
+    ///
+    /// let Some(mut room_keys_stream) =
+    ///     client.encryption().room_keys_received_stream().await
+    /// else {
+    ///     return Ok(());
+    /// };
+    ///
+    /// while let Some(update) = room_keys_stream.next().await {
+    ///     println!("Received room keys {update:?}");
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn room_keys_received_stream(
+        &self,
+    ) -> Option<impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>>> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref()?;
+
+        Some(olm.store().room_keys_received_stream())
     }
 
     /// Get the secret storage manager of the client.

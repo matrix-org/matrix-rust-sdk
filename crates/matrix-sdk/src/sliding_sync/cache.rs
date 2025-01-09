@@ -75,7 +75,7 @@ async fn clean_storage(
 /// Store the `SlidingSync`'s state in the storage.
 pub(super) async fn store_sliding_sync_state(
     sliding_sync: &SlidingSync,
-    position: &SlidingSyncPositionMarkers,
+    _position: &SlidingSyncPositionMarkers,
 ) -> Result<()> {
     let storage_key = &sliding_sync.inner.storage_key;
     let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
@@ -94,6 +94,8 @@ pub(super) async fn store_sliding_sync_state(
 
     #[cfg(feature = "e2e-encryption")]
     {
+        let position = _position;
+
         // FIXME (TERRIBLE HACK): we want to save `pos` in a cross-process safe manner,
         // with both processes sharing the same database backend; that needs to
         // go in the crypto process store at the moment, but should be fixed
@@ -246,10 +248,7 @@ pub(super) async fn restore_sliding_sync_state(
             restored_fields.rooms = frozen_rooms
                 .into_iter()
                 .map(|frozen_room| {
-                    (
-                        frozen_room.room_id.clone(),
-                        SlidingSyncRoom::from_frozen(frozen_room, client.clone()),
-                    )
+                    (frozen_room.room_id.clone(), SlidingSyncRoom::from_frozen(frozen_room))
                 })
                 .collect();
         }
@@ -353,11 +352,11 @@ mod tests {
 
                 rooms.insert(
                     room_id1.clone(),
-                    SlidingSyncRoom::new(client.clone(), room_id1.clone(), None, Vec::new()),
+                    SlidingSyncRoom::new(room_id1.clone(), None, Vec::new()),
                 );
                 rooms.insert(
                     room_id2.clone(),
-                    SlidingSyncRoom::new(client.clone(), room_id2.clone(), None, Vec::new()),
+                    SlidingSyncRoom::new(room_id2.clone(), None, Vec::new()),
                 );
             }
 

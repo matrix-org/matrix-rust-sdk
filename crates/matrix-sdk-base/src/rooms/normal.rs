@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+#[cfg(feature = "e2e-encryption")]
 use std::sync::RwLock as SyncRwLock;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     mem,
     sync::{atomic::AtomicBool, Arc},
 };
@@ -24,12 +24,9 @@ use as_variant::as_variant;
 use bitflags::bitflags;
 use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 use futures_util::{Stream, StreamExt};
-#[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::TimelineEventKind;
-#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::ring_buffer::RingBuffer;
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
@@ -51,7 +48,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
         },
         tag::{TagEventContent, Tags},
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
         RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     room::RoomType,
@@ -67,12 +64,11 @@ use super::{
     members::MemberRoomInfo, BaseRoomInfo, RoomCreateWithCreatorEventContent, RoomDisplayName,
     RoomMember, RoomNotableTags,
 };
-#[cfg(feature = "experimental-sliding-sync")]
-use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::{
-        DisplayName, MemberEvent, RawSyncOrStrippedState, SyncOrStrippedState,
+        DisplayName, MemberEvent, RawMemberEvent, RawSyncOrStrippedState, SyncOrStrippedState,
     },
+    latest_event::LatestEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
@@ -166,7 +162,7 @@ pub struct Room {
     /// not sure whether holding too many of them might make the cache too
     /// slow to load on startup. Keeping them here means they are not cached
     /// to disk but held in memory.
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+    #[cfg(feature = "e2e-encryption")]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
 
     /// A map for ids of room membership events in the knocking state linked to
@@ -174,6 +170,9 @@ pub struct Room {
     /// user has marked as seen so they can be ignored.
     pub seen_knock_request_ids_map:
         SharedObservable<Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
+
+    /// A sender that will notify receivers when room member updates happen.
+    pub room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -262,10 +261,19 @@ fn heroes_filter<'a>(
     move |user_id| user_id != own_user_id && !member_hints.service_members.contains(user_id)
 }
 
+/// The kind of room member updates that just happened.
+#[derive(Debug, Clone)]
+pub enum RoomMembersUpdate {
+    /// The whole list room members was reloaded.
+    FullReload,
+    /// A few members were updated, their user ids are included.
+    Partial(BTreeSet<OwnedUserId>),
+}
+
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
     // SAFETY: `new_unchecked` is safe because 10 is not zero.
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+    #[cfg(feature = "e2e-encryption")]
     const MAX_ENCRYPTED_EVENTS: std::num::NonZeroUsize =
         unsafe { std::num::NonZeroUsize::new_unchecked(10) };
 
@@ -286,17 +294,19 @@ impl Room {
         room_info: RoomInfo,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
+        let (room_member_updates_sender, _) = broadcast::channel(10);
         Self {
             own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),
             store,
             inner: SharedObservable::new(room_info),
-            #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+            #[cfg(feature = "e2e-encryption")]
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
             room_info_notable_update_sender,
             seen_knock_request_ids_map: SharedObservable::new_async(None),
+            room_member_updates_sender,
         }
     }
 
@@ -609,18 +619,40 @@ impl Room {
         self.inner.read().active_room_call_participants()
     }
 
-    /// Return the cached display name of the room if it was provided via sync,
-    /// or otherwise calculate it, taking into account its name, aliases and
-    /// members.
+    /// Calculate a room's display name, or return the cached value, taking into
+    /// account its name, aliases and members.
     ///
     /// The display name is calculated according to [this algorithm][spec].
     ///
-    /// This is automatically recomputed on every successful sync, and the
-    /// cached result can be retrieved in
-    /// [`Self::cached_display_name`].
+    /// While the underlying computation can be slow, the result is cached and
+    /// returned on the following calls. The cache is also filled on every
+    /// successful sync, since a sync may cause a change in the display
+    /// name.
+    ///
+    /// If you need a variant that's sync (but with the drawback that it returns
+    /// an `Option`), consider using [`Room::cached_display_name`].
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
+    pub async fn display_name(&self) -> StoreResult<RoomDisplayName> {
+        if let Some(name) = self.cached_display_name() {
+            Ok(name)
+        } else {
+            self.compute_display_name().await
+        }
+    }
+
+    /// Force recalculating a room's display name, taking into account its name,
+    /// aliases and members.
+    ///
+    /// The display name is calculated according to [this algorithm][spec].
+    ///
+    /// ⚠ This may be slowish to compute. As such, the result is cached and can
+    /// be retrieved via [`Room::cached_display_name`] (sync, returns an option)
+    /// or [`Room::display_name`] (async, always returns a value), which should
+    /// be preferred in general.
+    ///
+    /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+    pub(crate) async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
         enum DisplayNameOrSummary {
             Summary(RoomSummary),
             DisplayName(RoomDisplayName),
@@ -857,8 +889,7 @@ impl Room {
 
     /// Returns the cached computed display name, if available.
     ///
-    /// This cache is refilled every time we call
-    /// [`Self::compute_display_name`].
+    /// This cache is refilled every time we call [`Self::display_name`].
     pub fn cached_display_name(&self) -> Option<RoomDisplayName> {
         self.inner.read().cached_display_name.clone()
     }
@@ -890,7 +921,6 @@ impl Room {
 
     /// Return the last event in this room, if one has been cached during
     /// sliding sync.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn latest_event(&self) -> Option<LatestEvent> {
         self.inner.read().latest_event.as_deref().cloned()
     }
@@ -899,7 +929,7 @@ impl Room {
     /// to decrypt these, the most recent relevant one will replace
     /// latest_event. (We can't tell which one is relevant until
     /// they are decrypted.)
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) fn latest_encrypted_events(&self) -> Vec<Raw<AnySyncTimelineEvent>> {
         self.latest_encrypted_events.read().unwrap().iter().cloned().collect()
     }
@@ -914,7 +944,7 @@ impl Room {
     ///
     /// It is the responsibility of the caller to apply the changes into the
     /// state store after calling this function.
-    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) fn on_latest_event_decrypted(
         &self,
         latest_event: Box<LatestEvent>,
@@ -1160,7 +1190,6 @@ impl Room {
     /// Returns the recency stamp of the room.
     ///
     /// Please read `RoomInfo::recency_stamp` to learn more.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn recency_stamp(&self) -> Option<u64> {
         self.inner.read().recency_stamp
     }
@@ -1207,28 +1236,61 @@ impl Room {
             }
         }
 
-        let mut current_seen_events_guard = self.seen_knock_request_ids_map.write().await;
-        // We're not calling `get_seen_join_request_ids` here because we need to keep
-        // the Mutex's guard until we've updated the data
-        let mut current_seen_events = if current_seen_events_guard.is_none() {
-            self.load_cached_knock_request_ids().await?
-        } else {
-            current_seen_events_guard.clone().unwrap()
-        };
+        let current_seen_events_guard = self.get_write_guarded_current_knock_request_ids().await?;
+        let mut current_seen_events = current_seen_events_guard.clone().unwrap_or_default();
 
         current_seen_events.extend(event_to_user_ids);
 
-        ObservableWriteGuard::set(
-            &mut current_seen_events_guard,
-            Some(current_seen_events.clone()),
-        );
+        self.update_seen_knock_request_ids(current_seen_events_guard, current_seen_events).await?;
 
-        self.store
-            .set_kv_data(
-                StateStoreDataKey::SeenKnockRequests(self.room_id()),
-                StateStoreDataValue::SeenKnockRequests(current_seen_events),
-            )
-            .await?;
+        Ok(())
+    }
+
+    /// Removes the seen knock request ids that are no longer valid given the
+    /// current room members.
+    pub async fn remove_outdated_seen_knock_requests_ids(&self) -> StoreResult<()> {
+        let current_seen_events_guard = self.get_write_guarded_current_knock_request_ids().await?;
+        let mut current_seen_events = current_seen_events_guard.clone().unwrap_or_default();
+
+        // Get and deserialize the member events for the seen knock requests
+        let keys: Vec<OwnedUserId> = current_seen_events.values().map(|id| id.to_owned()).collect();
+        let raw_member_events: Vec<RawMemberEvent> =
+            self.store.get_state_events_for_keys_static(self.room_id(), &keys).await?;
+        let member_events = raw_member_events
+            .into_iter()
+            .map(|raw| raw.deserialize())
+            .collect::<Result<Vec<MemberEvent>, _>>()?;
+
+        let mut ids_to_remove = Vec::new();
+
+        for (event_id, user_id) in current_seen_events.iter() {
+            // Check the seen knock request ids against the current room member events for
+            // the room members associated to them
+            let matching_member = member_events.iter().find(|event| event.user_id() == user_id);
+
+            if let Some(member) = matching_member {
+                let member_event_id = member.event_id();
+                // If the member event is not a knock or it's different knock, it's outdated
+                if *member.membership() != MembershipState::Knock
+                    || member_event_id.is_some_and(|id| id != event_id)
+                {
+                    ids_to_remove.push(event_id.to_owned());
+                }
+            } else {
+                ids_to_remove.push(event_id.to_owned());
+            }
+        }
+
+        // If there are no ids to remove, do nothing
+        if ids_to_remove.is_empty() {
+            return Ok(());
+        }
+
+        for event_id in ids_to_remove {
+            current_seen_events.remove(&event_id);
+        }
+
+        self.update_seen_knock_request_ids(current_seen_events_guard, current_seen_events).await?;
 
         Ok(())
     }
@@ -1237,27 +1299,46 @@ impl Room {
     pub async fn get_seen_knock_request_ids(
         &self,
     ) -> Result<BTreeMap<OwnedEventId, OwnedUserId>, StoreError> {
-        let mut guard = self.seen_knock_request_ids_map.write().await;
-        if guard.is_none() {
-            ObservableWriteGuard::set(
-                &mut guard,
-                Some(self.load_cached_knock_request_ids().await?),
-            );
-        }
-        Ok(guard.clone().unwrap_or_default())
+        Ok(self.get_write_guarded_current_knock_request_ids().await?.clone().unwrap_or_default())
     }
 
-    /// This loads the current list of seen knock request ids from the state
-    /// store.
-    async fn load_cached_knock_request_ids(
+    async fn get_write_guarded_current_knock_request_ids(
         &self,
-    ) -> StoreResult<BTreeMap<OwnedEventId, OwnedUserId>> {
-        Ok(self
-            .store
-            .get_kv_data(StateStoreDataKey::SeenKnockRequests(self.room_id()))
-            .await?
-            .and_then(|v| v.into_seen_knock_requests())
-            .unwrap_or_default())
+    ) -> StoreResult<ObservableWriteGuard<'_, Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>>
+    {
+        let mut guard = self.seen_knock_request_ids_map.write().await;
+        // If there are no loaded request ids yet
+        if guard.is_none() {
+            // Load the values from the store and update the shared observable contents
+            let updated_seen_ids = self
+                .store
+                .get_kv_data(StateStoreDataKey::SeenKnockRequests(self.room_id()))
+                .await?
+                .and_then(|v| v.into_seen_knock_requests())
+                .unwrap_or_default();
+
+            ObservableWriteGuard::set(&mut guard, Some(updated_seen_ids));
+        }
+        Ok(guard)
+    }
+
+    async fn update_seen_knock_request_ids(
+        &self,
+        mut guard: ObservableWriteGuard<'_, Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
+        new_value: BTreeMap<OwnedEventId, OwnedUserId>,
+    ) -> StoreResult<()> {
+        // Save the new values to the shared observable
+        ObservableWriteGuard::set(&mut guard, Some(new_value.clone()));
+
+        // Save them into the store too
+        self.store
+            .set_kv_data(
+                StateStoreDataKey::SeenKnockRequests(self.room_id()),
+                StateStoreDataValue::SeenKnockRequests(new_value),
+            )
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -1318,7 +1399,6 @@ pub struct RoomInfo {
     pub(crate) encryption_state_synced: bool,
 
     /// The last event send by sliding sync
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) latest_event: Option<Box<LatestEvent>>,
 
     /// Information about read receipts for this room.
@@ -1352,7 +1432,6 @@ pub struct RoomInfo {
     /// Sliding Sync might "ignore” some events when computing the recency
     /// stamp of the room. Thus, using this `recency_stamp` value is
     /// more accurate than relying on the latest event.
-    #[cfg(feature = "experimental-sliding-sync")]
     #[serde(default)]
     pub(crate) recency_stamp: Option<u64>,
 }
@@ -1388,14 +1467,12 @@ impl RoomInfo {
             last_prev_batch: None,
             sync_info: SyncInfo::NoState,
             encryption_state_synced: false,
-            #[cfg(feature = "experimental-sliding-sync")]
             latest_event: None,
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
-            #[cfg(feature = "experimental-sliding-sync")]
             recency_stamp: None,
         }
     }
@@ -1540,7 +1617,6 @@ impl RoomInfo {
         };
         tracing::Span::current().record("redacts", debug(redacts));
 
-        #[cfg(feature = "experimental-sliding-sync")]
         if let Some(latest_event) = &mut self.latest_event {
             tracing::trace!("Checking if redaction applies to latest event");
             if latest_event.event_id().as_deref() == Some(redacts) {
@@ -1630,19 +1706,16 @@ impl RoomInfo {
     }
 
     /// Updates the joined member count.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn update_joined_member_count(&mut self, count: u64) {
         self.summary.joined_member_count = count;
     }
 
     /// Updates the invited member count.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn update_invited_member_count(&mut self, count: u64) {
         self.summary.invited_member_count = count;
     }
 
     /// Updates the room heroes.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn update_heroes(&mut self, heroes: Vec<RoomHero>) {
         self.summary.room_heroes = heroes;
     }
@@ -1842,7 +1915,6 @@ impl RoomInfo {
     }
 
     /// Returns the latest (decrypted) event recorded for this room.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn latest_event(&self) -> Option<&LatestEvent> {
         self.latest_event.as_deref()
     }
@@ -1850,7 +1922,6 @@ impl RoomInfo {
     /// Updates the recency stamp of this room.
     ///
     /// Please read [`Self::recency_stamp`] to learn more.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub(crate) fn update_recency_stamp(&mut self, stamp: u64) {
         self.recency_stamp = Some(stamp);
     }
@@ -1936,7 +2007,6 @@ impl RoomInfo {
     }
 }
 
-#[cfg(feature = "experimental-sliding-sync")]
 fn apply_redaction(
     event: &Raw<AnySyncTimelineEvent>,
     raw_redaction: &Raw<SyncRoomRedactionEvent>,
@@ -2081,7 +2151,6 @@ mod tests {
     };
 
     use assign::assign;
-    #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::{
         async_test,
@@ -2118,9 +2187,8 @@ mod tests {
     use stream_assert::{assert_pending, assert_ready};
 
     use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState, SyncInfo};
-    #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
-    use crate::latest_event::LatestEvent;
     use crate::{
+        latest_event::LatestEvent,
         rooms::RoomNotableTags,
         store::{IntoStateStore, MemoryStore, StateChanges, StateStore, StoreConfig},
         test_utils::logged_in_base_client,
@@ -2129,7 +2197,6 @@ mod tests {
     };
 
     #[test]
-    #[cfg(feature = "experimental-sliding-sync")]
     fn test_room_info_serialization() {
         // This test exists to make sure we don't accidentally change the
         // serialized format for `RoomInfo`.
@@ -2316,7 +2383,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "experimental-sliding-sync")]
     fn test_room_info_deserialization() {
         use ruma::{owned_mxc_uri, owned_user_id};
 
@@ -3066,8 +3132,8 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_setting_the_latest_event_doesnt_cause_a_room_info_notable_update() {
         use std::collections::BTreeMap;
 
@@ -3086,7 +3152,6 @@ mod tests {
                     user_id: user_id!("@alice:example.org").into(),
                     device_id: ruma::device_id!("AYEAYEAYE").into(),
                 },
-                #[cfg(feature = "e2e-encryption")]
                 None,
             )
             .await
@@ -3134,8 +3199,8 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
         use std::collections::BTreeMap;
 
@@ -3164,8 +3229,8 @@ mod tests {
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
         use std::collections::BTreeMap;
 
@@ -3203,8 +3268,8 @@ mod tests {
         assert_eq!(room.latest_event().unwrap().event_id(), new_event.event_id());
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_replacing_the_newest_event_leaves_none_left() {
         use std::collections::BTreeMap;
 
@@ -3236,7 +3301,7 @@ mod tests {
         assert_eq!(enc_evs.len(), 0);
     }
 
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(feature = "e2e-encryption")]
     fn add_encrypted_event(room: &Room, event_id: &str) {
         room.latest_encrypted_events
             .write()
@@ -3244,7 +3309,7 @@ mod tests {
             .push(Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap());
     }
 
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(feature = "e2e-encryption")]
     fn make_latest_event(event_id: &str) -> Box<LatestEvent> {
         Box::new(LatestEvent::new(SyncTimelineEvent::new(
             Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap(),

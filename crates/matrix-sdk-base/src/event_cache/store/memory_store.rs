@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, time::Instant};
+use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
@@ -20,7 +20,7 @@ use matrix_sdk_common::{
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
-use ruma::{MxcUri, OwnedMxcUri, RoomId};
+use ruma::{time::Instant, MxcUri, OwnedMxcUri, RoomId};
 
 use super::{EventCacheStore, EventCacheStoreError, Result};
 use crate::{

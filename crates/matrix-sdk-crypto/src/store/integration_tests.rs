@@ -1027,7 +1027,7 @@ macro_rules! cryptostore_integration_tests {
                     recipient_keys: OlmV1Keys {
                         ed25519: account.identity_keys().ed25519,
                     },
-                    device_keys: None,
+                    sender_device_keys: None,
                     content: SecretSendContent::new(id.to_owned(), secret.to_owned()),
                 };
 

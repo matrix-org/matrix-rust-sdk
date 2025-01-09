@@ -8,6 +8,23 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Don't consider rooms in the banned state to be non-left rooms. This bug was
+  introduced due to the introduction of the banned state for rooms, and the
+  non-left room filter did not take the new room stat into account.
+  ([#4448](https://github.com/matrix-org/matrix-rust-sdk/pull/4448))
+
+### Features
+
+- [**breaking**] `Timeline::send_attachment()` now takes a type that implements
+  `Into<AttachmentSource>` instead of a type that implements `Into<PathBuf>`.
+  `AttachmentSource` allows to send an attachment either from a file, or with
+  the bytes and the filename of the attachment. Note that all types that
+  implement `Into<PathBuf>` also implement `Into<AttachmentSource>`.
+
+## [0.9.0] - 2024-12-18
+
+### Bug Fixes
+
 - Add the `m.room.create` and the `m.room.history_visibility` state events to
   the required state for the sync. These two state events are required to
   properly compute the room preview of a joined room.

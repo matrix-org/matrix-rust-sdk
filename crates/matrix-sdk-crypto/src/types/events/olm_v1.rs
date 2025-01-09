@@ -153,10 +153,10 @@ impl AnyDecryptedOlmEvent {
     pub fn sender_device_keys(&self) -> Option<&DeviceKeys> {
         match self {
             AnyDecryptedOlmEvent::Custom(_) => None,
-            AnyDecryptedOlmEvent::RoomKey(e) => e.device_keys.as_ref(),
-            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.device_keys.as_ref(),
-            AnyDecryptedOlmEvent::SecretSend(e) => e.device_keys.as_ref(),
-            AnyDecryptedOlmEvent::Dummy(e) => e.device_keys.as_ref(),
+            AnyDecryptedOlmEvent::RoomKey(e) => e.sender_device_keys.as_ref(),
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.sender_device_keys.as_ref(),
+            AnyDecryptedOlmEvent::SecretSend(e) => e.sender_device_keys.as_ref(),
+            AnyDecryptedOlmEvent::Dummy(e) => e.sender_device_keys.as_ref(),
         }
     }
 }
@@ -176,8 +176,8 @@ where
     /// The recipient's signing keys of the encrypted event.
     pub recipient_keys: OlmV1Keys,
     /// The device keys if supplied as per MSC4147
-    #[serde(rename = "org.matrix.msc4147.device_keys")]
-    pub device_keys: Option<DeviceKeys>,
+    #[serde(alias = "org.matrix.msc4147.device_keys")]
+    pub sender_device_keys: Option<DeviceKeys>,
     /// The type of the event.
     pub content: C,
 }
@@ -201,7 +201,7 @@ impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
             recipient: recipient.to_owned(),
             keys: OlmV1Keys { ed25519: key },
             recipient_keys: OlmV1Keys { ed25519: key },
-            device_keys,
+            sender_device_keys: device_keys,
             content,
         }
     }
@@ -264,10 +264,18 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches::assert_matches;
+    use ruma::{device_id, owned_user_id, KeyId};
     use serde_json::{json, Value};
+    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature};
 
     use super::AnyDecryptedOlmEvent;
+    use crate::types::{
+        events::olm_v1::DecryptedRoomKeyEvent, DeviceKey, DeviceKeys, EventEncryptionAlgorithm,
+        Signatures,
+    };
 
     const ED25519_KEY: &str = "aOfOnlaeMb5GW1TxkZ8pXnblkGMgAvps+lAukrdYaZk";
 
@@ -363,6 +371,80 @@ mod tests {
         })
     }
 
+    /// Return the JSON for creating sender device keys, and the matching
+    /// `DeviceKeys` object that should be created when the JSON is
+    /// deserialized.
+    fn sender_device_keys() -> (Value, DeviceKeys) {
+        let sender_device_keys_json = json!({
+                "user_id": "@u:s.co",
+                "device_id": "DEV",
+                "algorithms": [
+                    "m.olm.v1.curve25519-aes-sha2"
+                ],
+                "keys": {
+                    "curve25519:DEV": "c29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb28",
+                    "ed25519:DEV": "b29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb28"
+                },
+                "signatures": {
+                    "@u:s.co": {
+                        "ed25519:DEV": "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg",
+                        "ed25519:ssk": "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
+                    }
+                }
+            }
+        );
+
+        let user_id = owned_user_id!("@u:s.co");
+        let device_id = device_id!("DEV");
+        let ssk_id = device_id!("ssk");
+
+        let ed25519_device_key_id = KeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, device_id);
+        let curve25519_device_key_id =
+            KeyId::from_parts(ruma::DeviceKeyAlgorithm::Curve25519, device_id);
+        let ed25519_ssk_id = KeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, ssk_id);
+
+        let mut keys = BTreeMap::new();
+        keys.insert(
+            ed25519_device_key_id.clone(),
+            DeviceKey::Ed25519(
+                Ed25519PublicKey::from_base64("b29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb28")
+                    .unwrap(),
+            ),
+        );
+        keys.insert(
+            curve25519_device_key_id,
+            DeviceKey::Curve25519(
+                Curve25519PublicKey::from_base64("c29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb28")
+                    .unwrap(),
+            ),
+        );
+
+        let mut signatures = Signatures::new();
+        signatures.add_signature(
+            user_id.clone(),
+            ed25519_device_key_id,
+            Ed25519Signature::from_base64(
+                "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
+            ).unwrap()
+        );
+        signatures. add_signature(
+            user_id.clone(),
+            ed25519_ssk_id,
+            Ed25519Signature::from_base64(
+                "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
+            ).unwrap()
+        );
+        let sender_device_keys = DeviceKeys::new(
+            user_id,
+            device_id.to_owned(),
+            vec![EventEncryptionAlgorithm::OlmV1Curve25519AesSha2],
+            keys,
+            signatures,
+        );
+
+        (sender_device_keys_json, sender_device_keys)
+    }
+
     #[test]
     fn deserialization() -> Result<(), serde_json::Error> {
         macro_rules! assert_deserialization_result {
@@ -377,7 +459,7 @@ mod tests {
         }
 
         assert_deserialization_result!(
-            // `m.room_key
+            // `m.room_key`
             room_key_event => RoomKey,
 
             // `m.forwarded_room_key`
@@ -391,5 +473,44 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn sender_device_keys_are_deserialized_unstable() {
+        let (sender_device_keys_json, sender_device_keys) = sender_device_keys();
+
+        // Given JSON for a room key event with sender_device_keys using the unstable
+        // prefix
+        let mut event_json = room_key_event();
+        event_json
+            .as_object_mut()
+            .unwrap()
+            .insert("org.matrix.msc4147.device_keys".to_owned(), sender_device_keys_json);
+
+        // When we deserialize it
+        let event: DecryptedRoomKeyEvent = serde_json::from_value(event_json)
+            .expect("JSON should deserialize to the right event type");
+
+        // Then it contains the sender_device_keys
+        assert_eq!(event.sender_device_keys, Some(sender_device_keys));
+    }
+
+    #[test]
+    fn sender_device_keys_are_deserialized() {
+        let (sender_device_keys_json, sender_device_keys) = sender_device_keys();
+
+        // Given JSON for a room key event with sender_device_keys
+        let mut event_json = room_key_event();
+        event_json
+            .as_object_mut()
+            .unwrap()
+            .insert("sender_device_keys".to_owned(), sender_device_keys_json);
+
+        // When we deserialize it
+        let event: DecryptedRoomKeyEvent = serde_json::from_value(event_json)
+            .expect("JSON should deserialize to the right event type");
+
+        // Then it contains the sender_device_keys
+        assert_eq!(event.sender_device_keys, Some(sender_device_keys));
     }
 }

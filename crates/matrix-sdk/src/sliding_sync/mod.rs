@@ -36,14 +36,14 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timer};
+use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, executor::spawn, timer};
 use ruma::{
     api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    select, spawn,
+    select,
     sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
@@ -359,7 +359,6 @@ impl SlidingSync {
                             rooms_map.insert(
                                 room_id.clone(),
                                 SlidingSyncRoom::new(
-                                    self.inner.client.clone(),
                                     room_id.clone(),
                                     room_data.prev_batch,
                                     timeline,
@@ -578,10 +577,12 @@ impl SlidingSync {
         debug!("Sending request");
 
         // Prepare the request.
-        let request =
-            self.inner.client.send(request, Some(request_config)).with_homeserver_override(
-                self.inner.version.overriding_url().map(ToString::to_string),
-            );
+        let request = self
+            .inner
+            .client
+            .send(request)
+            .with_request_config(request_config)
+            .with_homeserver_override(self.inner.version.overriding_url().map(ToString::to_string));
 
         // Send the request and get a response with end-to-end encryption support.
         //
@@ -1088,7 +1089,7 @@ fn compute_limited(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 #[allow(clippy::dbg_macro)]
 mod tests {
     use std::{
@@ -2267,9 +2268,6 @@ mod tests {
 
     #[async_test]
     async fn test_limited_flag_computation() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
         let make_event = |event_id: &str| -> SyncTimelineEvent {
             SyncTimelineEvent::new(
                 Raw::from_json_string(
@@ -2311,7 +2309,6 @@ mod tests {
                 // it's not marked as initial in the response.
                 not_initial.to_owned(),
                 SlidingSyncRoom::new(
-                    client.clone(),
                     no_overlap.to_owned(),
                     None,
                     vec![event_a.clone(), event_b.clone()],
@@ -2321,7 +2318,6 @@ mod tests {
                 // This has no events overlapping with the response timeline, hence limited.
                 no_overlap.to_owned(),
                 SlidingSyncRoom::new(
-                    client.clone(),
                     no_overlap.to_owned(),
                     None,
                     vec![event_a.clone(), event_b.clone()],
@@ -2331,7 +2327,6 @@ mod tests {
                 // This has event_c in common with the response timeline.
                 partial_overlap.to_owned(),
                 SlidingSyncRoom::new(
-                    client.clone(),
                     partial_overlap.to_owned(),
                     None,
                     vec![event_a.clone(), event_b.clone(), event_c.clone()],
@@ -2341,7 +2336,6 @@ mod tests {
                 // This has all events in common with the response timeline.
                 complete_overlap.to_owned(),
                 SlidingSyncRoom::new(
-                    client.clone(),
                     partial_overlap.to_owned(),
                     None,
                     vec![event_c.clone(), event_d.clone()],
@@ -2352,7 +2346,6 @@ mod tests {
                 // limited.
                 no_remote_events.to_owned(),
                 SlidingSyncRoom::new(
-                    client.clone(),
                     no_remote_events.to_owned(),
                     None,
                     vec![event_c.clone(), event_d.clone()],
@@ -2362,14 +2355,13 @@ mod tests {
                 // We don't have events for this room locally, and even if the remote room contains
                 // some events, it's not a limited sync.
                 no_local_events.to_owned(),
-                SlidingSyncRoom::new(client.clone(), no_local_events.to_owned(), None, vec![]),
+                SlidingSyncRoom::new(no_local_events.to_owned(), None, vec![]),
             ),
             (
                 // Already limited, but would be marked limited if the flag wasn't ignored (same as
                 // partial overlap).
                 already_limited.to_owned(),
                 SlidingSyncRoom::new(
-                    client,
                     already_limited.to_owned(),
                     None,
                     vec![event_a, event_b, event_c.clone()],
@@ -2855,7 +2847,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // b/o tokio::time::sleep
     #[async_test]
     async fn test_aborted_request_doesnt_update_future_requests() -> Result<()> {
         let server = MockServer::start().await;

@@ -196,7 +196,7 @@ impl Media {
             content_type: Some(content_type.essence_str().to_owned()),
         });
 
-        self.client.send(request, Some(request_config))
+        self.client.send(request).with_request_config(request_config)
     }
 
     /// Returns a reasonable upload timeout for an upload, based on the size of
@@ -240,7 +240,7 @@ impl Media {
         // Note: this request doesn't have any parameters.
         let request = media::create_mxc_uri::v1::Request::default();
 
-        let response = self.client.send(request, None).await?;
+        let response = self.client.send(request).await?;
 
         Ok(PreallocatedMxcUri {
             uri: response.content_uri,
@@ -278,7 +278,7 @@ impl Media {
 
         let request_config = self.client.request_config().timeout(timeout);
 
-        if let Err(err) = self.client.send(request, Some(request_config)).await {
+        if let Err(err) = self.client.send(request).with_request_config(request_config).await {
             match err.client_api_error_kind() {
                 Some(ErrorKind::CannotOverwriteMedia) => {
                     Err(Error::Media(MediaError::CannotOverwriteMedia))
@@ -446,11 +446,11 @@ impl Media {
                 let content = if use_auth {
                     let request =
                         authenticated_media::get_content::v1::Request::from_uri(&file.url)?;
-                    self.client.send(request, request_config).await?.file
+                    self.client.send(request).with_request_config(request_config).await?.file
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(&file.url)?;
-                    self.client.send(request, None).await?.file
+                    self.client.send(request).await?.file
                 };
 
                 #[cfg(feature = "e2e-encryption")]
@@ -486,7 +486,7 @@ impl Media {
                         request.method = Some(settings.method.clone());
                         request.animated = Some(settings.animated);
 
-                        self.client.send(request, request_config).await?.file
+                        self.client.send(request).with_request_config(request_config).await?.file
                     } else {
                         #[allow(deprecated)]
                         let request = {
@@ -500,15 +500,15 @@ impl Media {
                             request
                         };
 
-                        self.client.send(request, None).await?.file
+                        self.client.send(request).await?.file
                     }
                 } else if use_auth {
                     let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
-                    self.client.send(request, request_config).await?.file
+                    self.client.send(request).with_request_config(request_config).await?.file
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(uri)?;
-                    self.client.send(request, None).await?.file
+                    self.client.send(request).await?.file
                 }
             }
         };

@@ -71,7 +71,7 @@ impl KotlinArgs {
                 package,
             } => {
                 let profile = profile.as_deref().unwrap_or(if release { "release" } else { "dev" });
-                build_android_library(profile, only_target, src_dir, package)
+                build_android_library(profile, only_target, &src_dir, package)
             }
         }
     }
@@ -80,7 +80,7 @@ impl KotlinArgs {
 fn build_android_library(
     profile: &str,
     only_target: Option<String>,
-    src_dir: Utf8PathBuf,
+    src_dir: &Utf8Path,
     package: Package,
 ) -> Result<()> {
     let package_values = package.values();

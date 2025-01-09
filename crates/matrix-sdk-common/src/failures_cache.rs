@@ -15,15 +15,11 @@
 //! A TTL cache which can be used to time out repeated operations that might
 //! experience intermittent failures.
 
-use std::{
-    borrow::Borrow,
-    collections::HashMap,
-    hash::Hash,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{borrow::Borrow, collections::HashMap, hash::Hash, sync::Arc, time::Duration};
 
 use ruma::time::Instant;
+
+use super::locks::RwLock;
 
 const MAX_DELAY: u64 = 15 * 60;
 const MULTIPLIER: u64 = 15;
@@ -105,7 +101,7 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let lock = self.inner.items.read().unwrap();
+        let lock = self.inner.items.read();
 
         let contains = if let Some(item) = lock.get(key) { !item.expired() } else { false };
 
@@ -127,7 +123,7 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let lock = self.inner.items.read().unwrap();
+        let lock = self.inner.items.read();
         lock.get(key).map(|i| i.failure_count)
     }
 
@@ -155,7 +151,7 @@ where
     /// not, will have their TTL extended using an exponential backoff
     /// algorithm.
     pub fn extend(&self, iterator: impl IntoIterator<Item = T>) {
-        let mut lock = self.inner.items.write().unwrap();
+        let mut lock = self.inner.items.write();
 
         let now = Instant::now();
 
@@ -181,7 +177,7 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + 'a + ?Sized,
     {
-        let mut lock = self.inner.items.write().unwrap();
+        let mut lock = self.inner.items.write();
 
         for item in iterator {
             lock.remove(item);
@@ -194,7 +190,7 @@ where
     /// for immediate retry.
     #[doc(hidden)]
     pub fn expire(&self, item: &T) {
-        let mut lock = self.inner.items.write().unwrap();
+        let mut lock = self.inner.items.write();
         lock.get_mut(item).map(FailuresItem::expire);
     }
 }
@@ -221,11 +217,11 @@ mod tests {
         cache.extend([1u8].iter());
         assert!(cache.contains(&1));
 
-        cache.inner.items.write().unwrap().get_mut(&1).unwrap().duration = Duration::from_secs(0);
+        cache.inner.items.write().get_mut(&1).unwrap().duration = Duration::from_secs(0);
         assert!(!cache.contains(&1));
 
         cache.remove([1u8].iter());
-        assert!(cache.inner.items.read().unwrap().get(&1).is_none())
+        assert!(cache.inner.items.read().get(&1).is_none())
     }
 
     #[test]

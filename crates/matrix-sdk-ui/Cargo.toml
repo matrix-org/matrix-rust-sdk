@@ -1,7 +1,7 @@
 [package]
 name = "matrix-sdk-ui"
 description = "GUI-centric utilities on top of matrix-rust-sdk (experimental)."
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
@@ -35,7 +35,7 @@ growable-bloom-filter = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
 itertools = { workspace = true }
-matrix-sdk = { workspace = true, features = ["experimental-sliding-sync", "e2e-encryption"] }
+matrix-sdk = { workspace = true, features = ["e2e-encryption"] }
 matrix-sdk-base = { workspace = true }
 mime = { workspace = true }
 once_cell = { workspace = true }

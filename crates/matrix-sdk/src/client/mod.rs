@@ -79,8 +79,6 @@ use url::Url;
 use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::Oidc;
-#[cfg(feature = "experimental-sliding-sync")]
-use crate::sliding_sync::Version as SlidingSyncVersion;
 use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
@@ -96,6 +94,7 @@ use crate::{
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
     send_queue::SendQueueData,
+    sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
     TransmissionProgress,
@@ -258,7 +257,7 @@ pub(crate) struct ClientInner {
     /// This is the URL for the client-server Matrix API.
     homeserver: StdRwLock<Url>,
 
-    #[cfg(feature = "experimental-sliding-sync")]
+    /// The sliding sync version.
     sliding_sync_version: StdRwLock<SlidingSyncVersion>,
 
     /// The underlying HTTP client.
@@ -345,7 +344,7 @@ impl ClientInner {
         auth_ctx: Arc<AuthCtx>,
         server: Option<Url>,
         homeserver: Url,
-        #[cfg(feature = "experimental-sliding-sync")] sliding_sync_version: SlidingSyncVersion,
+        sliding_sync_version: SlidingSyncVersion,
         http_client: HttpClient,
         base_client: BaseClient,
         server_capabilities: ClientServerCapabilities,
@@ -359,7 +358,6 @@ impl ClientInner {
             server,
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
-            #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_version: StdRwLock::new(sliding_sync_version),
             http_client,
             base_client,
@@ -480,7 +478,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
-        let res = self.send(get_capabilities::v3::Request::new(), None).await?;
+        let res = self.send(get_capabilities::v3::Request::new()).await?;
         Ok(res.capabilities)
     }
 
@@ -515,13 +513,11 @@ impl Client {
     }
 
     /// Get the sliding sync version.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
         self.inner.sliding_sync_version.read().unwrap().clone()
     }
 
     /// Override the sliding sync version.
-    #[cfg(feature = "experimental-sliding-sync")]
     pub fn set_sliding_sync_version(&self, version: SlidingSyncVersion) {
         let mut lock = self.inner.sliding_sync_version.write().unwrap();
         *lock = version;
@@ -563,7 +559,7 @@ impl Client {
             request.limit = limit;
         }
 
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Get the user id of the current owner of the client.
@@ -1186,7 +1182,7 @@ impl Client {
         room_alias: &RoomAliasId,
     ) -> HttpResult<get_alias::v3::Response> {
         let request = get_alias::v3::Request::new(room_alias.to_owned());
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Checks if a room alias is not in use yet.
@@ -1213,7 +1209,7 @@ impl Client {
     /// Creates a new room alias associated with a room.
     pub async fn create_room_alias(&self, alias: &RoomAliasId, room_id: &RoomId) -> HttpResult<()> {
         let request = create_alias::v3::Request::new(alias.to_owned(), room_id.to_owned());
-        self.send(request, None).await?;
+        self.send(request).await?;
         Ok(())
     }
 
@@ -1351,7 +1347,7 @@ impl Client {
             debug!("Didn't find filter locally");
             let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?;
             let request = FilterUploadRequest::new(user_id.to_owned(), definition);
-            let response = self.send(request, None).await?;
+            let response = self.send(request).await?;
 
             self.inner.base_client.receive_filter_upload(filter_name, &response).await?;
 
@@ -1369,7 +1365,7 @@ impl Client {
     /// * `room_id` - The `RoomId` of the room to be joined.
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<Room> {
         let request = join_room_by_id::v3::Request::new(room_id.to_owned());
-        let response = self.send(request, None).await?;
+        let response = self.send(request).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
     }
@@ -1391,7 +1387,7 @@ impl Client {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             via: server_names.to_owned(),
         });
-        let response = self.send(request, None).await?;
+        let response = self.send(request).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
     }
@@ -1438,7 +1434,7 @@ impl Client {
             since: since.map(ToOwned::to_owned),
             server: server.map(ToOwned::to_owned),
         });
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Create a room with the given parameters.
@@ -1473,7 +1469,7 @@ impl Client {
     pub async fn create_room(&self, request: create_room::v3::Request) -> Result<Room> {
         let invite = request.invite.clone();
         let is_direct_room = request.is_direct;
-        let response = self.send(request, None).await?;
+        let response = self.send(request).await?;
 
         let base_room = self.base_client().get_or_create_room(&response.room_id, RoomState::Joined);
 
@@ -1557,7 +1553,7 @@ impl Client {
         &self,
         request: get_public_rooms_filtered::v3::Request,
     ) -> HttpResult<get_public_rooms_filtered::v3::Response> {
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1592,17 +1588,13 @@ impl Client {
     /// let request = profile::get_profile::v3::Request::new(user_id);
     ///
     /// // Start the request using Client::send()
-    /// let response = client.send(request, None).await?;
+    /// let response = client.send(request).await?;
     ///
     /// // Check the corresponding Response struct to find out what types are
     /// // returned
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn send<Request>(
-        &self,
-        request: Request,
-        config: Option<RequestConfig>,
-    ) -> SendRequest<Request>
+    pub fn send<Request>(&self, request: Request) -> SendRequest<Request>
     where
         Request: OutgoingRequest + Clone + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
@@ -1610,7 +1602,7 @@ impl Client {
         SendRequest {
             client: self.clone(),
             request,
-            config,
+            config: None,
             send_progress: Default::default(),
             homeserver_override: None,
         }
@@ -1828,7 +1820,7 @@ impl Client {
     pub async fn devices(&self) -> HttpResult<get_devices::v3::Response> {
         let request = get_devices::v3::Request::new();
 
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Delete the given devices from the server.
@@ -1879,7 +1871,7 @@ impl Client {
         let mut request = delete_devices::v3::Request::new(devices.to_owned());
         request.auth = auth_data;
 
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Change the display name of a device owned by the current user.
@@ -1899,7 +1891,7 @@ impl Client {
         let mut request = update_device::v3::Request::new(device_id.to_owned());
         request.display_name = Some(display_name.to_owned());
 
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Synchronize the client's state with the latest state on the server.
@@ -2023,7 +2015,7 @@ impl Client {
             request_config.timeout += timeout;
         }
 
-        let response = self.send(request, Some(request_config)).await?;
+        let response = self.send(request).with_request_config(request_config).await?;
         let next_batch = response.next_batch.clone();
         let response = self.process_sync(response).await?;
 
@@ -2340,7 +2332,7 @@ impl Client {
     /// Gets information about the owner of a given access token.
     pub async fn whoami(&self) -> HttpResult<whoami::v3::Response> {
         let request = whoami::v3::Request::new();
-        self.send(request, None).await
+        self.send(request).await
     }
 
     /// Subscribes a new receiver to client SessionChange broadcasts.
@@ -2394,7 +2386,6 @@ impl Client {
                 self.inner.auth_ctx.clone(),
                 self.server().cloned(),
                 self.homeserver(),
-                #[cfg(feature = "experimental-sliding-sync")]
                 self.sliding_sync_version(),
                 self.inner.http_client.clone(),
                 self.inner
@@ -2451,7 +2442,7 @@ impl Client {
     ) -> Result<Room> {
         let request =
             assign!(knock_room::v3::Request::new(room_id_or_alias), { reason, via: server_names });
-        let response = self.send(request, None).await?;
+        let response = self.send(request).await?;
         let base_room = self.inner.base_client.room_knocked(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
     }

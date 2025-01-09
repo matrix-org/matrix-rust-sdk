@@ -130,7 +130,7 @@ impl RoomPreview {
     pub(crate) async fn from_joined(room: &Room) -> Self {
         let is_direct = room.is_direct().await.ok();
 
-        let display_name = room.compute_display_name().await.ok().map(|name| name.to_string());
+        let display_name = room.display_name().await.ok().map(|name| name.to_string());
 
         Self::from_room_info(
             room.clone_info(),
@@ -241,7 +241,7 @@ impl RoomPreview {
             via,
         );
 
-        let response = client.send(request, None).await?;
+        let response = client.send(request).await?;
 
         // The server returns a `Left` room state for rooms the user has not joined. Be
         // more precise than that, and set it to `None` if we haven't joined
@@ -294,8 +294,8 @@ impl RoomPreview {
         let joined_members_request = joined_members::v3::Request::new(room_id.to_owned());
 
         let (state, joined_members) =
-            try_join!(async { client.send(state_request, None).await }, async {
-                client.send(joined_members_request, None).await
+            try_join!(async { client.send(state_request).await }, async {
+                client.send(joined_members_request).await
             })?;
 
         // Converting from usize to u64 will always work, up to 64-bits devices;

@@ -124,18 +124,21 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
     pub(crate) room_data_provider: P,
 
     /// Settings applied to this timeline.
-    settings: TimelineSettings,
+    pub(super) settings: TimelineSettings,
 }
 
 #[derive(Clone)]
 pub(super) struct TimelineSettings {
     /// Should the read receipts and read markers be handled?
     pub(super) track_read_receipts: bool,
+
     /// Event filter that controls what's rendered as a timeline item (and thus
     /// what can carry read receipts).
     pub(super) event_filter: Arc<TimelineEventFilterFn>,
+
     /// Are unparsable events added as timeline items of their own kind?
     pub(super) add_failed_to_parse: bool,
+
     /// Should the timeline items be grouped by day or month?
     pub(super) date_divider_mode: DateDividerMode,
 }
@@ -663,6 +666,27 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let mut state = self.state.write().await;
         state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
+    }
+
+    /// Handle updates on events as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_events_with_diffs(
+        &self,
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) {
+        if diffs.is_empty() {
+            return;
+        }
+
+        let mut state = self.state.write().await;
+        state
+            .handle_remote_events_with_diffs(
+                diffs,
+                origin,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await
     }
 
     pub(super) async fn clear(&self) {

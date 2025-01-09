@@ -289,6 +289,8 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     server.reset().await;
 
     // Timeline receives events as before.
+    assert_next_matches!(timeline_stream, VectorDiff::Clear); // TODO: Remove `RoomEventCacheUpdate::Clear` as it creates double
+                                                              // `VectorDiff::Clear`.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
     });

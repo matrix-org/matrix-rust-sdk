@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt};
 
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
-use serde::{Deserialize, Serialize};
+use serde::{de, de::Visitor, Deserialize, Deserializer, Serialize};
 use vodozemac::Ed25519PublicKey;
 
-use crate::types::DeviceKeys;
+use crate::types::{serialize_ed25519_key, DeviceKeys};
 
 /// Information about the sender of a megolm session where we know the
 /// cross-signing identity of the sender.
@@ -33,7 +33,53 @@ pub struct KnownSenderData {
     pub device_id: Option<OwnedDeviceId>,
 
     /// The cross-signing key of the user who established this session.
+    #[serde(
+        serialize_with = "serialize_ed25519_key",
+        deserialize_with = "deserialize_sender_msk_base64_or_array"
+    )]
     pub master_key: Box<Ed25519PublicKey>,
+}
+
+/// In an initial version the master key was serialized as an array of number,
+/// it is now exported in base64. This code adds backward compatibility.
+pub(crate) fn deserialize_sender_msk_base64_or_array<'de, D>(
+    de: D,
+) -> Result<Box<Ed25519PublicKey>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct KeyVisitor;
+
+    impl<'de> Visitor<'de> for KeyVisitor {
+        type Value = Box<Ed25519PublicKey>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "a base64 string or an array of 32 bytes")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let decoded = Ed25519PublicKey::from_base64(v)
+                .map_err(|_| de::Error::custom("Base64 decoding error"))?;
+            Ok(Box::new(decoded))
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut buf = [0u8; 32];
+            for (i, item) in buf.iter_mut().enumerate() {
+                *item = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(i, &self))?;
+            }
+            let key = Ed25519PublicKey::from_slice(&buf).map_err(|e| de::Error::custom(&e))?;
+            Ok(Box::new(key))
+        }
+    }
+
+    de.deserialize_any(KeyVisitor)
 }
 
 /// Information on the device and user that sent the megolm session data to us
@@ -215,6 +261,7 @@ enum SenderDataReader {
         legacy_session: bool,
     },
 
+    #[serde(alias = "SenderUnverifiedButPreviouslyVerified")]
     VerificationViolation(KnownSenderData),
 
     SenderUnverified(KnownSenderData),
@@ -282,11 +329,18 @@ mod tests {
     use std::{cmp::Ordering, collections::BTreeMap};
 
     use assert_matches2::assert_let;
-    use ruma::{device_id, owned_device_id, owned_user_id, user_id};
-    use vodozemac::Ed25519PublicKey;
+    use insta::assert_json_snapshot;
+    use ruma::{
+        device_id, owned_device_id, owned_user_id, user_id, DeviceKeyAlgorithm, DeviceKeyId,
+    };
+    use serde_json::json;
+    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::SenderData;
-    use crate::types::{DeviceKeys, Signatures};
+    use crate::{
+        olm::KnownSenderData,
+        types::{DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures},
+    };
 
     #[test]
     fn serializing_unknown_device_correctly_preserves_owner_check_failed_if_true() {
@@ -358,6 +412,47 @@ mod tests {
 
         let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
         assert_let!(SenderData::SenderVerified { .. } = end);
+    }
+
+    #[test]
+    fn deserializing_sender_unverified_but_previously_verified_migrates_to_verification_violation()
+    {
+        let json = r#"
+            {
+                "SenderUnverifiedButPreviouslyVerified":{
+                    "user_id":"@u:s.co",
+                    "master_key":[
+                        150,140,249,139,141,29,63,230,179,14,213,175,176,61,11,255,
+                        26,103,10,51,100,154,183,47,181,117,87,204,33,215,241,92
+                    ],
+                    "master_key_verified":true
+                }
+            }
+            "#;
+
+        let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
+        assert_let!(SenderData::VerificationViolation(KnownSenderData { user_id, .. }) = end);
+        assert_eq!(user_id, owned_user_id!("@u:s.co"));
+    }
+
+    #[test]
+    fn deserializing_verification_violation() {
+        let json = r#"
+            {
+                "VerificationViolation":{
+                    "user_id":"@u:s.co",
+                    "master_key":[
+                        150,140,249,139,141,29,63,230,179,14,213,175,176,61,11,255,
+                        26,103,10,51,100,154,183,47,181,117,87,204,33,215,241,92
+                    ],
+                    "master_key_verified":true
+                }
+            }
+            "#;
+
+        let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
+        assert_let!(SenderData::VerificationViolation(KnownSenderData { user_id, .. }) = end);
+        assert_eq!(user_id, owned_user_id!("@u:s.co"));
     }
 
     #[test]
@@ -433,5 +528,74 @@ mod tests {
         );
         assert_eq!(sender_unverified.compare_trust_level(&sender_verified), Ordering::Less);
         assert_eq!(sender_verified.compare_trust_level(&sender_unverified), Ordering::Greater);
+    }
+
+    #[test]
+    fn snapshot_sender_data() {
+        assert_json_snapshot!(SenderData::UnknownDevice {
+            legacy_session: false,
+            owner_check_failed: true,
+        });
+
+        assert_json_snapshot!(SenderData::UnknownDevice {
+            legacy_session: true,
+            owner_check_failed: false,
+        });
+
+        assert_json_snapshot!(SenderData::DeviceInfo {
+            device_keys: DeviceKeys::new(
+                owned_user_id!("@foo:bar.baz"),
+                owned_device_id!("DEV"),
+                vec![
+                    EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+                ],
+                BTreeMap::from_iter(vec![(
+                    DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("ABCDEFGH")),
+                    DeviceKey::Curve25519(Curve25519PublicKey::from_bytes([0u8; 32])),
+                )]),
+                Default::default(),
+            ),
+            legacy_session: false,
+        });
+
+        assert_json_snapshot!(SenderData::VerificationViolation(KnownSenderData {
+            user_id: owned_user_id!("@foo:bar.baz"),
+            device_id: Some(owned_device_id!("DEV")),
+            master_key: Box::new(Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap()),
+        }));
+
+        assert_json_snapshot!(SenderData::SenderUnverified(KnownSenderData {
+            user_id: owned_user_id!("@foo:bar.baz"),
+            device_id: None,
+            master_key: Box::new(Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap()),
+        }));
+
+        assert_json_snapshot!(SenderData::SenderVerified(KnownSenderData {
+            user_id: owned_user_id!("@foo:bar.baz"),
+            device_id: None,
+            master_key: Box::new(Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap()),
+        }));
+    }
+
+    #[test]
+    fn test_sender_known_data_migration() {
+        let old_format = json!(
+        {
+            "SenderVerified": {
+                "user_id": "@foo:bar.baz",
+                "device_id": null,
+                "master_key": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            }
+        });
+
+        let migrated: SenderData = serde_json::from_value(old_format).unwrap();
+
+        assert_let!(SenderData::SenderVerified(KnownSenderData { master_key, .. }) = migrated);
+
+        assert_eq!(
+            master_key.to_base64(),
+            Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap().to_base64()
+        );
     }
 }

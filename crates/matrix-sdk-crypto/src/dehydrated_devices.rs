@@ -71,6 +71,10 @@ pub enum DehydrationError {
     #[error(transparent)]
     Pickle(#[from] DehydratedDeviceError),
 
+    /// The pickle key has an invalid length
+    #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
+    PickleKeyLength(usize),
+
     /// The dehydrated device could not be signed by our user identity,
     /// we're missing the self-signing key.
     #[error("The self-signing key is missing, can't create a dehydrated device")]

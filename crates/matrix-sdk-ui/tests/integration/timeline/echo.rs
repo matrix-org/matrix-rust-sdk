@@ -121,16 +121,18 @@ async fn test_echo() {
     server.reset().await;
 
     // Local echo is replaced with the remote echo.
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 1 });
     let remote_echo =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
+        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
     let item = remote_echo.as_event().unwrap();
     assert!(item.is_own());
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
 
     // The date divider is also replaced.
     let date_divider =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
+        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());
+    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
 }
 
 #[async_test]

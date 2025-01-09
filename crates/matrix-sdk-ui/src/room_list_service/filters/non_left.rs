@@ -28,7 +28,10 @@ where
     F: Fn(&Room) -> RoomState,
 {
     fn matches(&self, room: &Room) -> bool {
-        (self.state)(room) != RoomState::Left
+        match (self.state)(room) {
+            RoomState::Joined | RoomState::Invited | RoomState::Knocked => true,
+            RoomState::Left | RoomState::Banned => false,
+        }
     }
 }
 
@@ -57,6 +60,10 @@ mod tests {
 
         // When a room has been left, it doesn't match.
         let matcher = NonLeftRoomMatcher { state: |_| RoomState::Left };
+        assert!(!matcher.matches(&room));
+
+        // When a room is in the banned state, it doesn't match either.
+        let matcher = NonLeftRoomMatcher { state: |_| RoomState::Banned };
         assert!(!matcher.matches(&room));
 
         // When a room has been joined, it does match (unless it's empty).

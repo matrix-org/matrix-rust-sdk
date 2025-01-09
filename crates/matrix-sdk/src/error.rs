@@ -338,7 +338,6 @@ pub enum Error {
     UserTagName(#[from] InvalidUserTagName),
 
     /// An error occurred within sliding-sync
-    #[cfg(feature = "experimental-sliding-sync")]
     #[error(transparent)]
     SlidingSync(#[from] crate::sliding_sync::Error),
 

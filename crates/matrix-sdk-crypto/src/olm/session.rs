@@ -380,6 +380,6 @@ mod tests {
         // DecryptedOlmV1Event
         let event: DecryptedOlmV1Event<DummyEventContent> =
             serde_json::from_str(&bob_session_result.plaintext).unwrap();
-        assert_eq!(event.device_keys.unwrap(), alice.device_keys());
+        assert_eq!(event.sender_device_keys.unwrap(), alice.device_keys());
     }
 }
