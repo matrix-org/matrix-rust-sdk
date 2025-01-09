@@ -6,6 +6,7 @@ use ruma::{
         room::{
             canonical_alias::RoomCanonicalAliasEventContent,
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+            join_rules::{JoinRule, RoomJoinRulesEventContent},
         },
         EmptyStateKey,
     },
@@ -79,6 +80,22 @@ impl<'a> RoomPrivacySettings<'a> {
         self.client.send(request).await?;
         Ok(())
     }
+
+    /// Update the join rule for this room.
+    ///
+    /// The join rules controls if and how a new user can get access to the
+    /// room.
+    ///
+    /// See <https://spec.matrix.org/v1.12/client-server-api/#mroomjoin_rules> for more info.
+    pub async fn update_join_rule(&'a self, new_rule: JoinRule) -> Result<()> {
+        let request = send_state_event::v3::Request::new(
+            self.room.room_id().to_owned(),
+            &EmptyStateKey,
+            &RoomJoinRulesEventContent::new(new_rule),
+        )?;
+        self.client.send(request).await?;
+        Ok(())
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -86,7 +103,10 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         event_id,
-        events::{room::history_visibility::HistoryVisibility, StateEventType},
+        events::{
+            room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
+            StateEventType,
+        },
         owned_room_alias_id, room_id,
     };
 
@@ -154,6 +174,26 @@ mod tests {
 
         let ret =
             room.privacy_settings().update_room_history_visibility(HistoryVisibility::Joined).await;
+        assert!(ret.is_ok());
+    }
+
+    #[async_test]
+    async fn test_update_join_rule() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        server
+            .mock_room_send_state()
+            .for_type(StateEventType::RoomJoinRules)
+            .ok(event_id!("$a:b.c"))
+            .mock_once()
+            .mount()
+            .await;
+
+        let ret = room.privacy_settings().update_join_rule(JoinRule::Public).await;
         assert!(ret.is_ok());
     }
 }
