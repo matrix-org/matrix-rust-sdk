@@ -14,9 +14,8 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use chrono::{Datelike, Local, TimeZone};
 use imbl::Vector;
-use ruma::{EventId, MilliSecondsSinceUnixEpoch};
+use ruma::EventId;
 
 #[cfg(doc)]
 use super::controller::TimelineMetadata;
@@ -123,30 +122,4 @@ pub(super) enum RelativePosition {
     Same,
     /// Event B is before (older than) event A.
     Before,
-}
-
-#[derive(Debug, PartialEq)]
-pub(super) struct Date {
-    year: i32,
-    month: u32,
-    day: u32,
-}
-
-impl Date {
-    pub fn is_same_month_as(&self, date: Date) -> bool {
-        self.year == date.year && self.month == date.month
-    }
-}
-
-/// Converts a timestamp since Unix Epoch to a year, month and day.
-pub(super) fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
-    let datetime = Local
-        .timestamp_millis_opt(ts.0.into())
-        // Only returns `None` if date is after Dec 31, 262143 BCE.
-        .single()
-        // Fallback to the current date to avoid issues with malicious
-        // homeservers.
-        .unwrap_or_else(Local::now);
-
-    Date { year: datetime.year(), month: datetime.month(), day: datetime.day() }
 }
