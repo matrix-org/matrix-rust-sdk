@@ -1201,7 +1201,7 @@ impl Client {
         }
     }
 
-    /// Creates a new room alias associated with a room.
+    /// Adds a new room alias associated with a room to the room directory.
     pub async fn create_room_alias(&self, alias: &RoomAliasId, room_id: &RoomId) -> HttpResult<()> {
         let request = create_alias::v3::Request::new(alias.to_owned(), room_id.to_owned());
         self.send(request).await?;
@@ -3163,7 +3163,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        server.mock_create_room_alias().ok().expect(1).mount().await;
+        server.mock_room_directory_create_room_alias().ok().expect(1).mount().await;
 
         let ret = client
             .create_room_alias(
