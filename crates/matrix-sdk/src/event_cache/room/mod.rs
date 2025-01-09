@@ -431,19 +431,30 @@ impl RoomEventCacheInner {
 
                     let added_unique_events = room_events.push_events(sync_timeline_events.clone());
 
-                    if !added_unique_events && prev_batch.is_some() {
+                    if !added_unique_events {
                         debug!(
                             "not storing previous batch token, because we deduplicated all new sync events"
                         );
 
-                        // Remove the gap we just inserted.
-                        let prev_gap_id = room_events
-                            .rchunks()
-                            .find_map(|c| c.is_gap().then_some(c.identifier()))
-                            .expect("we just inserted the gap beforehand");
-                        room_events
-                            .replace_gap_at([], prev_gap_id)
-                            .expect("we obtained the valid position beforehand");
+                        if let Some(prev_token) = &prev_batch {
+                            // Note: there can't be any race with another task touching the linked
+                            // chunk at this point, because we're using `with_events_mut` which
+                            // guards access to the data.
+                            trace!("removing gap we just inserted");
+
+                                // Find the gap that had the previous-batch token we inserted above.
+                            let prev_gap_id = room_events
+                                .rchunks()
+                                .find_map(|c| {
+                                    let gap = as_variant::as_variant!(c.content(), ChunkContent::Gap)?;
+                                    (gap.prev_token == *prev_token).then_some(c.identifier())
+                                })
+                                .expect("we just inserted the gap beforehand");
+
+                            room_events
+                                .replace_gap_at([], prev_gap_id)
+                                .expect("we obtained the valid position beforehand");
+                        }
                     }
                 })
                 .await?;
