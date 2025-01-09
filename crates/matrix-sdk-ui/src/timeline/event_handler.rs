@@ -51,6 +51,7 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
+    algorithms::{rfind_event_by_id, rfind_event_item},
     controller::{
         ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
         TimelineMetadata, TimelineStateTransaction,
@@ -64,7 +65,6 @@ use super::{
     },
     reactions::{FullReactionKey, PendingReaction},
     traits::RoomDataProvider,
-    util::{rfind_event_by_id, rfind_event_item},
     EventTimelineItem, InReplyToDetails, OtherState, RepliedToEvent, Sticker, TimelineDetails,
     TimelineItem, TimelineItemContent,
 };

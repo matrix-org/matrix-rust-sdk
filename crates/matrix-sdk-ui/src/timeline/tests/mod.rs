@@ -61,11 +61,11 @@ use ruma::{
 use tokio::sync::RwLock;
 
 use super::{
+    algorithms::rfind_event_by_item_id,
     controller::{TimelineNewItemPosition, TimelineSettings},
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
     traits::RoomDataProvider,
-    util::rfind_event_by_item_id,
     EventTimelineItem, Profile, TimelineController, TimelineEventItemId, TimelineFocus,
     TimelineItem,
 };

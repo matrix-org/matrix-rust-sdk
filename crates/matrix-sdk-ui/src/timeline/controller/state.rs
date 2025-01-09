@@ -55,6 +55,7 @@ use super::{
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
+        algorithms::rfind_event_by_id,
         date_dividers::DateDividerAdjuster,
         event_handler::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
@@ -64,7 +65,6 @@ use crate::{
         item::TimelineUniqueId,
         reactions::Reactions,
         traits::RoomDataProvider,
-        util::rfind_event_by_id,
         Profile, TimelineItem, TimelineItemKind,
     },
     unable_to_decrypt_hook::UtdHookManager,
