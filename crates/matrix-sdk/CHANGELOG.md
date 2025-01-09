@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Expose `Client::server_versions()` publicly to allow users of the library to
   get the versions of Matrix supported by the homeserver.
   ([#4519](https://github.com/matrix-org/matrix-rust-sdk/pull/4519))
+- Create `RoomPrivacySettings` helper to group room settings functionality related to room access and visibility ([#4401](https://github.com/matrix-org/matrix-rust-sdk/pull/4401)). 
 
 ### Refactor
 
