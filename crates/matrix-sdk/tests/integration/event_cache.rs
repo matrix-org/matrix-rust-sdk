@@ -1378,3 +1378,67 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     assert!(stream.is_empty());
 }
+
+#[async_test]
+async fn test_dont_delete_gap_that_wasnt_inserted() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // Start with a room with a single event, limited timeline and prev-batch token.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("sup").event_id(event_id!("$3")).into_raw_sync())
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev-batch".to_owned()),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+    if events.is_empty() {
+        assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
+    }
+    drop(events);
+
+    // Back-paginate to consume the existing gap.
+    // Say the back-pagination doesn't return anything.
+    server
+        .mock_room_messages()
+        .from("prev-batch")
+        .ok("start-token-unused".to_owned(), None, Vec::<Raw<AnyTimelineEvent>>::new(), Vec::new())
+        .mock_once()
+        .mount()
+        .await;
+    room_event_cache.pagination().run_backwards(20, once).await.unwrap();
+
+    // This doesn't cause an update, because nothing changed.
+    assert!(stream.is_empty());
+
+    // After a restart, a sync with the same sliding sync window may return the same
+    // events, but no prev-batch token this time.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![f
+                .text_msg("sup")
+                .event_id(event_id!("$3"))
+                .into_raw_sync()]),
+        )
+        .await;
+
+    // This doesn't cause an update, because nothing changed.
+    assert!(stream.is_empty());
+}
