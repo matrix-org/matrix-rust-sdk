@@ -2852,6 +2852,35 @@ impl Room {
         Ok(Invite { invitee, inviter })
     }
 
+    /// Get the membership details for the current user.
+    ///
+    /// Returns:
+    ///     - If the current user was present in the room, a tuple of the
+    ///       current user's [`RoomMember`] info and the member info of the
+    ///       sender of that member event.
+    ///     - If the current user is not present, an error.
+    pub async fn own_membership_details(&self) -> Result<(RoomMember, Option<RoomMember>)> {
+        let Some(own_member) = self.get_member_no_sync(self.own_user_id()).await? else {
+            return Err(Error::InsufficientData);
+        };
+
+        let sender_member =
+            if let Some(member) = self.get_member_no_sync(own_member.event().sender()).await? {
+                // If the sender room member info is already available, return it
+                Some(member)
+            } else if self.are_members_synced() {
+                // The room members are synced and we couldn't find the sender info
+                None
+            } else if self.sync_members().await.is_ok() {
+                // Try getting the sender room member info again after syncing
+                self.get_member_no_sync(own_member.event().sender()).await?
+            } else {
+                None
+            };
+
+        Ok((own_member, sender_member))
+    }
+
     /// Forget this room.
     ///
     /// This communicates to the homeserver that it should forget the room.
@@ -3656,6 +3685,7 @@ pub struct TryFromReportedContentScoreError(());
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    use assert_matches2::assert_matches;
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft, SessionMeta};
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
@@ -3887,5 +3917,127 @@ mod tests {
             seen_ids.into_iter().next().expect("No next value"),
             (event_id.to_owned(), user_id.to_owned())
         )
+    }
+
+    #[async_test]
+    async fn test_own_room_membership_with_no_own_member_event() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        // Since there is no member event for the own user, the method fails.
+        // This should never happen in an actual room.
+        let error = room.own_membership_details().await.err();
+        assert!(error.is_some());
+    }
+
+    #[async_test]
+    async fn test_own_room_membership_with_own_member_event_but_unknown_sender() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let user_id = user_id!("@example:localhost");
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@alice:b.c"));
+        let joined_room_builder = JoinedRoomBuilder::new(room_id)
+            .add_state_bulk(vec![f.member(user_id).into_raw_sync().cast()]);
+        let room = server.sync_room(&client, joined_room_builder).await;
+
+        // When we load the membership details
+        let ret = room.own_membership_details().await;
+        assert_matches!(ret, Ok((member, sender)));
+
+        // We get the member info for the current user
+        assert_eq!(member.event().user_id(), user_id);
+
+        // But there is no info for the sender
+        assert!(sender.is_none());
+    }
+
+    #[async_test]
+    async fn test_own_room_membership_with_own_member_event_and_own_sender() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let user_id = user_id!("@example:localhost");
+
+        let f = EventFactory::new().room(room_id).sender(user_id);
+        let joined_room_builder = JoinedRoomBuilder::new(room_id)
+            .add_state_bulk(vec![f.member(user_id).into_raw_sync().cast()]);
+        let room = server.sync_room(&client, joined_room_builder).await;
+
+        // When we load the membership details
+        let ret = room.own_membership_details().await;
+        assert_matches!(ret, Ok((member, sender)));
+
+        // We get the current user's member info
+        assert_eq!(member.event().user_id(), user_id);
+
+        // And the sender has the same info, since it's also the current user
+        assert!(sender.is_some());
+        assert_eq!(sender.unwrap().event().user_id(), user_id);
+    }
+
+    #[async_test]
+    async fn test_own_room_membership_with_own_member_event_and_known_sender() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let user_id = user_id!("@example:localhost");
+        let sender_id = user_id!("@alice:b.c");
+
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![
+            f.member(user_id).into_raw_sync().cast(),
+            // The sender info comes from the sync
+            f.member(sender_id).into_raw_sync().cast(),
+        ]);
+        let room = server.sync_room(&client, joined_room_builder).await;
+
+        // When we load the membership details
+        let ret = room.own_membership_details().await;
+        assert_matches!(ret, Ok((member, sender)));
+
+        // We get the current user's member info
+        assert_eq!(member.event().user_id(), user_id);
+
+        // And also the sender info from the events received in the sync
+        assert!(sender.is_some());
+        assert_eq!(sender.unwrap().event().user_id(), sender_id);
+    }
+
+    #[async_test]
+    async fn test_own_room_membership_with_own_member_event_and_unknown_but_available_sender() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let user_id = user_id!("@example:localhost");
+        let sender_id = user_id!("@alice:b.c");
+
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let joined_room_builder = JoinedRoomBuilder::new(room_id)
+            .add_state_bulk(vec![f.member(user_id).into_raw_sync().cast()]);
+        let room = server.sync_room(&client, joined_room_builder).await;
+
+        // We'll receive the member info through the /members endpoint
+        server
+            .mock_get_members()
+            .ok(vec![f.member(sender_id).into_raw_timeline().cast()])
+            .mock_once()
+            .mount()
+            .await;
+
+        // We get the current user's member info
+        let ret = room.own_membership_details().await;
+        assert_matches!(ret, Ok((member, sender)));
+
+        // We get the current user's member info
+        assert_eq!(member.event().user_id(), user_id);
+
+        // And also the sender info from the /members endpoint
+        assert!(sender.is_some());
+        assert_eq!(sender.unwrap().event().user_id(), sender_id);
     }
 }
