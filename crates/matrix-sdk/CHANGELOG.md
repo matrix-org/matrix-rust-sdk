@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Allow to set and check whether an image is animated via its `ImageInfo`.
+  ([#4503](https://github.com/matrix-org/matrix-rust-sdk/pull/4503))
+
 ### Refactor
 
 - [**breaking**] Move the optional `RequestConfig` argument of the

@@ -570,6 +570,7 @@ pub struct ImageInfo {
     pub thumbnail_info: Option<ThumbnailInfo>,
     pub thumbnail_source: Option<Arc<MediaSource>>,
     pub blurhash: Option<String>,
+    pub is_animated: Option<bool>,
 }
 
 impl From<ImageInfo> for RumaImageInfo {
@@ -582,6 +583,7 @@ impl From<ImageInfo> for RumaImageInfo {
             thumbnail_info: value.thumbnail_info.map(Into::into).map(Box::new),
             thumbnail_source: value.thumbnail_source.map(|source| (*source).clone().into()),
             blurhash: value.blurhash,
+            is_animated: value.is_animated,
         })
     }
 }
@@ -603,6 +605,7 @@ impl TryFrom<&ImageInfo> for BaseImageInfo {
             width: Some(width),
             size: Some(size),
             blurhash: Some(blurhash),
+            is_animated: value.is_animated,
         })
     }
 }
@@ -859,6 +862,7 @@ impl TryFrom<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
                 .transpose()?
                 .map(Arc::new),
             blurhash: info.blurhash.clone(),
+            is_animated: info.is_animated,
         })
     }
 }
