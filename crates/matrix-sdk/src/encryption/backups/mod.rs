@@ -1007,7 +1007,7 @@ impl Backups {
         room_id: OwnedRoomId,
         event: Raw<OriginalSyncRoomEncryptedEvent>,
     ) {
-        let tasks = self.client.inner.e2ee.tasks.lock().unwrap();
+        let tasks = self.client.inner.e2ee.tasks.lock();
         if let Some(task) = tasks.download_room_keys.as_ref() {
             task.trigger_download_for_utd_event(room_id, event);
         }
@@ -1016,7 +1016,7 @@ impl Backups {
     /// Send a notification to the task which is responsible for uploading room
     /// keys to the backup that it might have new room keys to back up.
     pub(crate) fn maybe_trigger_backup(&self) {
-        let tasks = self.client.inner.e2ee.tasks.lock().unwrap();
+        let tasks = self.client.inner.e2ee.tasks.lock();
 
         if let Some(tasks) = tasks.upload_room_keys.as_ref() {
             tasks.trigger_upload();

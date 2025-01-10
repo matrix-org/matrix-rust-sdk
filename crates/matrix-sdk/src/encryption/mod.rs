@@ -21,7 +21,7 @@ use std::{
     io::{Cursor, Read, Write},
     iter,
     path::PathBuf,
-    sync::{Arc, Mutex as StdMutex},
+    sync::Arc,
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -37,7 +37,7 @@ use matrix_sdk_base::crypto::{
     },
     CrossSigningBootstrapRequests, OlmMachine,
 };
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
     api::client::{
         keys::{
@@ -131,7 +131,7 @@ impl EncryptionData {
     pub fn initialize_room_key_tasks(&self, client: &Arc<ClientInner>) {
         let weak_client = WeakClient::from_inner(client);
 
-        let mut tasks = self.tasks.lock().unwrap();
+        let mut tasks = self.tasks.lock();
         tasks.upload_room_keys = Some(BackupUploadingTask::new(weak_client.clone()));
 
         if self.encryption_settings.backup_download_strategy
@@ -147,7 +147,7 @@ impl EncryptionData {
     /// This should happen after the usual tasks have been set up and after the
     /// E2EE initialization tasks have been set up.
     pub fn initialize_recovery_state_update_task(&self, client: &Client) {
-        let mut guard = self.tasks.lock().unwrap();
+        let mut guard = self.tasks.lock();
 
         let future = Recovery::update_state_after_backup_state_change(client);
         let join_handle = spawn(future);
@@ -1653,7 +1653,7 @@ impl Encryption {
     ///   allow for the initial upload of cross-signing keys without
     ///   authentication, rendering this parameter obsolete.
     pub(crate) fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
-        let mut tasks = self.client.inner.e2ee.tasks.lock().unwrap();
+        let mut tasks = self.client.inner.e2ee.tasks.lock();
 
         let this = self.clone();
         tasks.setup_e2ee = Some(spawn(async move {
@@ -1679,7 +1679,7 @@ impl Encryption {
     /// Waits for end-to-end encryption initialization tasks to finish, if any
     /// was running in the background.
     pub async fn wait_for_e2ee_initialization_tasks(&self) {
-        let task = self.client.inner.e2ee.tasks.lock().unwrap().setup_e2ee.take();
+        let task = self.client.inner.e2ee.tasks.lock().setup_e2ee.take();
 
         if let Some(task) = task {
             if let Err(err) = task.await {
