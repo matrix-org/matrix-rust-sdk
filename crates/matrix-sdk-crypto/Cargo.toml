@@ -87,6 +87,7 @@ http = { workspace = true }
 indoc = "2.0.5"
 insta = { workspace = true }
 matrix-sdk-test = { workspace = true }
+rmp-serde = { workspace = true }
 proptest = { workspace = true }
 similar-asserts = { workspace = true }
 # required for async_test macro
