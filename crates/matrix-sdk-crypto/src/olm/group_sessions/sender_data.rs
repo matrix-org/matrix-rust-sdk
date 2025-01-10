@@ -77,6 +77,21 @@ where
             let key = Ed25519PublicKey::from_slice(&buf).map_err(|e| de::Error::custom(&e))?;
             Ok(Box::new(key))
         }
+
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if v.len() == Ed25519PublicKey::LENGTH {
+                let mut buf = [0u8; 32];
+                buf.copy_from_slice(v);
+
+                let key = Ed25519PublicKey::from_slice(&buf).map_err(|e| de::Error::custom(&e))?;
+                Ok(Box::new(key))
+            } else {
+                Err(de::Error::invalid_length(v.len(), &self))
+            }
+        }
     }
 
     de.deserialize_any(KeyVisitor)
@@ -334,11 +349,11 @@ mod tests {
         device_id, owned_device_id, owned_user_id, user_id, DeviceKeyAlgorithm, DeviceKeyId,
     };
     use serde_json::json;
-    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
+    use vodozemac::{base64_decode, Curve25519PublicKey, Ed25519PublicKey};
 
     use super::SenderData;
     use crate::{
-        olm::KnownSenderData,
+        olm::{KnownSenderData, PickledInboundGroupSession},
         types::{DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures},
     };
 
@@ -597,5 +612,35 @@ mod tests {
             master_key.to_base64(),
             Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap().to_base64()
         );
+    }
+
+    #[test]
+    fn test_sender_known_data_migration_with_efficient_bytes_array() {
+        // This is an serialized PickledInboundGroupSession as rmp_serde will generate.
+        // This export use efficient storage for &[u8].
+        // This an export when the `KnownSenderData` master_key was exported as an array
+        // instead of a base64 encoded string
+        let serialized_b64 = concat!(
+        "iaZwaWNrbGWEr2luaXRpYWxfcmF0Y2hldIKlaW5uZXLcAIABYMzfSnBRzMlPKF1uKjYbzLtkzNJ4RcylzN0HzP9D",
+        "zON1Tm05zO7M2MzFQsy9Acz9zPnMqDvM4syQzNrMzxF5KzbM4sy9zPUbBWfM7m4/zJzM18zDzMESKgfMkE7MyszI",
+        "HszqWjYyQURbzKTMkx7M58zANsy+AGPM2A8tbcyFYczge8ykzMFdbVxJMMyAzN8azJEXGsy8zPJazMMaP8ziDszm",
+        "WwfM+My2ajLMr8y+eczTRm9TFadjb3VudGVyAKtzaWduaW5nX2tlecQgefpCr6Duu7QUWzKIeMOFmxv/NjfcsYwZ",
+        "z8IN2ZOhdaS0c2lnbmluZ19rZXlfdmVyaWZpZWTDpmNvbmZpZ4GndmVyc2lvbqJWMapzZW5kZXJfa2V52StoMkIy",
+        "SDg2ajFpYmk2SW13ak9UUkhzbTVMamtyT2kyUGtiSXVUb0w0TWtFq3NpZ25pbmdfa2V5gadlZDI1NTE52StUWHJq",
+        "NS9UYXpia3Yram1CZDl4UlB4NWNVaFFzNUNnblc1Q1pNRjgvNjZzq3NlbmRlcl9kYXRhgbBTZW5kZXJVbnZlcmlm",
+        "aWVkg6d1c2VyX2lks0B2YWxvdTM1Om1hdHJpeC5vcmepZGV2aWNlX2lkqkZJQlNaRlJLUE2qbWFzdGVyX2tlecQg",
+        "kOp9s4ClyQujYD7rRZA8xgE6kvYlqKSNnMrQNmSrcuGncm9vbV9pZL4hRWt5VEtGdkViYlB6SmxhaUhFOm1hdHJp",
+        "eC5vcmeoaW1wb3J0ZWTCqWJhY2tlZF91cMKyaGlzdG9yeV92aXNpYmlsaXR5wKlhbGdvcml0aG20bS5tZWdvbG0u",
+        "djEuYWVzLXNoYTI");
+        let input = base64_decode(serialized_b64).unwrap();
+
+        let sd: PickledInboundGroupSession = rmp_serde::from_slice(&input)
+            .expect("Should be able to deserialize serialized inbound group session");
+
+        assert_let!(
+            SenderData::SenderUnverified(KnownSenderData { master_key, .. }) = sd.sender_data
+        );
+
+        assert_eq!(master_key.to_base64(), "kOp9s4ClyQujYD7rRZA8xgE6kvYlqKSNnMrQNmSrcuE");
     }
 }
