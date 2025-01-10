@@ -76,7 +76,7 @@ pub fn matrix_to_user_permalink(user_id: String) -> Result<String, ClientError> 
     Ok(user_id.matrix_to_uri().to_string())
 }
 
-#[derive(uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct RoomMember {
     pub user_id: String,
     pub display_name: Option<String>,
@@ -87,6 +87,7 @@ pub struct RoomMember {
     pub normalized_power_level: i64,
     pub is_ignored: bool,
     pub suggested_role_for_power_level: RoomMemberRole,
+    pub membership_change_reason: Option<String>,
 }
 
 impl TryFrom<SdkRoomMember> for RoomMember {
@@ -103,6 +104,7 @@ impl TryFrom<SdkRoomMember> for RoomMember {
             normalized_power_level: m.normalized_power_level(),
             is_ignored: m.is_ignored(),
             suggested_role_for_power_level: m.suggested_role_for_power_level(),
+            membership_change_reason: m.event().reason().map(|s| s.to_owned()),
         })
     }
 }
