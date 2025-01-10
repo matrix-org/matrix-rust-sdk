@@ -70,12 +70,30 @@ where
         where
             A: de::SeqAccess<'de>,
         {
-            let mut buf = [0u8; 32];
+            let mut buf = [0u8; Ed25519PublicKey::LENGTH];
+
             for (i, item) in buf.iter_mut().enumerate() {
                 *item = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(i, &self))?;
             }
+
             let key = Ed25519PublicKey::from_slice(&buf).map_err(|e| de::Error::custom(&e))?;
+
             Ok(Box::new(key))
+        }
+
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if v.len() == Ed25519PublicKey::LENGTH {
+                let mut buf = [0u8; Ed25519PublicKey::LENGTH];
+                buf.copy_from_slice(v);
+
+                let key = Ed25519PublicKey::from_slice(&buf).map_err(|e| de::Error::custom(&e))?;
+                Ok(Box::new(key))
+            } else {
+                Err(de::Error::invalid_length(v.len(), &self))
+            }
         }
     }
 
