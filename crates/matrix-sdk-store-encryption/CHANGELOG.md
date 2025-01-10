@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Remove the usage of an unwrap in the `StoreCipher::import_with_key` method.
+  This could have lead to panics if the second argument was an invalid
+  `StoreCipher` export.
+  ([#4506](https://github.com/matrix-org/matrix-rust-sdk/pull/4506))
+
 ## [0.9.0] - 2024-12-18
 
 No notable changes in this release.

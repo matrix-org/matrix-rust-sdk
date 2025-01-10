@@ -334,7 +334,7 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn import_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Self, Error> {
-        let encrypted: EncryptedStoreCipher = rmp_serde::from_slice(encrypted).unwrap();
+        let encrypted: EncryptedStoreCipher = rmp_serde::from_slice(encrypted)?;
 
         if let KdfInfo::Pbkdf2ToChaCha20Poly1305 { .. } = encrypted.kdf_info {
             return Err(Error::KdfMismatch);
@@ -901,6 +901,12 @@ mod tests {
             .expect("We can import the old store-cipher export");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_importing_invalid_store_cipher_does_not_panic() {
+        // This used to panic, we're testing that we're getting a real error.
+        assert!(StoreCipher::import_with_key(&[0; 32], &[0; 64]).is_err())
     }
 
     #[test]
