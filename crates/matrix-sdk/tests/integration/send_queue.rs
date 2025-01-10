@@ -54,6 +54,7 @@ async fn queue_attachment_no_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'stat
         width: Some(uint!(37)),
         size: Some(uint!(42)),
         blurhash: None,
+        is_animated: None,
     }));
     let handle = q
         .send_attachment(filename, content_type, data, config)
@@ -85,6 +86,7 @@ async fn queue_attachment_with_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'st
             width: Some(uint!(37)),
             size: Some(uint!(42)),
             blurhash: None,
+            is_animated: None,
         },
     ));
 
@@ -1811,6 +1813,7 @@ async fn test_media_uploads() {
         width: Some(uint!(38)),
         size: Some(uint!(43)),
         blurhash: None,
+        is_animated: Some(false),
     });
 
     let transaction_id = TransactionId::new();
@@ -1871,6 +1874,7 @@ async fn test_media_uploads() {
     assert_eq!(info.size, Some(uint!(43)));
     assert_eq!(info.mimetype.as_deref(), Some("image/jpeg"));
     assert!(info.blurhash.is_none());
+    assert_eq!(info.is_animated, Some(false));
 
     // Check the data source: it should reference the send queue local storage.
     let local_source = img_content.source;

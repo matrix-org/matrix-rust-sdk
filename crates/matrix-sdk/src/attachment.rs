@@ -39,6 +39,8 @@ pub struct BaseImageInfo {
     pub size: Option<UInt>,
     /// The [BlurHash](https://blurha.sh/) for this image.
     pub blurhash: Option<String>,
+    /// Whether this image is animated.
+    pub is_animated: Option<bool>,
 }
 
 /// Base metadata about a video.
@@ -100,6 +102,7 @@ impl From<AttachmentInfo> for ImageInfo {
                 width: info.width,
                 size: info.size,
                 blurhash: info.blurhash,
+                is_animated: info.is_animated,
             }),
             _ => ImageInfo::new(),
         }

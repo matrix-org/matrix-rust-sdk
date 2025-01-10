@@ -89,6 +89,7 @@ async fn test_room_attachment_send_info() {
             width: Some(uint!(800)),
             size: None,
             blurhash: None,
+            is_animated: None,
         }))
         .caption(Some("image caption".to_owned()));
 
@@ -217,6 +218,7 @@ async fn test_room_attachment_send_info_thumbnail() {
             width: Some(uint!(800)),
             size: None,
             blurhash: None,
+            is_animated: None,
         }));
 
     let response = room
@@ -298,4 +300,52 @@ async fn test_room_attachment_send_mentions() {
         .unwrap();
 
     assert_eq!(expected_event_id, response.event_id);
+}
+
+#[async_test]
+async fn test_room_attachment_send_is_animated() {
+    let mock = MatrixMockServer::new().await;
+
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
+            "info": {
+                "mimetype": "image/jpeg",
+                "h": 600,
+                "w": 800,
+                "org.matrix.msc4230.is_animated": false,
+            }
+        }))
+        .ok(expected_event_id)
+        .mock_once()
+        .mount()
+        .await;
+
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let config = AttachmentConfig::new()
+        .info(AttachmentInfo::Image(BaseImageInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            size: None,
+            blurhash: None,
+            is_animated: Some(false),
+        }))
+        .caption(Some("image caption".to_owned()));
+
+    let response = room
+        .send_attachment("image.jpg", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
+        .await
+        .unwrap();
+
+    assert_eq!(expected_event_id, response.event_id)
 }
