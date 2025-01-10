@@ -53,8 +53,7 @@ async fn queue_attachment_no_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'stat
         height: Some(uint!(13)),
         width: Some(uint!(37)),
         size: Some(uint!(42)),
-        blurhash: None,
-        is_animated: None,
+        ..Default::default()
     }));
     let handle = q
         .send_attachment(filename, content_type, data, config)
@@ -85,8 +84,7 @@ async fn queue_attachment_with_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'st
             height: Some(uint!(13)),
             width: Some(uint!(37)),
             size: Some(uint!(42)),
-            blurhash: None,
-            is_animated: None,
+            ..Default::default()
         },
     ));
 
@@ -1812,8 +1810,8 @@ async fn test_media_uploads() {
         height: Some(uint!(14)),
         width: Some(uint!(38)),
         size: Some(uint!(43)),
-        blurhash: None,
         is_animated: Some(false),
+        ..Default::default()
     });
 
     let transaction_id = TransactionId::new();
