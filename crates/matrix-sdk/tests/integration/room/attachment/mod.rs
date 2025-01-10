@@ -87,9 +87,7 @@ async fn test_room_attachment_send_info() {
         .info(AttachmentInfo::Image(BaseImageInfo {
             height: Some(uint!(600)),
             width: Some(uint!(800)),
-            size: None,
-            blurhash: None,
-            is_animated: None,
+            ..Default::default()
         }))
         .caption(Some("image caption".to_owned()));
 
@@ -140,8 +138,7 @@ async fn test_room_attachment_send_wrong_info() {
             height: Some(uint!(600)),
             width: Some(uint!(800)),
             duration: Some(Duration::from_millis(3600)),
-            size: None,
-            blurhash: None,
+            ..Default::default()
         }))
         .caption(Some("image caption".to_owned()));
 
@@ -216,9 +213,7 @@ async fn test_room_attachment_send_info_thumbnail() {
         .info(AttachmentInfo::Image(BaseImageInfo {
             height: Some(uint!(600)),
             width: Some(uint!(800)),
-            size: None,
-            blurhash: None,
-            is_animated: None,
+            ..Default::default()
         }));
 
     let response = room
@@ -336,9 +331,8 @@ async fn test_room_attachment_send_is_animated() {
         .info(AttachmentInfo::Image(BaseImageInfo {
             height: Some(uint!(600)),
             width: Some(uint!(800)),
-            size: None,
-            blurhash: None,
             is_animated: Some(false),
+            ..Default::default()
         }))
         .caption(Some("image caption".to_owned()));
 

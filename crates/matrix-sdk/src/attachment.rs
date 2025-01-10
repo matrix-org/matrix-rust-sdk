@@ -29,7 +29,7 @@ use ruma::{
 };
 
 /// Base metadata about an image.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BaseImageInfo {
     /// The height of the image in pixels.
     pub height: Option<UInt>,
@@ -44,7 +44,7 @@ pub struct BaseImageInfo {
 }
 
 /// Base metadata about a video.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BaseVideoInfo {
     /// The duration of the video.
     pub duration: Option<Duration>,
@@ -59,7 +59,7 @@ pub struct BaseVideoInfo {
 }
 
 /// Base metadata about an audio clip.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BaseAudioInfo {
     /// The duration of the audio clip.
     pub duration: Option<Duration>,
@@ -68,7 +68,7 @@ pub struct BaseAudioInfo {
 }
 
 /// Base metadata about a file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BaseFileInfo {
     /// The size of the file in bytes.
     pub size: Option<UInt>,
