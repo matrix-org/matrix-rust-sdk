@@ -87,13 +87,14 @@ pub type OidcClientInner<
 /// An OIDC specific HTTP client.
 ///
 /// This is used to communicate with the OIDC provider exclusively.
-pub(super) struct OidcClient {
+#[derive(Debug)]
+pub(crate) struct OidcClient {
     inner: OidcClientInner,
     http_client: HttpClient,
 }
 
 impl OidcClient {
-    pub(super) async fn new(
+    pub(crate) async fn new(
         client_id: String,
         issuer_url: String,
         http_client: HttpClient,
@@ -120,7 +121,7 @@ impl OidcClient {
         Ok(OidcClient { inner: oidc_client, http_client })
     }
 
-    pub(super) async fn request_device_authorization(
+    pub(crate) async fn request_device_authorization(
         &self,
         device_id: Curve25519PublicKey,
     ) -> Result<CoreDeviceAuthorizationResponse, DeviceAuhorizationOidcError> {
@@ -145,7 +146,7 @@ impl OidcClient {
         Ok(details)
     }
 
-    pub(super) async fn wait_for_tokens(
+    pub(crate) async fn wait_for_tokens(
         &self,
         details: &CoreDeviceAuthorizationResponse,
     ) -> Result<OidcSessionTokens, DeviceAuhorizationOidcError> {

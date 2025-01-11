@@ -30,6 +30,9 @@ use crate::{
     Client, RefreshTokenError, SessionChange,
 };
 
+#[cfg(feature = "experimental-oidc")]
+pub mod common_oidc;
+
 #[cfg(all(feature = "experimental-oidc", feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 

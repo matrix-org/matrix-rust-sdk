@@ -29,15 +29,15 @@ use ruma::OwnedDeviceId;
 use tracing::trace;
 use vodozemac::ecies::CheckCode;
 
-use super::{
-    messages::LoginFailureReason, oidc_client::OidcClient, DeviceAuhorizationOidcError,
-    SecureChannelError,
-};
+use super::{messages::LoginFailureReason, DeviceAuhorizationOidcError, SecureChannelError};
 #[cfg(doc)]
 use crate::oidc::Oidc;
 use crate::{
-    authentication::qrcode::{
-        messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,
+    authentication::{
+        common_oidc::oidc_client::OidcClient,
+        qrcode::{
+            messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,
+        },
     },
     Client,
 };
