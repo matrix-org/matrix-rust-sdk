@@ -128,7 +128,8 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // Let's tell the OIDC provider that we want to log in using the device
             // authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
             trace!("Requesting device authorization.");
-            let auth_grant_response = oidc_client.request_device_authorization(device_id).await?;
+            let auth_grant_response =
+                oidc_client.request_device_authorization(device_id, None).await?;
 
             // Now we need to inform the other device of the login protocols we picked and
             // the URL they should use to log us in.

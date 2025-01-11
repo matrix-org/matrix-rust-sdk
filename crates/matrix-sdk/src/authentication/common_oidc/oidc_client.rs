@@ -124,17 +124,19 @@ impl OidcClient {
     pub(crate) async fn request_device_authorization(
         &self,
         device_id: Curve25519PublicKey,
+        custom_scopes: Option<Vec<ScopeToken>>,
     ) -> Result<CoreDeviceAuthorizationResponse, DeviceAuhorizationOidcError> {
-        let scopes = [
-            ScopeToken::Openid,
-            ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
-            ScopeToken::try_with_matrix_device(device_id.to_base64()).expect(
-                "We should be able to create a scope token from a \
+        let scopes = custom_scopes
+            .unwrap_or(vec![
+                ScopeToken::Openid,
+                ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
+                ScopeToken::try_with_matrix_device(device_id.to_base64()).expect(
+                    "We should be able to create a scope token from a \
                  Curve25519 public key encoded as base64",
-            ),
-        ]
-        .into_iter()
-        .map(|scope| Scope::new(scope.to_string()));
+                ),
+            ])
+            .into_iter()
+            .map(|scope| Scope::new(scope.to_string()));
 
         let details: CoreDeviceAuthorizationResponse = self
             .inner
