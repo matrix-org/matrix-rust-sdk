@@ -1736,11 +1736,30 @@ impl Client {
         Ok(f(&guard).unwrap())
     }
 
-    pub(crate) async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+    /// Get the Matrix versions supported by the homeserver by fetching them
+    /// from the server or the cache.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use ruma::api::MatrixVersion;
+    /// # use matrix_sdk::{Client, config::SyncSettings};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    ///
+    /// let server_versions = client.server_versions().await?;
+    /// let supports_1_1 = server_versions.contains(&MatrixVersion::V1_1);
+    /// println!("The homeserver supports Matrix 1.1: {supports_1_1:?}");
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
         self.get_or_load_and_cache_server_capabilities(|caps| caps.server_versions.clone()).await
     }
 
-    /// Get unstable features from by fetching from the server or the cache.
+    /// Get the unstable features supported by the homeserver by fetching them
+    /// from the server or the cache.
     ///
     /// # Examples
     ///
@@ -1751,7 +1770,9 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let unstable_features = client.unstable_features().await?;
-    /// let msc_x = unstable_features.get("msc_x").unwrap_or(&false);
+    /// let supports_msc_x =
+    ///     unstable_features.get("msc_x").copied().unwrap_or(false);
+    /// println!("The homeserver supports msc X: {supports_msc_x:?}");
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
