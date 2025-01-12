@@ -34,7 +34,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true, features = ["rt", "time"] }
 uniffi = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -42,6 +41,7 @@ futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 web-sys = { workspace = true, features = ["console"] }
+tokio = { package = "tokio_with_wasm", workspace = true, features = ["rt", "time"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 wasm-bindgen = { workspace = true }
 
@@ -54,7 +54,7 @@ insta = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Enable the test macro.
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # Enable the JS feature for getrandom.

@@ -10,9 +10,7 @@ members = [
     "uniffi-bindgen",
     "xtask",
 ]
-exclude = [
-    "testing/data",
-]
+exclude = ["testing/data"]
 # xtask, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
@@ -38,7 +36,7 @@ eyeball-im = { version = "0.5.1", features = ["tracing"] }
 eyeball-im-util = "0.7.0"
 futures-core = "0.3.31"
 futures-executor = "0.3.21"
-futures-util = "0.3.31"
+futures-util = {version = "0.3.31", features = ["channel"] }
 gloo-timers = "0.3.0"
 growable-bloom-filter = "2.1.1"
 hkdf = "0.12.4"
@@ -82,6 +80,7 @@ stream_assert = "0.1.1"
 tempfile = "3.9.0"
 thiserror = "2.0.3"
 tokio = { version = "1.41.1", default-features = false, features = ["sync"] }
+tokio_with_wasm = { version = "0.7.1", features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
@@ -140,14 +139,21 @@ debug = 2
 inherits = "dbg"
 opt-level = 3
 
+[workspace.metadata.patch]
+crates = [
+    "mas-http",
+]
+
+#[patch."https://github.com/element-hq/matrix-authentication-service.git"]
+#mas-http = { path = "./target/patch/http"}
 [patch.crates-io]
-async-compat = { git = "https://github.com/jplatte/async-compat", rev = "16dc8597ec09a6102d58d4e7b67714a35dd0ecb8" }
+# async-compat = { git = "https://github.com/jplatte/async-compat", rev = "16dc8597ec09a6102d58d4e7b67714a35dd0ecb8" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
 # Needed to fix rotation log issue on Android (https://github.com/tokio-rs/tracing/issues/2937)
-tracing = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
-tracing-core = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
-tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
-tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
+# tracing = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
+# tracing-core = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
+# tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
+# tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
 paranoid-android = { git = "https://github.com/element-hq/paranoid-android.git", rev = "69388ac5b4afeed7be4401c70ce17f6d9a2cf19b" }
 
 [workspace.lints.rust]

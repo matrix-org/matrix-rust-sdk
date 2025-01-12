@@ -51,7 +51,13 @@ pub fn export(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let res = match syn::parse(item) {
         Ok(item) => match has_async_fn(item) {
-            true => quote! { #[uniffi::export(async_runtime = "tokio", #attr2)] },
+            true => quote! {
+                #[cfg_attr(target_arch = "wasm32", uniffi::export(#attr2))]
+                #[cfg_attr(
+                    not(target_arch = "wasm32"),
+                    uniffi::export(async_runtime = "tokio", #attr2)
+                )]
+            },
             false => quote! { #[uniffi::export(#attr2)] },
         },
         Err(e) => e.into_compile_error(),

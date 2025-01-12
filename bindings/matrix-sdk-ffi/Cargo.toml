@@ -12,9 +12,9 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
-[features]
-default = ["bundled-sqlite"]
-bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+#[features]
+#default = ["bundled-sqlite"]
+#bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
@@ -23,13 +23,13 @@ vergen = { version = "8.1.3", features = ["build", "git", "gitcl"] }
 [dependencies]
 anyhow = { workspace = true }
 as_variant = { workspace = true }
-async-compat = "0.2.1"
+# async-compat = "0.2.1"
 eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-util = { workspace = true }
 log-panics = { version = "2", features = ["with-backtrace"] }
 matrix-sdk-ffi-macros = { workspace = true }
-matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
+matrix-sdk-ui = { workspace = true, features = ["uniffi", "js"] }
 mime = "0.3.16"
 once_cell = { workspace = true }
 ruma = { workspace = true, features = ["html", "unstable-unspecified", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat"] }
@@ -40,41 +40,26 @@ tracing = { workspace = true }
 tracing-core = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-appender = { version = "0.2.2" }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-uniffi = { workspace = true, features = ["tokio"] }
+tokio = { package = "tokio_with_wasm", workspace = true, features = ["macros"] }
+uniffi = { workspace = true }
 url = { workspace = true }
 zeroize = { workspace = true }
 uuid = { version = "1.4.1", features = ["v4"] }
 language-tags = "0.3.2"
 
-[target.'cfg(target_os = "android")'.dependencies]
-paranoid-android = "0.2.1"
-
-[target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
+[dependencies.matrix-sdk]
 workspace = true
+default-features = false
 features = [
     "anyhow",
     "e2e-encryption",
-    "experimental-oidc",
-    "experimental-widgets",
+    # "experimental-oidc",
+    # "experimental-widgets",
     "markdown",
     "rustls-tls", # note: differ from block below
     "socks",
-    "sqlite",
-    "uniffi",
-]
-
-[target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
-workspace = true
-features = [
-    "anyhow",
-    "e2e-encryption",
-    "experimental-oidc",
-    "experimental-widgets",
-    "markdown",
-    "native-tls", # note: differ from block above
-    "socks",
-    "sqlite",
+    # "sqlite",
+    "indexeddb",
     "uniffi",
 ]
 

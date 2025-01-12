@@ -16,26 +16,42 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
-testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing", "wiremock", "matrix-sdk-test", "assert_matches2"]
+default = [
+    "e2e-encryption",
+    "automatic-room-key-forwarding",
+    # "indexeddb",
+    # "native-tls",
+    "js",
+]
+testing = [
+    "matrix-sdk-sqlite?/testing",
+    "matrix-sdk-indexeddb?/testing",
+    "matrix-sdk-base/testing",
+    "wiremock",
+    "matrix-sdk-test",
+    "assert_matches2",
+]
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
-    "matrix-sdk-sqlite?/crypto-store",        # activate crypto-store on sqlite if given
-    "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
+    "matrix-sdk-sqlite?/crypto-store",      # activate crypto-store on sqlite if given
+    "matrix-sdk-indexeddb?/e2e-encryption", # activate on indexeddb if given
 ]
 js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
 sqlite = [
     "dep:matrix-sdk-sqlite",
     "matrix-sdk-sqlite?/state-store",
-    "matrix-sdk-sqlite?/event-cache"
+    "matrix-sdk-sqlite?/event-cache",
 ]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
 indexeddb = ["matrix-sdk-indexeddb/state-store"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
-automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
+automatic-room-key-forwarding = [
+    "e2e-encryption",
+    "matrix-sdk-base/automatic-room-key-forwarding",
+]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
@@ -84,7 +100,7 @@ imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { version = "0.11.0", default-features = false, optional = true }
+mas-oidc-client = { git ="https://github.com/element-hq/matrix-authentication-service.git", branch = "main", default-features = false, optional = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-ffi-macros = { workspace = true, optional = true }
@@ -124,7 +140,7 @@ zeroize = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
 reqwest = { workspace = true, features = ["gzip"] }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { package = "tokio_with_wasm", workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
