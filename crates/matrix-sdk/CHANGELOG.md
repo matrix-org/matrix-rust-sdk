@@ -13,7 +13,8 @@ All notable changes to this project will be documented in this file.
 - Implement `Default` for `BaseImageInfo`, `BaseVideoInfo`, `BaseAudioInfo` and
   `BaseFileInfo`. ([#4503](https://github.com/matrix-org/matrix-rust-sdk/pull/4503))
 - Expose `Client::server_versions()` publicly to allow users of the library to
-  get the versions of Matrix supported by the homeserver. 
+  get the versions of Matrix supported by the homeserver.
+  ([#4519](https://github.com/matrix-org/matrix-rust-sdk/pull/4519))
 
 ### Refactor
 
