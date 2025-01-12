@@ -49,17 +49,26 @@ pub fn export(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr2 = proc_macro2::TokenStream::from(attr);
     let item2 = proc_macro2::TokenStream::from(item.clone());
 
-    let res = match syn::parse(item) {
-        Ok(item) => match has_async_fn(item) {
-            true => quote! { #[uniffi::export(async_runtime = "tokio", #attr2)] },
-            false => quote! { #[uniffi::export(#attr2)] },
-        },
-        Err(e) => e.into_compile_error(),
+    let res = match syn::parse::<Item>(item) {
+        Ok(mut item) => {
+            // visit async fn's: add tokio(_with_wasm)::spawn + await to body
+
+            quote! {
+                #[uniffi::export(#attr2)]
+                #item
+            }
+        }
+        Err(e) => {
+            let e = e.into_compile_error();
+            quote! {
+                #e
+                #item2
+            }
+        }
     };
 
     quote! {
         #res
-        #item2
     }
     .into()
 }
