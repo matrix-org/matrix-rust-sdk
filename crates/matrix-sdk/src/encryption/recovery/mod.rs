@@ -462,7 +462,7 @@ impl Recovery {
     /// If the user does not enable recovery before logging out of their last
     /// device, they will not be able to decrypt historic messages once they
     /// create a new device.
-    pub async fn are_we_the_last_man_standing(&self) -> Result<bool> {
+    pub async fn is_last_device(&self) -> Result<bool> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(crate::Error::NoOlmMachine)?;
         let user_id = olm_machine.user_id();

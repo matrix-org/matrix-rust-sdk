@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
   call `AttachmentConfig::new().thumbnail(thumbnail)` now instead.
 - [**breaking**] `Room::send_attachment()` and `RoomSendQueue::send_attachment()`
   now take any type that implements `Into<String>` for the filename.
+- [**breaking**] `Recovery::are_we_the_last_man_standing()` has been renamed to `is_last_device()`.
 
 ## [0.9.0] - 2024-12-18
 
