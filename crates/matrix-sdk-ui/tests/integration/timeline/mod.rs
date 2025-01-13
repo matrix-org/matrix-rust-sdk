@@ -749,7 +749,6 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
     // Set up the event cache.
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room = client.get_room(room_id).unwrap();
 
