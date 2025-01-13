@@ -142,7 +142,7 @@ fn weekly_report() -> Result<()> {
 
     cmd!(
         sh,
-        "gh pr list --search created:>{one_week_ago} --json {JSON_FIELDS} --template {template}"
+        "gh pr list --search merged:>{one_week_ago} --json {JSON_FIELDS} --template {template}"
     )
     .quiet()
     .run()?;
