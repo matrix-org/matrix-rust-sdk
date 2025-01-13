@@ -602,7 +602,7 @@ mod test {
     }
 
     #[test]
-    fn test_display_name_equality_cyrilic() {
+    fn test_display_name_equality_cyrillic() {
         // Display name with scritpure symbols
         assert_display_name_eq!("alice", "аlice");
     }
