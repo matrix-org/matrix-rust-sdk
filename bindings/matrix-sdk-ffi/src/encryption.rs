@@ -281,7 +281,7 @@ impl Encryption {
     }
 
     pub async fn is_last_device(&self) -> Result<bool> {
-        Ok(self.inner.recovery().are_we_the_last_man_standing().await?)
+        Ok(self.inner.recovery().is_last_device().await?)
     }
 
     pub async fn wait_for_backup_upload_steady_state(
