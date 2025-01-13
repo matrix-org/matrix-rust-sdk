@@ -15,9 +15,12 @@
 
 //! Error conditions.
 
+use matrix_sdk_common::store_locks::LockStoreError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 use thiserror::Error;
+
+use crate::event_cache::store::EventCacheStoreError;
 
 /// Result type of the rust-sdk.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -41,6 +44,14 @@ pub enum Error {
     /// IO or (de)serialization.
     #[error(transparent)]
     StateStore(#[from] crate::store::StoreError),
+
+    /// An error happened while manipulating the event cache store.
+    #[error(transparent)]
+    EventCacheStore(#[from] EventCacheStoreError),
+
+    /// An error happened while attempting to lock the event cache store.
+    #[error(transparent)]
+    EventCacheLock(#[from] LockStoreError),
 
     /// An error occurred in the crypto store.
     #[cfg(feature = "e2e-encryption")]

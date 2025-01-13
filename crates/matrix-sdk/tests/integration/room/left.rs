@@ -12,6 +12,7 @@ use ruma::{
     user_id, OwnedRoomOrAliasId,
 };
 use serde_json::json;
+use tokio::task::yield_now;
 use wiremock::{
     matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,
@@ -23,6 +24,10 @@ use crate::{logged_in_client_with_server, mock_sync};
 async fn test_forget_non_direct_room() {
     let (client, server) = logged_in_client_with_server().await;
     let user_id = client.user_id().unwrap();
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))
@@ -47,12 +52,29 @@ async fn test_forget_non_direct_room() {
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
 
+    // Let the event cache process updates.
+    yield_now().await;
+
+    {
+        // There is some data in the cache store.
+        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+        let room_data = event_cache_store.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        assert!(!room_data.is_empty());
+    }
+
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 
     room.forget().await.unwrap();
 
     assert!(client.get_room(&DEFAULT_TEST_ROOM_ID).is_none());
+
+    {
+        // Data in the event cache store has been removed.
+        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+        let room_data = event_cache_store.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        assert!(room_data.is_empty());
+    }
 }
 
 #[async_test]
