@@ -388,13 +388,8 @@ impl RoomEventCacheInner {
         }
     }
 
-    pub(super) async fn handle_joined_room_update(
-        &self,
-        has_storage: bool,
-        updates: JoinedRoomUpdate,
-    ) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         self.handle_timeline(
-            has_storage,
             updates.timeline,
             updates.ephemeral.clone(),
             updates.ambiguity_changes,
@@ -406,90 +401,30 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+        Ok(())
+    }
+
     async fn handle_timeline(
         &self,
-        has_storage: bool,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if !has_storage && timeline.limited {
-            // Ideally we'd try to reconcile existing events against those received in the
-            // timeline, but we're not there yet. In the meanwhile, clear the
-            // items from the room. TODO: implement Smart Matching™.
-            trace!("limited timeline, clearing all previous events and pushing new events");
+        // Add all the events to the backend.
+        trace!("adding new events");
 
-            self.replace_all_events_by(
-                timeline.events,
-                timeline.prev_batch,
-                ephemeral_events,
-                ambiguity_changes,
-            )
-            .await?;
-        } else {
-            // Add all the events to the backend.
-            trace!("adding new events");
+        // Only keep the previous-batch token if we have a limited timeline; otherwise,
+        // we know about all the events, and we don't need to back-paginate,
+        // so we wouldn't make use of the given previous-batch token.
+        let prev_batch = if timeline.limited { timeline.prev_batch } else { None };
 
-            // If we have storage, only keep the previous-batch token if we have a limited
-            // timeline. Otherwise, we know about all the events, and we don't need to
-            // back-paginate, so we wouldn't make use of the given previous-batch token.
-            //
-            // If we don't have storage, even if the timeline isn't limited, we may not have
-            // saved the previous events in any cache, so we should always be
-            // able to retrieve those.
-            let prev_batch =
-                if has_storage && !timeline.limited { None } else { timeline.prev_batch };
-
-            let mut state = self.state.write().await;
-            self.append_events_locked(
-                &mut state,
-                timeline.events,
-                prev_batch,
-                ephemeral_events,
-                ambiguity_changes,
-            )
-            .await?;
-        }
-
-        Ok(())
-    }
-
-    pub(super) async fn handle_left_room_update(
-        &self,
-        has_storage: bool,
-        updates: LeftRoomUpdate,
-    ) -> Result<()> {
-        self.handle_timeline(has_storage, updates.timeline, Vec::new(), updates.ambiguity_changes)
-            .await?;
-        Ok(())
-    }
-
-    /// Remove existing events, and append a set of events to the room cache and
-    /// storage, notifying observers.
-    pub(super) async fn replace_all_events_by(
-        &self,
-        sync_timeline_events: Vec<TimelineEvent>,
-        prev_batch: Option<String>,
-        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
-    ) -> Result<()> {
-        // Acquire the lock.
         let mut state = self.state.write().await;
-
-        // Reset the room's state.
-        let updates_as_vector_diffs = state.reset().await?;
-
-        // Propagate to observers.
-        let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-            diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
-        });
-
-        // Push the new events.
         self.append_events_locked(
             &mut state,
-            sync_timeline_events,
-            prev_batch.clone(),
+            timeline.events,
+            prev_batch,
             ephemeral_events,
             ambiguity_changes,
         )
@@ -1527,7 +1462,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1543,7 +1477,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1600,7 +1534,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1617,7 +1550,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1735,7 +1668,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1877,7 +1809,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1913,7 +1844,7 @@ mod tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
         room_event_cache
             .inner
-            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1975,7 +1906,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -2006,9 +1936,6 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let has_storage = true; // for testing purposes only
-        event_cache.enable_storage().unwrap();
-
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -2019,17 +1946,14 @@ mod tests {
         // prev-batch token.
         room_event_cache
             .inner
-            .handle_joined_room_update(
-                has_storage,
-                JoinedRoomUpdate {
-                    timeline: Timeline {
-                        limited: true,
-                        prev_batch: Some("raclette".to_owned()),
-                        events: vec![f.text_msg("hey yo").into_event()],
-                    },
-                    ..Default::default()
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("raclette".to_owned()),
+                    events: vec![f.text_msg("hey yo").into_event()],
                 },
-            )
+                ..Default::default()
+            })
             .await
             .unwrap();
 
@@ -2075,17 +1999,14 @@ mod tests {
         // this time.
         room_event_cache
             .inner
-            .handle_joined_room_update(
-                has_storage,
-                JoinedRoomUpdate {
-                    timeline: Timeline {
-                        limited: false,
-                        prev_batch: Some("fondue".to_owned()),
-                        events: vec![f.text_msg("sup").into_event()],
-                    },
-                    ..Default::default()
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: Some("fondue".to_owned()),
+                    events: vec![f.text_msg("sup").into_event()],
                 },
-            )
+                ..Default::default()
+            })
             .await
             .unwrap();
 
@@ -2206,7 +2127,6 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -2323,7 +2243,6 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();

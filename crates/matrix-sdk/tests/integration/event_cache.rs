@@ -273,7 +273,10 @@ async fn test_backpaginate_once() {
 
     // I'll get all the previous events, in "reverse" order (same as the response).
     let BackPaginationOutcome { events, reached_start } = outcome;
-    assert!(reached_start);
+
+    // Lazy loading of the linked chunk means there *might* be another chunk before
+    // the gap we resolved.
+    assert!(reached_start.not());
 
     assert_eq!(events.len(), 2);
     assert_event_matches_msg(&events[0], "world");
@@ -295,6 +298,12 @@ async fn test_backpaginate_once() {
     });
 
     assert!(room_stream.is_empty());
+
+    // Now if we try to back-paginate, we get nothing because we've reached the
+    // initial empty events chunk.
+    let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+    assert!(outcome.events.is_empty());
+    assert!(outcome.reached_start);
 }
 
 #[async_test]
@@ -370,8 +379,10 @@ async fn test_backpaginate_many_times_with_many_iterations() {
         }
     }
 
-    // I'll get all the previous events,
-    assert_eq!(num_iterations, 2); // in two iterations
+    // I'll get all the previous events, in three iterations:
+    // - two actual back-paginations,
+    // - one lazy-load from the store for the initial default empty events chunk.
+    assert_eq!(num_iterations, 3);
 
     assert_event_matches_msg(&global_events[0], "world");
     assert_event_matches_msg(&global_events[1], "hello");
@@ -434,7 +445,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    server
+    let room = server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -446,8 +457,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) =
-        client.get_room(room_id).unwrap().event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await;
 
@@ -635,32 +645,28 @@ async fn test_reset_while_backpaginating() {
 
     // Assert the updates as diffs.
     {
+        // The room gets the message update from the sync, then it shrinks the linked
+        // chunk to the last event chunk, so it clears and re-adds the latest
+        // event.
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
         );
-        assert_eq!(diffs.len(), 1);
-        // The clear.
-        assert_matches!(&diffs[0], VectorDiff::Clear);
-    }
-
-    {
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-        // The event from the sync.
-        assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
-            assert_eq!(events.len(), 1);
-            assert_event_matches_msg(&events[0], "heyo");
+        assert_eq!(diffs.len(), 3);
+        assert_matches!(&diffs[0], VectorDiff::Append { .. });
+        assert_matches!(&diffs[1], VectorDiff::Clear);
+        assert_matches!(&diffs[2], VectorDiff::Append { values } => {
+            assert_eq!(values.len(), 1);
+            assert_event_matches_msg(&values[0], "heyo");
         });
     }
 
     {
+        // Then we receive the event from the restarted back-pagination with
+        // `second_backpagination`.
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
         );
         assert_eq!(diffs.len(), 1);
-        // The event from the pagination.
         assert_matches!(&diffs[0], VectorDiff::Insert { index, value: event } => {
             assert_eq!(*index, 0);
             assert_event_matches_msg(event, "finally!");
@@ -788,86 +794,27 @@ async fn test_limited_timeline_resets_pagination() {
     );
 
     // When a limited sync comes back from the server,
-    server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev-batch".to_owned()),
+        )
+        .await;
 
-    // We receive an update about the limited timeline.
+    // We have a limited sync, which triggers a shrink to the latest chunk: a gap.
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
     );
     assert_eq!(diffs.len(), 1);
-    assert_let!(VectorDiff::Clear = &diffs[0]);
+    assert_matches!(&diffs[0], VectorDiff::Clear);
 
     // The paginator state is reset: status set to Idle, hasn't hit the timeline
     // start.
     assert_next_matches_with_timeout!(
         pagination_status,
         RoomPaginationStatus::Idle { hit_timeline_start: false }
-    );
-
-    assert!(room_stream.is_empty());
-}
-
-#[async_test]
-async fn test_persistent_storage_waits_for_pagination_token() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-    // TODO: remove this test when persistent storage is enabled by default, as it's
-    // doing the same as the one above.
-    event_cache.enable_storage().unwrap();
-
-    // If I sync and get informed I've joined The Room, without a previous batch
-    // token,
-    let room_id = room_id!("!omelette:fromage.fr");
-    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
-    let room = server.sync_joined_room(&client, room_id).await;
-
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-
-    let (events, mut room_stream) = room_event_cache.subscribe().await;
-
-    assert!(events.is_empty());
-    assert!(room_stream.is_empty());
-
-    server
-        .mock_room_messages()
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()]))
-        .mock_once()
-        .mount()
-        .await;
-
-    // At the beginning, the paginator is in the initial state.
-    let pagination = room_event_cache.pagination();
-    let mut pagination_status = pagination.status();
-    assert_eq!(pagination_status.get(), RoomPaginationStatus::Idle { hit_timeline_start: false });
-
-    // If we try to back-paginate with a token, it will hit the end of the timeline
-    // and give us the resulting event.
-    let BackPaginationOutcome { events, reached_start } =
-        pagination.run_backwards_once(20).await.unwrap();
-
-    assert_eq!(events.len(), 1);
-    assert!(reached_start);
-
-    assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
-    );
-    assert_eq!(diffs.len(), 1);
-    assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
-        assert_eq!(events.len(), 1);
-        assert_event_matches_msg(&events[0], "hi");
-    });
-
-    // And the paginator state delivers this as an update, and is internally
-    // consistent with it:
-    assert_next_matches_with_timeout!(
-        pagination_status,
-        RoomPaginationStatus::Idle { hit_timeline_start: true }
     );
 
     assert!(room_stream.is_empty());
@@ -882,7 +829,6 @@ async fn test_limited_timeline_with_storage() {
 
     // Don't forget to subscribe and like^W enable storage!
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!galette:saucisse.bzh");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -936,80 +882,6 @@ async fn test_limited_timeline_with_storage() {
     assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "gappy!");
-
-    // That's all, folks!
-    assert!(subscriber.is_empty());
-}
-
-#[async_test]
-async fn test_limited_timeline_without_storage() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let event_cache = client.event_cache();
-
-    event_cache.subscribe().unwrap();
-
-    let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server.sync_joined_room(&client, room_id).await;
-
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-
-    let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
-
-    // Get a sync for a non-limited timeline, but with a prev-batch token.
-    //
-    // When we don't have storage, we should still keep this prev-batch around,
-    // because the previous sync events may not have been saved to disk in the
-    // first place.
-    server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hey yo"))
-                .set_timeline_prev_batch("prev-batch".to_owned()),
-        )
-        .await;
-
-    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
-
-    // This is racy: either the sync has been handled, or it hasn't yet.
-    if initial_events.is_empty() {
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-
-        assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
-        assert_eq!(events.len(), 1);
-        assert_event_matches_msg(&events[0], "hey yo");
-    } else {
-        assert_eq!(initial_events.len(), 1);
-        assert_event_matches_msg(&initial_events[0], "hey yo");
-    }
-
-    // Back-pagination should thus work. The real assertion is in the "mock_once"
-    // call, which checks this endpoint is called once.
-    server
-        .mock_room_messages()
-        .match_from("prev-batch")
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![f.text_msg("oh well").event_id(event_id!("$1"))]))
-        .mock_once()
-        .mount()
-        .await;
-
-    // We run back-pagination with success.
-    room_event_cache.pagination().run_backwards_once(20).await.unwrap();
-
-    // And we get the back-paginated event.
-    assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
-    );
-    assert_eq!(diffs.len(), 1);
-
-    assert_let!(VectorDiff::Insert { index: 0, value: event } = &diffs[0]);
-    assert_event_matches_msg(event, "oh well");
 
     // That's all, folks!
     assert!(subscriber.is_empty());
@@ -1183,7 +1055,6 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -1293,7 +1164,6 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -1434,7 +1304,6 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -1498,7 +1367,6 @@ async fn test_apply_redaction_when_redaction_comes_later() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -1574,7 +1442,6 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -1731,7 +1598,6 @@ async fn test_lazy_loading() {
     // Set up the event cache.
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room = mock_server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
@@ -2077,7 +1943,6 @@ async fn test_deduplication() {
     // Set up the event cache.
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room = mock_server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();

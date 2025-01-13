@@ -259,9 +259,6 @@ async fn test_wait_for_token() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
 
-    client.event_cache().subscribe().unwrap();
-    client.event_cache().enable_storage().unwrap();
-
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let f = EventFactory::new();
@@ -301,6 +298,7 @@ async fn test_wait_for_token() {
     let paginate = async {
         timeline.paginate_backwards(10).await.unwrap();
     };
+
     let observe_paginating = async {
         assert_eq!(back_pagination_status.next().await, Some(RoomPaginationStatus::Paginating));
         assert_eq!(
@@ -308,11 +306,13 @@ async fn test_wait_for_token() {
             Some(RoomPaginationStatus::Idle { hit_timeline_start: false })
         );
     };
+
     let sync = async {
         // Make sure syncing starts a little bit later than pagination
         sleep(Duration::from_millis(100)).await;
         client.sync_once(sync_settings.clone()).await.unwrap();
     };
+
     timeout(Duration::from_secs(4), join3(paginate, observe_paginating, sync)).await.unwrap();
 
     // Make sure pagination was called (with the right parameters)
@@ -417,7 +417,10 @@ async fn test_timeline_reset_while_paginating() {
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
-    // pagination with first token
+    // The pagination with the first token will be hit twice:
+    // - first, before the sync response comes, then the gap is stored in the cache.
+    // - second, after all other gaps have been resolved, we get back to resolving
+    //   this one.
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
@@ -427,12 +430,12 @@ async fn test_timeline_reset_while_paginating() {
                 .set_body_json(json!({
                     "chunk": [],
                     "start": "pagination_1",
-                    "end": "some_other_token",
+                    "end": "pagination_3",
                 }))
                 // Make sure the concurrent sync request returns first
                 .set_delay(Duration::from_millis(200)),
         )
-        .expect(1)
+        .expect(2)
         .named("pagination_1")
         .mount(&server)
         .await;
@@ -451,12 +454,36 @@ async fn test_timeline_reset_while_paginating() {
         .mount(&server)
         .await;
 
+    // pagination with third token
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", "pagination_3"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": [],
+            "start": "pagination_3",
+        })))
+        .expect(1)
+        .named("pagination_3")
+        .mount(&server)
+        .await;
+
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
-    let paginate = async { timeline.paginate_backwards(10).await.unwrap() };
+    let paginate = async {
+        let mut hit_start;
+        loop {
+            hit_start = timeline.paginate_backwards(10).await.unwrap();
+            if hit_start {
+                break;
+            }
+        }
+        hit_start
+    };
 
     let observe_paginating = async {
         let mut seen_paginating = false;
+        let mut seen_idle_no_start = false;
 
         // Observe paginating updates: we want to make sure we see at least once
         // Paginating, and that it settles with Idle.
@@ -468,12 +495,16 @@ async fn test_timeline_reset_while_paginating() {
                     if state == RoomPaginationStatus::Paginating {
                         seen_paginating = true;
                     }
+                    if matches!(state, RoomPaginationStatus::Idle { hit_timeline_start: false }) {
+                        seen_idle_no_start = true;
+                    }
                 }
                 None => break,
             }
         }
 
         assert!(seen_paginating);
+        assert!(seen_idle_no_start);
 
         let (status, _) = timeline.live_back_pagination_status().await.unwrap();
 
@@ -1071,7 +1102,9 @@ async fn test_lazy_back_pagination() {
 
         let hit_end_of_timeline = timeline.paginate_backwards(5).await.unwrap();
 
-        assert!(hit_end_of_timeline);
+        // And yet! The linked chunk doesn't know it's reached the start, because
+        // there's a lazy previous chunk (the default empty events chunk).
+        assert!(hit_end_of_timeline.not());
 
         // Receive 3 new items.
         //
@@ -1085,5 +1118,14 @@ async fn test_lazy_back_pagination() {
         assert_pending!(timeline_stream);
 
         drop(network_pagination);
+    }
+
+    {
+        // A final pagination confirms we've reached the end of the timeline.
+        let hit_end_of_timeline = timeline.paginate_backwards(5).await.unwrap();
+        assert!(hit_end_of_timeline);
+
+        // Cool cool.
+        assert_pending!(timeline_stream);
     }
 }

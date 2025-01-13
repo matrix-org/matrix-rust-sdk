@@ -67,7 +67,6 @@ async fn main() -> anyhow::Result<()> {
 
     let ec = client.event_cache();
     ec.subscribe().unwrap();
-    ec.enable_storage().unwrap();
 
     init_error_hooks()?;
     let terminal = init_terminal()?;
