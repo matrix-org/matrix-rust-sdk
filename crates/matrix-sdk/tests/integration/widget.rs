@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    test_utils::mocks::MatrixMockServer,
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponse},
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
     },
@@ -304,8 +304,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
     let f = EventFactory::new().room(&ROOM_ID).sender(user_id!("@example:localhost"));
 
     {
-        let start = "t392-516_47314_0_7_1_1_1_11444_1".to_owned();
-        let end = Some("t47409-4357353_219380_26003_2269".to_owned());
+        let end = "t47409-4357353_219380_26003_2269";
         let chunk2 = vec![
             f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
             f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
@@ -314,7 +313,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
         mock_server
             .mock_room_messages()
             .limit(3)
-            .ok(start, end, chunk2, Vec::new())
+            .ok(RoomMessagesResponse::default().end_token(end).events(chunk2))
             .mock_once()
             .mount()
             .await;

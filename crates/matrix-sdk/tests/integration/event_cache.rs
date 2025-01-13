@@ -14,12 +14,15 @@ use matrix_sdk::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, PaginationToken,
         RoomEventCacheUpdate, TimelineHasBeenResetWhilePaginating,
     },
-    test_utils::{assert_event_matches_msg, mocks::MatrixMockServer},
+    test_utils::{
+        assert_event_matches_msg,
+        mocks::{MatrixMockServer, RoomMessagesResponse},
+    },
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
 };
-use ruma::{event_id, events::AnyTimelineEvent, room_id, serde::Raw, user_id};
+use ruma::{event_id, room_id, user_id};
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
 use wiremock::ResponseTemplate;
@@ -259,15 +262,10 @@ async fn test_backpaginate_once() {
         server
             .mock_room_messages()
             .from("prev_batch")
-            .ok(
-                "start-token-unused".to_owned(),
-                None,
-                vec![
-                    f.text_msg("world").event_id(event_id!("$2")),
-                    f.text_msg("hello").event_id(event_id!("$3")),
-                ],
-                Vec::new(),
-            )
+            .ok(RoomMessagesResponse::default().events(vec![
+                f.text_msg("world").event_id(event_id!("$2")),
+                f.text_msg("hello").event_id(event_id!("$3")),
+            ]))
             .mock_once()
             .mount()
             .await;
@@ -352,15 +350,10 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(
-            "start-token-unused".to_owned(),
-            Some("prev_batch2".to_owned()),
-            vec![
-                f.text_msg("world").event_id(event_id!("$2")),
-                f.text_msg("hello").event_id(event_id!("$3")),
-            ],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default().end_token("prev_batch2").events(vec![
+            f.text_msg("world").event_id(event_id!("$2")),
+            f.text_msg("hello").event_id(event_id!("$3")),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -369,12 +362,8 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     server
         .mock_room_messages()
         .from("prev_batch2")
-        .ok(
-            "start-token-unused".to_owned(),
-            None,
-            vec![f.text_msg("oh well").event_id(event_id!("$4"))],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("oh well").event_id(event_id!("$4"))]))
         .mock_once()
         .mount()
         .await;
@@ -499,15 +488,10 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(
-            "start-token-unused1".to_owned(),
-            Some("prev_batch2".to_owned()),
-            vec![
-                f.text_msg("world").event_id(event_id!("$2")),
-                f.text_msg("hello").event_id(event_id!("$3")),
-            ],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default().end_token("prev_batch2").events(vec![
+            f.text_msg("world").event_id(event_id!("$2")),
+            f.text_msg("hello").event_id(event_id!("$3")),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -516,12 +500,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     server
         .mock_room_messages()
         .from("prev_batch2")
-        .ok(
-            "start-token-unused2".to_owned(),
-            None,
-            vec![f.text_msg("oh well").event_id(event_id!("$4"))],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("oh well").event_id(event_id!("$4"))]))
         .mock_once()
         .mount()
         .await;
@@ -680,12 +660,9 @@ async fn test_reset_while_backpaginating() {
     server
         .mock_room_messages()
         .from("second_backpagination")
-        .ok(
-            "start-token-unused".to_owned(),
-            Some("third_backpagination".to_owned()),
-            vec![f.text_msg("finally!").into_raw_timeline()],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .end_token("third_backpagination")
+            .events(vec![f.text_msg("finally!").into_raw_timeline()]))
         .mock_once()
         .mount()
         .await;
@@ -794,12 +771,8 @@ async fn test_backpaginating_without_token() {
 
     server
         .mock_room_messages()
-        .ok(
-            "start-token-unused".to_owned(),
-            None,
-            vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()]))
         .mock_once()
         .mount()
         .await;
@@ -856,12 +829,8 @@ async fn test_limited_timeline_resets_pagination() {
 
     server
         .mock_room_messages()
-        .ok(
-            "start-token-unused".to_owned(),
-            None,
-            vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()]))
         .mock_once()
         .mount()
         .await;
@@ -1030,12 +999,8 @@ async fn test_limited_timeline_without_storage() {
     server
         .mock_room_messages()
         .from("prev-batch")
-        .ok(
-            "start-token-unused2".to_owned(),
-            None,
-            vec![f.text_msg("oh well").event_id(event_id!("$1"))],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("oh well").event_id(event_id!("$1"))]))
         .mock_once()
         .mount()
         .await;
@@ -1122,12 +1087,8 @@ async fn test_backpaginate_with_no_initial_events() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(
-            "start-token-unused2".to_owned(),
-            None,
-            vec![f.text_msg("oh well").event_id(event_id!("$1"))],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("oh well").event_id(event_id!("$1"))]))
         .mock_once()
         .mount()
         .await;
@@ -1199,12 +1160,7 @@ async fn test_backpaginate_replace_empty_gap() {
     // The first back-pagination will return a previous-batch token, but no events.
     server
         .mock_room_messages()
-        .ok(
-            "start-token-unused1".to_owned(),
-            Some("prev_batch".to_owned()),
-            Vec::<Raw<AnyTimelineEvent>>::new(),
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default().end_token("prev_batch"))
         .mock_once()
         .mount()
         .await;
@@ -1213,12 +1169,8 @@ async fn test_backpaginate_replace_empty_gap() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(
-            "start-token-unused2".to_owned(),
-            None,
-            vec![f.text_msg("hello").event_id(event_id!("$1"))],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("hello").event_id(event_id!("$1"))]))
         .mock_once()
         .mount()
         .await;
@@ -1280,12 +1232,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     drop(events);
 
     // Backpagination will return nothing.
-    server
-        .mock_room_messages()
-        .ok("start-token-unused1".to_owned(), None, Vec::<Raw<AnyTimelineEvent>>::new(), Vec::new())
-        .mock_once()
-        .mount()
-        .await;
+    server.mock_room_messages().ok(RoomMessagesResponse::default()).mock_once().mount().await;
 
     let pagination = room_event_cache.pagination();
 
@@ -1395,7 +1342,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     server
         .mock_room_messages()
         .from("prev-batch2")
-        .ok("start-token-unused".to_owned(), None, Vec::<Raw<AnyTimelineEvent>>::new(), Vec::new())
+        .ok(RoomMessagesResponse::default())
         .mock_once()
         .mount()
         .await;
@@ -1405,16 +1352,11 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     server
         .mock_room_messages()
         .from("prev-batch")
-        .ok(
-            "start-token-unused".to_owned(),
-            Some("prev-batch3".to_owned()),
-            vec![
-                // Items in reverse order, since this is back-pagination.
-                f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
-                f.text_msg("hello").event_id(event_id!("$1")).into_raw_timeline(),
-            ],
-            Vec::new(),
-        )
+        .ok(RoomMessagesResponse::default().end_token("prev-batch3").events(vec![
+            // Items in reverse order, since this is back-pagination.
+            f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
+            f.text_msg("hello").event_id(event_id!("$1")).into_raw_timeline(),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -1496,7 +1438,7 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
     server
         .mock_room_messages()
         .from("prev-batch")
-        .ok("start-token-unused".to_owned(), None, Vec::<Raw<AnyTimelineEvent>>::new(), Vec::new())
+        .ok(RoomMessagesResponse::default())
         .mock_once()
         .mount()
         .await;

@@ -1895,20 +1895,52 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
     ///
     /// Note: pass `chunk` in the correct order: topological for forward
     /// pagination, reverse topological for backwards pagination.
-    pub fn ok(
-        self,
-        start: String,
-        end: Option<String>,
-        chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>,
-        state: Vec<Raw<AnyStateEvent>>,
-    ) -> MatrixMock<'a> {
+    pub fn ok(self, response: RoomMessagesResponse) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "start": start,
-            "end": end,
-            "chunk": chunk.into_iter().map(|ev| ev.into()).collect::<Vec<_>>(),
-            "state": state,
+            "start": response.start,
+            "end": response.end,
+            "chunk": response.chunk,
+            "state": response.state,
         })));
         MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A response to a [`RoomMessagesEndpoint`] query.
+pub struct RoomMessagesResponse {
+    /// The start token for this /messages query.
+    pub start: String,
+    /// The end token for this /messages query (previous batch for back
+    /// paginations, next batch for forward paginations).
+    pub end: Option<String>,
+    /// The set of timeline events returned by this query.
+    pub chunk: Vec<Raw<AnyTimelineEvent>>,
+    /// The set of state events returned by this query.
+    pub state: Vec<Raw<AnyStateEvent>>,
+}
+
+impl RoomMessagesResponse {
+    /// Fill the events returned as part of this response.
+    pub fn events(mut self, chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>) -> Self {
+        self.chunk = chunk.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Fill the end token.
+    pub fn end_token(mut self, token: impl Into<String>) -> Self {
+        self.end = Some(token.into());
+        self
+    }
+}
+
+impl Default for RoomMessagesResponse {
+    fn default() -> Self {
+        Self {
+            start: "start-token-unused".to_owned(),
+            end: Default::default(),
+            chunk: Default::default(),
+            state: Default::default(),
+        }
     }
 }
 

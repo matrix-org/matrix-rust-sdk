@@ -22,7 +22,10 @@ use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     config::SyncSettings,
     room::edit::EditedContent,
-    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
+    test_utils::{
+        logged_in_client_with_server,
+        mocks::{MatrixMockServer, RoomMessagesResponse},
+    },
     Client,
 };
 use matrix_sdk_test::{
@@ -48,7 +51,7 @@ use ruma::{
             MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             TextMessageEventContent,
         },
-        AnyMessageLikeEventContent, AnyStateEvent, AnyTimelineEvent,
+        AnyMessageLikeEventContent, AnyTimelineEvent,
     },
     owned_event_id, room_id,
     serde::Raw,
@@ -867,7 +870,7 @@ impl PendingEditHelper {
     async fn handle_backpagination(&mut self, events: Vec<Raw<AnyTimelineEvent>>, batch_size: u16) {
         self.server
             .mock_room_messages()
-            .ok("123".to_owned(), Some("yolo".to_owned()), events, Vec::<Raw<AnyStateEvent>>::new())
+            .ok(RoomMessagesResponse::default().end_token("yolo").events(events))
             .mock_once()
             .mount()
             .await;
