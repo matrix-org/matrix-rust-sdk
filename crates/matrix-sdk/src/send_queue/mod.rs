@@ -162,7 +162,7 @@ use ruma::{
         AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
     serde::Raw,
-    OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -444,7 +444,8 @@ impl RoomSendQueue {
 
         let content = SerializableEventContent::from_raw(content, event_type);
 
-        let transaction_id = self.inner.queue.push(content.clone().into()).await?;
+        let created_at = MilliSecondsSinceUnixEpoch::now();
+        let transaction_id = self.inner.queue.push(content.clone().into(), created_at).await?;
         trace!(%transaction_id, "manager sends a raw event to the background task");
 
         self.inner.notifier.notify_one();
@@ -453,6 +454,7 @@ impl RoomSendQueue {
             room: self.clone(),
             transaction_id: transaction_id.clone(),
             media_handles: None,
+            created_at,
         };
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -949,6 +951,7 @@ impl QueueStorage {
     async fn push(
         &self,
         request: QueuedRequestKind,
+        created_at: MilliSecondsSinceUnixEpoch,
     ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
 
@@ -960,6 +963,7 @@ impl QueueStorage {
             .save_send_queue_request(
                 &self.room_id,
                 transaction_id.clone(),
+                created_at,
                 request,
                 Self::LOW_PRIORITY,
             )
@@ -1115,6 +1119,7 @@ impl QueueStorage {
                     &self.room_id,
                     transaction_id,
                     ChildTransactionId::new(),
+                    MilliSecondsSinceUnixEpoch::now(),
                     DependentQueuedRequestKind::RedactEvent,
                 )
                 .await?;
@@ -1155,6 +1160,7 @@ impl QueueStorage {
                     &self.room_id,
                     transaction_id,
                     ChildTransactionId::new(),
+                    MilliSecondsSinceUnixEpoch::now(),
                     DependentQueuedRequestKind::EditEvent { new_content: serializable },
                 )
                 .await?;
@@ -1174,11 +1180,13 @@ impl QueueStorage {
     /// Push requests (and dependents) to upload a media.
     ///
     /// See the module-level description for details of the whole processus.
+    #[allow(clippy::too_many_arguments)]
     async fn push_media(
         &self,
         event: RoomMessageEventContent,
         content_type: Mime,
         send_event_txn: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         upload_file_txn: OwnedTransactionId,
         file_media_request: MediaRequestParameters,
         thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
@@ -1186,7 +1194,6 @@ impl QueueStorage {
         let guard = self.store.lock().await;
         let client = guard.client()?;
         let store = client.store();
-
         let thumbnail_info =
             if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
                 thumbnail
@@ -1198,6 +1205,7 @@ impl QueueStorage {
                     .save_send_queue_request(
                         &self.room_id,
                         upload_thumbnail_txn.clone(),
+                        created_at,
                         QueuedRequestKind::MediaUpload {
                             content_type: thumbnail_content_type.to_string(),
                             cache_key: thumbnail_media_request,
@@ -1214,6 +1222,7 @@ impl QueueStorage {
                         &self.room_id,
                         &upload_thumbnail_txn,
                         upload_file_txn.clone().into(),
+                        created_at,
                         DependentQueuedRequestKind::UploadFileWithThumbnail {
                             content_type: content_type.to_string(),
                             cache_key: file_media_request,
@@ -1229,6 +1238,7 @@ impl QueueStorage {
                     .save_send_queue_request(
                         &self.room_id,
                         upload_file_txn.clone(),
+                        created_at,
                         QueuedRequestKind::MediaUpload {
                             content_type: content_type.to_string(),
                             cache_key: file_media_request,
@@ -1248,6 +1258,7 @@ impl QueueStorage {
                 &self.room_id,
                 &upload_file_txn,
                 send_event_txn.into(),
+                created_at,
                 DependentQueuedRequestKind::FinishUpload {
                     local_echo: event,
                     file_upload: upload_file_txn.clone(),
@@ -1265,6 +1276,7 @@ impl QueueStorage {
         &self,
         transaction_id: &TransactionId,
         key: String,
+        created_at: MilliSecondsSinceUnixEpoch,
     ) -> Result<Option<ChildTransactionId>, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
@@ -1294,6 +1306,7 @@ impl QueueStorage {
                 &self.room_id,
                 transaction_id,
                 reaction_txn_id.clone(),
+                created_at,
                 DependentQueuedRequestKind::ReactEvent { key },
             )
             .await?;
@@ -1322,6 +1335,7 @@ impl QueueStorage {
                                 room: room.clone(),
                                 transaction_id: queued.transaction_id,
                                 media_handles: None,
+                                created_at: queued.created_at,
                             },
                             send_error: queued.error,
                         },
@@ -1381,6 +1395,7 @@ impl QueueStorage {
                                     upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
                                     upload_file_txn: file_upload,
                                 }),
+                                created_at: dep.created_at,
                             },
                             send_error: None,
                         },
@@ -1470,6 +1485,7 @@ impl QueueStorage {
                         .save_send_queue_request(
                             &self.room_id,
                             dependent_request.own_transaction_id.into(),
+                            dependent_request.created_at,
                             serializable.into(),
                             Self::HIGH_PRIORITY,
                         )
@@ -1557,6 +1573,7 @@ impl QueueStorage {
                         .save_send_queue_request(
                             &self.room_id,
                             dependent_request.own_transaction_id.into(),
+                            dependent_request.created_at,
                             serializable.into(),
                             Self::HIGH_PRIORITY,
                         )
@@ -1887,6 +1904,9 @@ pub struct SendHandle {
 
     /// Additional handles for a media upload.
     media_handles: Option<MediaHandles>,
+
+    /// The time at which the event to be sent has been created.
+    pub created_at: MilliSecondsSinceUnixEpoch,
 }
 
 impl SendHandle {
@@ -2073,8 +2093,9 @@ impl SendHandle {
     ) -> Result<Option<SendReactionHandle>, RoomSendQueueStorageError> {
         trace!("received an intent to react");
 
+        let created_at = MilliSecondsSinceUnixEpoch::now();
         if let Some(reaction_txn_id) =
-            self.room.inner.queue.react(&self.transaction_id, key.clone()).await?
+            self.room.inner.queue.react(&self.transaction_id, key.clone(), created_at).await?
         {
             trace!("successfully queued react");
 
@@ -2138,6 +2159,7 @@ impl SendReactionHandle {
             room: self.room.clone(),
             transaction_id: self.transaction_id.clone().into(),
             media_handles: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         handle.abort().await
@@ -2209,11 +2231,43 @@ mod tests {
     use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
     use ruma::{
         events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-        room_id, TransactionId,
+        room_id, MilliSecondsSinceUnixEpoch, TransactionId,
     };
 
     use super::canonicalize_dependent_requests;
     use crate::{client::WeakClient, test_utils::logged_in_client};
+
+    #[test]
+    fn test_canonicalize_dependent_events_created_at() {
+        // Test to ensure the created_at field is being serialized and retrieved
+        // correctly.
+        let txn = TransactionId::new();
+        let created_at = MilliSecondsSinceUnixEpoch::now();
+
+        let edit = DependentQueuedRequest {
+            own_transaction_id: ChildTransactionId::new(),
+            parent_transaction_id: txn.clone(),
+            kind: DependentQueuedRequestKind::EditEvent {
+                new_content: SerializableEventContent::new(
+                    &RoomMessageEventContent::text_plain("edit").into(),
+                )
+                .unwrap(),
+            },
+            parent_key: None,
+            created_at,
+        };
+
+        let res = canonicalize_dependent_requests(&[edit]);
+
+        assert_eq!(res.len(), 1);
+        assert_let!(DependentQueuedRequestKind::EditEvent { new_content } = &res[0].kind);
+        assert_let!(
+            AnyMessageLikeEventContent::RoomMessage(msg) = new_content.deserialize().unwrap()
+        );
+        assert_eq!(msg.body(), "edit");
+        assert_eq!(res[0].parent_transaction_id, txn);
+        assert_eq!(res[0].created_at, created_at);
+    }
 
     #[async_test]
     async fn test_client_no_cycle_with_send_queue() {
@@ -2275,6 +2329,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
         let res = canonicalize_dependent_requests(&[edit]);
 
@@ -2295,6 +2350,7 @@ mod tests {
             parent_transaction_id: txn.clone(),
             kind: DependentQueuedRequestKind::RedactEvent,
             parent_key: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         let edit = DependentQueuedRequest {
@@ -2307,6 +2363,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         inputs.push({
@@ -2346,6 +2403,7 @@ mod tests {
                     .unwrap(),
                 },
                 parent_key: None,
+                created_at: MilliSecondsSinceUnixEpoch::now(),
             })
             .collect::<Vec<_>>();
 
@@ -2377,6 +2435,7 @@ mod tests {
                 kind: DependentQueuedRequestKind::RedactEvent,
                 parent_transaction_id: txn1.clone(),
                 parent_key: None,
+                created_at: MilliSecondsSinceUnixEpoch::now(),
             },
             // This one pertains to txn2.
             DependentQueuedRequest {
@@ -2389,6 +2448,7 @@ mod tests {
                 },
                 parent_transaction_id: txn2.clone(),
                 parent_key: None,
+                created_at: MilliSecondsSinceUnixEpoch::now(),
             },
         ];
 
@@ -2419,6 +2479,7 @@ mod tests {
             kind: DependentQueuedRequestKind::ReactEvent { key: "🧠".to_owned() },
             parent_transaction_id: txn.clone(),
             parent_key: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         let edit_id = ChildTransactionId::new();
@@ -2432,6 +2493,7 @@ mod tests {
             },
             parent_transaction_id: txn,
             parent_key: None,
+            created_at: MilliSecondsSinceUnixEpoch::now(),
         };
 
         let res = canonicalize_dependent_requests(&[react, edit]);

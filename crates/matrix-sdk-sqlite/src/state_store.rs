@@ -32,8 +32,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, OwnedUserId,
-    RoomId, RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt, UserId,
 };
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -69,7 +69,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 10;
+const DATABASE_VERSION: u8 = 11;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -314,6 +314,17 @@ impl SqliteStateStore {
                     "../migrations/state_store/009_send_queue_priority.sql"
                 ))?;
                 txn.set_db_version(10)
+            })
+            .await?;
+        }
+
+        if from < 11 && to >= 11 {
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/010_send_queue_enqueue_time.sql"
+                ))?;
+                txn.set_db_version(11)
             })
             .await?;
         }
@@ -1757,6 +1768,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: QueuedRequestKind,
         priority: usize,
     ) -> Result<(), Self::Error> {
@@ -1764,16 +1776,16 @@ impl StateStore for SqliteStateStore {
         let room_id_value = self.serialize_value(&room_id.to_owned())?;
 
         let content = self.serialize_json(&content)?;
-
         // The transaction id is used both as a key (in remove/update) and a value (as
         // it's useful for the callers), so we keep it as is, and neither hash
         // it (with encode_key) or encrypt it (through serialize_value). After
         // all, it carries no personal information, so this is considered fine.
 
+        let created_at_ts: u64 = created_at.0.into();
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority) VALUES (?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority))?;
+                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority, created_at) VALUES (?, ?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority, created_at_ts))?;
                 Ok(())
             })
             .await
@@ -1835,14 +1847,14 @@ impl StateStore for SqliteStateStore {
         // Note: ROWID is always present and is an auto-incremented integer counter. We
         // want to maintain the insertion order, so we can sort using it.
         // Note 2: transaction_id is not encoded, see why in `save_send_queue_event`.
-        let res: Vec<(String, Vec<u8>, Option<Vec<u8>>, usize)> = self
+        let res: Vec<(String, Vec<u8>, Option<Vec<u8>>, usize, Option<u64>)> = self
             .acquire()
             .await?
             .prepare(
-                "SELECT transaction_id, content, wedge_reason, priority FROM send_queue_events WHERE room_id = ? ORDER BY priority DESC, ROWID",
+                "SELECT transaction_id, content, wedge_reason, priority, created_at FROM send_queue_events WHERE room_id = ? ORDER BY priority DESC, ROWID",
                 |mut stmt| {
                     stmt.query((room_id,))?
-                        .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+                        .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
                         .collect()
                 },
             )
@@ -1850,11 +1862,16 @@ impl StateStore for SqliteStateStore {
 
         let mut requests = Vec::with_capacity(res.len());
         for entry in res {
+            let created_at = entry
+                .4
+                .and_then(UInt::new)
+                .map_or_else(MilliSecondsSinceUnixEpoch::now, MilliSecondsSinceUnixEpoch);
             requests.push(QueuedRequest {
                 transaction_id: entry.0.into(),
                 kind: self.deserialize_json(&entry.1)?,
                 error: entry.2.map(|v| self.deserialize_value(&v)).transpose()?,
                 priority: entry.3,
+                created_at,
             });
         }
 
@@ -1912,6 +1929,7 @@ impl StateStore for SqliteStateStore {
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
     ) -> Result<()> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
@@ -1921,15 +1939,22 @@ impl StateStore for SqliteStateStore {
         let parent_txn_id = parent_txn_id.to_string();
         let own_txn_id = own_txn_id.to_string();
 
+        let created_at_ts: u64 = created_at.0.into();
         self.acquire()
             .await?
             .with_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"INSERT INTO dependent_send_queue_events
-                         (room_id, parent_transaction_id, own_transaction_id, content)
-                       VALUES (?, ?, ?, ?)"#,
+                         (room_id, parent_transaction_id, own_transaction_id, content, created_at)
+                       VALUES (?, ?, ?, ?, ?)"#,
                 )?
-                .execute((room_id, parent_txn_id, own_txn_id, content))?;
+                .execute((
+                    room_id,
+                    parent_txn_id,
+                    own_txn_id,
+                    content,
+                    created_at_ts,
+                ))?;
                 Ok(())
             })
             .await
@@ -2022,14 +2047,14 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
         // Note: transaction_id is not encoded, see why in `save_send_queue_event`.
-        let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>)> = self
+        let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>, Option<u64>)> = self
             .acquire()
             .await?
             .prepare(
-                "SELECT own_transaction_id, parent_transaction_id, parent_key, content FROM dependent_send_queue_events WHERE room_id = ? ORDER BY ROWID",
+                "SELECT own_transaction_id, parent_transaction_id, parent_key, content, created_at FROM dependent_send_queue_events WHERE room_id = ? ORDER BY ROWID",
                 |mut stmt| {
                     stmt.query((room_id,))?
-                        .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+                        .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
                         .collect()
                 },
             )
@@ -2037,11 +2062,16 @@ impl StateStore for SqliteStateStore {
 
         let mut dependent_events = Vec::with_capacity(res.len());
         for entry in res {
+            let created_at = entry
+                .4
+                .and_then(UInt::new)
+                .map_or_else(MilliSecondsSinceUnixEpoch::now, MilliSecondsSinceUnixEpoch);
             dependent_events.push(DependentQueuedRequest {
                 own_transaction_id: entry.0.into(),
                 parent_transaction_id: entry.1.into(),
                 parent_key: entry.2.map(|bytes| self.deserialize_value(&bytes)).transpose()?,
                 kind: self.deserialize_json(&entry.3)?,
+                created_at,
             });
         }
 
@@ -2395,16 +2425,15 @@ mod migration_tests {
             let wedge_tx = wedged_event_transaction_id.clone();
             let local_tx = local_event_transaction_id.clone();
 
-            db.save_dependent_queued_request(
-                room_id,
-                &local_tx,
-                ChildTransactionId::new(),
-                DependentQueuedRequestKind::RedactEvent,
-            )
-            .await
-            .unwrap();
-
             conn.with_transaction(move |txn| {
+                add_dependent_send_queue_event_v7(
+                    &db,
+                    txn,
+                    room_id,
+                    &local_tx,
+                    ChildTransactionId::new(),
+                    DependentQueuedRequestKind::RedactEvent,
+                )?;
                 add_send_queue_event_v7(&db, txn, &wedge_tx, room_id, true)?;
                 add_send_queue_event_v7(&db, txn, &local_tx, room_id, false)?;
                 Result::<_, Error>::Ok(())
@@ -2441,6 +2470,30 @@ mod migration_tests {
 
         txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, wedged) VALUES (?, ?, ?, ?, ?)")?
             .execute((room_id_key, room_id_value, transaction_id.to_string(), content, is_wedged))?;
+
+        Ok(())
+    }
+
+    fn add_dependent_send_queue_event_v7(
+        this: &SqliteStateStore,
+        txn: &Transaction<'_>,
+        room_id: &RoomId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: ChildTransactionId,
+        content: DependentQueuedRequestKind,
+    ) -> Result<(), Error> {
+        let room_id_value = this.serialize_value(&room_id.to_owned())?;
+
+        let parent_txn_id = parent_txn_id.to_string();
+        let own_txn_id = own_txn_id.to_string();
+        let content = this.serialize_json(&content)?;
+
+        txn.prepare_cached(
+            "INSERT INTO dependent_send_queue_events
+                         (room_id, parent_transaction_id, own_transaction_id, content)
+                       VALUES (?, ?, ?, ?)",
+        )?
+        .execute((room_id_value, parent_txn_id, own_txn_id, content))?;
 
         Ok(())
     }
