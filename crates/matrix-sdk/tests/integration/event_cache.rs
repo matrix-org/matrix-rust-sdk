@@ -7,6 +7,7 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use futures_util::FutureExt as _;
 use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::SyncTimelineEvent,
@@ -617,13 +618,14 @@ async fn test_reset_while_backpaginating() {
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
+    // After sync: Timeline = [$2].
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(f.text_msg("heyo").into_raw_sync())
+                .add_timeline_event(f.text_msg("$2").event_id(event_id!("$2")).into_raw_sync())
                 .set_timeline_prev_batch("first_backpagination".to_owned())
                 .set_timeline_limited(),
         )
@@ -651,12 +653,15 @@ async fn test_reset_while_backpaginating() {
     // - a backpagination will be sent concurrently.
     //
     // So events have to happen in this order:
-    // - the backpagination request is sent, with a prev-batch A
+    // - the backpagination request is sent, with a prev-batch
+    //   `first_backpagination`.
     // - the sync endpoint returns *after* the backpagination started, before the
-    // backpagination ends
-    // - the backpagination ends, with a prev-batch token that's now stale.
+    //   backpagination ends; it returns a new event, and a new backpagination token
+    //   `second_backpagination`.
+    // - the backpagination ends, with a prev-batch token that's now not the latest.
     //
-    // The backpagination should result in an unknown-token-error.
+    // The backpagination should succeed, and insert the event back-paginated from
+    // `first_backpagination` at its rightful location in the timeline.
 
     // Mock the first back-pagination request, with a delay.
     server
@@ -665,26 +670,11 @@ async fn test_reset_while_backpaginating() {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(json!({
-                    "chunk": vec![f.text_msg("lalala").into_raw_timeline()],
+                    "chunk": vec![f.text_msg("$1").event_id(event_id!("$1")).into_raw_timeline()],
                     "start": "t392-516_47314_0_7_1_1_1_11444_1",
                 }))
                 // This is why we don't use `server.mock_room_messages()`.
                 .set_delay(Duration::from_millis(500)),
-        )
-        .mock_once()
-        .mount()
-        .await;
-
-    // Mock the second back-pagination request, that will be hit after the reset
-    // caused by the sync.
-    server
-        .mock_room_messages()
-        .from("second_backpagination")
-        .ok(
-            "start-token-unused".to_owned(),
-            Some("third_backpagination".to_owned()),
-            vec![f.text_msg("finally!").into_raw_timeline()],
-            Vec::new(),
         )
         .mock_once()
         .mount()
@@ -704,7 +694,7 @@ async fn test_reset_while_backpaginating() {
                 .run_backwards(20, |outcome, timeline_has_been_reset| {
                     assert_matches!(
                         timeline_has_been_reset,
-                        TimelineHasBeenResetWhilePaginating::Yes
+                        TimelineHasBeenResetWhilePaginating::No
                     );
 
                     ready(ControlFlow::Break(outcome))
@@ -713,14 +703,15 @@ async fn test_reset_while_backpaginating() {
         }
     });
 
-    // Receive the sync response (which clears the timeline).
+    // Receive the sync response. It doesn't clear the timeline, because we have
+    // persistent storage.
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(f.text_msg("heyo").into_raw_sync())
+                .add_timeline_event(f.text_msg("$3").event_id(event_id!("$3")).into_raw_sync())
                 .set_timeline_prev_batch("second_backpagination".to_owned())
                 .set_timeline_limited(),
         )
@@ -728,42 +719,36 @@ async fn test_reset_while_backpaginating() {
 
     let outcome = backpagination.await.expect("join failed").unwrap();
 
-    // Backpagination will automatically restart, so eventually we get the events.
+    // Backpagination must return some events.
     let BackPaginationOutcome { events, .. } = outcome;
     assert!(!events.is_empty());
 
-    // Now if we retrieve the oldest token, it's set to something else.
+    // If we retrieve the most recent token, it's now `second_backpagination`; this
+    // previous-batch token does not get consumed.
     assert_let!(
         PaginationToken::HasMore(second_token) = pagination.get_or_wait_for_token(None).await
     );
     assert!(first_token != second_token);
-    assert_eq!(second_token, "third_backpagination");
+    assert_eq!(second_token, "second_backpagination");
 
-    // Assert the updates as diffs.
-
-    // Being cleared from the reset.
-    assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = room_stream.recv());
-
-    assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
-    );
-    assert_eq!(diffs.len(), 2);
-    // The clear, again.
-    assert_matches!(&diffs[0], VectorDiff::Clear);
-    // The event from the sync.
-    assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
-        assert_eq!(events.len(), 1);
-        assert_event_matches_msg(&events[0], "heyo");
-    });
-
+    // Receive the sync update.
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
     );
     assert_eq!(diffs.len(), 1);
-    // The event from the pagination.
-    assert_matches!(&diffs[0], VectorDiff::Insert { index, value: event } => {
-        assert_eq!(*index, 0);
-        assert_event_matches_msg(event, "finally!");
+    // The event from the sync.
+    assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "$3");
+    });
+
+    // Receive the back-pagination update.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+        assert_event_matches_msg(event, "$1");
     });
 
     assert!(room_stream.is_empty());
@@ -896,17 +881,12 @@ async fn test_limited_timeline_resets_pagination() {
     // When a limited sync comes back from the server,
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
 
-    // We receive an update about the limited timeline.
-    assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = room_stream.recv());
+    // Since we have storage, the update has no effect.
+    assert!(pagination.hit_timeline_start());
+    assert_eq!(pagination_status.get(), PaginatorState::Idle);
 
-    // The paginator state is reset: status set to Initial, hasn't hit the timeline
-    // start.
-    assert!(!pagination.hit_timeline_start());
-    assert_eq!(pagination_status.get(), PaginatorState::Initial);
-
-    // We receive an update about the paginator status.
-    assert_next_matches_with_timeout!(pagination_status, PaginatorState::Initial);
-
+    // We're done.
+    assert!(pagination_status.next().now_or_never().is_none());
     assert!(room_stream.is_empty());
 }
 
@@ -919,7 +899,6 @@ async fn test_limited_timeline_with_storage() {
 
     // Don't forget to subscribe and like^W enable storage!
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!galette:saucisse.bzh");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -1168,7 +1147,6 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -1251,7 +1229,6 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -1388,7 +1365,6 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     // Immediately subscribe the event cache to sync updates.
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
