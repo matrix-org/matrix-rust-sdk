@@ -1516,8 +1516,14 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room that should be forgotten.
-    pub async fn forget_room(&self, room_id: &RoomId) -> StoreResult<()> {
-        self.store.forget_room(room_id).await
+    pub async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
+        // Forget the room in the state store.
+        self.store.forget_room(room_id).await?;
+
+        // Remove the room in the event cache store too.
+        self.event_cache_store().lock().await?.remove_room(room_id).await?;
+
+        Ok(())
     }
 
     /// Get the olm machine.
