@@ -57,6 +57,13 @@ pub trait EventCacheStore: AsyncTraitDeps {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
 
+    /// Remove all data tied to a given room from the cache.
+    async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        // Right now, this means removing all the linked chunk. If implementations
+        // override this behavior, they should *also* include this code.
+        self.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await
+    }
+
     /// Return all the raw components of a linked chunk, so the caller may
     /// reconstruct the linked chunk later.
     async fn reload_linked_chunk(

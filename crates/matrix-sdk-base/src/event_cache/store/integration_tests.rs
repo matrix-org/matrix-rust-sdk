@@ -21,7 +21,10 @@ use matrix_sdk_common::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEventKind,
         VerificationState,
     },
-    linked_chunk::{ChunkContent, LinkedChunk, LinkedChunkBuilder, Position, RawChunk, Update},
+    linked_chunk::{
+        ChunkContent, ChunkIdentifier as CId, LinkedChunk, LinkedChunkBuilder, Position, RawChunk,
+        Update,
+    },
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
@@ -117,6 +120,9 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test that clear all the rooms' linked chunks works.
     async fn test_clear_all_rooms_chunks(&self);
+
+    /// Test that removing a room from storage empties all associated data.
+    async fn test_remove_room(&self);
 }
 
 fn rebuild_linked_chunk(raws: Vec<RawChunk<Event, Gap>>) -> Option<LinkedChunk<3, Event, Gap>> {
@@ -299,8 +305,6 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     }
 
     async fn test_handle_updates_and_rebuild_linked_chunk(&self) {
-        use matrix_sdk_common::linked_chunk::ChunkIdentifier as CId;
-
         let room_id = room_id!("!r0:matrix.org");
 
         self.handle_linked_chunk_updates(
@@ -383,8 +387,6 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     }
 
     async fn test_clear_all_rooms_chunks(&self) {
-        use matrix_sdk_common::linked_chunk::ChunkIdentifier as CId;
-
         let r0 = room_id!("!r0:matrix.org");
         let r1 = room_id!("!r1:matrix.org");
 
@@ -439,6 +441,54 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Both rooms now have no linked chunk.
         assert!(rebuild_linked_chunk(self.reload_linked_chunk(r0).await.unwrap()).is_none());
         assert!(rebuild_linked_chunk(self.reload_linked_chunk(r1).await.unwrap()).is_none());
+    }
+
+    async fn test_remove_room(&self) {
+        let r0 = room_id!("!r0:matrix.org");
+        let r1 = room_id!("!r1:matrix.org");
+
+        // Add updates to the first room.
+        self.handle_linked_chunk_updates(
+            r0,
+            vec![
+                // new chunk
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![make_test_event(r0, "hello"), make_test_event(r0, "world")],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Add updates to the second room.
+        self.handle_linked_chunk_updates(
+            r1,
+            vec![
+                // new chunk
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![make_test_event(r0, "yummy")],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Try to remove content from r0.
+        self.remove_room(r0).await.unwrap();
+
+        // Check that r0 doesn't have a linked chunk anymore.
+        let r0_linked_chunk = self.reload_linked_chunk(r0).await.unwrap();
+        assert!(r0_linked_chunk.is_empty());
+
+        // Check that r1 is unaffected.
+        let r1_linked_chunk = self.reload_linked_chunk(r1).await.unwrap();
+        assert!(!r1_linked_chunk.is_empty());
     }
 }
 
@@ -514,6 +564,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_clear_all_rooms_chunks().await;
+            }
+
+            #[async_test]
+            async fn test_remove_room() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_remove_room().await;
             }
         }
     };
