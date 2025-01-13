@@ -186,6 +186,7 @@ impl RoomSendQueue {
         );
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
+
         // Save requests in the queue storage.
         self.inner
             .queue

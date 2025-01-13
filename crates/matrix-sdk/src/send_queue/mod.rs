@@ -1419,7 +1419,6 @@ impl QueueStorage {
         client: &Client,
         dependent_request: DependentQueuedRequest,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
-        created_at: MilliSecondsSinceUnixEpoch,
     ) -> Result<bool, RoomSendQueueError> {
         let store = client.store();
 
@@ -1486,7 +1485,7 @@ impl QueueStorage {
                         .save_send_queue_request(
                             &self.room_id,
                             dependent_request.own_transaction_id.into(),
-                            created_at,
+                            dependent_request.created_at,
                             serializable.into(),
                             Self::HIGH_PRIORITY,
                         )
@@ -1574,7 +1573,7 @@ impl QueueStorage {
                         .save_send_queue_request(
                             &self.room_id,
                             dependent_request.own_transaction_id.into(),
-                            created_at,
+                            dependent_request.created_at,
                             serializable.into(),
                             Self::HIGH_PRIORITY,
                         )
@@ -1677,15 +1676,7 @@ impl QueueStorage {
         for dependent in canonicalized_dependent_requests {
             let dependent_id = dependent.own_transaction_id.clone();
 
-            match self
-                .try_apply_single_dependent_request(
-                    &client,
-                    dependent,
-                    new_updates,
-                    MilliSecondsSinceUnixEpoch::now(),
-                )
-                .await
-            {
+            match self.try_apply_single_dependent_request(&client, dependent, new_updates).await {
                 Ok(should_remove) => {
                     if should_remove {
                         // The dependent request has been successfully applied, forget about it.
@@ -1914,7 +1905,7 @@ pub struct SendHandle {
     /// Additional handles for a media upload.
     media_handles: Option<MediaHandles>,
 
-    /// The time that this send handle was first created
+    /// The time at which the event to be sent has been created.
     pub created_at: MilliSecondsSinceUnixEpoch,
 }
 

@@ -1847,7 +1847,7 @@ impl StateStore for SqliteStateStore {
         // Note: ROWID is always present and is an auto-incremented integer counter. We
         // want to maintain the insertion order, so we can sort using it.
         // Note 2: transaction_id is not encoded, see why in `save_send_queue_event`.
-        let res: Vec<(String, Vec<u8>, Option<Vec<u8>>, usize, u64)> = self
+        let res: Vec<(String, Vec<u8>, Option<Vec<u8>>, usize, Option<u64>)> = self
             .acquire()
             .await?
             .prepare(
@@ -1862,7 +1862,9 @@ impl StateStore for SqliteStateStore {
 
         let mut requests = Vec::with_capacity(res.len());
         for entry in res {
-            let created_at = UInt::new(entry.4)
+            let created_at = entry
+                .4
+                .and_then(UInt::new)
                 .map_or_else(MilliSecondsSinceUnixEpoch::now, MilliSecondsSinceUnixEpoch);
             requests.push(QueuedRequest {
                 transaction_id: entry.0.into(),
@@ -2045,7 +2047,7 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
         // Note: transaction_id is not encoded, see why in `save_send_queue_event`.
-        let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>, u64)> = self
+        let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>, Option<u64>)> = self
             .acquire()
             .await?
             .prepare(
@@ -2060,7 +2062,9 @@ impl StateStore for SqliteStateStore {
 
         let mut dependent_events = Vec::with_capacity(res.len());
         for entry in res {
-            let created_at = UInt::new(entry.4)
+            let created_at = entry
+                .4
+                .and_then(UInt::new)
                 .map_or_else(MilliSecondsSinceUnixEpoch::now, MilliSecondsSinceUnixEpoch);
             dependent_events.push(DependentQueuedRequest {
                 own_transaction_id: entry.0.into(),
