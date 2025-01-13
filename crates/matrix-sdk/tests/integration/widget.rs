@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    test_utils::mocks::{MatrixMockServer, RoomMessagesResponse},
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
     },
@@ -313,7 +313,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
         mock_server
             .mock_room_messages()
             .limit(3)
-            .ok(RoomMessagesResponse::default().end_token(end).events(chunk2))
+            .ok(RoomMessagesResponseTemplate::default().end_token(end).events(chunk2))
             .mock_once()
             .mount()
             .await;

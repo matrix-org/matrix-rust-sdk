@@ -16,7 +16,7 @@ use matrix_sdk::{
     },
     test_utils::{
         assert_event_matches_msg,
-        mocks::{MatrixMockServer, RoomMessagesResponse},
+        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     },
 };
 use matrix_sdk_test::{
@@ -261,7 +261,7 @@ async fn test_backpaginate_once() {
         server
             .mock_room_messages()
             .from("prev_batch")
-            .ok(RoomMessagesResponse::default().events(vec![
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
                 f.text_msg("world").event_id(event_id!("$2")),
                 f.text_msg("hello").event_id(event_id!("$3")),
             ]))
@@ -349,7 +349,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(RoomMessagesResponse::default().end_token("prev_batch2").events(vec![
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch2").events(vec![
             f.text_msg("world").event_id(event_id!("$2")),
             f.text_msg("hello").event_id(event_id!("$3")),
         ]))
@@ -361,7 +361,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     server
         .mock_room_messages()
         .from("prev_batch2")
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$4"))]))
         .mock_once()
         .mount()
@@ -487,7 +487,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(RoomMessagesResponse::default().end_token("prev_batch2").events(vec![
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch2").events(vec![
             f.text_msg("world").event_id(event_id!("$2")),
             f.text_msg("hello").event_id(event_id!("$3")),
         ]))
@@ -499,7 +499,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     server
         .mock_room_messages()
         .from("prev_batch2")
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$4"))]))
         .mock_once()
         .mount()
@@ -641,7 +641,7 @@ async fn test_reset_while_backpaginating() {
     server
         .mock_room_messages()
         .from("first_backpagination")
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("lalala").into_raw_timeline()])
             .delayed(Duration::from_millis(500)))
         .mock_once()
@@ -653,7 +653,7 @@ async fn test_reset_while_backpaginating() {
     server
         .mock_room_messages()
         .from("second_backpagination")
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .end_token("third_backpagination")
             .events(vec![f.text_msg("finally!").into_raw_timeline()]))
         .mock_once()
@@ -764,7 +764,7 @@ async fn test_backpaginating_without_token() {
 
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()]))
         .mock_once()
         .mount()
@@ -822,7 +822,7 @@ async fn test_limited_timeline_resets_pagination() {
 
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()]))
         .mock_once()
         .mount()
@@ -992,7 +992,7 @@ async fn test_limited_timeline_without_storage() {
     server
         .mock_room_messages()
         .from("prev-batch")
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$1"))]))
         .mock_once()
         .mount()
@@ -1058,7 +1058,7 @@ async fn test_backpaginate_with_no_initial_events() {
     let wait_time = Duration::from_millis(500);
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .end_token("prev_batch")
             .events(vec![
                 f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
@@ -1073,7 +1073,7 @@ async fn test_backpaginate_with_no_initial_events() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$1"))]))
         .mock_once()
         .mount()
@@ -1146,7 +1146,7 @@ async fn test_backpaginate_replace_empty_gap() {
     // The first back-pagination will return a previous-batch token, but no events.
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponse::default().end_token("prev_batch"))
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch"))
         .mock_once()
         .mount()
         .await;
@@ -1155,7 +1155,7 @@ async fn test_backpaginate_replace_empty_gap() {
     server
         .mock_room_messages()
         .from("prev_batch")
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("hello").event_id(event_id!("$1"))]))
         .mock_once()
         .mount()
@@ -1218,7 +1218,12 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     drop(events);
 
     // Backpagination will return nothing.
-    server.mock_room_messages().ok(RoomMessagesResponse::default()).mock_once().mount().await;
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
 
     let pagination = room_event_cache.pagination();
 
@@ -1328,7 +1333,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     server
         .mock_room_messages()
         .from("prev-batch2")
-        .ok(RoomMessagesResponse::default())
+        .ok(RoomMessagesResponseTemplate::default())
         .mock_once()
         .mount()
         .await;
@@ -1338,7 +1343,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     server
         .mock_room_messages()
         .from("prev-batch")
-        .ok(RoomMessagesResponse::default().end_token("prev-batch3").events(vec![
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev-batch3").events(vec![
             // Items in reverse order, since this is back-pagination.
             f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
             f.text_msg("hello").event_id(event_id!("$1")).into_raw_timeline(),
@@ -1424,7 +1429,7 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
     server
         .mock_room_messages()
         .from("prev-batch")
-        .ok(RoomMessagesResponse::default())
+        .ok(RoomMessagesResponseTemplate::default())
         .mock_once()
         .mount()
         .await;

@@ -24,7 +24,7 @@ use matrix_sdk::{
     room::edit::EditedContent,
     test_utils::{
         logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomMessagesResponse},
+        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     },
     Client,
 };
@@ -870,7 +870,7 @@ impl PendingEditHelper {
     async fn handle_backpagination(&mut self, events: Vec<Raw<AnyTimelineEvent>>, batch_size: u16) {
         self.server
             .mock_room_messages()
-            .ok(RoomMessagesResponse::default().end_token("yolo").events(events))
+            .ok(RoomMessagesResponseTemplate::default().end_token("yolo").events(events))
             .mock_once()
             .mount()
             .await;
