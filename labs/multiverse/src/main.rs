@@ -112,7 +112,6 @@ async fn main() -> Result<()> {
 
     let event_cache = client.event_cache();
     event_cache.subscribe()?;
-    event_cache.enable_storage()?;
 
     let terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;

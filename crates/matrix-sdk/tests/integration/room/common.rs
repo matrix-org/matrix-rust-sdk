@@ -612,7 +612,6 @@ async fn test_event() {
 
     let cache = client.event_cache();
     let _ = cache.subscribe();
-    cache.enable_storage().unwrap();
 
     let room = server
         .sync_room(
@@ -674,9 +673,7 @@ async fn test_event_with_context() {
     let next_event_id = event_id!("$next_1234");
 
     let (client, server) = logged_in_client_with_server().await;
-    let cache = client.event_cache();
-    let _ = cache.subscribe();
-    cache.enable_storage().unwrap();
+    client.event_cache().subscribe().unwrap();
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
