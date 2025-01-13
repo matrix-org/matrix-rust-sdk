@@ -16,8 +16,19 @@ use matrix_sdk_ui::{
     Timeline,
 };
 use ruma::{
-    event_id, events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id,
-    MilliSecondsSinceUnixEpoch, OwnedRoomId,
+    event_id,
+    events::{
+        room::{
+            encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+            },
+            message::RoomMessageEventContentWithoutRelation,
+        },
+        AnyTimelineEvent,
+    },
+    owned_device_id, owned_room_id, owned_user_id,
+    serde::Raw,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId, UserId,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
@@ -338,6 +349,104 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
     // returns an empty list
     let (items, _) = timeline.subscribe().await;
     assert!(items.is_empty());
+
+    test_helper.server.reset().await;
+}
+
+#[async_test]
+async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_is_just_empty() {
+    let mut test_helper = TestHelper::new().await;
+    let room_id = test_helper.room_id.clone();
+    let event_id = event_id!("$1:morpheus.localhost");
+    let sender_id = owned_user_id!("@example:localhost");
+
+    // Join the room
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        // Set up encryption
+        .add_state_event(StateTestEvent::Encryption);
+
+    // Sync the joined room
+    let json_response =
+        SyncResponseBuilder::new().add_joined_room(joined_room_builder).build_json_sync_response();
+    mock_sync(&test_helper.server, json_response, None).await;
+    test_helper
+        .client
+        .sync_once(test_helper.sync_settings.clone())
+        .await
+        .expect("Sync should work");
+    test_helper.server.reset().await;
+
+    // Load initial timeline items: an empty `m.room.pinned_events` event
+    let _ = test_helper.setup_sync_response(Vec::new(), Some(Vec::new())).await;
+
+    // Mock encrypted event for which we have now keys (an UTD)
+    let utd_event = create_utd(&room_id, &sender_id, event_id);
+    mock_event(&test_helper.server, &room_id, event_id, TimelineEvent::new(utd_event)).await;
+
+    let room = test_helper.client.get_room(&room_id).unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+
+    // The timeline couldn't load any events, but it expected none, so it just
+    // returns an empty list
+    let (items, _) = timeline.subscribe().await;
+    assert!(items.is_empty());
+
+    test_helper.server.reset().await;
+}
+
+#[async_test]
+async fn test_pinned_timeline_with_pinned_utd_contains_it() {
+    let test_helper = TestHelper::new().await;
+    let room_id = test_helper.room_id.clone();
+    let event_id = event_id!("$1:morpheus.localhost");
+    let sender_id = owned_user_id!("@example:localhost");
+
+    // Join the room
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        // Set up encryption
+        .add_state_event(StateTestEvent::Encryption)
+        // And pinned event ids
+        .add_state_event(StateTestEvent::Custom(json!(
+            {
+                "content": {
+                    "pinned": [event_id]
+                },
+                "event_id": "$15139375513VdeRF:localhost",
+                "origin_server_ts": 151393755,
+                "sender": sender_id,
+                "state_key": "",
+                "type": "m.room.pinned_events",
+                "unsigned": {
+                    "age": 703422
+                }
+            }
+        )));
+
+    // Sync the joined room
+    let json_response =
+        SyncResponseBuilder::new().add_joined_room(joined_room_builder).build_json_sync_response();
+    mock_sync(&test_helper.server, json_response, None).await;
+    test_helper
+        .client
+        .sync_once(test_helper.sync_settings.clone())
+        .await
+        .expect("Sync should work");
+    test_helper.server.reset().await;
+
+    // Mock encrypted pinned event for which we have now keys (an UTD)
+    let utd_event = create_utd(&room_id, &sender_id, event_id);
+    mock_event(&test_helper.server, &room_id, event_id, TimelineEvent::new(utd_event)).await;
+
+    let room = test_helper.client.get_room(&room_id).unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+
+    // The timeline loaded with just a day divider and the pinned UTD
+    let (items, _) = timeline.subscribe().await;
+    assert_eq!(items.len(), 2);
+    let pinned_utd_event = items.last().unwrap().as_event().unwrap();
+    assert_eq!(pinned_utd_event.event_id().unwrap(), event_id);
 
     test_helper.server.reset().await;
 }
@@ -764,6 +873,32 @@ impl TestHelper {
         mock_sync(&self.server, json_response, None).await;
         self.client.sync_once(self.sync_settings.clone()).await
     }
+}
+
+fn create_utd(room_id: &RoomId, sender_id: &UserId, event_id: &EventId) -> Raw<AnyTimelineEvent> {
+    EventFactory::new()
+        .room(room_id)
+        .sender(sender_id)
+        .event(RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: String::from(
+                        "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                           YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                           PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                           iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                           JGJjKfV57NAhp8W+9oT7ugwO",
+                    ),
+                    device_id: owned_device_id!("KIUVQQSDTM"),
+                    sender_key: String::from("LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc"),
+                    session_id: String::from("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"),
+                }
+                .into(),
+            ),
+            None,
+        ))
+        .event_id(event_id)
+        .into_raw_timeline()
 }
 
 fn pinned_events_focus(max_events_to_load: u16) -> TimelineFocus {
