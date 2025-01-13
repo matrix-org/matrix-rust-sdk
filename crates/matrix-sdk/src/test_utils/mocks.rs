@@ -1895,7 +1895,7 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
     ///
     /// Note: pass `chunk` in the correct order: topological for forward
     /// pagination, reverse topological for backwards pagination.
-    pub fn ok(self, response: RoomMessagesResponse) -> MatrixMock<'a> {
+    pub fn ok(self, response: RoomMessagesResponseTemplate) -> MatrixMock<'a> {
         let mut template = ResponseTemplate::new(200).set_body_json(json!({
             "start": response.start,
             "end": response.end,
@@ -1913,7 +1913,7 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
 }
 
 /// A response to a [`RoomMessagesEndpoint`] query.
-pub struct RoomMessagesResponse {
+pub struct RoomMessagesResponseTemplate {
     /// The start token for this /messages query.
     pub start: String,
     /// The end token for this /messages query (previous batch for back
@@ -1927,7 +1927,7 @@ pub struct RoomMessagesResponse {
     pub delay: Option<Duration>,
 }
 
-impl RoomMessagesResponse {
+impl RoomMessagesResponseTemplate {
     /// Fill the events returned as part of this response.
     pub fn events(mut self, chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>) -> Self {
         self.chunk = chunk.into_iter().map(Into::into).collect();
@@ -1947,7 +1947,7 @@ impl RoomMessagesResponse {
     }
 }
 
-impl Default for RoomMessagesResponse {
+impl Default for RoomMessagesResponseTemplate {
     fn default() -> Self {
         Self {
             start: "start-token-unused".to_owned(),

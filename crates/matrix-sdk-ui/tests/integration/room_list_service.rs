@@ -7,7 +7,7 @@ use matrix_sdk::{
     config::RequestConfig,
     test_utils::{
         logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomMessagesResponse},
+        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
         set_client_session, test_client_builder,
     },
     Client,
@@ -2846,7 +2846,7 @@ async fn test_multiple_timeline_init() {
     // Send back-pagination responses with a small delay.
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponse::default()
+        .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("hello").into_raw_timeline()])
             .delayed(Duration::from_millis(500)))
         .mount()
