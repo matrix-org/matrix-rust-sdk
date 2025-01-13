@@ -25,7 +25,6 @@ use matrix_sdk_test::{
 use ruma::{event_id, room_id, user_id};
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
-use wiremock::ResponseTemplate;
 
 async fn once(
     outcome: BackPaginationOutcome,
@@ -642,15 +641,9 @@ async fn test_reset_while_backpaginating() {
     server
         .mock_room_messages()
         .from("first_backpagination")
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "chunk": vec![f.text_msg("lalala").into_raw_timeline()],
-                    "start": "t392-516_47314_0_7_1_1_1_11444_1",
-                }))
-                // This is why we don't use `server.mock_room_messages()`.
-                .set_delay(Duration::from_millis(500)),
-        )
+        .ok(RoomMessagesResponse::default()
+            .events(vec![f.text_msg("lalala").into_raw_timeline()])
+            .delayed(Duration::from_millis(500)))
         .mock_once()
         .mount()
         .await;
@@ -1065,20 +1058,13 @@ async fn test_backpaginate_with_no_initial_events() {
     let wait_time = Duration::from_millis(500);
     server
         .mock_room_messages()
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "chunk": vec![
-                        f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
-                        f.text_msg("hello").event_id(event_id!("$3")).into_raw_timeline(),
-                    ],
-                    "start": "start-token-unused1",
-                    "end": "prev_batch"
-                }))
-                // This is why we don't use `server.mock_room_messages()`.
-                // This delay has to be greater than the one used to return the sync response.
-                .set_delay(2 * wait_time),
-        )
+        .ok(RoomMessagesResponse::default()
+            .end_token("prev_batch")
+            .events(vec![
+                f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
+                f.text_msg("hello").event_id(event_id!("$3")).into_raw_timeline(),
+            ])
+            .delayed(2 * wait_time))
         .mock_once()
         .mount()
         .await;

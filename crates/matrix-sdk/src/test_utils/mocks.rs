@@ -1896,12 +1896,18 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
     /// Note: pass `chunk` in the correct order: topological for forward
     /// pagination, reverse topological for backwards pagination.
     pub fn ok(self, response: RoomMessagesResponse) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        let mut template = ResponseTemplate::new(200).set_body_json(json!({
             "start": response.start,
             "end": response.end,
             "chunk": response.chunk,
             "state": response.state,
-        })));
+        }));
+
+        if let Some(delay) = response.delay {
+            template = template.set_delay(delay);
+        }
+
+        let mock = self.mock.respond_with(template);
         MatrixMock { server: self.server, mock }
     }
 }
@@ -1917,6 +1923,8 @@ pub struct RoomMessagesResponse {
     pub chunk: Vec<Raw<AnyTimelineEvent>>,
     /// The set of state events returned by this query.
     pub state: Vec<Raw<AnyStateEvent>>,
+    /// Optional delay to respond to the query.
+    pub delay: Option<Duration>,
 }
 
 impl RoomMessagesResponse {
@@ -1931,6 +1939,12 @@ impl RoomMessagesResponse {
         self.end = Some(token.into());
         self
     }
+
+    /// Respond with a given delay to the query.
+    pub fn delayed(mut self, delay: Duration) -> Self {
+        self.delay = Some(delay);
+        self
+    }
 }
 
 impl Default for RoomMessagesResponse {
@@ -1940,6 +1954,7 @@ impl Default for RoomMessagesResponse {
             end: Default::default(),
             chunk: Default::default(),
             state: Default::default(),
+            delay: None,
         }
     }
 }
