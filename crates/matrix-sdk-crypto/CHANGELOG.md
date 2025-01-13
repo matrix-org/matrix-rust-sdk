@@ -6,11 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
 - Accept stable identifier `sender_device_keys` for MSC4147 (Including device
   keys with Olm-encrypted events).
   ([#4420](https://github.com/matrix-org/matrix-rust-sdk/pull/4420))
 
 ## [0.9.0] - 2024-12-18
+
+### Features
 
 - Expose new API `DehydratedDevices::get_dehydrated_device_pickle_key`, `DehydratedDevices::save_dehydrated_device_pickle_key`
   and `DehydratedDevices::delete_dehydrated_device_pickle_key` to store/load the dehydrated device pickle key.

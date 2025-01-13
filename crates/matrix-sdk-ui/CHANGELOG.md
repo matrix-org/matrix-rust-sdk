@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
   `AttachmentSource` allows to send an attachment either from a file, or with
   the bytes and the filename of the attachment. Note that all types that
   implement `Into<PathBuf>` also implement `Into<AttachmentSource>`.
+  ([#4451](https://github.com/matrix-org/matrix-rust-sdk/pull/4451))
 
 ## [0.9.0] - 2024-12-18
 
