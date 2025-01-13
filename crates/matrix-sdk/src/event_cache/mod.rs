@@ -168,23 +168,6 @@ impl EventCache {
         }
     }
 
-    /// Enable storing updates to storage, and reload events from storage.
-    ///
-    /// Has an effect only the first time it's called. It's safe to call it
-    /// multiple times.
-    pub fn enable_storage(&self) -> Result<()> {
-        let _ = self.inner.store.get_or_try_init::<_, EventCacheError>(|| {
-            let client = self.inner.client()?;
-            Ok(client.event_cache_store().clone())
-        })?;
-        Ok(())
-    }
-
-    /// Check whether the storage is enabled or not.
-    pub fn has_storage(&self) -> bool {
-        self.inner.has_storage()
-    }
-
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
     /// before.
     ///
@@ -193,6 +176,13 @@ impl EventCache {
     pub fn subscribe(&self) -> Result<()> {
         let client = self.inner.client()?;
 
+        // Initialize storage.
+        let _ = self.inner.store.get_or_try_init::<_, EventCacheError>(|| {
+            let client = self.inner.client()?;
+            Ok(client.event_cache_store().clone())
+        })?;
+
+        // Initialize the drop handles.
         let _ = self.inner.drop_handles.get_or_init(|| {
             // Spawn the task that will listen to all the room updates at once.
             let listen_updates_task = spawn(Self::listen_task(
@@ -411,11 +401,6 @@ impl EventCacheInner {
         self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
-    /// Has persistent storage been enabled for the event cache?
-    fn has_storage(&self) -> bool {
-        self.store.get().is_some()
-    }
-
     /// Clears all the room's data.
     async fn clear_all_rooms(&self) -> Result<()> {
         // Okay, here's where things get complicated.
@@ -499,9 +484,7 @@ impl EventCacheInner {
         for (room_id, left_room_update) in updates.left {
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) =
-                room.inner.handle_left_room_update(self.has_storage(), left_room_update).await
-            {
+            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling left room update: {err}");
             }
@@ -511,9 +494,7 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.joined {
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) =
-                room.inner.handle_joined_room_update(self.has_storage(), joined_room_update).await
-            {
+            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!(%room_id, "handling joined room update: {err}");
             }
@@ -716,10 +697,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(
-                event_cache.inner.has_storage(),
-                JoinedRoomUpdate { account_data, ..Default::default() },
-            )
+            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
             .await
             .unwrap();
 
@@ -798,7 +776,6 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
         let event_id = event_id!("$1");
