@@ -430,7 +430,7 @@ mod test {
         assert_ambiguity!(
             [("@alice:localhost", "alice"), ("@bob:localhost", "аlice")],
             [("alice", true)],
-            "Bob tries to impersonate Alice using a cyrilic а"
+            "Bob tries to impersonate Alice using a cyrillic а"
         );
 
         assert_ambiguity!(
