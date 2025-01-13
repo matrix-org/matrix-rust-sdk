@@ -447,7 +447,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::UnableToDecrypt { content, utd_cause } => {
                 // TODO: Handle replacements if the replaced event is also UTD
-                self.add_item(TimelineItemContent::unable_to_decrypt(content, utd_cause), None);
+                if should_add {
+                    self.add_item(TimelineItemContent::unable_to_decrypt(content, utd_cause), None);
+                }
 
                 // Let the hook know that we ran into an unable-to-decrypt that is added to the
                 // timeline.
