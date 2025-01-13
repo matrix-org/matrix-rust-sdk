@@ -66,7 +66,6 @@ async fn main() -> anyhow::Result<()> {
 
     let ec = client.event_cache();
     ec.subscribe().unwrap();
-    ec.enable_storage().unwrap();
 
     init_error_hooks()?;
     let terminal = init_terminal()?;
@@ -251,7 +250,7 @@ impl App {
                     .filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
                 {
                     // Initialize the timeline.
-                    let builder = match ui_room.default_room_timeline_builder().await {
+                    let builder = match ui_room.default_room_timeline_builder() {
                         Ok(builder) => builder,
                         Err(err) => {
                             error!("error when getting default timeline builder: {err}");

@@ -168,23 +168,6 @@ impl EventCache {
         }
     }
 
-    /// Enable storing updates to storage, and reload events from storage.
-    ///
-    /// Has an effect only the first time it's called. It's safe to call it
-    /// multiple times.
-    pub fn enable_storage(&self) -> Result<()> {
-        let _ = self.inner.store.get_or_try_init::<_, EventCacheError>(|| {
-            let client = self.inner.client()?;
-            Ok(client.event_cache_store().clone())
-        })?;
-        Ok(())
-    }
-
-    /// Check whether the storage is enabled or not.
-    pub fn has_storage(&self) -> bool {
-        self.inner.has_storage()
-    }
-
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
     /// before.
     ///
@@ -193,6 +176,13 @@ impl EventCache {
     pub fn subscribe(&self) -> Result<()> {
         let client = self.inner.client()?;
 
+        // Initialize storage.
+        let _ = self.inner.store.get_or_try_init::<_, EventCacheError>(|| {
+            let client = self.inner.client()?;
+            Ok(client.event_cache_store().clone())
+        })?;
+
+        // Initialize the drop handles.
         let _ = self.inner.drop_handles.get_or_init(|| {
             // Spawn the task that will listen to all the room updates at once.
             let listen_updates_task = spawn(Self::listen_task(
@@ -313,42 +303,6 @@ impl EventCache {
         let room = self.inner.for_room(room_id).await?;
 
         Ok((room, drop_handles))
-    }
-
-    /// Add an initial set of events to the event cache, reloaded from a cache.
-    ///
-    /// TODO: temporary for API compat, as the event cache should take care of
-    /// its own store.
-    #[instrument(skip(self, events))]
-    pub async fn add_initial_events(
-        &self,
-        room_id: &RoomId,
-        events: Vec<SyncTimelineEvent>,
-        prev_batch: Option<String>,
-    ) -> Result<()> {
-        // If the event cache's storage has been enabled, do nothing.
-        if self.inner.has_storage() {
-            return Ok(());
-        }
-
-        let room_cache = self.inner.for_room(room_id).await?;
-
-        // If the linked chunked already has at least one event, ignore this request, as
-        // it should happen at most once per room.
-        if !room_cache.inner.state.read().await.events().is_empty() {
-            return Ok(());
-        }
-
-        // We could have received events during a previous sync; remove them all, since
-        // we can't know where to insert the "initial events" with respect to
-        // them.
-
-        room_cache
-            .inner
-            .replace_all_events_by(events, prev_batch, Default::default(), Default::default())
-            .await?;
-
-        Ok(())
     }
 }
 
@@ -523,11 +477,6 @@ impl EventCacheInner {
         self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
-    /// Has persistent storage been enabled for the event cache?
-    fn has_storage(&self) -> bool {
-        self.store.get().is_some()
-    }
-
     /// Clears all the room's data.
     async fn clear_all_rooms(&self) -> Result<()> {
         // Note: one must NOT clear the `by_room` map, because if something subscribed
@@ -560,9 +509,7 @@ impl EventCacheInner {
         for (room_id, left_room_update) in updates.leave {
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) =
-                room.inner.handle_left_room_update(self.has_storage(), left_room_update).await
-            {
+            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling left room update: {err}");
             }
@@ -572,9 +519,7 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.join {
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) =
-                room.inner.handle_joined_room_update(self.has_storage(), joined_room_update).await
-            {
+            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling joined room update: {err}");
             }
@@ -752,10 +697,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(
-                event_cache.inner.has_storage(),
-                JoinedRoomUpdate { account_data, ..Default::default() },
-            )
+            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
             .await
             .unwrap();
 
@@ -869,29 +811,5 @@ mod tests {
         // After clearing, both fail to find the event.
         assert!(room_event_cache.event(event_id).await.is_none());
         assert!(event_cache.event(event_id).await.is_none());
-    }
-
-    #[async_test]
-    async fn test_add_initial_events() {
-        // TODO: remove this test when the event cache uses its own persistent storage.
-        let client = logged_in_client(None).await;
-        let room_id = room_id!("!galette:saucisse.bzh");
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
-        event_cache
-            .add_initial_events(room_id, vec![f.text_msg("hey").into()], None)
-            .await
-            .unwrap();
-
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (initial_events, _) = room_event_cache.subscribe().await.unwrap();
-        // `add_initial_events` had an effect.
-        assert_eq!(initial_events.len(), 1);
     }
 }
