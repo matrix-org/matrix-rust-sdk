@@ -271,7 +271,6 @@ impl SlidingSyncBuilder {
 
         Ok(SlidingSync::new(SlidingSyncInner {
             id: self.id,
-            version,
 
             client,
             storage_key: self.storage_key,

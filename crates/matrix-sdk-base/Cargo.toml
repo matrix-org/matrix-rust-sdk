@@ -65,7 +65,6 @@ ruma = { workspace = true, features = [
     "canonical-json",
     "unstable-msc2867",
     "unstable-msc3381",
-    "unstable-msc3575",
     "unstable-msc4186",
     "rand",
 ] }
