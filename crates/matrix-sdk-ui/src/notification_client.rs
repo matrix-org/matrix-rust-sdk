@@ -177,8 +177,8 @@ impl NotificationClient {
         //
         // Spawn an `EncryptionSync` that runs two iterations of the sliding sync loop:
         // - the first iteration allows to get SS events as well as send e2ee requests.
-        // - the second one let the SS proxy forward events triggered by the sending of
-        // e2ee requests.
+        // - the second one let the SS homeserver forward events triggered by the
+        //   sending of e2ee requests.
         //
         // Keep timeouts small for both, since we might be short on time.
 

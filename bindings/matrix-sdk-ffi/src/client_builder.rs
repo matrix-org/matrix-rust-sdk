@@ -20,7 +20,6 @@ use matrix_sdk::{
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
-use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
@@ -604,21 +603,9 @@ impl ClientBuilder {
                 inner_builder = inner_builder
                     .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::None)
             }
-            SlidingSyncVersionBuilder::Proxy { url } => {
-                inner_builder = inner_builder.sliding_sync_version_builder(
-                    MatrixSlidingSyncVersionBuilder::Proxy {
-                        url: Url::parse(&url)
-                            .map_err(|e| ClientBuildError::Generic { message: e.to_string() })?,
-                    },
-                )
-            }
             SlidingSyncVersionBuilder::Native => {
                 inner_builder = inner_builder
                     .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Native)
-            }
-            SlidingSyncVersionBuilder::DiscoverProxy => {
-                inner_builder = inner_builder
-                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverProxy)
             }
             SlidingSyncVersionBuilder::DiscoverNative => {
                 inner_builder = inner_builder
@@ -748,8 +735,6 @@ pub struct RequestConfig {
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersionBuilder {
     None,
-    Proxy { url: String },
     Native,
-    DiscoverProxy,
     DiscoverNative,
 }

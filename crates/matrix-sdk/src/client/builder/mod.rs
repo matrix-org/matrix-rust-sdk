@@ -489,7 +489,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
-        let HomeserverDiscoveryResult { server, homeserver, well_known, supported_versions } =
+        let HomeserverDiscoveryResult { server, homeserver, supported_versions } =
             homeserver_cfg.discover(&http_client).await?;
 
         let sliding_sync_version = {
@@ -501,9 +501,7 @@ impl ClientBuilder {
                 None => None,
             };
 
-            let version = self
-                .sliding_sync_version_builder
-                .build(well_known.as_ref(), supported_versions.as_ref())?;
+            let version = self.sliding_sync_version_builder.build(supported_versions.as_ref())?;
 
             tracing::info!(?version, "selected sliding sync version");
 
@@ -763,7 +761,6 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use serde_json::{json_internal, Value as JsonValue};
-    use url::Url;
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
@@ -855,41 +852,13 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_discovery_direct_legacy_custom_proxy() {
-        // Given a homeserver without a well-known file and with a custom sliding sync
-        // proxy injected.
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
-        let url = {
-            let url = Url::parse("https://localhost:1234").unwrap();
-            builder = builder.sliding_sync_version_builder(SlidingSyncVersionBuilder::Proxy {
-                url: url.clone(),
-            });
-
-            url
-        };
-
-        // When building a client with the server's URL.
-        builder = builder.server_name_or_homeserver_url(homeserver.uri());
-        let client = builder.build().await.unwrap();
-
-        // Then a client should be built with support for sliding sync.
-        assert_matches!(
-            client.sliding_sync_version(),
-            SlidingSyncVersion::Proxy { url: given_url } => {
-                assert_eq!(given_url, url);
-            }
-        );
-    }
-
-    #[async_test]
     async fn test_discovery_well_known_parse_error() {
         // Given a base server with a well-known file that has errors.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
         let mut builder = ClientBuilder::new();
 
-        let well_known = make_well_known_json(&homeserver.uri(), None);
+        let well_known = make_well_known_json(&homeserver.uri());
         let bad_json = well_known.to_string().replace(',', "");
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -919,8 +888,7 @@ pub(crate) mod tests {
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(make_well_known_json(&homeserver.uri(), None)),
+                ResponseTemplate::new(200).set_body_json(make_well_known_json(&homeserver.uri())),
             )
             .mount(&server)
             .await;
@@ -932,110 +900,6 @@ pub(crate) mod tests {
         // Then a client should be built with native support for sliding sync.
         // It's native support because it's the default. Nothing is checked here.
         assert!(client.sliding_sync_version().is_native());
-    }
-
-    #[async_test]
-    async fn test_discovery_well_known_with_sliding_sync() {
-        // Given a base server with a well-known file that points to a homeserver with a
-        // sliding sync proxy.
-        let server = MockServer::start().await;
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
-                &homeserver.uri(),
-                Some("https://localhost:1234"),
-            )))
-            .mount(&server)
-            .await;
-
-        // When building a client with the base server, with sliding sync to
-        // auto-discover the proxy.
-        builder = builder
-            .server_name_or_homeserver_url(server.uri())
-            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverProxy);
-        let client = builder.build().await.unwrap();
-
-        // Then a client should be built with support for sliding sync.
-        assert_matches!(
-            client.sliding_sync_version(),
-            SlidingSyncVersion::Proxy { url } => {
-                assert_eq!(url, Url::parse("https://localhost:1234").unwrap());
-            }
-        );
-    }
-
-    #[async_test]
-    async fn test_discovery_well_known_with_sliding_sync_override() {
-        // Given a base server with a well-known file that points to a homeserver with a
-        // sliding sync proxy.
-        let server = MockServer::start().await;
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
-                &homeserver.uri(),
-                Some("https://localhost:1234"),
-            )))
-            .mount(&server)
-            .await;
-
-        // When building a client with the base server and a custom sliding sync proxy
-        // set.
-        let url = Url::parse("https://localhost:9012").unwrap();
-
-        builder = builder
-            .sliding_sync_version_builder(SlidingSyncVersionBuilder::Proxy { url: url.clone() })
-            .server_name_or_homeserver_url(server.uri());
-
-        let client = builder.build().await.unwrap();
-
-        // Then a client should be built and configured with the custom sliding sync
-        // proxy.
-        assert_matches!(
-            client.sliding_sync_version(),
-            SlidingSyncVersion::Proxy { url: given_url } => {
-                assert_eq!(url, given_url);
-            }
-        );
-    }
-
-    #[async_test]
-    async fn test_sliding_sync_discover_proxy() {
-        // Given a homeserver with a `.well-known` file.
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
-
-        let expected_url = Url::parse("https://localhost:1234").unwrap();
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
-                &homeserver.uri(),
-                Some(expected_url.as_str()),
-            )))
-            .mount(&homeserver)
-            .await;
-
-        // When building the client with sliding sync to auto-discover the
-        // proxy version.
-        builder = builder
-            .server_name_or_homeserver_url(homeserver.uri())
-            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverProxy);
-
-        let client = builder.build().await.unwrap();
-
-        // Then, sliding sync has the correct proxy URL.
-        assert_matches!(
-            client.sliding_sync_version(),
-            SlidingSyncVersion::Proxy { url } => {
-                assert_eq!(url, expected_url);
-            }
-        );
     }
 
     #[async_test]
@@ -1104,10 +968,7 @@ pub(crate) mod tests {
         homeserver
     }
 
-    fn make_well_known_json(
-        homeserver_url: &str,
-        sliding_sync_proxy_url: Option<&str>,
-    ) -> JsonValue {
+    fn make_well_known_json(homeserver_url: &str) -> JsonValue {
         ::serde_json::Value::Object({
             let mut object = ::serde_json::Map::new();
             let _ = object.insert(
@@ -1116,15 +977,6 @@ pub(crate) mod tests {
                     "base_url": homeserver_url
                 }),
             );
-
-            if let Some(sliding_sync_proxy_url) = sliding_sync_proxy_url {
-                let _ = object.insert(
-                    "org.matrix.msc3575.proxy".into(),
-                    json_internal!({
-                        "url": sliding_sync_proxy_url
-                    }),
-                );
-            }
 
             object
         })
