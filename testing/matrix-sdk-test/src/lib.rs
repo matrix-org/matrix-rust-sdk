@@ -2,7 +2,9 @@ use http::Response;
 pub use matrix_sdk_test_macros::async_test;
 use once_cell::sync::Lazy;
 use ruma::{
-    api::{client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse},
+    api::{
+        client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse, OutgoingResponse,
+    },
     room_id, user_id, RoomId, UserId,
 };
 use serde_json::Value as JsonValue;
@@ -168,4 +170,14 @@ pub fn ruma_response_from_json<ResponseType: IncomingResponse>(
     let http_response =
         Response::builder().status(200).body(json_bytes).expect("Failed to build HTTP response");
     ResponseType::try_from_http_response(http_response).expect("Can't parse the response json")
+}
+
+/// Serialise a typed Ruma [`OutgoingResponse`] object to JSON.
+pub fn ruma_response_to_json<ResponseType: OutgoingResponse>(
+    response: ResponseType,
+) -> serde_json::Value {
+    let http_response: Response<Vec<u8>> =
+        response.try_into_http_response().expect("Failed to build HTTP response");
+    let json_bytes = http_response.into_body();
+    serde_json::from_slice(&json_bytes).expect("Can't parse the response JSON")
 }

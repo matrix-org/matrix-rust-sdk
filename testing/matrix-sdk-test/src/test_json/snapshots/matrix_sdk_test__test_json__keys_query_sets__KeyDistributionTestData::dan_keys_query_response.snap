@@ -1,6 +1,6 @@
 ---
 source: testing/matrix-sdk-test/src/test_json/keys_query_sets.rs
-expression: data
+expression: ruma_response_to_json(response.clone())
 ---
 {
   "device_keys": {
@@ -42,7 +42,6 @@ expression: data
       }
     }
   },
-  "failures": {},
   "master_keys": {
     "@dan:localhost": {
       "keys": {

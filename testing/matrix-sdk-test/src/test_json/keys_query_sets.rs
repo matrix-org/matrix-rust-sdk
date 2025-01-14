@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use super::keys_query::{keys_query, master_keys, KeysQueryUser};
 use crate::{
-    ruma_response_from_json,
+    ruma_response_from_json, ruma_response_to_json,
     test_json::keys_query::{device_keys_payload, self_signing_keys},
 };
 
@@ -99,10 +99,14 @@ impl KeyDistributionTestData {
             }
         });
 
+        let response: KeyQueryResponse = ruma_response_from_json(&data);
         with_settings!({sort_maps => true}, {
-            assert_json_snapshot!("KeyDistributionTestData::me_keys_query_response", data);
+            assert_json_snapshot!(
+                "KeyDistributionTestData::me_keys_query_response",
+                ruma_response_to_json(response.clone()),
+            );
         });
-        ruma_response_from_json(&data)
+        response
     }
 
     /// Dan has cross-signing setup, one device is cross signed `JHPUERYQUW`,
@@ -204,11 +208,14 @@ impl KeyDistributionTestData {
                 }
         });
 
+        let response: KeyQueryResponse = ruma_response_from_json(&data);
         with_settings!({sort_maps => true}, {
-            assert_json_snapshot!("KeyDistributionTestData::dan_keys_query_response", data);
+            assert_json_snapshot!(
+                "KeyDistributionTestData::dan_keys_query_response",
+                ruma_response_to_json(response.clone()),
+            );
         });
-
-        ruma_response_from_json(&data)
+        response
     }
 
     /// Same as `dan_keys_query_response` but `FRGNMZVOKA` was removed.
@@ -291,14 +298,14 @@ impl KeyDistributionTestData {
                 }
         });
 
+        let response: KeyQueryResponse = ruma_response_from_json(&data);
         with_settings!({sort_maps => true}, {
             assert_json_snapshot!(
                 "KeyDistributionTestData::dan_keys_query_response_device_loggedout",
-                data
+                ruma_response_to_json(response.clone()),
             );
         });
-
-        ruma_response_from_json(&data)
+        response
     }
 
     /// Dave is a user that has not enabled cross-signing
@@ -646,10 +653,14 @@ impl VerificationViolationTestData {
             }
         });
 
+        let response: KeyQueryResponse = ruma_response_from_json(&data);
         with_settings!({sort_maps => true}, {
-            assert_json_snapshot!("VerificationViolationTestData::own_keys_query_response_1", data);
+            assert_json_snapshot!(
+                "VerificationViolationTestData::own_keys_query_response_1",
+                ruma_response_to_json(response.clone()),
+            );
         });
-        ruma_response_from_json(&data)
+        response
     }
 
     /// A second `/keys/query` response for Alice, containing a *different* set
