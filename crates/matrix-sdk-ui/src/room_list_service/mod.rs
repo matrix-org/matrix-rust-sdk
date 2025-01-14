@@ -466,13 +466,10 @@ pub enum SyncIndicator {
 mod tests {
     use std::future::ready;
 
-    use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
     use matrix_sdk::{
         authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        reqwest::Url,
-        sliding_sync::Version as SlidingSyncVersion,
         Client, SlidingSyncMode,
     };
     use matrix_sdk_base::SessionMeta;
@@ -518,31 +515,6 @@ mod tests {
             request.url.path() == "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
                 && request.method == Method::POST
         }
-    }
-
-    #[async_test]
-    async fn test_sliding_sync_proxy_url() -> Result<(), Error> {
-        let (client, _) = new_client().await;
-
-        {
-            let room_list = RoomListService::new(client.clone()).await?;
-            assert_matches!(room_list.sliding_sync().version(), SlidingSyncVersion::Native);
-        }
-
-        {
-            let url = Url::parse("https://foo.matrix/").unwrap();
-            client.set_sliding_sync_version(SlidingSyncVersion::Proxy { url: url.clone() });
-
-            let room_list = RoomListService::new(client.clone()).await?;
-            assert_matches!(
-                room_list.sliding_sync().version(),
-                SlidingSyncVersion::Proxy { url: given_url } => {
-                    assert_eq!(&url, given_url);
-                }
-            );
-        }
-
-        Ok(())
     }
 
     #[async_test]

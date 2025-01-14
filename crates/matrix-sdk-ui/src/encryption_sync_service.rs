@@ -202,7 +202,7 @@ impl EncryptionSyncService {
             match sync.next().await {
                 Some(Ok(update_summary)) => {
                     // This API is only concerned with the e2ee and to-device extensions.
-                    // Warn if anything weird has been received from the proxy.
+                    // Warn if anything weird has been received from the homeserver.
                     if !update_summary.lists.is_empty() {
                         debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
                     }
@@ -250,7 +250,7 @@ impl EncryptionSyncService {
                 match self.next_sync_with_lock(&mut sync).await? {
                     Some(Ok(update_summary)) => {
                         // This API is only concerned with the e2ee and to-device extensions.
-                        // Warn if anything weird has been received from the proxy.
+                        // Warn if anything weird has been received from the homeserver.
                         if !update_summary.lists.is_empty() {
                             debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
                         }

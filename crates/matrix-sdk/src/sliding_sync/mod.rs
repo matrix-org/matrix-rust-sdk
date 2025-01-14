@@ -25,7 +25,7 @@ mod sticky_parameters;
 mod utils;
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap, HashSet},
+    collections::{btree_map::Entry, BTreeMap},
     fmt::Debug,
     future::Future,
     sync::{Arc, RwLock as StdRwLock},
@@ -37,10 +37,7 @@ pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::{deserialized_responses::TimelineEvent, executor::spawn, timer};
-use ruma::{
-    api::{client::error::ErrorKind, OutgoingRequest},
-    assign, OwnedEventId, OwnedRoomId, RoomId,
-};
+use ruma::{api::client::error::ErrorKind, assign, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 use tokio::{
     select,
@@ -56,7 +53,7 @@ use self::{
     client::SlidingSyncResponseProcessor,
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
 };
-use crate::{config::RequestConfig, Client, HttpError, Result};
+use crate::{config::RequestConfig, Client, Result};
 
 /// The Sliding Sync instance.
 ///
@@ -71,17 +68,13 @@ pub struct SlidingSync {
 pub(super) struct SlidingSyncInner {
     /// A unique identifier for this instance of sliding sync.
     ///
-    /// Used to distinguish different connections to the sliding sync proxy.
+    /// Used to distinguish different connections to sliding sync.
     id: String,
-
-    /// Either an overridden sliding sync [`Version`], or one inherited from the
-    /// client.
-    version: Version,
 
     /// The HTTP Matrix client.
     client: Client,
 
-    /// Long-polling timeout that appears the sliding sync proxy request.
+    /// Long-polling timeout that appears in sliding sync request.
     poll_timeout: Duration,
 
     /// Extra duration for the sliding sync request to timeout. This is added to
@@ -268,7 +261,7 @@ impl SlidingSync {
     #[instrument(skip_all)]
     async fn handle_response(
         &self,
-        mut sliding_sync_response: http::Response,
+        sliding_sync_response: http::Response,
         position: &mut SlidingSyncPositionMarkers,
     ) -> Result<UpdateSummary, crate::Error> {
         let pos = Some(sliding_sync_response.pos.clone());
@@ -276,13 +269,6 @@ impl SlidingSync {
         let must_process_rooms_response = self.must_process_rooms_response().await;
 
         trace!(yes = must_process_rooms_response, "Must process rooms response?");
-
-        // Compute `limited` for the SS proxy only, if we're interested in a room list
-        // query.
-        if !self.inner.version.is_native() && must_process_rooms_response {
-            let known_rooms = self.inner.rooms.read().await;
-            compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
-        }
 
         // Transform a Sliding Sync Response to a `SyncResponse`.
         //
@@ -306,15 +292,9 @@ impl SlidingSync {
             }
 
             // Only handle the room's subsection of the response, if this sliding sync was
-            // configured to do so. That's because even when not requesting it,
-            // sometimes the current (2023-07-20) proxy will forward room events
-            // unrelated to the current connection's parameters.
-            //
-            // NOTE: SS proxy workaround.
+            // configured to do so.
             if must_process_rooms_response {
-                response_processor
-                    .handle_room_response(&sliding_sync_response, self.inner.version.is_native())
-                    .await?;
+                response_processor.handle_room_response(&sliding_sync_response).await?;
             }
 
             response_processor.process_and_take_response().await?
@@ -491,23 +471,16 @@ impl SlidingSync {
 
         Span::current().record("pos", &pos);
 
-        // There is a non-negligible difference MSC3575 and MSC4186 in how
-        // the `e2ee` extension works. When the client sends a request with
-        // no `pos`:
-        //
-        // * MSC3575 returns all device lists updates since the last request from the
-        //   device that asked for device lists (this works similarly to to-device
-        //   message handling),
-        // * MSC4186 returns no device lists updates, as it only returns changes since
-        //   the provided `pos` (which is `null` in this case); this is in line with
-        //   sync v2.
+        // When the client sends a request with no `pos`, MSC4186 returns no device
+        // lists updates, as it only returns changes since the provided `pos`
+        // (which is `null` in this case); this is in line with sync v2.
         //
         // Therefore, with MSC4186, the device list cache must be marked as to be
         // re-downloaded if the `since` token is `None`, otherwise it's easy to miss
         // device lists updates that happened between the previous request and the new
         // “initial” request.
         #[cfg(feature = "e2e-encryption")]
-        if pos.is_none() && self.inner.version.is_native() && self.is_e2ee_enabled() {
+        if pos.is_none() && self.is_e2ee_enabled() {
             info!("Marking all tracked users as dirty");
 
             let olm_machine = self.inner.client.olm_machine().await;
@@ -558,33 +531,17 @@ impl SlidingSync {
 
     /// Send a sliding sync request.
     ///
-    /// This method contains the sending logic. It takes a generic `Request`
-    /// because it can be an MSC4186 or an MSC3575 `Request`.
-    async fn send_sync_request<Request>(
+    /// This method contains the sending logic.
+    async fn send_sync_request(
         &self,
-        request: Request,
+        request: http::Request,
         request_config: RequestConfig,
         mut position_guard: OwnedMutexGuard<SlidingSyncPositionMarkers>,
-    ) -> Result<UpdateSummary>
-    where
-        Request: OutgoingRequest + Clone + Debug + Send + Sync + 'static,
-        Request::IncomingResponse: Send
-            + Sync
-            +
-            // This is required to get back an MSC4186 `Response` whatever the
-            // `Request` type.
-            Into<http::Response>,
-        HttpError: From<ruma::api::error::FromHttpResponseError<Request::EndpointError>>,
-    {
+    ) -> Result<UpdateSummary> {
         debug!("Sending request");
 
         // Prepare the request.
-        let request = self
-            .inner
-            .client
-            .send(request)
-            .with_request_config(request_config)
-            .with_homeserver_override(self.inner.version.overriding_url().map(ToString::to_string));
+        let request = self.inner.client.send(request).with_request_config(request_config);
 
         // Send the request and get a response with end-to-end encryption support.
         //
@@ -642,11 +599,6 @@ impl SlidingSync {
         // Send the request and get a response _without_ end-to-end encryption support.
         #[cfg(not(feature = "e2e-encryption"))]
         let response = request.await?;
-
-        // The code manipulates `Request` and `Response` from MSC4186 because it's the
-        // future standard. But this function may have received a `Request` from MSC4186
-        // or MSC3575. We need to get back an MSC4186 `Response`.
-        let response = Into::<http::msc4186::Response>::into(response);
 
         debug!("Received response");
 
@@ -711,19 +663,8 @@ impl SlidingSync {
         let (request, request_config, position_guard) =
             self.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
-        // The code manipulates `Request` and `Response` from MSC4186 because it's
-        // the future standard (at the time of writing: 2024-09-09). Let's check if
-        // the generated request must be transformed into an MSC3575 `Request`.
-        let summaries = if !self.inner.version.is_native() {
-            self.send_sync_request(
-                Into::<http::msc3575::Request>::into(request),
-                request_config,
-                position_guard,
-            )
-            .await?
-        } else {
-            self.send_sync_request(request, request_config, position_guard).await?
-        };
+        // Send the request, kaboom.
+        let summaries = self.send_sync_request(request, request_config, position_guard).await?;
 
         // Notify a new sync was received
         self.inner.client.inner.sync_beat.notify(usize::MAX);
@@ -880,11 +821,6 @@ impl SlidingSync {
         position_lock.pos = Some(new_pos);
     }
 
-    /// Get the sliding sync version used by this instance.
-    pub fn version(&self) -> &Version {
-        &self.inner.version
-    }
-
     /// Read the static extension configuration for this Sliding Sync.
     ///
     /// Note: this is not the next content of the sticky parameters, but rightly
@@ -1015,82 +951,6 @@ impl StickyData for SlidingSyncStickyParameters {
     }
 }
 
-/// As of 2023-07-13, the sliding sync proxy doesn't provide us with `limited`
-/// correctly, so we cheat and "correct" it using heuristics here.
-/// TODO remove this workaround as soon as support of the `limited` flag is
-/// properly implemented in the open-source proxy: https://github.com/matrix-org/sliding-sync/issues/197
-// NOTE: SS proxy workaround.
-fn compute_limited(
-    local_rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    remote_rooms: &mut BTreeMap<OwnedRoomId, http::response::Room>,
-) {
-    for (room_id, remote_room) in remote_rooms {
-        // Only rooms marked as initially loaded are subject to the fixup.
-        let initial = remote_room.initial.unwrap_or(false);
-        if !initial {
-            continue;
-        }
-
-        if remote_room.limited {
-            // If the room was already marked as limited, the server knew more than we do.
-            continue;
-        }
-
-        let remote_events = &remote_room.timeline;
-        if remote_events.is_empty() {
-            trace!(?room_id, "no timeline updates in the response => not limited");
-            continue;
-        }
-
-        let Some(local_room) = local_rooms.get(room_id) else {
-            trace!(?room_id, "room isn't known locally => not limited");
-            continue;
-        };
-
-        let local_events = local_room.timeline_queue();
-
-        if local_events.is_empty() {
-            trace!(?room_id, "local timeline had no events => not limited");
-            continue;
-        }
-
-        // If the local room had some timeline events, consider it's a `limited` if
-        // there's absolutely no overlap between the known events and the new
-        // events in the timeline.
-
-        // Gather all the known event IDs. Ignore events that don't have an event ID.
-        let num_local_events = local_events.len();
-        let local_events_with_ids: HashSet<OwnedEventId> =
-            HashSet::from_iter(local_events.into_iter().filter_map(|event| event.event_id()));
-
-        // There's overlap if, and only if, there's at least one event in the response's
-        // timeline that matches an event id we've seen before.
-        let mut num_remote_events_missing_ids = 0;
-        let overlap = remote_events.iter().any(|remote_event| {
-            if let Some(remote_event_id) =
-                remote_event.get_field::<OwnedEventId>("event_id").ok().flatten()
-            {
-                local_events_with_ids.contains(&remote_event_id)
-            } else {
-                num_remote_events_missing_ids += 1;
-                false
-            }
-        });
-
-        remote_room.limited = !overlap;
-
-        trace!(
-            ?room_id,
-            num_events_response = remote_events.len(),
-            num_local_events,
-            num_local_events_with_ids = local_events_with_ids.len(),
-            num_remote_events_missing_ids,
-            room_limited = remote_room.limited,
-            "done"
-        );
-    }
-}
-
 #[cfg(all(test, not(target_family = "wasm")))]
 #[allow(clippy::dbg_macro)]
 mod tests {
@@ -1105,7 +965,6 @@ mod tests {
     use assert_matches::assert_matches;
     use event_listener::Listener;
     use futures_util::{future::join_all, pin_mut, StreamExt};
-    use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::error::ErrorKind, assign, owned_room_id, room_id, serde::Raw, uint,
@@ -1113,14 +972,13 @@ mod tests {
     };
     use serde::Deserialize;
     use serde_json::json;
-    use url::Url;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
     use super::{
-        compute_limited, http,
+        http,
         sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
         FrozenSlidingSync, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
-        SlidingSyncRoom, SlidingSyncStickyParameters, Version,
+        SlidingSyncStickyParameters,
     };
     use crate::{
         sliding_sync::cache::restore_sliding_sync_state, test_utils::logged_in_client, Result,
@@ -2210,226 +2068,6 @@ mod tests {
         assert!(stream.next().await.is_some());
 
         Ok(())
-    }
-
-    #[async_test]
-    async fn test_sliding_sync_version() -> Result<()> {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-
-        // By default, sliding sync inherits its version from the client, which is
-        // `Native`.
-        {
-            let sync = client.sliding_sync("default")?.build().await?;
-
-            assert_matches!(sync.version(), Version::Native);
-        }
-
-        // Sliding sync can override the configuration from the client.
-        {
-            let url = Url::parse("https://bar.matrix/").unwrap();
-            let sync = client
-                .sliding_sync("own-proxy")?
-                .version(Version::Proxy { url: url.clone() })
-                .build()
-                .await?;
-
-            assert_matches!(
-                sync.version(),
-                Version::Proxy { url: given_url } => {
-                    assert_eq!(&url, given_url);
-                }
-            );
-        }
-
-        // Sliding sync inherits from the client…
-        let url = Url::parse("https://foo.matrix/").unwrap();
-        client.set_sliding_sync_version(Version::Proxy { url: url.clone() });
-
-        {
-            // The sliding sync inherits the client's sliding sync proxy URL.
-            let sync = client.sliding_sync("client-proxy")?.build().await?;
-
-            assert_matches!(
-                sync.version(),
-                Version::Proxy { url: given_url } => {
-                    assert_eq!(&url, given_url);
-                }
-            );
-        }
-
-        {
-            // …unless we override it afterwards.
-            let sync = client.sliding_sync("own-proxy")?.version(Version::Native).build().await?;
-
-            assert_matches!(sync.version(), Version::Native);
-        }
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_limited_flag_computation() {
-        let make_event = |event_id: &str| -> TimelineEvent {
-            TimelineEvent::new(
-                Raw::from_json_string(
-                    json!({
-                        "event_id": event_id,
-                        "sender": "@johnmastodon:example.org",
-                        "origin_server_ts": 1337424242,
-                        "type": "m.room.message",
-                        "room_id": "!meaningless:example.org",
-                        "content": {
-                            "body": "Hello, world!",
-                            "msgtype": "m.text"
-                        },
-                    })
-                    .to_string(),
-                )
-                .unwrap(),
-            )
-        };
-
-        let event_a = make_event("$a");
-        let event_b = make_event("$b");
-        let event_c = make_event("$c");
-        let event_d = make_event("$d");
-
-        let not_initial = room_id!("!croissant:example.org");
-        let no_overlap = room_id!("!omelette:example.org");
-        let partial_overlap = room_id!("!fromage:example.org");
-        let complete_overlap = room_id!("!baguette:example.org");
-        let no_remote_events = room_id!("!pain:example.org");
-        let no_local_events = room_id!("!crepe:example.org");
-        let already_limited = room_id!("!paris:example.org");
-
-        let response_timeline = vec![event_c.raw().clone(), event_d.raw().clone()];
-
-        let local_rooms = BTreeMap::from_iter([
-            (
-                // This has no events overlapping with the response timeline, hence limited, but
-                // it's not marked as initial in the response.
-                not_initial.to_owned(),
-                SlidingSyncRoom::new(
-                    no_overlap.to_owned(),
-                    None,
-                    vec![event_a.clone(), event_b.clone()],
-                ),
-            ),
-            (
-                // This has no events overlapping with the response timeline, hence limited.
-                no_overlap.to_owned(),
-                SlidingSyncRoom::new(
-                    no_overlap.to_owned(),
-                    None,
-                    vec![event_a.clone(), event_b.clone()],
-                ),
-            ),
-            (
-                // This has event_c in common with the response timeline.
-                partial_overlap.to_owned(),
-                SlidingSyncRoom::new(
-                    partial_overlap.to_owned(),
-                    None,
-                    vec![event_a.clone(), event_b.clone(), event_c.clone()],
-                ),
-            ),
-            (
-                // This has all events in common with the response timeline.
-                complete_overlap.to_owned(),
-                SlidingSyncRoom::new(
-                    partial_overlap.to_owned(),
-                    None,
-                    vec![event_c.clone(), event_d.clone()],
-                ),
-            ),
-            (
-                // We locally have events for this room, and receive none in the response: not
-                // limited.
-                no_remote_events.to_owned(),
-                SlidingSyncRoom::new(
-                    no_remote_events.to_owned(),
-                    None,
-                    vec![event_c.clone(), event_d.clone()],
-                ),
-            ),
-            (
-                // We don't have events for this room locally, and even if the remote room contains
-                // some events, it's not a limited sync.
-                no_local_events.to_owned(),
-                SlidingSyncRoom::new(no_local_events.to_owned(), None, vec![]),
-            ),
-            (
-                // Already limited, but would be marked limited if the flag wasn't ignored (same as
-                // partial overlap).
-                already_limited.to_owned(),
-                SlidingSyncRoom::new(
-                    already_limited.to_owned(),
-                    None,
-                    vec![event_a, event_b, event_c.clone()],
-                ),
-            ),
-        ]);
-
-        let mut remote_rooms = BTreeMap::from_iter([
-            (
-                not_initial.to_owned(),
-                assign!(http::response::Room::default(), { timeline: response_timeline }),
-            ),
-            (
-                no_overlap.to_owned(),
-                assign!(http::response::Room::default(), {
-                    initial: Some(true),
-                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
-                }),
-            ),
-            (
-                partial_overlap.to_owned(),
-                assign!(http::response::Room::default(), {
-                    initial: Some(true),
-                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
-                }),
-            ),
-            (
-                complete_overlap.to_owned(),
-                assign!(http::response::Room::default(), {
-                    initial: Some(true),
-                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
-                }),
-            ),
-            (
-                no_remote_events.to_owned(),
-                assign!(http::response::Room::default(), {
-                    initial: Some(true),
-                    timeline: vec![],
-                }),
-            ),
-            (
-                no_local_events.to_owned(),
-                assign!(http::response::Room::default(), {
-                    initial: Some(true),
-                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
-                }),
-            ),
-            (
-                already_limited.to_owned(),
-                assign!(http::response::Room::default(), {
-                    initial: Some(true),
-                    limited: true,
-                    timeline: vec![event_c.into_raw(), event_d.into_raw()],
-                }),
-            ),
-        ]);
-
-        compute_limited(&local_rooms, &mut remote_rooms);
-
-        assert!(!remote_rooms.get(not_initial).unwrap().limited);
-        assert!(remote_rooms.get(no_overlap).unwrap().limited);
-        assert!(!remote_rooms.get(partial_overlap).unwrap().limited);
-        assert!(!remote_rooms.get(complete_overlap).unwrap().limited);
-        assert!(!remote_rooms.get(no_remote_events).unwrap().limited);
-        assert!(!remote_rooms.get(no_local_events).unwrap().limited);
-        assert!(remote_rooms.get(already_limited).unwrap().limited);
     }
 
     #[async_test]

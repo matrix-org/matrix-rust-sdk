@@ -261,11 +261,8 @@ impl RoomEventCacheInner {
         for raw_event in account_data {
             match raw_event.deserialize() {
                 Ok(AnyRoomAccountDataEvent::FullyRead(ev)) => {
-                    // Sometimes the sliding sync proxy sends many duplicates of the read marker
-                    // event. Don't forward it multiple times to avoid clutter
-                    // the update channel.
-                    //
-                    // NOTE: SS proxy workaround.
+                    // If duplicated, do not forward read marker multiple times
+                    // to avoid clutter the update channel.
                     if handled_read_marker {
                         continue;
                     }

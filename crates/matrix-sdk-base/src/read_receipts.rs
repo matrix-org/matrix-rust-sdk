@@ -110,8 +110,8 @@
 //!   events ids in both sets. As a matter of fact, we have to manually handle
 //!   this edge case here. I hope that having an event database will help avoid
 //!   this kind of workaround here later.
-//! - In addition to that, and as noted in the timeline code, it seems that the
-//!   sliding-sync proxy could return the same event multiple times in a sync
+//! - In addition to that, and as noted in the timeline code, it seems that
+//!   sliding sync could return the same event multiple times in a sync
 //!   timeline, leading to incorrect results. We have to take that into account
 //!   by resetting the read counts *every* time we see an event that was the
 //!   target of the latest active read receipt.
@@ -245,10 +245,9 @@ impl RoomReadReceipts {
         let mut counting_receipts = false;
 
         for event in events {
-            // The sliding sync proxy sometimes sends the same event multiple times, so it
-            // can be at the beginning and end of a batch, for instance. In that
-            // case, just reset every time we see the event matching the
-            // receipt. NOTE: SS proxy workaround.
+            // Sliding sync sometimes sends the same event multiple times, so it can be at
+            // the beginning and end of a batch, for instance. In that case, just reset
+            // every time we see the event matching the receipt.
             if let Some(event_id) = event.event_id() {
                 if event_id == receipt_event_id {
                     // Bingo! Switch over to the counting state, after resetting the
