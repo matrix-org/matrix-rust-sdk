@@ -38,6 +38,12 @@ use super::{EventEncryptionAlgorithm, Signatures};
 /// Specification, encapsulating essential elements such as the public device
 /// identity keys.
 ///
+/// See also [`ruma::encryption::DeviceKeys`] which is similar, but slightly
+/// less comprehensive (it lacks some fields, and  the `keys` are represented as
+/// base64 strings rather than type-safe [`DeviceKey`]s). We always use this
+/// struct to build `/keys/upload` requests and to deserialize `/keys/query`
+/// responses.
+///
 /// [device_keys_spec]: https://spec.matrix.org/v1.10/client-server-api/#_matrixclientv3keysupload_devicekeys
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(try_from = "DeviceKeyHelper", into = "DeviceKeyHelper")]
@@ -190,6 +196,8 @@ impl From<Ed25519PublicKey> for DeviceKey {
     }
 }
 
+/// A de/serialization helper for [`DeviceKeys`] which maps the `keys` to/from
+/// [`DeviceKey`]s.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct DeviceKeyHelper {
     pub user_id: OwnedUserId,
