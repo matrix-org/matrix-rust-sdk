@@ -391,6 +391,17 @@ impl Room {
         self.inner.read().members_synced
     }
 
+    /// Mark this Room as holding all member information.
+    ///
+    /// Useful in tests if we want to persuade the Room not to sync when asked
+    /// about its members.
+    #[cfg(feature = "testing")]
+    pub fn mark_members_synced(&self) {
+        self.inner.update(|info| {
+            info.members_synced = true;
+        });
+    }
+
     /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&self) {
         self.inner.update_if(|info| {
