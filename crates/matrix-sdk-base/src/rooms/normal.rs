@@ -2018,7 +2018,9 @@ impl RoomInfo {
     }
 }
 
-fn apply_redaction(
+/// Apply a redaction to the given target `event`, given the raw redaction event
+/// and the room version.
+pub fn apply_redaction(
     event: &Raw<AnySyncTimelineEvent>,
     raw_redaction: &Raw<SyncRoomRedactionEvent>,
     room_version: &RoomVersionId,
@@ -2044,7 +2046,7 @@ fn apply_redaction(
     let redact_result = redact_in_place(&mut event_json, room_version, Some(redacted_because));
 
     if let Err(e) = redact_result {
-        warn!("Failed to redact latest event: {e}");
+        warn!("Failed to redact event: {e}");
         return None;
     }
 

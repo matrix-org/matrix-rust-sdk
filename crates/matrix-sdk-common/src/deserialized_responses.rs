@@ -390,6 +390,19 @@ impl SyncTimelineEvent {
         self.kind.raw()
     }
 
+    /// Replace the raw event included in this item by another one.
+    pub fn replace_raw(&mut self, replacement: Raw<AnyMessageLikeEvent>) {
+        match &mut self.kind {
+            TimelineEventKind::Decrypted(decrypted) => decrypted.event = replacement,
+            TimelineEventKind::UnableToDecrypt { event, .. }
+            | TimelineEventKind::PlainText { event } => {
+                // It's safe to cast `AnyMessageLikeEvent` into `AnySyncMessageLikeEvent`,
+                // because the former contains a superset of the fields included in the latter.
+                *event = replacement.cast();
+            }
+        }
+    }
+
     /// If the event was a decrypted event that was successfully decrypted, get
     /// its encryption info. Otherwise, `None`.
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {

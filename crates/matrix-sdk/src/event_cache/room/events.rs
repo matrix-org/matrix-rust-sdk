@@ -15,14 +15,17 @@
 use std::cmp::Ordering;
 
 use eyeball_im::VectorDiff;
-use matrix_sdk_base::event_cache::store::DEFAULT_CHUNK_CAPACITY;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
+use matrix_sdk_base::{apply_redaction, event_cache::store::DEFAULT_CHUNK_CAPACITY};
 use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, IterBackward, LinkedChunk,
     ObservableUpdates, Position,
 };
-use ruma::OwnedEventId;
-use tracing::{debug, error, warn};
+use ruma::{
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent},
+    OwnedEventId, RoomVersionId,
+};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
     super::deduplicator::{Decoration, Deduplicator},
@@ -88,6 +91,84 @@ impl RoomEvents {
     /// the ether, forever.
     pub fn reset(&mut self) {
         self.chunks.clear();
+    }
+
+    /// If the given event is a redaction, try to retrieve the to-be-redacted
+    /// event in the chunk, and replace it by the redacted form.
+    #[instrument(skip_all)]
+    fn maybe_apply_new_redaction(&mut self, room_version: &RoomVersionId, event: &Event) {
+        let Ok(AnySyncTimelineEvent::MessageLike(
+            ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
+        )) = event.raw().deserialize()
+        else {
+            return;
+        };
+
+        let Some(event_id) = redaction.redacts(room_version) else {
+            warn!("missing target event id from the redaction event");
+            return;
+        };
+
+        // Replace the redacted event by a redacted form, if we knew about it.
+        let mut items = self.chunks.items();
+
+        if let Some((pos, target_event)) =
+            items.find(|(_, item)| item.event_id().as_deref() == Some(event_id))
+        {
+            // Don't redact already redacted events.
+            if let Ok(deserialized) = target_event.raw().deserialize() {
+                match deserialized {
+                    AnySyncTimelineEvent::MessageLike(ev) => {
+                        if ev.original_content().is_none() {
+                            // Already redacted.
+                            return;
+                        }
+                    }
+                    AnySyncTimelineEvent::State(ev) => {
+                        if ev.original_content().is_none() {
+                            // Already redacted.
+                            return;
+                        }
+                    }
+                }
+            }
+
+            if let Some(redacted_event) = apply_redaction(
+                target_event.raw(),
+                event.raw().cast_ref::<SyncRoomRedactionEvent>(),
+                room_version,
+            ) {
+                let mut copy = target_event.clone();
+
+                // It's safe to cast `redacted_event` here:
+                // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
+                //   when calling .raw(), so it's still one under the hood.
+                // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+                copy.replace_raw(redacted_event.cast());
+
+                // Get rid of the immutable borrow on self.chunks.
+                drop(items);
+
+                self.chunks
+                    .replace_item_at(pos, copy)
+                    .expect("should have been a valid position of an item");
+            }
+        } else {
+            trace!("redacted event is missing from the linked chunk");
+        }
+
+        // TODO: remove all related events too!
+    }
+
+    /// Callback to call whenever we touch events in the database.
+    pub fn on_new_events<'a>(
+        &mut self,
+        room_version: &RoomVersionId,
+        events: impl Iterator<Item = &'a Event>,
+    ) {
+        for ev in events {
+            self.maybe_apply_new_redaction(room_version, ev);
+        }
     }
 
     /// Push events after all events or gaps.

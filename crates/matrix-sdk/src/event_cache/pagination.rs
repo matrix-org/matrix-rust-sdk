@@ -181,7 +181,8 @@ impl RoomPagination {
                     // (backward). The `RoomEvents` API expects the first event to be the oldest.
                     .rev()
                     .cloned()
-                    .map(SyncTimelineEvent::from);
+                    .map(SyncTimelineEvent::from)
+                    .collect::<Vec<_>>();
 
                 let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
@@ -190,20 +191,20 @@ impl RoomPagination {
                     // There is a prior gap, let's replace it by new events!
                     trace!("replaced gap with new events from backpagination");
                     room_events
-                        .replace_gap_at(sync_events, gap_id)
+                        .replace_gap_at(sync_events.clone(), gap_id)
                         .expect("gap_identifier is a valid chunk id we read previously")
                 } else if let Some(pos) = first_event_pos {
                     // No prior gap, but we had some events: assume we need to prepend events
                     // before those.
                     trace!("inserted events before the first known event");
                     let report = room_events
-                        .insert_events_at(sync_events, pos)
+                        .insert_events_at(sync_events.clone(), pos)
                         .expect("pos is a valid position we just read above");
                     (report, Some(pos))
                 } else {
                     // No prior gap, and no prior events: push the events.
                     trace!("pushing events received from back-pagination");
-                    let report = room_events.push_events(sync_events);
+                    let report = room_events.push_events(sync_events.clone());
                     // A new gap may be inserted before the new events, if there are any.
                     let next_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
                     (report, next_pos)
@@ -227,6 +228,8 @@ impl RoomPagination {
                 } else {
                     debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
                 }
+
+                room_events.on_new_events(&self.inner.room_version, sync_events.iter());
 
                 BackPaginationOutcome { events, reached_start }
             })

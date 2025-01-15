@@ -12,7 +12,7 @@ use std::{
 use bitflags::bitflags;
 pub use members::RoomMember;
 pub use normal::{
-    Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+    apply_redaction, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
     RoomMembersUpdate, RoomState, RoomStateFilter,
 };
 use regex::Regex;
