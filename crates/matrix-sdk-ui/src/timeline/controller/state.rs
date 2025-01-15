@@ -281,7 +281,7 @@ impl TimelineState {
             let handle_one_res = txn
                 .handle_remote_event(
                     event.into(),
-                    TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
+                    TimelineItemPosition::UpdateAt { timeline_item_index: idx },
                     room_data_provider,
                     settings,
                     &mut date_divider_adjuster,
@@ -506,7 +506,7 @@ impl TimelineStateTransaction<'_> {
                     {
                         self.handle_remote_event(
                             event,
-                            TimelineItemPosition::UpdateDecrypted { timeline_item_index },
+                            TimelineItemPosition::UpdateAt { timeline_item_index },
                             room_data_provider,
                             settings,
                             &mut date_divider_adjuster,
@@ -592,7 +592,7 @@ impl TimelineStateTransaction<'_> {
                         | TimelineItemPosition::Start { origin }
                         | TimelineItemPosition::At { origin, .. } => origin,
 
-                        TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx } => self
+                        TimelineItemPosition::UpdateAt { timeline_item_index: idx } => self
                             .items
                             .get(idx)
                             .and_then(|item| item.as_event())
@@ -876,7 +876,7 @@ impl TimelineStateTransaction<'_> {
                 self.items.insert_remote_event(event_index, event_meta.base_meta());
             }
 
-            TimelineItemPosition::UpdateDecrypted { .. } => {
+            TimelineItemPosition::UpdateAt { .. } => {
                 if let Some(event) =
                     self.items.get_remote_event_by_event_id_mut(event_meta.event_id)
                 {
