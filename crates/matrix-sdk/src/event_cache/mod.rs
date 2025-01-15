@@ -381,13 +381,23 @@ impl AllEventsCache {
         };
 
         // Handle redactions separately, as their logic is slightly different.
-        if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) = &ev {
-            if let Some(redacted_event_id) = ev.content.redacts.as_ref().or(ev.redacts.as_ref()) {
+        if let AnySyncMessageLikeEvent::RoomRedaction(room_redaction) = &ev {
+            let redacted_event_id = match room_redaction {
+                SyncRoomRedactionEvent::Original(ev) => {
+                    ev.content.redacts.as_ref().or(ev.redacts.as_ref())
+                }
+                SyncRoomRedactionEvent::Redacted(redacted_redaction) => {
+                    redacted_redaction.content.redacts.as_ref()
+                }
+            };
+
+            if let Some(redacted_event_id) = redacted_event_id {
                 self.relations
                     .entry(redacted_event_id.to_owned())
                     .or_default()
-                    .insert(ev.event_id.to_owned(), RelationType::Replacement);
+                    .insert(ev.event_id().to_owned(), RelationType::Replacement);
             }
+
             return;
         }
 
