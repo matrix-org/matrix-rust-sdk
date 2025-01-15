@@ -22,7 +22,11 @@ use matrix_sdk::{
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
 };
-use ruma::{event_id, room_id, user_id};
+use ruma::{
+    event_id,
+    events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
+    room_id, user_id, RoomVersionId,
+};
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
 
@@ -1452,4 +1456,149 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     // This doesn't cause an update, because nothing changed.
     assert!(stream.is_empty());
+}
+
+#[async_test]
+async fn test_apply_redaction_when_redaction_comes_later() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // Start with a room with two events.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("inapprops").event_id(event_id!("$1")).into_raw_sync(),
+            ),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    // Wait for the first event.
+    let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    if events.is_empty() {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
+        );
+    }
+
+    // Sync a redaction for the event $1.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.redaction(event_id!("$1")).into_raw_sync()),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+
+    assert_eq!(diffs.len(), 2);
+
+    // First, the redaction event itself.
+    {
+        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+        assert_eq!(new_events.len(), 1);
+        let ev = new_events[0].raw().deserialize().unwrap();
+        assert_let!(
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
+        );
+        assert_eq!(ev.redacts(&RoomVersionId::V1).unwrap(), event_id!("$1"));
+    }
+
+    // Then, we have an update for the redacted event.
+    {
+        assert_let!(VectorDiff::Set { index: 0, value: redacted_event } = &diffs[1]);
+        let ev = redacted_event.raw().deserialize().unwrap();
+        assert_let!(
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(ev)) = ev
+        );
+        // The event has been redacted!
+        assert_matches!(ev.as_original(), None);
+    }
+
+    // And done for now.
+    assert!(subscriber.is_empty());
+}
+
+#[async_test]
+async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // Now include a sync with both the original event *and* the redacted one.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("bleh").event_id(event_id!("$2")).into_raw_sync())
+                .add_timeline_event(f.redaction(event_id!("$2")).into_raw_sync()),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+
+    assert_eq!(diffs.len(), 2);
+
+    // First, we get an update with all the new events.
+    {
+        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+        assert_eq!(new_events.len(), 2);
+
+        // The original event.
+        let ev = new_events[0].raw().deserialize().unwrap();
+        assert_let!(
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(ev)) = ev
+        );
+        assert_eq!(ev.as_original().unwrap().content.body(), "bleh");
+
+        // The redaction.
+        let ev = new_events[1].raw().deserialize().unwrap();
+        assert_let!(
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
+        );
+        assert_eq!(ev.redacts(&RoomVersionId::V1).unwrap(), event_id!("$2"));
+    }
+
+    // Then the redaction of the event happens separately.
+    {
+        assert_let!(VectorDiff::Set { index: 0, value: redacted_event } = &diffs[1]);
+        let ev = redacted_event.raw().deserialize().unwrap();
+        assert_let!(
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(ev)) = ev
+        );
+        // The event has been redacted!
+        assert_matches!(ev.as_original(), None);
+    }
+
+    // That's all, folks!
+    assert!(subscriber.is_empty());
 }

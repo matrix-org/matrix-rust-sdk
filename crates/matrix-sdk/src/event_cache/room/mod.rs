@@ -25,7 +25,7 @@ use matrix_sdk_base::{
 use ruma::{
     events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId,
+    EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
 };
 use tokio::sync::{
     broadcast::{Receiver, Sender},
@@ -61,9 +61,18 @@ impl RoomEventCache {
         client: WeakClient,
         state: RoomEventCacheState,
         room_id: OwnedRoomId,
+        room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(client, state, room_id, all_events_cache)) }
+        Self {
+            inner: Arc::new(RoomEventCacheInner::new(
+                client,
+                state,
+                room_id,
+                room_version,
+                all_events_cache,
+            )),
+        }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -189,6 +198,9 @@ pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
+    /// The room version for this room.
+    pub(crate) room_version: RoomVersionId,
+
     /// Sender part for subscribers to this room.
     pub sender: Sender<RoomEventCacheUpdate>,
 
@@ -222,12 +234,14 @@ impl RoomEventCacheInner {
         client: WeakClient,
         state: RoomEventCacheState,
         room_id: OwnedRoomId,
+        room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
         let sender = Sender::new(32);
         let weak_room = WeakRoom::new(client, room_id);
         Self {
             room_id: weak_room.room_id().to_owned(),
+            room_version,
             state: RwLock::new(state),
             all_events: all_events_cache,
             sender,
@@ -444,6 +458,8 @@ impl RoomEventCacheInner {
                                 .expect("we obtained the valid position beforehand");
                         }
                     }
+
+                    room_events.on_new_events(&self.room_version, sync_timeline_events.iter());
                 })
                 .await?;
 

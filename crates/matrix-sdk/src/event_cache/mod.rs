@@ -52,7 +52,7 @@ use ruma::{
         AnySyncTimelineEvent,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, OwnedEventId, OwnedRoomId, RoomId, RoomVersionId,
 };
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
@@ -612,10 +612,21 @@ impl EventCacheInner {
                 let room_state =
                     RoomEventCacheState::new(room_id.to_owned(), self.store.clone()).await?;
 
+                let room_version = self
+                    .client
+                    .get()
+                    .and_then(|client| client.get_room(room_id))
+                    .map(|room| room.clone_info().room_version_or_default())
+                    .unwrap_or_else(|| {
+                        warn!("unknown room version for {room_id}, using default V1");
+                        RoomVersionId::V1
+                    });
+
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
                     room_state,
                     room_id.to_owned(),
+                    room_version,
                     self.all_events.clone(),
                 );
 
