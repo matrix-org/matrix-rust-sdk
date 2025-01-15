@@ -497,6 +497,26 @@ impl TimelineStateTransaction<'_> {
                     .await;
                 }
 
+                VectorDiff::Set { index: event_index, value: event } => {
+                    if let Some(timeline_item_index) = self
+                        .items
+                        .all_remote_events()
+                        .get(event_index)
+                        .and_then(|meta| meta.timeline_item_index)
+                    {
+                        self.handle_remote_event(
+                            event,
+                            TimelineItemPosition::UpdateDecrypted { timeline_item_index },
+                            room_data_provider,
+                            settings,
+                            &mut date_divider_adjuster,
+                        )
+                        .await;
+                    } else {
+                        warn!(event_index, "Set update dropped because there wasn't any attached timeline item index.");
+                    }
+                }
+
                 VectorDiff::Remove { index: event_index } => {
                     self.remove_timeline_item(event_index, &mut date_divider_adjuster);
                 }

@@ -528,6 +528,47 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         Ok(removed_item)
     }
 
+    /// Replace item at a specified position in the [`LinkedChunk`].
+    ///
+    /// `position` must point to a valid item, otherwise the method returns
+    /// `Err`.
+    pub fn replace_item_at(&mut self, position: Position, item: Item) -> Result<(), Error>
+    where
+        Item: Clone,
+    {
+        let chunk_identifier = position.chunk_identifier();
+        let item_index = position.index();
+
+        let chunk = self
+            .links
+            .chunk_mut(chunk_identifier)
+            .ok_or(Error::InvalidChunkIdentifier { identifier: chunk_identifier })?;
+
+        match &mut chunk.content {
+            ChunkContent::Gap(..) => {
+                return Err(Error::ChunkIsAGap { identifier: chunk_identifier })
+            }
+
+            ChunkContent::Items(current_items) => {
+                if item_index >= current_items.len() {
+                    return Err(Error::InvalidItemIndex { index: item_index });
+                }
+
+                // Avoid one spurious clone by notifying about the update *before* applying it.
+                if let Some(updates) = self.updates.as_mut() {
+                    updates.push(Update::ReplaceItem {
+                        at: Position(chunk_identifier, item_index),
+                        item: item.clone(),
+                    });
+                }
+
+                current_items[item_index] = item;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Insert a gap at a specified position in the [`LinkedChunk`].
     ///
     /// Because the `position` can be invalid, this method returns a
@@ -2917,6 +2958,32 @@ mod tests {
                     next: None
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn test_replace_item() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+
+        linked_chunk.push_items_back(['a', 'b', 'c']);
+        linked_chunk.push_gap_back(());
+        // Sanity check.
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [-]);
+
+        // Replace item in bounds.
+        linked_chunk.replace_item_at(Position(ChunkIdentifier::new(0), 1), 'B').unwrap();
+        assert_items_eq!(linked_chunk, ['a', 'B', 'c'] [-]);
+
+        // Attempt to replace out-of-bounds.
+        assert_matches!(
+            linked_chunk.replace_item_at(Position(ChunkIdentifier::new(0), 3), 'Z'),
+            Err(Error::InvalidItemIndex { index: 3 })
+        );
+
+        // Attempt to replace gap.
+        assert_matches!(
+            linked_chunk.replace_item_at(Position(ChunkIdentifier::new(1), 0), 'Z'),
+            Err(Error::ChunkIsAGap { .. })
         );
     }
 }

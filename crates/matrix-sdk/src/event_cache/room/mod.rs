@@ -636,24 +636,28 @@ mod private {
             let _ = closure();
         }
 
+        fn strip_relations_from_event(ev: &mut SyncTimelineEvent) {
+            match &mut ev.kind {
+                TimelineEventKind::Decrypted(decrypted) => {
+                    // Remove all information about encryption info for
+                    // the bundled events.
+                    decrypted.unsigned_encryption_info = None;
+
+                    // Remove the `unsigned`/`m.relations` field, if needs be.
+                    Self::strip_relations_if_present(&mut decrypted.event);
+                }
+
+                TimelineEventKind::UnableToDecrypt { event, .. }
+                | TimelineEventKind::PlainText { event } => {
+                    Self::strip_relations_if_present(event);
+                }
+            }
+        }
+
         /// Strips the bundled relations from a collection of events.
         fn strip_relations_from_events(items: &mut [SyncTimelineEvent]) {
             for ev in items.iter_mut() {
-                match &mut ev.kind {
-                    TimelineEventKind::Decrypted(decrypted) => {
-                        // Remove all information about encryption info for
-                        // the bundled events.
-                        decrypted.unsigned_encryption_info = None;
-
-                        // Remove the `unsigned`/`m.relations` field, if needs be.
-                        Self::strip_relations_if_present(&mut decrypted.event);
-                    }
-
-                    TimelineEventKind::UnableToDecrypt { event, .. }
-                    | TimelineEventKind::PlainText { event } => {
-                        Self::strip_relations_if_present(event);
-                    }
-                }
+                Self::strip_relations_from_event(ev);
             }
         }
 
@@ -672,10 +676,11 @@ mod private {
 
             trace!("propagating {} updates", updates.len());
 
-            // Strip relations from the `PushItems` updates.
+            // Strip relations from updates which insert or replace items.
             for up in updates.iter_mut() {
                 match up {
                     Update::PushItems { items, .. } => Self::strip_relations_from_events(items),
+                    Update::ReplaceItem { item, .. } => Self::strip_relations_from_event(item),
                     // Other update kinds don't involve adding new events.
                     Update::NewItemsChunk { .. }
                     | Update::NewGapChunk { .. }

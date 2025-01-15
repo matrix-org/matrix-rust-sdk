@@ -136,6 +136,19 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                     }
                 }
 
+                Update::ReplaceItem { at, item } => {
+                    let existing = self
+                        .items
+                        .iter_mut()
+                        .find(|item| item.position == at)
+                        .expect("trying to replace at an unknown position");
+                    assert!(
+                        matches!(existing.item, Either::Item(..)),
+                        "trying to replace a gap with an item"
+                    );
+                    existing.item = Either::Item(item);
+                }
+
                 Update::RemoveItem { at } => {
                     let mut entry_to_remove = None;
 
@@ -937,5 +950,56 @@ mod tests {
 
         // The linked chunk is correctly reloaded.
         assert_items_eq!(lc, ['a', 'b', 'c'] [-] ['d', 'e', 'f']);
+    }
+
+    #[test]
+    fn test_replace_item() {
+        let room_id = room_id!("!r0:matrix.org");
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
+
+        relational_linked_chunk.apply_updates(
+            room_id,
+            vec![
+                // new chunk (this is not mandatory for this test, but let's try to be realistic)
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
+                // update item at (0; 1).
+                Update::ReplaceItem { at: Position::new(CId::new(0), 1), item: 'B' },
+            ],
+        );
+
+        // Chunks are correctly linked.
+        assert_eq!(
+            relational_linked_chunk.chunks,
+            &[ChunkRow {
+                room_id: room_id.to_owned(),
+                previous_chunk: None,
+                chunk: CId::new(0),
+                next_chunk: None,
+            },],
+        );
+
+        // Items contains the pushed *and* replaced items.
+        assert_eq!(
+            relational_linked_chunk.items,
+            &[
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position::new(CId::new(0), 0),
+                    item: Either::Item('a')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position::new(CId::new(0), 1),
+                    item: Either::Item('B')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position::new(CId::new(0), 2),
+                    item: Either::Item('c')
+                },
+            ],
+        );
     }
 }
