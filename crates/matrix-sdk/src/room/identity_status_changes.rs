@@ -917,6 +917,8 @@ mod tests {
                 .build_sync_response();
             client.process_sync(create_room_sync_response).await.unwrap();
             let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+            room.inner.mark_members_synced();
+
             assert_eq!(room.state(), RoomState::Joined);
             assert_eq!(
                 *room
