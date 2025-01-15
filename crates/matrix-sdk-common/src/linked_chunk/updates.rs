@@ -79,6 +79,18 @@ pub enum Update<Item, Gap> {
         items: Vec<Item>,
     },
 
+    /// An item has been replaced in the linked chunk.
+    ///
+    /// The `at` position MUST resolve to the actual position an existing *item*
+    /// (not a gap).
+    ReplaceItem {
+        /// The position of the item that's being replaced.
+        at: Position,
+
+        /// The new value for the item.
+        item: Item,
+    },
+
     /// An item has been removed inside a chunk of kind Items.
     RemoveItem {
         /// The [`Position`] of the item.

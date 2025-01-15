@@ -364,6 +364,14 @@ impl UpdateToVectorDiff {
                     }
                 }
 
+                Update::ReplaceItem { at: position, item } => {
+                    let (offset, (_chunk_index, _chunk_length)) = self.map_to_offset(position);
+
+                    // The chunk length doesn't change.
+
+                    diffs.push(VectorDiff::Set { index: offset, value: item.clone() });
+                }
+
                 Update::RemoveItem { at: position } => {
                     let (offset, (_chunk_index, chunk_length)) = self.map_to_offset(position);
 
@@ -484,15 +492,7 @@ mod tests {
         assert_eq!(diffs, expected_diffs);
 
         for diff in diffs {
-            match diff {
-                VectorDiff::Insert { index, value } => accumulator.insert(index, value),
-                VectorDiff::Append { values } => accumulator.append(values),
-                VectorDiff::Remove { index } => {
-                    accumulator.remove(index);
-                }
-                VectorDiff::Clear => accumulator.clear(),
-                diff => unimplemented!("{diff:?}"),
-            }
+            diff.apply(accumulator);
         }
     }
 
@@ -708,6 +708,31 @@ mod tests {
         assert_eq!(
             accumulator,
             vector!['m', 'a', 'w', 'x', 'y', 'b', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'z', 'h']
+        );
+
+        // Replace element 8 by an uppercase J.
+        linked_chunk
+            .replace_item_at(linked_chunk.item_position(|item| *item == 'j').unwrap(), 'J')
+            .unwrap();
+
+        assert_items_eq!(
+            linked_chunk,
+            ['m', 'a', 'w'] ['x'] ['y', 'b'] ['d'] ['i', 'J', 'k'] ['l'] ['e', 'f', 'g'] ['z', 'h']
+        );
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        // | m | a | w | x | y | b | d | i | J | k | l | e | f | g | z | h |
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        //                                 ^^^^
+        //                                 |
+        //                                 new!
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[VectorDiff::Set { index: 8, value: 'J' }],
         );
 
         // Let's try to clear the linked chunk now.
