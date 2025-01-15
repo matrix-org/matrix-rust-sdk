@@ -1,6 +1,6 @@
 use std::time::{Duration, UNIX_EPOCH};
 
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use js_int::uint;
 use matrix_sdk::{config::SyncSettings, live_location_share::LiveLocationShare};
 use matrix_sdk_test::{
@@ -130,8 +130,8 @@ async fn test_send_location_beacon_with_expired_live_share() {
                                     },
                                     "event_id": "$15139375514XsgmR:localhost",
                                     "origin_server_ts": 1_636_829_458,
-                                    "sender": "@example:localhost",
-                                    "state_key": "@example:localhost",
+                                    "sender": "@example2:localhost",
+                                    "state_key": "@example2:localhost",
                                     "type": "org.matrix.msc3672.beacon_info",
                                     "unsigned": {
                                         "age": 7034220
@@ -192,8 +192,8 @@ async fn test_most_recent_event_in_stream() {
                                     },
                                     "event_id": "$15139375514XsgmR:localhost",
                                     "origin_server_ts": millis_time,
-                                    "sender": "@example:localhost",
-                                    "state_key": "@example:localhost",
+                                    "sender": "@example2:localhost",
+                                    "state_key": "@example2:localhost",
                                     "type": "org.matrix.msc3672.beacon_info",
                                     "unsigned": {
                                         "age": 7034220
@@ -235,7 +235,7 @@ async fn test_most_recent_event_in_stream() {
             },
             "event_id": format!("$event_for_stream_{nth}"),
             "origin_server_ts": 1_636_829_458,
-            "sender": "@example:localhost",
+            "sender": "@example2:localhost",
             "type": "org.matrix.msc3672.beacon",
             "unsigned": {
                 "age": 598971
@@ -256,7 +256,7 @@ async fn test_most_recent_event_in_stream() {
     let LiveLocationShare { user_id, last_location, beacon_info } =
         stream.next().await.expect("Another live location was expected");
 
-    assert_eq!(user_id.to_string(), "@example:localhost");
+    assert_eq!(user_id.to_string(), "@example2:localhost");
 
     assert_eq!(last_location.location.uri, "geo:24.9575274619722,12.494122581370175;u=24");
 
@@ -305,8 +305,8 @@ async fn test_observe_single_live_location_share() {
                                     },
                                     "event_id": "$test_beacon_info",
                                     "origin_server_ts": millis_time,
-                                    "sender": "@example:localhost",
-                                    "state_key": "@example:localhost",
+                                    "sender": "@example2:localhost",
+                                    "state_key": "@example2:localhost",
                                     "type": "org.matrix.msc3672.beacon_info",
                                 }
                             ]
@@ -341,7 +341,7 @@ async fn test_observe_single_live_location_share() {
         },
         "event_id": "$location_event",
         "origin_server_ts": millis_time,
-        "sender": "@example:localhost",
+        "sender": "@example2:localhost",
         "type": "org.matrix.msc3672.beacon",
     });
 
@@ -362,7 +362,7 @@ async fn test_observe_single_live_location_share() {
     let LiveLocationShare { user_id, last_location, beacon_info } =
         stream.next().await.expect("Another live location was expected");
 
-    assert_eq!(user_id.to_string(), "@example:localhost");
+    assert_eq!(user_id.to_string(), "@example2:localhost");
     assert_eq!(last_location.location.uri, "geo:10.000000,20.000000;u=5");
     assert_eq!(last_location.ts, current_time);
 
@@ -373,4 +373,96 @@ async fn test_observe_single_live_location_share() {
     assert_eq!(beacon_info.description, Some("Test Live Share".to_owned()));
     assert_eq!(beacon_info.timeout, Duration::from_millis(3000));
     assert_eq!(beacon_info.ts, current_time);
+}
+
+#[async_test]
+async fn test_observing_live_location_does_not_return_own_beacon_updates() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut sync_builder = SyncResponseBuilder::new();
+
+    let current_time = MilliSecondsSinceUnixEpoch::now();
+    let millis_time = current_time
+        .to_system_time()
+        .unwrap()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_millis() as u64;
+
+    mock_sync(
+        &server,
+        json!({
+            "next_batch": "s526_47314_0_7_1_1_1_1_1",
+            "rooms": {
+                "join": {
+                    *DEFAULT_TEST_ROOM_ID: {
+                        "state": {
+                            "events": [
+                                {
+                                    "content": {
+                                        "description": "Live Share",
+                                        "live": true,
+                                        "org.matrix.msc3488.ts": millis_time,
+                                        "timeout": 3000,
+                                        "org.matrix.msc3488.asset": { "type": "m.self" }
+                                    },
+                                    "event_id": "$15139375514XsgmR:localhost",
+                                    "origin_server_ts": millis_time,
+                                    "sender": "@example:localhost",
+                                    "state_key": "@example:localhost",
+                                    "type": "org.matrix.msc3672.beacon_info",
+                                    "unsigned": {
+                                        "age": 7034220
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+
+        }),
+        None,
+    )
+    .await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
+    let observable_live_location_shares = room.observe_live_location_shares();
+    let stream = observable_live_location_shares.subscribe();
+    pin_mut!(stream);
+
+    let mut timeline_events = Vec::new();
+
+    timeline_events.push(sync_timeline_event!({
+        "content": {
+            "m.relates_to": {
+                "event_id": "$15139375514XsgmR:localhost",
+                "rel_type": "m.reference"
+            },
+            "org.matrix.msc3488.location": {
+                "uri": "geo:1.9575274619722,12.494122581370175;u=1"
+            },
+            "org.matrix.msc3488.ts": 1_636_829_458
+        },
+        "event_id": "$152037dfsef280074GZeOm:localhost",
+        "origin_server_ts": 1_636_829_458,
+        "sender": "@example:localhost",
+        "type": "org.matrix.msc3672.beacon",
+        "unsigned": {
+            "age": 598971
+        }
+    }));
+
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_bulk(timeline_events.clone()),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    assert!(stream.next().now_or_never().is_none());
 }
