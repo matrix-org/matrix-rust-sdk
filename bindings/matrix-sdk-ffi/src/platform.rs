@@ -288,8 +288,9 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
 ];
 
 const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[
-    LogTarget::Hyper,     // Too verbose
-    LogTarget::MatrixSdk, // Too generic
+    LogTarget::Hyper,        // Too verbose
+    LogTarget::MatrixSdk,    // Too generic
+    LogTarget::MatrixSdkFfi, // Too verbose
 ];
 
 #[derive(uniffi::Record)]
@@ -398,7 +399,7 @@ mod tests {
             filter,
             "panic=error,\
             hyper=warn,\
-            matrix_sdk_ffi=trace,\
+            matrix_sdk_ffi=info,\
             matrix_sdk=info,\
             matrix_sdk::client=trace,\
             matrix_sdk_crypto=trace,\
