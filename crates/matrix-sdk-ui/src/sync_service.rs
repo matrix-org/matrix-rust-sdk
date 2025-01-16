@@ -67,61 +67,33 @@ pub enum State {
     Error,
 }
 
-struct SyncServiceInner {
-    room_list_service: Arc<RoomListService>,
-    encryption_sync_service: Arc<EncryptionSyncService>,
-    state: SharedObservable<State>,
-    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
-    /// Supervisor task ensuring proper termination.
-    ///
-    /// This task is waiting for a `TerminationReport` from any of the other two
-    /// tasks, or from a user request via [`Self::stop()`]. It makes sure
-    /// that the two services are properly shut up and just interrupted.
-    ///
-    /// This is set at the same time as the other two tasks.
-    supervisor_task: Option<JoinHandle<()>>,
+/// A supervisor that starts two sync tasks, one for the room list and one for
+/// the end-to-end encryption support.
+struct SyncTaskSupervisor {
+    /// The task that supervises the two sync tasks.
+    task: JoinHandle<()>,
     /// `TerminationReport` sender for the [`Self::stop()`] function.
     ///
     /// This is set at the same time as all the tasks in [`Self::start()`].
-    supervisor_sender: Option<Sender<TerminationReport>>,
+    abortion_sender: Sender<TerminationReport>,
 }
 
-pub struct SyncService {
-    inner: Arc<AsyncMutex<SyncServiceInner>>,
+impl SyncTaskSupervisor {
+    async fn new(
+        inner: &SyncServiceInner,
+        room_list_task: JoinHandle<()>,
+        encryption_sync_task: JoinHandle<()>,
+        sender: Sender<TerminationReport>,
+        receiver: Receiver<TerminationReport>,
+    ) -> Self {
+        let task = spawn(Self::spawn_supervisor_task(
+            inner,
+            room_list_task,
+            encryption_sync_task,
+            receiver,
+        ));
 
-    /// Room list service used to synchronize the rooms state.
-    room_list_service: Arc<RoomListService>,
-
-    /// What's the state of this sync service? This field is replicated from the
-    /// [`SyncServiceInner`] struct, but it should not be modified in this
-    /// struct. It's re-exposed here so we can subscribe to the state
-    /// without taking the lock on the `inner` field.
-    state: SharedObservable<State>,
-
-    /// Global lock to allow using at most one [`EncryptionSyncService`] at all
-    /// times.
-    ///
-    /// This ensures that there's only one ever existing in the application's
-    /// lifetime (under the assumption that there is at most one [`SyncService`]
-    /// per application).
-    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
-}
-
-impl SyncService {
-    /// Create a new builder for configuring an `SyncService`.
-    pub fn builder(client: Client) -> SyncServiceBuilder {
-        SyncServiceBuilder::new(client)
-    }
-
-    /// Get the underlying `RoomListService` instance for easier access to its
-    /// methods.
-    pub fn room_list_service(&self) -> Arc<RoomListService> {
-        self.room_list_service.clone()
-    }
-
-    /// Returns the state of the sync service.
-    pub fn state(&self) -> Subscriber<State> {
-        self.state.subscribe()
+        Self { task, abortion_sender: sender }
     }
 
     /// The role of the supervisor task is to wait for a termination message
@@ -129,7 +101,6 @@ impl SyncService {
     /// syncs, or because one of the syncs failed (in which case we'll stop
     /// the other one too).
     fn spawn_supervisor_task(
-        &self,
         inner: &SyncServiceInner,
         room_list_task: JoinHandle<()>,
         encryption_sync_task: JoinHandle<()>,
@@ -194,6 +165,83 @@ impl SyncService {
             }
         }
         .instrument(tracing::span!(Level::WARN, "supervisor task"))
+    }
+
+    async fn shutdown(self) -> Result<(), Error> {
+        match self
+            .abortion_sender
+            .send(TerminationReport {
+                is_error: false,
+                has_expired: false,
+                origin: TerminationOrigin::Supervisor,
+            })
+            .await
+        {
+            Ok(_) => self.task.await.map_err(|err| {
+                error!("couldn't finish supervisor task: {err}");
+                Error::InternalSupervisorError
+            }),
+            Err(err) => {
+                error!("when sending termination report: {err}");
+                self.task.abort();
+                Err(Error::InternalSupervisorError)
+            }
+        }
+    }
+}
+
+struct SyncServiceInner {
+    room_list_service: Arc<RoomListService>,
+    encryption_sync_service: Arc<EncryptionSyncService>,
+    state: SharedObservable<State>,
+    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    /// Supervisor task ensuring proper termination.
+    ///
+    /// This task is waiting for a [`TerminationReport`] from any of the other
+    /// two tasks, or from a user request via [`SyncService::stop()`]. It
+    /// makes sure that the two services are properly shut up and just
+    /// interrupted.
+    ///
+    /// This is set at the same time as the other two tasks.
+    supervisor: Option<SyncTaskSupervisor>,
+}
+
+pub struct SyncService {
+    inner: Arc<AsyncMutex<SyncServiceInner>>,
+
+    /// Room list service used to synchronize the rooms state.
+    room_list_service: Arc<RoomListService>,
+
+    /// What's the state of this sync service? This field is replicated from the
+    /// [`SyncServiceInner`] struct, but it should not be modified in this
+    /// struct. It's re-exposed here so we can subscribe to the state
+    /// without taking the lock on the `inner` field.
+    state: SharedObservable<State>,
+
+    /// Global lock to allow using at most one [`EncryptionSyncService`] at all
+    /// times.
+    ///
+    /// This ensures that there's only one ever existing in the application's
+    /// lifetime (under the assumption that there is at most one [`SyncService`]
+    /// per application).
+    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+}
+
+impl SyncService {
+    /// Create a new builder for configuring an `SyncService`.
+    pub fn builder(client: Client) -> SyncServiceBuilder {
+        SyncServiceBuilder::new(client)
+    }
+
+    /// Get the underlying `RoomListService` instance for easier access to its
+    /// methods.
+    pub fn room_list_service(&self) -> Arc<RoomListService> {
+        self.room_list_service.clone()
+    }
+
+    /// Returns the state of the sync service.
+    pub fn state(&self) -> Subscriber<State> {
+        self.state.subscribe()
     }
 
     async fn encryption_sync_task(
@@ -318,13 +366,10 @@ impl SyncService {
         ));
 
         // Spawn the supervisor task.
-        inner.supervisor_sender = Some(sender);
-        inner.supervisor_task = Some(spawn(self.spawn_supervisor_task(
-            &inner,
-            room_list_task,
-            encryption_sync_task,
-            receiver,
-        )));
+        inner.supervisor = Some(
+            SyncTaskSupervisor::new(&inner, room_list_task, encryption_sync_task, sender, receiver)
+                .await,
+        );
 
         self.state.set(State::Running);
     }
@@ -352,36 +397,14 @@ impl SyncService {
         // later, so that we're in a clean state independently of the request to
         // stop.
 
-        let sender = inner.supervisor_sender.clone();
-        sender
-            .ok_or_else(|| {
-                error!("missing sender");
-                Error::InternalSupervisorError
-            })?
-            .send(TerminationReport {
-                is_error: false,
-                has_expired: false,
-                origin: TerminationOrigin::Supervisor,
-            })
-            .await
-            .map_err(|err| {
-                error!("when sending termination report: {err}");
-                Error::InternalSupervisorError
-            })?;
+        // Remove the supervisor from our inner state and request the tasks to be
+        // shutdown.
+        let supervisor = inner.supervisor.take().ok_or_else(|| {
+            error!("The supervisor was not properly started up");
+            Error::InternalSupervisorError
+        })?;
 
-        let supervisor_task = inner.supervisor_task.take();
-        supervisor_task
-            .ok_or_else(|| {
-                error!("missing supervisor task");
-                Error::InternalSupervisorError
-            })?
-            .await
-            .map_err(|err| {
-                error!("couldn't finish supervisor task: {err}");
-                Error::InternalSupervisorError
-            })?;
-
-        Ok(())
+        supervisor.shutdown().await
     }
 
     /// Attempt to get a permit to use an `EncryptionSyncService` at a given
@@ -413,7 +436,7 @@ struct TerminationReport {
 impl SyncService {
     /// Return the existential states of internal tasks.
     pub async fn is_supervisor_running(&self) -> bool {
-        self.inner.lock().await.supervisor_task.is_some()
+        self.inner.lock().await.supervisor.is_some()
     }
 }
 
@@ -474,8 +497,7 @@ impl SyncServiceBuilder {
             encryption_sync_permit: encryption_sync_permit.clone(),
 
             inner: Arc::new(AsyncMutex::new(SyncServiceInner {
-                supervisor_task: None,
-                supervisor_sender: None,
+                supervisor: None,
                 room_list_service,
                 encryption_sync_service: encryption_sync,
                 state,
