@@ -3532,6 +3532,7 @@ dependencies = [
  "tracing",
  "unicode-normalization",
  "uniffi",
+ "url",
  "wiremock",
 ]
 

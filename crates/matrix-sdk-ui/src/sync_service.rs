@@ -18,10 +18,9 @@
 //! This is an opiniated way to run both APIs, with high-level callbacks that
 //! should be called in reaction to user actions and/or system events.
 //!
-//! The sync service will signal errors via its
-//! [`state`](SyncService::state) that the user
-//! MUST observe. Whenever an error/termination is observed, the user MUST call
-//! [`SyncService::start()`] again to restart the room list sync.
+//! The sync service will signal errors via its [`state`](SyncService::state)
+//! that the user MUST observe. Whenever an error/termination is observed, the
+//! user MUST call [`SyncService::start()`] again to restart the room list sync.
 
 use std::sync::Arc;
 
@@ -47,9 +46,9 @@ use crate::{
 /// Current state of the application.
 ///
 /// This is a high-level state indicating what's the status of the underlying
-/// syncs. The application starts in `Running` mode, and then hits a terminal
-/// state `Terminated` (if it gracefully exited) or `Error` (in case any of the
-/// underlying syncs ran into an error).
+/// syncs. The application starts in [`State::Running`] mode, and then hits a
+/// terminal state [`State::Terminated`] (if it gracefully exited) or
+/// [`State::Error`] (in case any of the underlying syncs ran into an error).
 ///
 /// It is the responsibility of the caller to restart the application using the
 /// [`SyncService::start`] method, in case it terminated, gracefully or not.
@@ -72,9 +71,8 @@ pub enum State {
 struct SyncTaskSupervisor {
     /// The task that supervises the two sync tasks.
     task: JoinHandle<()>,
-    /// `TerminationReport` sender for the [`Self::stop()`] function.
-    ///
-    /// This is set at the same time as all the tasks in [`Self::start()`].
+    /// [`TerminationReport`] sender for the [`SyncTaskSupervisor::shutdown()`]
+    /// function.
     abortion_sender: Sender<TerminationReport>,
 }
 
@@ -95,9 +93,9 @@ impl SyncTaskSupervisor {
     }
 
     /// The role of the supervisor task is to wait for a termination message
-    /// (`TerminationReport`), sent either because we wanted to stop both
-    /// syncs, or because one of the syncs failed (in which case we'll stop
-    /// the other one too).
+    /// ([`TerminationReport`]), sent either because we wanted to stop both
+    /// syncs, or because one of the syncs failed (in which case we'll stop the
+    /// other one too).
     fn spawn_supervisor_task(
         inner: &SyncServiceInner,
         room_list_task: JoinHandle<()>,
@@ -126,8 +124,8 @@ impl SyncTaskSupervisor {
             };
 
             // Stop both services, and wait for the streams to properly finish: at some
-            // point they'll return `None` and will exit their infinite loops,
-            // and their tasks will gracefully terminate.
+            // point they'll return `None` and will exit their infinite loops, and their
+            // tasks will gracefully terminate.
 
             if stop_room_list {
                 if let Err(err) = room_list_service.stop_sync() {
@@ -300,6 +298,8 @@ impl SyncTaskSupervisor {
             }),
             Err(err) => {
                 error!("when sending termination report: {err}");
+                // Let's abort the task if it won't shut down properly, otherwise we would have
+                // left it as a detached task.
                 self.task.abort();
                 Err(Error::InternalSupervisorError)
             }
@@ -323,6 +323,47 @@ struct SyncServiceInner {
     supervisor: Option<SyncTaskSupervisor>,
 }
 
+/// A high level manager for your Matrix syncing needs.
+///
+/// The [`SyncService`] is responsible for managing real-time synchronization
+/// with a Matrix server. It can initiate and maintain the necessary
+/// synchronization tasks for you.
+///
+/// # Example
+///
+/// ```no_run
+/// use matrix_sdk::Client;
+/// use matrix_sdk_ui::sync_service::{State, SyncService};
+/// # use url::Url;
+/// # async {
+/// let homeserver = Url::parse("http://example.com")?;
+/// let client = Client::new(homeserver).await?;
+///
+/// client
+///     .matrix_auth()
+///     .login_username("example", "wordpass")
+///     .initial_device_display_name("My bot")
+///     .await?;
+///
+/// let sync_service = SyncService::builder(client).build().await?;
+/// let mut state = sync_service.state();
+///
+/// while let Some(state) = state.next().await {
+///     match state {
+///         State::Idle => eprintln!("The sync service is idle."),
+///         State::Running => eprintln!("The sync has started to run."),
+///         State::Terminated => {
+///             eprintln!("The sync service has been gracefully terminated");
+///             break;
+///         }
+///         State::Error => {
+///             eprintln!("The sync service has run into an error");
+///             break;
+///         }
+///     }
+/// }
+/// # anyhow::Ok(()) };
+/// ```
 pub struct SyncService {
     inner: Arc<AsyncMutex<SyncServiceInner>>,
 
@@ -331,8 +372,8 @@ pub struct SyncService {
 
     /// What's the state of this sync service? This field is replicated from the
     /// [`SyncServiceInner`] struct, but it should not be modified in this
-    /// struct. It's re-exposed here so we can subscribe to the state
-    /// without taking the lock on the `inner` field.
+    /// struct. It's re-exposed here so we can subscribe to the state without
+    /// taking the lock on the `inner` field.
     state: SharedObservable<State>,
 
     /// Global lock to allow using at most one [`EncryptionSyncService`] at all
@@ -487,11 +528,11 @@ impl SyncServiceBuilder {
         self
     }
 
-    /// Finish setting up the `SyncService`.
+    /// Finish setting up the [`SyncService`].
     ///
     /// This creates the underlying sliding syncs, and will *not* start them in
-    /// the background. The resulting `SyncService` must be kept alive as
-    /// long as the sliding syncs are supposed to run.
+    /// the background. The resulting [`SyncService`] must be kept alive as long
+    /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
@@ -536,6 +577,7 @@ pub enum Error {
     #[error(transparent)]
     EncryptionSync(#[from] encryption_sync_service::Error),
 
+    /// An error had occurred in the sync task supervisor, likely due to a bug.
     #[error("the supervisor channel has run into an unexpected error")]
     InternalSupervisorError,
 }
