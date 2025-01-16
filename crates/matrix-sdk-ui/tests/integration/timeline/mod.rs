@@ -19,14 +19,13 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    assert_let_timeout, config::SyncSettings, test_utils::logged_in_client_with_server,
+    assert_let_timeout,
+    config::SyncSettings,
+    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::{
-    async_test,
-    event_factory::EventFactory,
-    mocks::{mock_encryption_state, mock_redaction},
-    sync_timeline_event, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
-    SyncResponseBuilder, BOB,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
+    JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder, BOB,
 };
 use matrix_sdk_ui::{
     timeline::{
@@ -234,35 +233,28 @@ async fn test_redacted_message() {
 
 #[async_test]
 async fn test_redact_message() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let factory = EventFactory::new();
     factory.set_next_ts(MilliSecondsSinceUnixEpoch::now().get().into());
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
-            factory.sender(user_id!("@a:b.com")).text_msg("buy my bitcoins bro"),
-        ),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                factory.sender(user_id!("@a:b.com")).text_msg("buy my bitcoins bro"),
+            ),
+        )
+        .await;
 
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_eq!(
@@ -274,7 +266,7 @@ async fn test_redact_message() {
     assert!(date_divider.is_date_divider());
 
     // Redacting a remote event works.
-    mock_redaction(event_id!("$42")).mount(&server).await;
+    server.mock_room_redact().ok(event_id!("$42")).mock_once().mount().await;
 
     timeline.redact(&first.as_event().unwrap().identifier(), Some("inapprops")).await.unwrap();
 
@@ -306,34 +298,19 @@ async fn test_redact_message() {
 
 #[async_test]
 async fn test_redact_local_sent_message() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // Mock event sending.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
-        )
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_room_send().ok(event_id!("$wWgymRfo7ri1uQx0NXO40vLJ")).mock_once().mount().await;
 
     // Send the event so it's added to the send queue as a local event.
     timeline
@@ -364,7 +341,7 @@ async fn test_redact_local_sent_message() {
 
     // Mock the redaction response for the event we just sent. Ensure it's called
     // once.
-    mock_redaction(event.event_id().unwrap()).expect(1).mount(&server).await;
+    server.mock_room_redact().ok(event_id!("$redaction_event_id")).mock_once().mount().await;
 
     // Let's redact the local echo with the remote handle.
     timeline.redact(&event.identifier(), None).await.unwrap();

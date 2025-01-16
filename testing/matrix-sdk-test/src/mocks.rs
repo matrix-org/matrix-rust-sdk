@@ -14,24 +14,12 @@
 
 //! Mocks useful to reuse across different testing contexts.
 
-use ruma::EventId;
-use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, MockServer, ResponseTemplate,
 };
 
 use crate::test_json;
-
-/// Mount a mock for a redaction endpoint, that will always work and return a
-/// 200 response.
-pub fn mock_redaction(event_id: &EventId) -> Mock {
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
-        .named("redact")
-}
 
 /// Mount a Mock on the given server to handle the `GET
 /// /rooms/.../state/m.room.encryption` endpoint with an option whether it
