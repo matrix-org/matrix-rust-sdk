@@ -129,6 +129,10 @@ impl SyncTaskSupervisor {
                 if let Err(err) = room_list_service.stop_sync() {
                     warn!(?report, "unable to stop room list service: {err:#}");
                 }
+
+                if report.has_expired {
+                    room_list_service.expire_sync_session().await;
+                }
             }
 
             if let Err(err) = room_list_task.await {
@@ -139,6 +143,10 @@ impl SyncTaskSupervisor {
                 if let Err(err) = encryption_sync.stop_sync() {
                     warn!(?report, "unable to stop encryption sync: {err:#}");
                 }
+
+                if report.has_expired {
+                    encryption_sync.expire_sync_session().await;
+                }
             }
 
             if let Err(err) = encryption_sync_task.await {
@@ -146,15 +154,6 @@ impl SyncTaskSupervisor {
             }
 
             if report.is_error {
-                if report.has_expired {
-                    if stop_room_list {
-                        room_list_service.expire_sync_session().await;
-                    }
-                    if stop_encryption {
-                        encryption_sync.expire_sync_session().await;
-                    }
-                }
-
                 state.set(State::Error);
             } else if matches!(report.origin, TerminationOrigin::Supervisor) {
                 state.set(State::Idle);
