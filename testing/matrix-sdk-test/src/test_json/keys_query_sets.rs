@@ -183,6 +183,10 @@ impl KeyQueryResponseTemplate {
             "user_id": self.user_id.clone(),
         });
 
+        if options.dehydrated {
+            device_keys["dehydrated"] = Value::Bool(true);
+        }
+
         sign_json(&mut device_keys, ed25519_secret_key, &self.user_id, device_id.as_str());
         if options.verified {
             let ssk = self
@@ -286,8 +290,10 @@ impl KeyQueryResponseTemplate {
 
 /// Options which control the addition of a device to a
 /// [`KeyQueryResponseTemplate`], via [`KeyQueryResponseTemplate::with_device`].
+#[derive(Default)]
 pub struct KeyQueryResponseTemplateDeviceOptions {
     verified: bool,
+    dehydrated: bool,
 }
 
 impl KeyQueryResponseTemplateDeviceOptions {
@@ -295,13 +301,22 @@ impl KeyQueryResponseTemplateDeviceOptions {
     ///
     /// All options are initially set to `false`.
     pub fn new() -> Self {
-        KeyQueryResponseTemplateDeviceOptions { verified: false, dehydrated: false }
+        Self::default()
     }
 
     /// Sets the option for whether the device will be verified (i.e., signed by
     /// the self-signing key).
     pub fn verified(mut self, verified: bool) -> Self {
         self.verified = verified;
+        self
+    }
+
+    /// Sets the option for whether the device will be marked as "dehydrated",
+    /// as per [MSC3814].
+    ///
+    /// [MSC3814]: https://github.com/matrix-org/matrix-spec-proposals/pull/3814
+    pub fn dehydrated(mut self, dehydrated: bool) -> Self {
+        self.dehydrated = dehydrated;
         self
     }
 }
