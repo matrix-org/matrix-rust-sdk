@@ -109,9 +109,13 @@ impl SyncTaskSupervisor {
         let state = inner.state.clone();
 
         async move {
-            let Some(report) = receiver.recv().await else {
+            let report = if let Some(report) = receiver.recv().await {
+                report
+            } else {
                 info!("internal channel has been closed?");
-                return;
+                // We should still stop the child tasks in the unlikely scenario that our
+                // receiver died.
+                TerminationReport::supervisor_error()
             };
 
             // If one service failed, make sure to request stopping the other one.
@@ -433,6 +437,16 @@ struct TerminationReport {
     is_error: bool,
     has_expired: bool,
     origin: TerminationOrigin,
+}
+
+impl TerminationReport {
+    fn supervisor_error() -> Self {
+        TerminationReport {
+            is_error: true,
+            has_expired: false,
+            origin: TerminationOrigin::Supervisor,
+        }
+    }
 }
 
 // Testing helpers, mostly.
