@@ -1015,7 +1015,7 @@ impl Oidc {
             .get()
             .ok_or(CrossProcessRefreshLockError::MissingReloadSession)?;
 
-        match callback(self.client.clone()) {
+        match callback.reload_session(self.client.clone()).await {
             Ok(tokens) => {
                 let crate::authentication::SessionTokens::Oidc(tokens) = tokens else {
                     return Err(CrossProcessRefreshLockError::InvalidSessionTokens);
@@ -1337,7 +1337,7 @@ impl Oidc {
         {
             // Satisfies the save_session_callback invariant: set_session_tokens has
             // been called just above.
-            if let Err(err) = save_session_callback(self.client.clone()) {
+            if let Err(err) = save_session_callback.save_session(self.client.clone()).await {
                 error!("when saving session after refresh: {err}");
             }
         }

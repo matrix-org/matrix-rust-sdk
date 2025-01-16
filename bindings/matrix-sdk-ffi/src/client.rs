@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
+    authentication::{ReloadSessionCallback, SaveSessionCallback, SessionCallbackError},
     media::{
         MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
         MediaThumbnailSettings,
@@ -153,9 +154,11 @@ pub trait ClientDelegate: Sync + Send {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
+#[async_trait::async_trait]
 pub trait ClientSessionDelegate: Sync + Send {
-    fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
-    fn save_session_in_keychain(&self, session: Session);
+    async fn retrieve_session_from_keychain(&self, user_id: String)
+        -> Result<Session, ClientError>;
+    async fn save_session_in_keychain(&self, session: Session);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -183,6 +186,41 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
             current: value.current.try_into().unwrap_or(u64::MAX),
             total: value.total.try_into().unwrap_or(u64::MAX),
         }
+    }
+}
+
+struct FfiReloadSessionCallback {
+    session_delegate: Arc<dyn ClientSessionDelegate>,
+}
+
+#[async_trait::async_trait]
+impl ReloadSessionCallback for FfiReloadSessionCallback {
+    async fn reload_session(
+        &self,
+        client: matrix_sdk::Client,
+    ) -> Result<SessionTokens, SessionCallbackError> {
+        let user_id = client.user_id().context("user isn't logged in")?;
+        let session =
+            self.session_delegate.retrieve_session_from_keychain(user_id.to_string()).await?;
+        let auth_session = TryInto::<AuthSession>::try_into(session)?;
+        match auth_session {
+            AuthSession::Oidc(session) => Ok(SessionTokens::Oidc(session.user.tokens)),
+            AuthSession::Matrix(session) => Ok(SessionTokens::Matrix(session.tokens)),
+            _ => Err(anyhow!("unsupported session type").into()),
+        }
+    }
+}
+
+struct FfiSaveSessionCallback {
+    session_delegate: Arc<dyn ClientSessionDelegate>,
+}
+
+#[async_trait::async_trait]
+impl SaveSessionCallback for FfiSaveSessionCallback {
+    async fn save_session(&self, client: matrix_sdk::Client) -> Result<(), SessionCallbackError> {
+        let session = Client::session_inner(client)?;
+        self.session_delegate.save_session_in_keychain(session).await;
+        Ok(())
     }
 }
 
@@ -238,21 +276,8 @@ impl Client {
 
         if let Some(session_delegate) = session_delegate {
             client.inner.set_session_callbacks(
-                {
-                    let session_delegate = session_delegate.clone();
-                    Box::new(move |client| {
-                        let session_delegate = session_delegate.clone();
-                        let user_id = client.user_id().context("user isn't logged in")?;
-                        Ok(Self::retrieve_session(session_delegate, user_id)?)
-                    })
-                },
-                {
-                    let session_delegate = session_delegate.clone();
-                    Box::new(move |client| {
-                        let session_delegate = session_delegate.clone();
-                        Ok(Self::save_session(session_delegate, client)?)
-                    })
-                },
+                Box::new(FfiReloadSessionCallback { session_delegate: session_delegate.clone() }),
+                Box::new(FfiSaveSessionCallback { session_delegate: session_delegate.clone() }),
             )?;
         }
 
@@ -1247,19 +1272,6 @@ impl Client {
         }
     }
 
-    fn retrieve_session(
-        session_delegate: Arc<dyn ClientSessionDelegate>,
-        user_id: &UserId,
-    ) -> anyhow::Result<SessionTokens> {
-        let session = session_delegate.retrieve_session_from_keychain(user_id.to_string())?;
-        let auth_session = TryInto::<AuthSession>::try_into(session)?;
-        match auth_session {
-            AuthSession::Oidc(session) => Ok(SessionTokens::Oidc(session.user.tokens)),
-            AuthSession::Matrix(session) => Ok(SessionTokens::Matrix(session.tokens)),
-            _ => anyhow::bail!("Unexpected session kind."),
-        }
-    }
-
     fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
         let auth_api = client.auth_api().context("Missing authentication API")?;
 
@@ -1267,15 +1279,6 @@ impl Client {
         let sliding_sync_version = client.sliding_sync_version();
 
         Session::new(auth_api, homeserver_url, sliding_sync_version.into())
-    }
-
-    fn save_session(
-        session_delegate: Arc<dyn ClientSessionDelegate>,
-        client: matrix_sdk::Client,
-    ) -> anyhow::Result<()> {
-        let session = Self::session_inner(client)?;
-        session_delegate.save_session_in_keychain(session);
-        Ok(())
     }
 }
 
