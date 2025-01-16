@@ -261,7 +261,7 @@ async fn response_to_http_response(
 impl tower::Service<http::Request<Bytes>> for HttpClient {
     type Response = http::Response<Bytes>;
     type Error = tower::BoxError;
-    type Future = futures_core::future::BoxFuture<'static, Result<Self::Response, Self::Error>>;
+    type Future = matrix_sdk_base::BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(
         &mut self,
