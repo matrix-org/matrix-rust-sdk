@@ -264,6 +264,7 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
+        authentication::{ReloadSessionCallback, SaveSessionCallback, SessionCallbackError},
         oidc::{
             backend::mock::{MockImpl, ISSUER_URL},
             cross_process::SessionHash,
@@ -274,6 +275,32 @@ mod tests {
         test_utils::test_client_builder,
         Error,
     };
+
+    struct TestReloadSessionCallback {
+        tokens: OidcSessionTokens,
+    }
+
+    #[async_trait::async_trait]
+    impl ReloadSessionCallback for TestReloadSessionCallback {
+        async fn reload_session(
+            &self,
+            client: matrix_sdk::Client,
+        ) -> Result<SessionTokens, SessionCallbackError> {
+            crate::authentication::SessionTokens::Oidc(self.tokens.clone())
+        }
+    }
+
+    struct TestSaveSessionCallback {}
+
+    #[async_trait::async_trait]
+    impl SaveSessionCallback for TestSaveSessionCallback {
+        async fn save_session(
+            &self,
+            client: matrix_sdk::Client,
+        ) -> Result<(), SessionCallbackError> {
+            panic!("save_session_callback shouldn't be called here")
+        }
+    }
 
     #[async_test]
     async fn test_restore_session_lock() -> Result<(), Error> {
@@ -295,12 +322,8 @@ mod tests {
         client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
 
         client.set_session_callbacks(
-            Box::new({
-                // This is only called because of extra checks in the code.
-                let tokens = tokens.clone();
-                move |_| Ok(crate::authentication::SessionTokens::Oidc(tokens.clone()))
-            }),
-            Box::new(|_| panic!("save_session_callback shouldn't be called here")),
+            Box::new(TestReloadSessionCallback { tokens }),
+            Box::new(TestSaveSessionCallback {}),
         )?;
 
         let session_hash = compute_session_hash(&tokens);
@@ -521,12 +544,8 @@ mod tests {
             let oidc = unrestored_oidc;
 
             unrestored_client.set_session_callbacks(
-                Box::new({
-                    // This is only called because of extra checks in the code.
-                    let tokens = next_tokens.clone();
-                    move |_| Ok(crate::authentication::SessionTokens::Oidc(tokens.clone()))
-                }),
-                Box::new(|_| panic!("save_session_callback shouldn't be called here")),
+                Box::new(TestReloadSessionCallback { tokens: next_tokens }),
+                Box::new(TestSaveSessionCallback {}),
             )?;
 
             oidc.restore_session(tests::mock_session(prev_tokens.clone())).await?;
@@ -558,12 +577,8 @@ mod tests {
         }
 
         client.set_session_callbacks(
-            Box::new({
-                // This is only called because of extra checks in the code.
-                let tokens = next_tokens.clone();
-                move |_| Ok(crate::authentication::SessionTokens::Oidc(tokens.clone()))
-            }),
-            Box::new(|_| panic!("save_session_callback shouldn't be called here")),
+            Box::new(TestReloadSessionCallback { tokens: next_tokens }),
+            Box::new(TestSaveSessionCallback {}),
         )?;
 
         oidc.refresh_access_token().await?;
