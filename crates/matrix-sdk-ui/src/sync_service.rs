@@ -183,33 +183,38 @@ impl SyncTaskSupervisor {
         (room_list_task, encryption_sync_task)
     }
 
+    fn check_if_expired(err: &matrix_sdk::Error) -> bool {
+        err.client_api_error_kind() == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+    }
+
     async fn encryption_sync_task(
         encryption_sync: Arc<EncryptionSyncService>,
         sender: Sender<TerminationReport>,
         sync_permit_guard: OwnedMutexGuard<EncryptionSyncPermit>,
     ) {
+        use encryption_sync_service::Error;
+
         let encryption_sync_stream = encryption_sync.sync(sync_permit_guard);
         pin_mut!(encryption_sync_stream);
 
         let (is_error, has_expired) = loop {
-            let res = encryption_sync_stream.next().await;
-            match res {
+            match encryption_sync_stream.next().await {
                 Some(Ok(())) => {
                     // Carry on.
                 }
                 Some(Err(err)) => {
                     // If the encryption sync error was an expired session, also expire the
                     // room list sync.
-                    let has_expired = if let encryption_sync_service::Error::SlidingSync(err) = &err
-                    {
-                        err.client_api_error_kind()
-                            == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                    let has_expired = if let Error::SlidingSync(err) = &err {
+                        Self::check_if_expired(err)
                     } else {
                         false
                     };
+
                     if !has_expired {
                         error!("Error while processing encryption in sync service: {err:#}");
                     }
+
                     break (true, has_expired);
                 }
                 None => {
@@ -219,14 +224,9 @@ impl SyncTaskSupervisor {
             }
         };
 
-        if let Err(err) = sender
-            .send(TerminationReport {
-                is_error,
-                has_expired,
-                origin: TerminationOrigin::EncryptionSync,
-            })
-            .await
-        {
+        let report =
+            TerminationReport { is_error, has_expired, origin: TerminationOrigin::EncryptionSync };
+        if let Err(err) = sender.send(report).await {
             error!("Error while sending termination report: {err:#}");
         }
     }
@@ -235,27 +235,29 @@ impl SyncTaskSupervisor {
         room_list_service: Arc<RoomListService>,
         sender: Sender<TerminationReport>,
     ) {
+        use room_list_service::Error;
+
         let room_list_stream = room_list_service.sync();
         pin_mut!(room_list_stream);
 
         let (is_error, has_expired) = loop {
-            let res = room_list_stream.next().await;
-            match res {
+            match room_list_stream.next().await {
                 Some(Ok(())) => {
                     // Carry on.
                 }
                 Some(Err(err)) => {
                     // If the room list error was an expired session, also expire the
                     // encryption sync.
-                    let has_expired = if let room_list_service::Error::SlidingSync(err) = &err {
-                        err.client_api_error_kind()
-                            == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                    let has_expired = if let Error::SlidingSync(err) = &err {
+                        Self::check_if_expired(err)
                     } else {
                         false
                     };
+
                     if !has_expired {
                         error!("Error while processing room list in sync service: {err:#}");
                     }
+
                     break (true, has_expired);
                 }
                 None => {
@@ -265,10 +267,9 @@ impl SyncTaskSupervisor {
             }
         };
 
-        if let Err(err) = sender
-            .send(TerminationReport { is_error, has_expired, origin: TerminationOrigin::RoomList })
-            .await
-        {
+        let report =
+            TerminationReport { is_error, has_expired, origin: TerminationOrigin::RoomList };
+        if let Err(err) = sender.send(report).await {
             error!("Error while sending termination report: {err:#}");
         }
     }
