@@ -29,7 +29,7 @@ use crate::{
 /// ```
 /// # use ruma::{device_id, owned_user_id};
 /// # use vodozemac::{Curve25519PublicKey, Ed25519SecretKey};
-/// # use matrix_sdk_test::test_json::keys_query_sets::KeyQueryResponseTemplate;
+/// # use matrix_sdk_test::test_json::keys_query_sets::{KeyQueryResponseTemplate, KeyQueryResponseTemplateDeviceOptions};
 ///
 /// let pub_curve_key = "PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4";
 /// let ed25519_key = "yzj53Kccfqx2yx9lcTwaRfPZX+7jU19harsDWWu5YnM";
@@ -39,7 +39,7 @@ use crate::{
 ///         device_id!("TESTDEVICE"),
 ///         &Curve25519PublicKey::from_base64(pub_curve_key).unwrap(),
 ///         &Ed25519SecretKey::from_base64(ed25519_key).unwrap(),
-///         false,
+///         KeyQueryResponseTemplateDeviceOptions::new(),
 ///     );
 ///
 /// let response = builder.build_response();
@@ -51,7 +51,7 @@ use crate::{
 /// ```
 /// # use ruma::{device_id, owned_user_id, user_id};
 /// # use vodozemac::{Curve25519PublicKey, Ed25519SecretKey};
-/// # use matrix_sdk_test::test_json::keys_query_sets::KeyQueryResponseTemplate;
+/// # use matrix_sdk_test::test_json::keys_query_sets::{KeyQueryResponseTemplate, KeyQueryResponseTemplateDeviceOptions};
 ///
 /// // Private cross-signing keys
 /// let master_key = "QGZo39k199RM0NYvPvFNXBspc5llftHWKKHqEi25q0U";
@@ -81,7 +81,7 @@ use crate::{
 ///         device_id!("SECUREDEVICE"),
 ///         &Curve25519PublicKey::from_base64(pub_curve_key).unwrap(),
 ///         &Ed25519SecretKey::from_base64(ed25519_key).unwrap(),
-///         true,
+///         KeyQueryResponseTemplateDeviceOptions::new().verified(true),
 ///     );
 ///
 /// let response = builder.build_response();
@@ -159,14 +159,15 @@ impl KeyQueryResponseTemplate {
     /// Ed25519 device key must be provided so that the signature can be
     /// calculated.
     ///
-    /// The device can optionally be signed by the self-signing key by setting
-    /// `cross_signed` to `true`.
+    /// The device can optionally be signed by the self-signing key by calling
+    /// [`KeyResponseTemplateDeviceOptions::verified(true)`] on the `options`
+    /// object.
     pub fn with_device(
         mut self,
         device_id: &DeviceId,
         curve25519_public_key: &Curve25519PublicKey,
         ed25519_secret_key: &Ed25519SecretKey,
-        cross_signed: bool,
+        options: KeyQueryResponseTemplateDeviceOptions,
     ) -> Self {
         let mut device_keys = json!({
             "algorithms": [
@@ -182,8 +183,12 @@ impl KeyQueryResponseTemplate {
             "user_id": self.user_id.clone(),
         });
 
+        if options.dehydrated {
+            device_keys["dehydrated"] = Value::Bool(true);
+        }
+
         sign_json(&mut device_keys, ed25519_secret_key, &self.user_id, device_id.as_str());
-        if cross_signed {
+        if options.verified {
             let ssk = self
                 .self_signing_key
                 .as_ref()
@@ -280,6 +285,39 @@ impl KeyQueryResponseTemplate {
         sign_cross_signing_key(&mut key, master_key, &self.user_id);
 
         key
+    }
+}
+
+/// Options which control the addition of a device to a
+/// [`KeyQueryResponseTemplate`], via [`KeyQueryResponseTemplate::with_device`].
+#[derive(Default)]
+pub struct KeyQueryResponseTemplateDeviceOptions {
+    verified: bool,
+    dehydrated: bool,
+}
+
+impl KeyQueryResponseTemplateDeviceOptions {
+    /// Creates a blank new set of options ready for configuration.
+    ///
+    /// All options are initially set to `false`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the option for whether the device will be verified (i.e., signed by
+    /// the self-signing key).
+    pub fn verified(mut self, verified: bool) -> Self {
+        self.verified = verified;
+        self
+    }
+
+    /// Sets the option for whether the device will be marked as "dehydrated",
+    /// as per [MSC3814].
+    ///
+    /// [MSC3814]: https://github.com/matrix-org/matrix-spec-proposals/pull/3814
+    pub fn dehydrated(mut self, dehydrated: bool) -> Self {
+        self.dehydrated = dehydrated;
+        self
     }
 }
 
@@ -404,7 +442,7 @@ impl KeyDistributionTestData {
             &Curve25519PublicKey::from_base64("PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4")
                 .unwrap(),
             &Ed25519SecretKey::from_base64("yzj53Kccfqx2yx9lcTwaRfPZX+7jU19harsDWWu5YnM").unwrap(),
-            true,
+            KeyQueryResponseTemplateDeviceOptions::new().verified(true),
         );
 
         // Add unsigned device FRGNMZVOKA
@@ -413,7 +451,7 @@ impl KeyDistributionTestData {
             &Curve25519PublicKey::from_base64("Hc/BC/xyQIEnScyZkEk+ilDMfOARxHMFoEcggPqqRw4")
                 .unwrap(),
             &Ed25519SecretKey::from_base64("/SlFtNKxTPN+i4pHzSPWZ1Oc6ymMB33sS32GXZkaLos").unwrap(),
-            false,
+            KeyQueryResponseTemplateDeviceOptions::new(),
         );
 
         builder.build_response()
