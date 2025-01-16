@@ -31,20 +31,20 @@ use crate::{
 /// # use vodozemac::{Curve25519PublicKey, Ed25519SecretKey};
 /// # use matrix_sdk_test::test_json::keys_query_sets::{KeyQueryResponseTemplate, KeyQueryResponseTemplateDeviceOptions};
 ///
-/// let pub_curve_key = "PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4";
-/// let ed25519_key = "yzj53Kccfqx2yx9lcTwaRfPZX+7jU19harsDWWu5YnM";
+/// // Note that (almost) any 32-byte sequence can be used as a private Ed25519 or Curve25519 key.
+/// // You can also use an arbitrary 32-byte sequence as a *public* key though of course you will
+/// // not know the private key it corresponds to (if indeed there is one).
 ///
-/// let builder = KeyQueryResponseTemplate::new(owned_user_id!("@alice:localhost"))
+/// let template = KeyQueryResponseTemplate::new(owned_user_id!("@alice:localhost"))
 ///     .with_device(
 ///         device_id!("TESTDEVICE"),
-///         &Curve25519PublicKey::from_base64(pub_curve_key).unwrap(),
-///         &Ed25519SecretKey::from_base64(ed25519_key).unwrap(),
+///         &Curve25519PublicKey::from(b"curvepubcurvepubcurvepubcurvepub".to_owned()),
+///         &Ed25519SecretKey::from_slice(b"device12device12device12device12"),
 ///         KeyQueryResponseTemplateDeviceOptions::new(),
 ///     );
 ///
-/// let response = builder.build_response();
+/// let response = template.build_response();
 /// ```
-///
 ///
 /// A more complex case, with cross-signing keys and a signed device:
 ///
@@ -53,38 +53,27 @@ use crate::{
 /// # use vodozemac::{Curve25519PublicKey, Ed25519SecretKey};
 /// # use matrix_sdk_test::test_json::keys_query_sets::{KeyQueryResponseTemplate, KeyQueryResponseTemplateDeviceOptions};
 ///
-/// // Private cross-signing keys
-/// let master_key = "QGZo39k199RM0NYvPvFNXBspc5llftHWKKHqEi25q0U";
-/// let ssk = "0ES1HO5VXpy/BsXxadwsk6QcwH/ci99KkV9ZlPakHlU";
-/// let usk = "vSdfrHJO8sZH/54r1uCg8BE0CdcDVGkPQNOu7Ej8BBs";
-///
-/// // Device keys
-/// let pub_curve_key = "PBo2nKbink/HxgzMrBftGPogsD0d47LlIMsViTpCRn4";
-/// let ed25519_key = "yzj53Kccfqx2yx9lcTwaRfPZX+7jU19harsDWWu5YnM";
-///
-/// let other_user_usk = "zQSosK46giUFs2ACsaf32bA7drcIXbmViyEt+TLfloI";
-///
-/// let builder = KeyQueryResponseTemplate::new(owned_user_id!("@me:localhost"))
+/// let template = KeyQueryResponseTemplate::new(owned_user_id!("@me:localhost"))
 ///     // add cross-signing keys
 ///     .with_cross_signing_keys(
-///         Ed25519SecretKey::from_base64(master_key).unwrap(),
-///         Ed25519SecretKey::from_base64(ssk).unwrap(),
-///         Ed25519SecretKey::from_base64(usk).unwrap(),
+///         Ed25519SecretKey::from_slice(b"master12master12master12master12"),
+///         Ed25519SecretKey::from_slice(b"self1234self1234self1234self1234"),
+///         Ed25519SecretKey::from_slice(b"user1234user1234user1234user1234"),
 ///     )
 ///     // add verification from another user
 ///     .with_user_verification_signature(
 ///         user_id!("@them:localhost"),
-///         &Ed25519SecretKey::from_base64(other_user_usk).unwrap(),
+///         &Ed25519SecretKey::from_slice(b"otheruser12otheruser12otheruser1"),
 ///     )
 ///     // add signed device
 ///     .with_device(
 ///         device_id!("SECUREDEVICE"),
-///         &Curve25519PublicKey::from_base64(pub_curve_key).unwrap(),
-///         &Ed25519SecretKey::from_base64(ed25519_key).unwrap(),
+///         &Curve25519PublicKey::from(b"curvepubcurvepubcurvepubcurvepub".to_owned()),
+///         &Ed25519SecretKey::from_slice(b"device12device12device12device12"),
 ///         KeyQueryResponseTemplateDeviceOptions::new().verified(true),
 ///     );
 ///
-/// let response = builder.build_response();
+/// let response = template.build_response();
 /// ```
 pub struct KeyQueryResponseTemplate {
     /// The User ID of the user that this test data is about.
