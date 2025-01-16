@@ -224,11 +224,11 @@ jobs:
           - name: '[m]-common'
             cmd: matrix-sdk-common
 
-          - name: '[m]-indexeddb'
-            cmd: indexeddb
-
           - name: '[m], no-default, wasm-flags'
             cmd: matrix-sdk-no-default
+
+          - name: '[m]-indexeddb'
+            cmd: indexeddb
 
           - name: '[m], indexeddb stores'
             cmd: matrix-sdk-indexeddb-stores
