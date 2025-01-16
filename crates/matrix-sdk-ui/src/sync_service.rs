@@ -79,13 +79,11 @@ struct SyncTaskSupervisor {
 }
 
 impl SyncTaskSupervisor {
-    async fn new(
-        inner: &SyncServiceInner,
-        room_list_task: JoinHandle<()>,
-        encryption_sync_task: JoinHandle<()>,
-        sender: Sender<TerminationReport>,
-        receiver: Receiver<TerminationReport>,
-    ) -> Self {
+    async fn new(inner: &SyncServiceInner) -> Self {
+        let (sender, receiver) = tokio::sync::mpsc::channel(16);
+        let (room_list_task, encryption_sync_task) =
+            Self::spawn_child_tasks(inner, sender.clone()).await;
+
         let task = spawn(Self::spawn_supervisor_task(
             inner,
             room_list_task,
@@ -165,6 +163,27 @@ impl SyncTaskSupervisor {
             }
         }
         .instrument(tracing::span!(Level::WARN, "supervisor task"))
+    }
+
+    async fn spawn_child_tasks(
+        inner: &SyncServiceInner,
+        sender: Sender<TerminationReport>,
+    ) -> (JoinHandle<()>, JoinHandle<()>) {
+        // First, take care of the room list.
+        let room_list_task = spawn(SyncService::room_list_sync_task(
+            inner.room_list_service.clone(),
+            sender.clone(),
+        ));
+
+        // Then, take care of the encryption sync.
+        let sync_permit_guard = inner.encryption_sync_permit.clone().lock_owned().await;
+        let encryption_sync_task = spawn(SyncService::encryption_sync_task(
+            inner.encryption_sync_service.clone(),
+            sender.clone(),
+            sync_permit_guard,
+        ));
+
+        (room_list_task, encryption_sync_task)
     }
 
     async fn shutdown(self) -> Result<(), Error> {
@@ -350,26 +369,7 @@ impl SyncService {
         }
 
         trace!("starting sync service");
-
-        let (sender, receiver) = tokio::sync::mpsc::channel(16);
-
-        // First, take care of the room list.
-        let room_list_task =
-            spawn(Self::room_list_sync_task(self.room_list_service.clone(), sender.clone()));
-
-        // Then, take care of the encryption sync.
-        let sync_permit_guard = inner.encryption_sync_permit.clone().lock_owned().await;
-        let encryption_sync_task = spawn(Self::encryption_sync_task(
-            inner.encryption_sync_service.clone(),
-            sender.clone(),
-            sync_permit_guard,
-        ));
-
-        // Spawn the supervisor task.
-        inner.supervisor = Some(
-            SyncTaskSupervisor::new(&inner, room_list_task, encryption_sync_task, sender, receiver)
-                .await,
-        );
+        inner.supervisor = Some(SyncTaskSupervisor::new(&inner).await);
 
         self.state.set(State::Running);
     }
