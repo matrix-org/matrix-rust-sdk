@@ -360,15 +360,16 @@ impl SyncService {
         let mut inner = self.inner.lock().await;
 
         // Only (re)start the tasks if any was stopped.
-        if matches!(self.state.get(), State::Running) {
-            // It was already true, so we can skip the restart.
-            return;
+        match inner.state.get() {
+            // If we're already running, there's nothing to do.
+            State::Running => (),
+            State::Idle | State::Terminated | State::Error => {
+                trace!("starting sync service");
+
+                inner.supervisor = Some(SyncTaskSupervisor::new(&inner).await);
+                inner.state.set(State::Running);
+            }
         }
-
-        trace!("starting sync service");
-        inner.supervisor = Some(SyncTaskSupervisor::new(&inner).await);
-
-        self.state.set(State::Running);
     }
 
     /// Stop the underlying sliding syncs.
@@ -380,28 +381,27 @@ impl SyncService {
     pub async fn stop(&self) -> Result<(), Error> {
         let mut inner = self.inner.lock().await;
 
-        match self.state.get() {
+        match inner.state.get() {
             State::Idle | State::Terminated | State::Error => {
                 // No need to stop if we were not running.
-                return Ok(());
+                Ok(())
             }
-            State::Running => {}
-        };
+            State::Running => {
+                trace!("pausing sync service");
 
-        trace!("pausing sync service");
+                // First, request to stop the two underlying syncs; we'll look at the results
+                // later, so that we're in a clean state independently of the request to stop.
 
-        // First, request to stop the two underlying syncs; we'll look at the results
-        // later, so that we're in a clean state independently of the request to
-        // stop.
+                // Remove the supervisor from our inner state and request the tasks to be
+                // shutdown.
+                let supervisor = inner.supervisor.take().ok_or_else(|| {
+                    error!("The supervisor was not properly started up");
+                    Error::InternalSupervisorError
+                })?;
 
-        // Remove the supervisor from our inner state and request the tasks to be
-        // shutdown.
-        let supervisor = inner.supervisor.take().ok_or_else(|| {
-            error!("The supervisor was not properly started up");
-            Error::InternalSupervisorError
-        })?;
-
-        supervisor.shutdown().await
+                supervisor.shutdown().await
+            }
+        }
     }
 
     /// Attempt to get a permit to use an `EncryptionSyncService` at a given
