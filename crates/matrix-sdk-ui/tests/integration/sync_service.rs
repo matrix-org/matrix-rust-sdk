@@ -73,19 +73,19 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     // At first, the sync service is sleeping.
     assert_eq!(state_stream.get(), State::Idle);
     assert!(server.received_requests().await.unwrap().is_empty());
-    assert_eq!(sync_service.task_state().await, false);
+    assert!(!sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     // After starting, the sync service is, well, running.
     sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
-    assert_eq!(sync_service.task_state().await, true);
+    assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Restarting while started doesn't change the current state.
     sync_service.start().await;
     assert_pending!(state_stream);
-    assert_eq!(sync_service.task_state().await, true);
+    assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Let the server respond a few times.
@@ -94,7 +94,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     // Pausing will stop both syncs, after a bit of delay.
     sync_service.stop().await?;
     assert_next_matches!(state_stream, State::Idle);
-    assert_eq!(sync_service.task_state().await, false);
+    assert!(!sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     let mut num_encryption_sync_requests: i32 = 0;
@@ -149,7 +149,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     // the same position than just before being stopped.
     sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
-    assert_eq!(sync_service.task_state().await, true);
+    assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     tokio::time::sleep(Duration::from_millis(100)).await;
