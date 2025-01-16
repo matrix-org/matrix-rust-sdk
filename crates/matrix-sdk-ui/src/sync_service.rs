@@ -169,97 +169,18 @@ impl SyncTaskSupervisor {
         sender: Sender<TerminationReport>,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         // First, take care of the room list.
-        let room_list_task = spawn(SyncService::room_list_sync_task(
-            inner.room_list_service.clone(),
-            sender.clone(),
-        ));
+        let room_list_task =
+            spawn(Self::room_list_sync_task(inner.room_list_service.clone(), sender.clone()));
 
         // Then, take care of the encryption sync.
         let sync_permit_guard = inner.encryption_sync_permit.clone().lock_owned().await;
-        let encryption_sync_task = spawn(SyncService::encryption_sync_task(
+        let encryption_sync_task = spawn(Self::encryption_sync_task(
             inner.encryption_sync_service.clone(),
             sender.clone(),
             sync_permit_guard,
         ));
 
         (room_list_task, encryption_sync_task)
-    }
-
-    async fn shutdown(self) -> Result<(), Error> {
-        match self
-            .abortion_sender
-            .send(TerminationReport {
-                is_error: false,
-                has_expired: false,
-                origin: TerminationOrigin::Supervisor,
-            })
-            .await
-        {
-            Ok(_) => self.task.await.map_err(|err| {
-                error!("couldn't finish supervisor task: {err}");
-                Error::InternalSupervisorError
-            }),
-            Err(err) => {
-                error!("when sending termination report: {err}");
-                self.task.abort();
-                Err(Error::InternalSupervisorError)
-            }
-        }
-    }
-}
-
-struct SyncServiceInner {
-    room_list_service: Arc<RoomListService>,
-    encryption_sync_service: Arc<EncryptionSyncService>,
-    state: SharedObservable<State>,
-    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
-    /// Supervisor task ensuring proper termination.
-    ///
-    /// This task is waiting for a [`TerminationReport`] from any of the other
-    /// two tasks, or from a user request via [`SyncService::stop()`]. It
-    /// makes sure that the two services are properly shut up and just
-    /// interrupted.
-    ///
-    /// This is set at the same time as the other two tasks.
-    supervisor: Option<SyncTaskSupervisor>,
-}
-
-pub struct SyncService {
-    inner: Arc<AsyncMutex<SyncServiceInner>>,
-
-    /// Room list service used to synchronize the rooms state.
-    room_list_service: Arc<RoomListService>,
-
-    /// What's the state of this sync service? This field is replicated from the
-    /// [`SyncServiceInner`] struct, but it should not be modified in this
-    /// struct. It's re-exposed here so we can subscribe to the state
-    /// without taking the lock on the `inner` field.
-    state: SharedObservable<State>,
-
-    /// Global lock to allow using at most one [`EncryptionSyncService`] at all
-    /// times.
-    ///
-    /// This ensures that there's only one ever existing in the application's
-    /// lifetime (under the assumption that there is at most one [`SyncService`]
-    /// per application).
-    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
-}
-
-impl SyncService {
-    /// Create a new builder for configuring an `SyncService`.
-    pub fn builder(client: Client) -> SyncServiceBuilder {
-        SyncServiceBuilder::new(client)
-    }
-
-    /// Get the underlying `RoomListService` instance for easier access to its
-    /// methods.
-    pub fn room_list_service(&self) -> Arc<RoomListService> {
-        self.room_list_service.clone()
-    }
-
-    /// Returns the state of the sync service.
-    pub fn state(&self) -> Subscriber<State> {
-        self.state.subscribe()
     }
 
     async fn encryption_sync_task(
@@ -350,6 +271,83 @@ impl SyncService {
         {
             error!("Error while sending termination report: {err:#}");
         }
+    }
+
+    async fn shutdown(self) -> Result<(), Error> {
+        match self
+            .abortion_sender
+            .send(TerminationReport {
+                is_error: false,
+                has_expired: false,
+                origin: TerminationOrigin::Supervisor,
+            })
+            .await
+        {
+            Ok(_) => self.task.await.map_err(|err| {
+                error!("couldn't finish supervisor task: {err}");
+                Error::InternalSupervisorError
+            }),
+            Err(err) => {
+                error!("when sending termination report: {err}");
+                self.task.abort();
+                Err(Error::InternalSupervisorError)
+            }
+        }
+    }
+}
+
+struct SyncServiceInner {
+    room_list_service: Arc<RoomListService>,
+    encryption_sync_service: Arc<EncryptionSyncService>,
+    state: SharedObservable<State>,
+    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    /// Supervisor task ensuring proper termination.
+    ///
+    /// This task is waiting for a [`TerminationReport`] from any of the other
+    /// two tasks, or from a user request via [`SyncService::stop()`]. It
+    /// makes sure that the two services are properly shut up and just
+    /// interrupted.
+    ///
+    /// This is set at the same time as the other two tasks.
+    supervisor: Option<SyncTaskSupervisor>,
+}
+
+pub struct SyncService {
+    inner: Arc<AsyncMutex<SyncServiceInner>>,
+
+    /// Room list service used to synchronize the rooms state.
+    room_list_service: Arc<RoomListService>,
+
+    /// What's the state of this sync service? This field is replicated from the
+    /// [`SyncServiceInner`] struct, but it should not be modified in this
+    /// struct. It's re-exposed here so we can subscribe to the state
+    /// without taking the lock on the `inner` field.
+    state: SharedObservable<State>,
+
+    /// Global lock to allow using at most one [`EncryptionSyncService`] at all
+    /// times.
+    ///
+    /// This ensures that there's only one ever existing in the application's
+    /// lifetime (under the assumption that there is at most one [`SyncService`]
+    /// per application).
+    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+}
+
+impl SyncService {
+    /// Create a new builder for configuring an `SyncService`.
+    pub fn builder(client: Client) -> SyncServiceBuilder {
+        SyncServiceBuilder::new(client)
+    }
+
+    /// Get the underlying `RoomListService` instance for easier access to its
+    /// methods.
+    pub fn room_list_service(&self) -> Arc<RoomListService> {
+        self.room_list_service.clone()
+    }
+
+    /// Returns the state of the sync service.
+    pub fn state(&self) -> Subscriber<State> {
+        self.state.subscribe()
     }
 
     /// Start (or restart) the underlying sliding syncs.
