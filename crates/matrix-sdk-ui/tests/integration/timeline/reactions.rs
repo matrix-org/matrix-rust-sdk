@@ -17,12 +17,13 @@ use std::{sync::Mutex, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt as _, StreamExt as _};
-use matrix_sdk::{assert_next_matches_with_timeout, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    assert_next_matches_with_timeout,
+    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
+};
 use matrix_sdk_test::{
-    async_test,
-    event_factory::EventFactory,
-    mocks::{mock_encryption_state, mock_redaction},
-    JoinedRoomBuilder, SyncResponseBuilder, ALICE,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE,
 };
 use matrix_sdk_ui::timeline::{ReactionStatus, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
@@ -39,21 +40,14 @@ async fn test_abort_before_being_sent() {
     // This test checks that a reaction could be aborted *before* or *while* it's
     // being sent by the send queue.
 
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let user_id = client.user_id().unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    // Make the test aware of the room.
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (initial_items, mut stream) = timeline.subscribe().await;
 
@@ -62,14 +56,13 @@ async fn test_abort_before_being_sent() {
     let f = EventFactory::new();
 
     let event_id = event_id!("$1");
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
+        )
+        .await;
 
     assert_let!(Some(VectorDiff::PushBack { value: first }) = stream.next().await);
     let item = first.as_event().unwrap();
@@ -82,9 +75,8 @@ async fn test_abort_before_being_sent() {
     // Now we try to add two reactions to this message…
 
     // Mock the send endpoint with a delay, to give us time to abort the sending.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_send()
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(json!({
@@ -92,15 +84,17 @@ async fn test_abort_before_being_sent() {
                 }))
                 .set_delay(Duration::from_millis(150)),
         )
-        .expect(1)
+        .mock_once()
         .named("send")
-        .mount(&server)
+        .mount()
         .await;
 
-    mock_redaction(event_id!("$3")).mount(&server).await;
+    server.mock_room_redact().ok(event_id!("$3")).mock_once().mount().await;
 
     // We add the reaction…
     timeline.toggle_reaction(&item_id, "👍").await.unwrap();
+
+    let user_id = client.user_id().unwrap();
 
     // First toggle (local echo).
     {

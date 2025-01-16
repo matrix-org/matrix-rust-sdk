@@ -16,7 +16,7 @@ use matrix_sdk_base::{RoomMembersUpdate, RoomState};
 use matrix_sdk_test::{
     async_test,
     event_factory::EventFactory,
-    mocks::{mock_encryption_state, mock_redaction},
+    mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
     EphemeralTestEvent, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
     SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
@@ -348,12 +348,14 @@ async fn test_room_message_send() {
 
 #[async_test]
 async fn test_room_redact() {
-    let (client, server) = synced_client().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let room = server.sync_joined_room(&client, room_id).await;
 
     let event_id = event_id!("$h29iv0s8:example.com");
-    mock_redaction(event_id).mount(&server).await;
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    server.mock_room_redact().ok(event_id).mock_once().mount().await;
 
     let txn_id = TransactionId::new();
     let reason = Some("Indecent material");
