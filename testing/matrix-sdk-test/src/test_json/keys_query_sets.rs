@@ -332,7 +332,7 @@ impl KeyDistributionTestData {
         let response = builder.build_response();
         with_settings!({sort_maps => true}, {
             assert_json_snapshot!(
-                "KeyDistributionTestData::me_keys_query_response",
+                "KeyDistributionTestData__me_keys_query_response",
                 ruma_response_to_json(response.clone()),
             );
         });
@@ -359,7 +359,7 @@ impl KeyDistributionTestData {
         let response = Self::dan_keys_query_response_common();
         with_settings!({sort_maps => true}, {
             assert_json_snapshot!(
-                "KeyDistributionTestData::dan_keys_query_response",
+                "KeyDistributionTestData__dan_keys_query_response",
                 ruma_response_to_json(response.clone()),
             );
         });
@@ -377,7 +377,7 @@ impl KeyDistributionTestData {
 
         with_settings!({sort_maps => true}, {
             assert_json_snapshot!(
-                "KeyDistributionTestData::dan_keys_query_response_device_loggedout",
+                "KeyDistributionTestData__dan_keys_query_response_device_loggedout",
                 ruma_response_to_json(response.clone()),
             );
         });
@@ -722,7 +722,7 @@ impl VerificationViolationTestData {
         let response = builder.build_response();
         with_settings!({sort_maps => true}, {
             assert_json_snapshot!(
-                "VerificationViolationTestData::own_keys_query_response_1",
+                "VerificationViolationTestData__own_keys_query_response_1",
                 ruma_response_to_json(response.clone()),
             );
         });
