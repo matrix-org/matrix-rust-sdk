@@ -1,7 +1,6 @@
 // The http mocking library is not supported for wasm32
 #![cfg(not(target_arch = "wasm32"))]
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Client};
-use matrix_sdk_test::test_json;
+use matrix_sdk::test_utils::logged_in_client_with_server;
 use serde::Serialize;
 use wiremock::{
     matchers::{header, method, path, query_param, query_param_is_missing},
@@ -24,17 +23,6 @@ mod send_queue;
 mod widget;
 
 matrix_sdk_test::init_tracing_for_tests!();
-
-async fn synced_client() -> (Client, MockServer) {
-    let (client, server) = logged_in_client_with_server().await;
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new();
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    (client, server)
-}
 
 /// Mount a Mock on the given server to handle the `GET /sync` endpoint with
 /// an optional `since` param that returns a 200 status code with the given

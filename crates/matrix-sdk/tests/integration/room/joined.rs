@@ -43,7 +43,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_sync, synced_client};
+use crate::{logged_in_client_with_server, mock_sync};
 #[async_test]
 async fn test_invite_user_by_id() {
     let (client, server) = logged_in_client_with_server().await;
@@ -368,23 +368,14 @@ async fn test_room_redact() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_fetch_members_deduplication() {
-    let (client, server) = synced_client().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
 
     // We don't need any members, we're just checking if we're correctly
     // deduplicating calls to the method.
-    let response_body = json!({
-        "chunk": [],
-    });
-
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    server.mock_get_members().ok(Vec::new()).mock_once().mount().await;
 
     let mut tasks = Vec::new();
 
@@ -401,31 +392,26 @@ async fn test_fetch_members_deduplication() {
 
     // Wait on all of them at once.
     join_all(tasks).await;
-
-    // Ensure we called the endpoint exactly once.
-    server.verify().await;
 }
 
 #[async_test]
 async fn test_set_name() {
-    let (client, server) = synced_client().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    let sync_settings = SyncSettings::new();
-    client.sync_once(sync_settings).await.unwrap();
+    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
 
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let name = "The room name";
 
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.name/$"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/$"))
         .and(header("authorization", "Bearer 1234"))
         .and(body_json(json!({
             "name": name,
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
         .expect(1)
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     room.set_name(name.to_owned()).await.unwrap();
