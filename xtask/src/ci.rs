@@ -82,6 +82,8 @@ enum WasmFeatureSet {
     MatrixSdkCommon,
     /// Check `matrix-sdk` crate with no default features
     MatrixSdkNoDefault,
+    /// Check `matrix-sdk-ui` crate
+    MatrixSdkUi,
     /// Check `matrix-sdk` crate with `indexeddb` feature (but not
     /// `e2e-encryption`)
     MatrixSdkIndexeddbStoresNoCrypto,
@@ -303,6 +305,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base --features js,test-send-sync"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common --features js"),
+        (WasmFeatureSet::MatrixSdkUi, "-p matrix-sdk-ui --features js"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
             "-p matrix-sdk --no-default-features --features js,indexeddb,rustls-tls",

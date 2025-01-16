@@ -227,6 +227,10 @@ jobs:
           - name: '[m], no-default'
             cmd: matrix-sdk-no-default
 
+          - name: '[m]-ui'
+            cmd: matrix-sdk-ui
+            check_only: true
+
           - name: '[m]-indexeddb'
             cmd: indexeddb
 
@@ -248,6 +252,7 @@ jobs:
 
       - name: Install wasm-pack
         uses: qmaru/wasm-pack-action@v0.5.0
+        if: '!matrix.check_only'
         with:
           version: v0.10.3
 
@@ -277,6 +282,7 @@ jobs:
           target/debug/xtask ci wasm ${{ matrix.cmd }}
 
       - name: Wasm-Pack test
+        if: '!matrix.check_only'
         run: |
           target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
 
