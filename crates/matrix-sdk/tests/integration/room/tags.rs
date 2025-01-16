@@ -92,7 +92,7 @@ async fn test_set_favourite() {
     // Server will be called to set the room as favourite.
     mock_tag_api(&server, TagName::Favorite, TagOperation::Set, 1).await;
 
-    room.set_is_favourite(true, Option::default()).await.unwrap();
+    room.set_is_favourite(true, None).await.unwrap();
 
     // Mock the response from the server.
     let tags = BTreeMap::from([(TagName::Favorite, TagInfo::default())]);
@@ -125,7 +125,7 @@ async fn test_set_favourite_on_low_priority_room() {
     mock_tag_api(&server, TagName::Favorite, TagOperation::Set, 1).await;
     mock_tag_api(&server, TagName::LowPriority, TagOperation::Remove, 1).await;
 
-    room.set_is_favourite(true, Option::default()).await.unwrap();
+    room.set_is_favourite(true, None).await.unwrap();
 
     // Mock the response from the server.
     let tags = BTreeMap::from([(TagName::Favorite, TagInfo::default())]);
@@ -148,7 +148,7 @@ async fn test_unset_favourite() {
     // Server will be called to unset the room as favourite.
     mock_tag_api(&server, TagName::Favorite, TagOperation::Remove, 1).await;
 
-    room.set_is_favourite(false, Option::default()).await.unwrap();
+    room.set_is_favourite(false, None).await.unwrap();
 
     server.verify().await;
 }
@@ -165,7 +165,7 @@ async fn test_set_low_priority() {
     // Server will be called to set the room as favourite.
     mock_tag_api(&server, TagName::LowPriority, TagOperation::Set, 1).await;
 
-    room.set_is_low_priority(true, Option::default()).await.unwrap();
+    room.set_is_low_priority(true, None).await.unwrap();
 
     // Mock the response from the server.
     let tags = BTreeMap::from([(TagName::LowPriority, TagInfo::default())]);
@@ -198,7 +198,7 @@ async fn test_set_low_priority_on_favourite_room() {
     mock_tag_api(&server, TagName::LowPriority, TagOperation::Set, 1).await;
     mock_tag_api(&server, TagName::Favorite, TagOperation::Remove, 1).await;
 
-    room.set_is_low_priority(true, Option::default()).await.unwrap();
+    room.set_is_low_priority(true, None).await.unwrap();
 
     // Mock the response from the server.
     let tags = BTreeMap::from([(TagName::LowPriority, TagInfo::default())]);
@@ -221,7 +221,7 @@ async fn test_unset_low_priority() {
     // Server will be called to unset the room as favourite.
     mock_tag_api(&server, TagName::LowPriority, TagOperation::Remove, 1).await;
 
-    room.set_is_low_priority(false, Option::default()).await.unwrap();
+    room.set_is_low_priority(false, None).await.unwrap();
 
     server.verify().await;
 }
