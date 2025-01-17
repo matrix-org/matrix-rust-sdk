@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
+    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -37,7 +38,10 @@ use super::{
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
     identities::{DeviceData, UserIdentityData},
-    olm::{OutboundGroupSession, PrivateCrossSigningIdentity, SenderDataType},
+    olm::{
+        OutboundGroupSession, PickledAccount, PrivateCrossSigningIdentity, SenderDataType,
+        StaticAccountData,
+    },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     TrackedUser,
 };
@@ -70,7 +74,9 @@ impl BackupVersion {
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Debug)]
 pub struct MemoryStore {
-    account: StdRwLock<Option<Account>>,
+    static_account: Arc<StdRwLock<Option<StaticAccountData>>>,
+
+    account: StdRwLock<Option<String>>,
     sessions: StdRwLock<BTreeMap<String, Vec<Session>>>,
     inbound_group_sessions: GroupSessionStore,
 
@@ -101,6 +107,7 @@ pub struct MemoryStore {
 impl Default for MemoryStore {
     fn default() -> Self {
         MemoryStore {
+            static_account: Default::default(),
             account: Default::default(),
             sessions: Default::default(),
             inbound_group_sessions: GroupSessionStore::new(),
@@ -129,6 +136,10 @@ impl MemoryStore {
     /// Create a new empty `MemoryStore`.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn get_static_account(&self) -> Option<StaticAccountData> {
+        self.static_account.read().clone()
     }
 
     pub(crate) fn save_devices(&self, devices: Vec<DeviceData>) {
@@ -201,7 +212,21 @@ impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
     async fn load_account(&self) -> Result<Option<Account>> {
-        Ok(self.account.read().as_ref().map(|acc| acc.deep_clone()))
+        let pickled_account: Option<PickledAccount> = self.account.read().as_ref().map(|acc| {
+            serde_json::from_str(acc)
+                .expect("Deserialization failed: invalid pickled account JSON format")
+        });
+
+        if let Some(pickle) = pickled_account {
+            let account =
+                Account::from_pickle(pickle).expect("From pickle failed: invalid pickle format");
+
+            *self.static_account.write() = Some(account.static_data().clone());
+
+            Ok(Some(account))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -213,9 +238,17 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
-        if let Some(account) = changes.account {
-            *self.account.write() = Some(account);
-        }
+        let pickled_account = if let Some(account) = changes.account {
+            *self.static_account.write() = Some(account.static_data().clone());
+            Some(account.pickle())
+        } else {
+            None
+        };
+
+        *self.account.write() = pickled_account.map(|pickle| {
+            serde_json::to_string(&pickle)
+                .expect("Serialization failed: invalid pickled account JSON format")
+        });
 
         Ok(())
     }
@@ -536,13 +569,13 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_own_device(&self) -> Result<DeviceData> {
-        let account = self.load_account().await?
-            .expect("Failed to load account");
+        let account =
+            self.get_static_account().expect("Expect account to exist when getting own device");
 
-        Ok(
-            self.devices.get(&account.user_id, &account.device_id)
-                .expect("Invalid state: Should always have a own device")
-        )
+        Ok(self
+            .devices
+            .get(&account.user_id, &account.device_id)
+            .expect("Invalid state: Should always have a own device"))
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
@@ -1157,12 +1190,6 @@ mod integration_tests {
 
         fn get_static_account(&self) -> Option<StaticAccountData> {
             self.0.get_static_account()
-        }
-    }
-
-    impl MemoryStore {
-        fn get_static_account(&self) -> Option<StaticAccountData> {
-            self.account.read().as_ref().map(|acc| acc.static_data().clone())
         }
     }
 
