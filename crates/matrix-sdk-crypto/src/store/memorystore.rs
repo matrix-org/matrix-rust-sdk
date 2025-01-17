@@ -31,16 +31,15 @@ use tracing::warn;
 use vodozemac::Curve25519PublicKey;
 
 use super::{
-    caches::{DeviceStore, GroupSessionStore},
-    Account, BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, InboundGroupSession,
-    PendingChanges, RoomKeyCounts, RoomSettings, Session,
+    caches::DeviceStore, Account, BackupKeys, Changes, CryptoStore, DehydratedDeviceKey,
+    InboundGroupSession, PendingChanges, RoomKeyCounts, RoomSettings, Session,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
     identities::{DeviceData, UserIdentityData},
     olm::{
-        OutboundGroupSession, PickledAccount, PickledSession, PrivateCrossSigningIdentity,
-        SenderDataType, StaticAccountData,
+        OutboundGroupSession, PickledAccount, PickledInboundGroupSession, PickledSession,
+        PrivateCrossSigningIdentity, SenderDataType, StaticAccountData,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     TrackedUser,
@@ -79,7 +78,7 @@ pub struct MemoryStore {
     account: StdRwLock<Option<String>>,
     // Map of sender_key to map of session_id to serialized pickle
     sessions: StdRwLock<BTreeMap<String, BTreeMap<String, String>>>,
-    inbound_group_sessions: GroupSessionStore,
+    inbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, HashMap<String, String>>>,
 
     /// Map room id -> session id -> backup order number
     /// The latest backup in which this session is stored. Equivalent to
@@ -111,7 +110,7 @@ impl Default for MemoryStore {
             static_account: Default::default(),
             account: Default::default(),
             sessions: Default::default(),
-            inbound_group_sessions: GroupSessionStore::new(),
+            inbound_group_sessions: Default::default(),
             inbound_group_sessions_backed_up_to: Default::default(),
             outbound_group_sessions: Default::default(),
             private_identity: Default::default(),
@@ -351,9 +350,6 @@ impl CryptoStore for MemoryStore {
         sessions: Vec<InboundGroupSession>,
         backed_up_to_version: Option<&str>,
     ) -> Result<()> {
-        let mut inbound_group_sessions_backed_up_to =
-            self.inbound_group_sessions_backed_up_to.write();
-
         for session in sessions {
             let room_id = session.room_id();
             let session_id = session.session_id();
@@ -369,12 +365,23 @@ impl CryptoStore for MemoryStore {
             }
 
             if let Some(backup_version) = backed_up_to_version {
-                inbound_group_sessions_backed_up_to
+                self.inbound_group_sessions_backed_up_to
+                    .write()
                     .entry(room_id.to_owned())
                     .or_default()
                     .insert(session_id.to_owned(), BackupVersion::from(backup_version));
             }
-            self.inbound_group_sessions.add(session);
+
+            let pickle = session.pickle().await;
+            self.inbound_group_sessions
+                .write()
+                .entry(session.room_id().to_owned())
+                .or_default()
+                .insert(
+                    session.session_id().to_owned(),
+                    serde_json::to_string(&pickle)
+                        .expect("Pickle pickle data should serialize to json"),
+                );
         }
         Ok(())
     }
@@ -402,7 +409,18 @@ impl CryptoStore for MemoryStore {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        Ok(self.inbound_group_sessions.get(room_id, session_id))
+        let pickle: Option<PickledInboundGroupSession> = self
+            .inbound_group_sessions
+            .read()
+            .get(room_id)
+            .and_then(|m| m.get(session_id))
+            .and_then(|ser| {
+                serde_json::from_str(ser).expect("Pickle pickle deserialization should work")
+            });
+
+        Ok(pickle.map(|p| {
+            InboundGroupSession::from_pickle(p).expect("Expect from pickle to always work")
+        }))
     }
 
     async fn get_withheld_info(
@@ -418,7 +436,18 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
-        Ok(self.inbound_group_sessions.get_all())
+        let inbounds = self
+            .inbound_group_sessions
+            .read()
+            .values()
+            .flat_map(HashMap::values)
+            .map(|ser| {
+                let pickle: PickledInboundGroupSession =
+                    serde_json::from_str(ser).expect("Pickle deserialization should work");
+                InboundGroupSession::from_pickle(pickle).expect("Expect from pickle to always work")
+            })
+            .collect();
+        Ok(inbounds)
     }
 
     async fn inbound_group_session_counts(
@@ -439,7 +468,8 @@ impl CryptoStore for MemoryStore {
             0
         };
 
-        Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
+        let total = self.inbound_group_sessions.read().values().map(HashMap::len).sum();
+        Ok(RoomKeyCounts { total, backed_up })
     }
 
     async fn get_inbound_group_sessions_for_device_batch(
@@ -511,21 +541,26 @@ impl CryptoStore for MemoryStore {
         backup_version: &str,
         room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
-        let mut inbound_group_sessions_backed_up_to =
-            self.inbound_group_sessions_backed_up_to.write();
-
         for &(room_id, session_id) in room_and_session_ids {
-            let session = self.inbound_group_sessions.get(room_id, session_id);
+            let session = self.get_inbound_group_session(room_id, session_id).await?;
 
             if let Some(session) = session {
                 session.mark_as_backed_up();
 
-                inbound_group_sessions_backed_up_to
+                self.inbound_group_sessions_backed_up_to
+                    .write()
                     .entry(room_id.to_owned())
                     .or_default()
                     .insert(session_id.to_owned(), BackupVersion::from(backup_version));
 
-                self.inbound_group_sessions.add(session);
+                // Save it back
+                let updated_pickle = session.pickle().await;
+
+                self.inbound_group_sessions.write().entry(room_id.to_owned()).or_default().insert(
+                    session_id.to_owned(),
+                    serde_json::to_string(&updated_pickle)
+                        .expect("Pickle serialization should work"),
+                );
             }
         }
 
