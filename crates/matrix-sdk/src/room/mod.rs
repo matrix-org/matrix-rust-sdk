@@ -3245,7 +3245,7 @@ impl Room {
     /// The returned observable will receive the newest event for each sync
     /// response that contains an `m.beacon` event.
     ///
-    /// Returns a stream of `ObservableLiveLocation` events from other users
+    /// Returns a stream of [`ObservableLiveLocation`] events from other users
     /// in the room, excluding the live location events of the room's own user.
     pub fn observe_live_location_shares(&self) -> ObservableLiveLocation {
         ObservableLiveLocation::new(&self.client, self.room_id())

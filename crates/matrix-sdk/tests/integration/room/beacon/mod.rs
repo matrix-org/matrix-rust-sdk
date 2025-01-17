@@ -2,12 +2,23 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use js_int::uint;
-use matrix_sdk::{config::SyncSettings, live_location_share::LiveLocationShare};
-use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, sync_timeline_event, test_json, JoinedRoomBuilder,
-    SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+use matrix_sdk::{
+    config::SyncSettings, live_location_share::LiveLocationShare,
+    test_utils::mocks::MatrixMockServer,
 };
-use ruma::{event_id, events::location::AssetType, time::SystemTime, MilliSecondsSinceUnixEpoch};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
+    test_json, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+};
+use ruma::{
+    event_id,
+    events::{
+        beacon::BeaconEventContent, beacon_info::BeaconInfoEventContent, location::AssetType,
+    },
+    owned_event_id, room_id,
+    time::SystemTime,
+    user_id, MilliSecondsSinceUnixEpoch,
+};
 use serde_json::json;
 use wiremock::{
     matchers::{body_partial_json, header, method, path_regex},
@@ -377,92 +388,43 @@ async fn test_observe_single_live_location_share() {
 
 #[async_test]
 async fn test_observing_live_location_does_not_return_own_beacon_updates() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = room_id!("!a:b.c");
+    let event_id = event_id!("$a:b.c");
+    let user_id = user_id!("@example:localhost");
 
-    let mut sync_builder = SyncResponseBuilder::new();
+    let f = EventFactory::new().room(room_id);
 
-    let current_time = MilliSecondsSinceUnixEpoch::now();
-    let millis_time = current_time
-        .to_system_time()
-        .unwrap()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64;
+    let ts = Some(MilliSecondsSinceUnixEpoch(1_636_829_458_u64.try_into().unwrap()));
 
-    mock_sync(
-        &server,
-        json!({
-            "next_batch": "s526_47314_0_7_1_1_1_1_1",
-            "rooms": {
-                "join": {
-                    *DEFAULT_TEST_ROOM_ID: {
-                        "state": {
-                            "events": [
-                                {
-                                    "content": {
-                                        "description": "Live Share",
-                                        "live": true,
-                                        "org.matrix.msc3488.ts": millis_time,
-                                        "timeout": 3000,
-                                        "org.matrix.msc3488.asset": { "type": "m.self" }
-                                    },
-                                    "event_id": "$15139375514XsgmR:localhost",
-                                    "origin_server_ts": millis_time,
-                                    "sender": "@example:localhost",
-                                    "state_key": "@example:localhost",
-                                    "type": "org.matrix.msc3672.beacon_info",
-                                    "unsigned": {
-                                        "age": 7034220
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
+    let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
+        .event(BeaconInfoEventContent::new(None, Duration::from_secs(60), false, None))
+        .event_id(event_id)
+        .sender(user_id)
+        .state_key(user_id)
+        .into_raw_timeline()
+        .cast()]);
 
-        }),
-        None,
-    )
-    .await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let room = server.sync_room(&client, joined_room_builder).await;
 
-    let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let observable_live_location_shares = room.observe_live_location_shares();
     let stream = observable_live_location_shares.subscribe();
     pin_mut!(stream);
 
-    let mut timeline_events = Vec::new();
+    let beacon_event = f
+        .event(BeaconEventContent::new(
+            owned_event_id!("$15139375514XsgmR:localhost"),
+            "geo:51.5008,0.1247;u=35".to_owned(),
+            Some(MilliSecondsSinceUnixEpoch(uint!(1_636_829_458))),
+        ))
+        .event_id(event_id!("$152037dfsef280074GZeOm:localhost"))
+        .sender(user_id)
+        .into_raw_sync();
 
-    timeline_events.push(sync_timeline_event!({
-        "content": {
-            "m.relates_to": {
-                "event_id": "$15139375514XsgmR:localhost",
-                "rel_type": "m.reference"
-            },
-            "org.matrix.msc3488.location": {
-                "uri": "geo:1.9575274619722,12.494122581370175;u=1"
-            },
-            "org.matrix.msc3488.ts": 1_636_829_458
-        },
-        "event_id": "$152037dfsef280074GZeOm:localhost",
-        "origin_server_ts": 1_636_829_458,
-        "sender": "@example:localhost",
-        "type": "org.matrix.msc3672.beacon",
-        "unsigned": {
-            "age": 598971
-        }
-    }));
+    let joined = JoinedRoomBuilder::new(room_id).add_timeline_event(beacon_event);
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_bulk(timeline_events.clone()),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let _ = server.sync_room(&client, joined).await;
 
     assert!(stream.next().now_or_never().is_none());
 }
