@@ -396,8 +396,6 @@ async fn test_observing_live_location_does_not_return_own_beacon_updates() {
 
     let f = EventFactory::new().room(room_id);
 
-    let ts = Some(MilliSecondsSinceUnixEpoch(1_636_829_458_u64.try_into().unwrap()));
-
     let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
         .event(BeaconInfoEventContent::new(None, Duration::from_secs(60), false, None))
         .event_id(event_id)
