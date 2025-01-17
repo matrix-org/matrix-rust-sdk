@@ -352,17 +352,21 @@ struct SyncServiceInner {
 /// ```
 pub struct SyncService {
     inner: Arc<AsyncMutex<SyncServiceInner>>,
+
+    /// Room list service used to synchronize the rooms state.
     room_list_service: Arc<RoomListService>,
+
     /// What's the state of this sync service? This field is replicated from the
     /// [`SyncServiceInner`] struct, but it should not be modified in this
     /// struct. It's re-exposed here so we can subscribe to the state without
     /// taking the lock on the `inner` field.
     state: SharedObservable<State>,
-    /// Global lock to allow using at most one `EncryptionSyncService` at all
+
+    /// Global lock to allow using at most one [`EncryptionSyncService`] at all
     /// times.
     ///
     /// This ensures that there's only one ever existing in the application's
-    /// lifetime (under the assumption that there is at most one `SyncService`
+    /// lifetime (under the assumption that there is at most one [`SyncService`]
     /// per application).
     encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
 }
