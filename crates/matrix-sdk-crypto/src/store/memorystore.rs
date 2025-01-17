@@ -39,8 +39,8 @@ use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
     identities::{DeviceData, UserIdentityData},
     olm::{
-        OutboundGroupSession, PickledAccount, PrivateCrossSigningIdentity, SenderDataType,
-        StaticAccountData,
+        OutboundGroupSession, PickledAccount, PickledSession, PrivateCrossSigningIdentity,
+        SenderDataType, StaticAccountData,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     TrackedUser,
@@ -77,7 +77,8 @@ pub struct MemoryStore {
     static_account: Arc<StdRwLock<Option<StaticAccountData>>>,
 
     account: StdRwLock<Option<String>>,
-    sessions: StdRwLock<BTreeMap<String, Vec<Session>>>,
+    // Map of sender_key to map of session_id to serialized pickle
+    sessions: StdRwLock<BTreeMap<String, BTreeMap<String, String>>>,
     inbound_group_sessions: GroupSessionStore,
 
     /// Map room id -> session id -> backup order number
@@ -154,17 +155,17 @@ impl MemoryStore {
         }
     }
 
-    fn save_sessions(&self, sessions: Vec<Session>) {
+    fn save_sessions(&self, sessions: Vec<(String, PickledSession)>) {
         let mut session_store = self.sessions.write();
 
-        for session in sessions {
-            let entry = session_store.entry(session.sender_key().to_base64()).or_default();
+        for (session_id, pickle) in sessions {
+            let entry = session_store.entry(pickle.sender_key.to_base64()).or_default();
 
-            if let Some(old_entry) = entry.iter_mut().find(|entry| &session == *entry) {
-                *old_entry = session;
-            } else {
-                entry.push(session);
-            }
+            // insert or replace if exists
+            entry.insert(
+                session_id,
+                serde_json::to_string(&pickle).expect("Failed to serialize olm session"),
+            );
         }
     }
 
@@ -254,7 +255,14 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        self.save_sessions(changes.sessions);
+        let mut pickled_session: Vec<(String, PickledSession)> = Vec::new();
+        for session in changes.sessions {
+            let session_id = session.session_id().to_owned();
+            let pickle = session.pickle().await;
+            pickled_session.push((session_id.clone(), pickle));
+        }
+        self.save_sessions(pickled_session);
+
         self.save_inbound_group_sessions(changes.inbound_group_sessions, None).await?;
         self.save_outbound_group_sessions(changes.outbound_group_sessions);
         self.save_private_identity(changes.private_identity);
@@ -372,7 +380,21 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Vec<Session>>> {
-        Ok(self.sessions.read().get(sender_key).cloned())
+        let device_keys = self.get_own_device().await?.as_device_keys().clone();
+
+        if let Some(pickles) = self.sessions.read().get(sender_key) {
+            let mut sessions: Vec<Session> = Vec::new();
+            for serialized_pickle in pickles.values() {
+                let pickle: PickledSession = serde_json::from_str(serialized_pickle.as_str())
+                    .expect("Pickle pickle deserialization should work");
+                let session = Session::from_pickle(device_keys.clone(), pickle)
+                    .expect("Expect from pickle to always work");
+                sessions.push(session);
+            }
+            Ok(Some(sessions))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_inbound_group_session(
@@ -695,18 +717,31 @@ mod tests {
             tests::get_account_and_session_test_helper, Account, InboundGroupSession,
             OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
         },
-        store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
+        store::{memorystore::MemoryStore, Changes, CryptoStore, DeviceChanges, PendingChanges},
+        DeviceData,
     };
 
     #[async_test]
     async fn test_session_store() {
         let (account, session) = get_account_and_session_test_helper();
+        let own_device = DeviceData::from_account(&account);
         let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
+
+        store
+            .save_changes(Changes {
+                devices: DeviceChanges { new: vec![own_device], ..Default::default() },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
-        store.save_sessions(vec![session.clone()]);
+        store
+            .save_changes(Changes { sessions: (vec![session.clone()]), ..Default::default() })
+            .await
+            .unwrap();
 
         let sessions = store.get_sessions(&session.sender_key.to_base64()).await.unwrap().unwrap();
 
