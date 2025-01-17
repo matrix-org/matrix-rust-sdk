@@ -288,7 +288,7 @@ mod tests {
             &self,
             client: Client,
         ) -> Result<SessionTokens, SessionCallbackError> {
-            Ok(crate::authentication::SessionTokens::Oidc(self.tokens.clone()))
+            Ok(SessionTokens::Oidc(self.tokens.clone()))
         }
     }
 
@@ -321,7 +321,7 @@ mod tests {
         client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
 
         client.set_session_callbacks(
-            Box::new(TestReloadSessionCallback { tokens }),
+            Box::new(TestReloadSessionCallback { tokens: tokens.clone() }),
             Box::new(TestSaveSessionCallback {}),
         )?;
 
@@ -543,7 +543,7 @@ mod tests {
             let oidc = unrestored_oidc;
 
             unrestored_client.set_session_callbacks(
-                Box::new(TestReloadSessionCallback { tokens: next_tokens }),
+                Box::new(TestReloadSessionCallback { tokens: next_tokens.clone() }),
                 Box::new(TestSaveSessionCallback {}),
             )?;
 
