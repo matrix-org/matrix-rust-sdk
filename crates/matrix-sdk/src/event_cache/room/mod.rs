@@ -75,10 +75,8 @@ impl RoomEventCache {
         }
     }
 
-    /// Subscribe to room updates for this room, after getting the initial list
-    /// of events. XXX: Could/should it use some kind of `Observable`
-    /// instead? Or not something async, like explicit handlers as our event
-    /// handlers?
+    /// Subscribe to this room updates, after getting the initial list of
+    /// events.
     pub async fn subscribe(
         &self,
     ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
