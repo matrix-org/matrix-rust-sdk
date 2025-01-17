@@ -288,7 +288,7 @@ mod tests {
             &self,
             client: Client,
         ) -> Result<SessionTokens, SessionCallbackError> {
-            crate::authentication::SessionTokens::Oidc(self.tokens.clone())
+            Ok(crate::authentication::SessionTokens::Oidc(self.tokens.clone()))
         }
     }
 
