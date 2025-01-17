@@ -540,30 +540,33 @@ mod tests {
         CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
 
-    async fn set_up_test_machine() -> OlmMachine {
-        let machine = OlmMachine::new(
-            KeyDistributionTestData::me_id(),
-            KeyDistributionTestData::me_device_id(),
-        )
-        .await;
+    /// Returns an `OlmMachine` set up for the test user in
+    /// [`KeyDistributionTestData`], with cross-signing set up and the
+    /// private cross-signing keys imported.
+    async fn test_machine() -> OlmMachine {
+        use KeyDistributionTestData as DataSet;
 
-        let keys_query = KeyDistributionTestData::me_keys_query_response();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        // Create the local user (`@me`), and import the public identity keys
+        let machine = OlmMachine::new(DataSet::me_id(), DataSet::me_device_id()).await;
+        let keys_query = DataSet::me_keys_query_response();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
+        // Also import the private cross signing keys
         machine
             .import_cross_signing_keys(CrossSigningKeyExport {
-                master_key: KeyDistributionTestData::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
-                self_signing_key: KeyDistributionTestData::SELF_SIGNING_KEY_PRIVATE_EXPORT
-                    .to_owned()
-                    .into(),
-                user_signing_key: KeyDistributionTestData::USER_SIGNING_KEY_PRIVATE_EXPORT
-                    .to_owned()
-                    .into(),
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
             })
             .await
             .unwrap();
 
+        machine
+    }
+
+    /// Import device data for `@dan`, `@dave`, and `@good`, as referenced in
+    /// [`KeyDistributionTestData`], into the given OlmMachine
+    async fn import_known_users_to_test_machine(machine: &OlmMachine) {
         let keys_query = KeyDistributionTestData::dan_keys_query_response();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -575,21 +578,14 @@ mod tests {
         let txn_id_good = TransactionId::new();
         let keys_query_good = KeyDistributionTestData::good_keys_query_response();
         machine.mark_request_as_sent(&txn_id_good, &keys_query_good).await.unwrap();
-
-        machine
     }
 
     #[async_test]
     async fn test_share_with_per_device_strategy_to_all() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: false,
-            },
-            ..Default::default()
-        };
+        let encryption_settings = device_based_strategy_settings();
 
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
@@ -643,7 +639,8 @@ mod tests {
     /// Common helper for [`test_share_with_per_device_strategy_only_trusted`]
     /// and [`test_share_with_per_device_strategy_only_trusted_error_on_unsigned_of_verified`].
     async fn test_share_only_trusted_helper(error_on_verified_user_problem: bool) {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let encryption_settings = EncryptionSettings {
             sharing_strategy: CollectStrategy::DeviceBasedStrategy {
@@ -1088,12 +1085,10 @@ mod tests {
 
     #[async_test]
     async fn test_share_with_identity_strategy() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
-        let strategy = CollectStrategy::new_identity_based();
-
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+        let encryption_settings = identity_based_strategy_settings();
 
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
@@ -1169,10 +1164,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::new_identity_based(),
-            ..Default::default()
-        };
+        let encryption_settings = identity_based_strategy_settings();
 
         let request_result = machine
             .share_room_key(
@@ -1295,10 +1287,7 @@ mod tests {
         let fake_room_id = room_id!("!roomid:localhost");
 
         // We share the key using the identity-based strategy.
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::new_identity_based(),
-            ..Default::default()
-        };
+        let encryption_settings = identity_based_strategy_settings();
 
         let request_result = machine
             .share_room_key(
@@ -1388,7 +1377,8 @@ mod tests {
 
     #[async_test]
     async fn test_should_rotate_based_on_visibility() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let strategy = CollectStrategy::DeviceBasedStrategy {
             only_allow_trusted_devices: false,
@@ -1436,17 +1426,11 @@ mod tests {
     /// his devices.
     #[async_test]
     async fn test_should_rotate_based_on_device_excluded() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let fake_room_id = room_id!("!roomid:localhost");
-
-        let strategy = CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices: false,
-            error_on_verified_user_problem: false,
-        };
-
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+        let encryption_settings = device_based_strategy_settings();
 
         let requests = machine
             .share_room_key(
@@ -1538,6 +1522,18 @@ mod tests {
         machine
     }
 
+    /// [`EncryptionSettings`] with [`CollectStrategy::DeviceBasedStrategy`]
+    /// (with default settings)
+    fn device_based_strategy_settings() -> EncryptionSettings {
+        EncryptionSettings {
+            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: false,
+            },
+            ..Default::default()
+        }
+    }
+
     /// [`EncryptionSettings`] with `error_on_verified_user_problem` set
     fn error_on_verification_problem_encryption_settings() -> EncryptionSettings {
         EncryptionSettings {
@@ -1545,6 +1541,14 @@ mod tests {
                 only_allow_trusted_devices: false,
                 error_on_verified_user_problem: true,
             },
+            ..Default::default()
+        }
+    }
+
+    /// [`EncryptionSettings`] with [`CollectStrategy::IdentityBasedStrategy`]
+    fn identity_based_strategy_settings() -> EncryptionSettings {
+        EncryptionSettings {
+            sharing_strategy: CollectStrategy::IdentityBasedStrategy,
             ..Default::default()
         }
     }
