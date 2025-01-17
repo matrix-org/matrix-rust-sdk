@@ -481,7 +481,7 @@ impl Device {
 
     /// Whether or not the device is a dehydrated device.
     pub fn is_dehydrated(&self) -> bool {
-        self.inner.device_keys.dehydrated.unwrap_or(false)
+        self.inner.is_dehydrated()
     }
 }
 
@@ -965,6 +965,11 @@ impl DeviceData {
     /// milliseconds since epoch (client local time).
     pub fn first_time_seen_ts(&self) -> MilliSecondsSinceUnixEpoch {
         self.first_time_seen_ts
+    }
+
+    /// True if this device is an MSC3814 dehydrated device.
+    pub fn is_dehydrated(&self) -> bool {
+        self.device_keys.dehydrated.unwrap_or(false)
     }
 }
 
