@@ -583,13 +583,7 @@ mod tests {
     async fn test_share_with_per_device_strategy_to_all() {
         let machine = set_up_test_machine().await;
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: false,
-            },
-            ..Default::default()
-        };
+        let encryption_settings = device_based_strategy_settings();
 
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
@@ -1090,10 +1084,7 @@ mod tests {
     async fn test_share_with_identity_strategy() {
         let machine = set_up_test_machine().await;
 
-        let strategy = CollectStrategy::new_identity_based();
-
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+        let encryption_settings = identity_based_strategy_settings();
 
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
@@ -1169,10 +1160,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::new_identity_based(),
-            ..Default::default()
-        };
+        let encryption_settings = identity_based_strategy_settings();
 
         let request_result = machine
             .share_room_key(
@@ -1295,10 +1283,7 @@ mod tests {
         let fake_room_id = room_id!("!roomid:localhost");
 
         // We share the key using the identity-based strategy.
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::new_identity_based(),
-            ..Default::default()
-        };
+        let encryption_settings = identity_based_strategy_settings();
 
         let request_result = machine
             .share_room_key(
@@ -1439,14 +1424,7 @@ mod tests {
         let machine = set_up_test_machine().await;
 
         let fake_room_id = room_id!("!roomid:localhost");
-
-        let strategy = CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices: false,
-            error_on_verified_user_problem: false,
-        };
-
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+        let encryption_settings = device_based_strategy_settings();
 
         let requests = machine
             .share_room_key(
@@ -1538,6 +1516,18 @@ mod tests {
         machine
     }
 
+    /// [`EncryptionSettings`] with [`CollectStrategy::DeviceBasedStrategy`]
+    /// (with default settings)
+    fn device_based_strategy_settings() -> EncryptionSettings {
+        EncryptionSettings {
+            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: false,
+            },
+            ..Default::default()
+        }
+    }
+
     /// [`EncryptionSettings`] with `error_on_verified_user_problem` set
     fn error_on_verification_problem_encryption_settings() -> EncryptionSettings {
         EncryptionSettings {
@@ -1545,6 +1535,14 @@ mod tests {
                 only_allow_trusted_devices: false,
                 error_on_verified_user_problem: true,
             },
+            ..Default::default()
+        }
+    }
+
+    /// [`EncryptionSettings`] with [`CollectStrategy::IdentityBasedStrategy`]
+    fn identity_based_strategy_settings() -> EncryptionSettings {
+        EncryptionSettings {
+            sharing_strategy: CollectStrategy::IdentityBasedStrategy,
             ..Default::default()
         }
     }
