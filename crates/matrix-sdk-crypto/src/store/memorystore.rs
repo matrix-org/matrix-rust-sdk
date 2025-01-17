@@ -235,7 +235,8 @@ impl CryptoStore for MemoryStore {
             for identity in changes.identities.new.into_iter().chain(changes.identities.changed) {
                 identities.insert(
                     identity.user_id().to_owned(),
-                    serde_json::to_string(&identity).unwrap(),
+                    serde_json::to_string(&identity)
+                        .expect("UserIdentityData should always serialize to json"),
                 );
             }
         }
@@ -535,9 +536,13 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_own_device(&self) -> Result<DeviceData> {
-        let account = self.load_account().await?.unwrap();
+        let account = self.load_account().await?
+            .expect("Failed to load account");
 
-        Ok(self.devices.get(&account.user_id, &account.device_id).unwrap())
+        Ok(
+            self.devices.get(&account.user_id, &account.device_id)
+                .expect("Invalid state: Should always have a own device")
+        )
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
@@ -545,7 +550,8 @@ impl CryptoStore for MemoryStore {
         match serialized {
             None => Ok(None),
             Some(serialized) => {
-                let id: UserIdentityData = serde_json::from_str(serialized.as_str()).unwrap();
+                let id: UserIdentityData = serde_json::from_str(serialized.as_str())
+                    .expect("Only valid serialized identity are saved");
                 Ok(Some(id))
             }
         }
