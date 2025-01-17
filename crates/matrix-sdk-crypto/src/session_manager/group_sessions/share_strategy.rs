@@ -656,30 +656,33 @@ mod tests {
         CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
 
-    async fn set_up_test_machine() -> OlmMachine {
-        let machine = OlmMachine::new(
-            KeyDistributionTestData::me_id(),
-            KeyDistributionTestData::me_device_id(),
-        )
-        .await;
+    /// Returns an `OlmMachine` set up for the test user in
+    /// [`KeyDistributionTestData`], with cross-signing set up and the
+    /// private cross-signing keys imported.
+    async fn test_machine() -> OlmMachine {
+        use KeyDistributionTestData as DataSet;
 
-        let keys_query = KeyDistributionTestData::me_keys_query_response();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        // Create the local user (`@me`), and import the public identity keys
+        let machine = OlmMachine::new(DataSet::me_id(), DataSet::me_device_id()).await;
+        let keys_query = DataSet::me_keys_query_response();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
+        // Also import the private cross signing keys
         machine
             .import_cross_signing_keys(CrossSigningKeyExport {
-                master_key: KeyDistributionTestData::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
-                self_signing_key: KeyDistributionTestData::SELF_SIGNING_KEY_PRIVATE_EXPORT
-                    .to_owned()
-                    .into(),
-                user_signing_key: KeyDistributionTestData::USER_SIGNING_KEY_PRIVATE_EXPORT
-                    .to_owned()
-                    .into(),
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
             })
             .await
             .unwrap();
 
+        machine
+    }
+
+    /// Import device data for `@dan`, `@dave`, and `@good`, as referenced in
+    /// [`KeyDistributionTestData`], into the given OlmMachine
+    async fn import_known_users_to_test_machine(machine: &OlmMachine) {
         let keys_query = KeyDistributionTestData::dan_keys_query_response();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -691,8 +694,6 @@ mod tests {
         let txn_id_good = TransactionId::new();
         let keys_query_good = KeyDistributionTestData::good_keys_query_response();
         machine.mark_request_as_sent(&txn_id_good, &keys_query_good).await.unwrap();
-
-        machine
     }
 
     /// Assert that [`CollectStrategy::AllDevices`] retains the same
@@ -751,7 +752,8 @@ mod tests {
 
     #[async_test]
     async fn test_share_with_per_device_strategy_to_all() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let encryption_settings = all_devices_strategy_settings();
 
@@ -788,7 +790,8 @@ mod tests {
 
     #[async_test]
     async fn test_share_with_only_trusted_strategy() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let encryption_settings = EncryptionSettings {
             sharing_strategy: CollectStrategy::OnlyTrustedDevices,
@@ -1230,7 +1233,8 @@ mod tests {
 
     #[async_test]
     async fn test_share_with_identity_strategy() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let encryption_settings = identity_based_strategy_settings();
 
@@ -1521,7 +1525,8 @@ mod tests {
 
     #[async_test]
     async fn test_should_rotate_based_on_visibility() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let strategy = CollectStrategy::AllDevices;
 
@@ -1566,7 +1571,8 @@ mod tests {
     /// his devices.
     #[async_test]
     async fn test_should_rotate_based_on_device_excluded() {
-        let machine = set_up_test_machine().await;
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
 
         let fake_room_id = room_id!("!roomid:localhost");
         let encryption_settings = all_devices_strategy_settings();
