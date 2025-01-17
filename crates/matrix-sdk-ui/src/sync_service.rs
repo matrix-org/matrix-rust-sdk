@@ -226,9 +226,14 @@ impl SyncTaskSupervisor {
             }
         };
 
-        let report =
-            TerminationReport { is_error, has_expired, origin: TerminationOrigin::EncryptionSync };
-        if let Err(err) = sender.send(report).await {
+        if let Err(err) = sender
+            .send(TerminationReport {
+                is_error,
+                has_expired,
+                origin: TerminationOrigin::EncryptionSync,
+            })
+            .await
+        {
             error!("Error while sending termination report: {err:#}");
         }
     }
@@ -269,9 +274,10 @@ impl SyncTaskSupervisor {
             }
         };
 
-        let report =
-            TerminationReport { is_error, has_expired, origin: TerminationOrigin::RoomList };
-        if let Err(err) = sender.send(report).await {
+        if let Err(err) = sender
+            .send(TerminationReport { is_error, has_expired, origin: TerminationOrigin::RoomList })
+            .await
+        {
             error!("Error while sending termination report: {err:#}");
         }
     }
