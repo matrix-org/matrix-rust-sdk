@@ -43,20 +43,23 @@ impl ObservableLiveLocation {
     /// Get a stream of [`LiveLocationShare`].
     pub fn subscribe(&self) -> impl Stream<Item = LiveLocationShare> {
         let stream = self.observable_room_events.subscribe();
+
         stream! {
             for await (event, room) in stream {
-                yield LiveLocationShare {
-                    last_location: LastLocation {
-                        location: event.content.location,
-                        ts: event.origin_server_ts,
-                    },
-                    beacon_info: room
-                        .get_user_beacon_info(&event.sender)
-                        .await
-                        .ok()
-                        .map(|info| info.content),
-                    user_id: event.sender,
-                };
+                if event.sender != room.own_user_id() {
+                    yield LiveLocationShare {
+                        last_location: LastLocation {
+                            location: event.content.location,
+                            ts: event.origin_server_ts,
+                        },
+                        beacon_info: room
+                            .get_user_beacon_info(&event.sender)
+                            .await
+                            .ok()
+                            .map(|info| info.content),
+                        user_id: event.sender,
+                    };
+                }
             }
         }
     }
