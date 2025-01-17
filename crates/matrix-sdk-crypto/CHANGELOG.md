@@ -17,6 +17,9 @@ All notable changes to this project will be documented in this file.
   keys with Olm-encrypted events).
   ([#4420](https://github.com/matrix-org/matrix-rust-sdk/pull/4420))
 
+- Room keys are not shared with unsigned dehydrated devices.
+  ([#4551](https://github.com/matrix-org/matrix-rust-sdk/pull/4551))
+
 ## [0.9.0] - 2024-12-18
 
 ### Features
