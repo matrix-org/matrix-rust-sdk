@@ -286,7 +286,7 @@ mod tests {
     impl ReloadSessionCallback for TestReloadSessionCallback {
         async fn reload_session(
             &self,
-            client: Client,
+            _client: Client,
         ) -> Result<SessionTokens, SessionCallbackError> {
             Ok(SessionTokens::Oidc(self.tokens.clone()))
         }
@@ -296,7 +296,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SaveSessionCallback for TestSaveSessionCallback {
-        async fn save_session(&self, client: Client) -> Result<(), SessionCallbackError> {
+        async fn save_session(&self, _client: Client) -> Result<(), SessionCallbackError> {
             panic!("save_session_callback shouldn't be called here")
         }
     }

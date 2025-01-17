@@ -156,9 +156,11 @@ pub trait ClientDelegate: Sync + Send {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 #[async_trait::async_trait]
 pub trait ClientSessionDelegate: Sync + Send {
-    async fn retrieve_session_from_keychain(&self, user_id: String)
-        -> Result<Session, ClientError>;
-    async fn save_session_in_keychain(&self, session: Session);
+    async fn retrieve_session_from_keychain<'a>(
+        &'a self,
+        user_id: String,
+    ) -> Result<Session, ClientError>;
+    async fn save_session_in_keychain<'a>(&'a self, session: Session);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
