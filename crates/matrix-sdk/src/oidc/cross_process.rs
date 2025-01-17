@@ -264,7 +264,9 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        authentication::{ReloadSessionCallback, SaveSessionCallback, SessionCallbackError},
+        authentication::{
+            ReloadSessionCallback, SaveSessionCallback, SessionCallbackError, SessionTokens,
+        },
         oidc::{
             backend::mock::{MockImpl, ISSUER_URL},
             cross_process::SessionHash,
@@ -273,7 +275,7 @@ mod tests {
             Oidc, OidcSessionTokens,
         },
         test_utils::test_client_builder,
-        Error,
+        Client, Error,
     };
 
     struct TestReloadSessionCallback {
@@ -284,7 +286,7 @@ mod tests {
     impl ReloadSessionCallback for TestReloadSessionCallback {
         async fn reload_session(
             &self,
-            client: matrix_sdk::Client,
+            client: Client,
         ) -> Result<SessionTokens, SessionCallbackError> {
             crate::authentication::SessionTokens::Oidc(self.tokens.clone())
         }
@@ -294,10 +296,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SaveSessionCallback for TestSaveSessionCallback {
-        async fn save_session(
-            &self,
-            client: matrix_sdk::Client,
-        ) -> Result<(), SessionCallbackError> {
+        async fn save_session(&self, client: Client) -> Result<(), SessionCallbackError> {
             panic!("save_session_callback shouldn't be called here")
         }
     }
@@ -577,7 +576,7 @@ mod tests {
         }
 
         client.set_session_callbacks(
-            Box::new(TestReloadSessionCallback { tokens: next_tokens }),
+            Box::new(TestReloadSessionCallback { tokens: next_tokens.clone() }),
             Box::new(TestSaveSessionCallback {}),
         )?;
 
