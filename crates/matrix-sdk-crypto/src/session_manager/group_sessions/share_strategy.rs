@@ -195,9 +195,13 @@ pub(crate) async fn collect_session_recipients(
                     user_id
                 );
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+                let device_owner_identity = store.get_user_identity(user_id).await?;
 
-                let recipient_devices =
-                    split_devices_for_user_for_all_devices_strategy(user_devices);
+                let recipient_devices = split_devices_for_user_for_all_devices_strategy(
+                    user_devices,
+                    &own_identity,
+                    &device_owner_identity,
+                );
                 update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
             }
         }
@@ -443,16 +447,48 @@ enum ErrorOnVerifiedUserProblemResult {
 /// receive the key, for [`CollectStrategy::AllDevices`].
 fn split_devices_for_user_for_all_devices_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
         if d.is_blacklisted() {
             Either::Right((d, WithheldCode::Blacklisted))
+        } else if d.is_dehydrated()
+            && should_withhold_to_dehydrated_device(
+                &d,
+                own_identity.as_ref(),
+                device_owner_identity.as_ref(),
+            )
+        {
+            Either::Right((d, WithheldCode::Unverified))
         } else {
             Either::Left(d)
         }
     });
 
     RecipientDevicesForUser { allowed_devices: left, denied_devices_with_code: right }
+}
+
+/// Helper for [`split_devices_for_user_for_all_devices_strategy`].
+///
+/// Given a dehydrated device `device`, decide if we should withhold the room
+/// key from it.
+///
+/// Dehydrated devices must be signed by their owners (whether or not we have
+/// verified the owner), and, if we previously verified the owner, they must be
+/// verified still (i.e., they must not have a verification violation).
+fn should_withhold_to_dehydrated_device(
+    device: &DeviceData,
+    own_identity: Option<&OwnUserIdentityData>,
+    device_owner_identity: Option<&UserIdentityData>,
+) -> bool {
+    device_owner_identity.is_none_or(|owner_id| {
+        // Dehydrated devices must be signed by their owners
+        !device.is_cross_signed_by_owner(owner_id) ||
+
+        // If the user has changed identity since we verified them, withhold the message
+        (owner_id.was_previously_verified() && !is_user_verified(own_identity, owner_id))
+    })
 }
 
 /// Partition the list of a user's devices according to whether they should
@@ -525,6 +561,14 @@ fn handle_device_for_user_for_error_on_verified_user_problem_strategy(
         ErrorOnVerifiedUserProblemDeviceDecision::Ok
     } else if is_unsigned_device_of_verified_user(own_identity, device_owner_identity, device) {
         ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified
+    } else if device.is_dehydrated()
+        && device_owner_identity.is_none_or(|owner_id| {
+            // Dehydrated devices must be signed by their owners, whether or not that
+            // owner is verified
+            !device.is_cross_signed_by_owner(owner_id)
+        })
+    {
+        ErrorOnVerifiedUserProblemDeviceDecision::Withhold(WithheldCode::Unverified)
     } else {
         ErrorOnVerifiedUserProblemDeviceDecision::Ok
     }
@@ -1229,6 +1273,435 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    /// A set of tests for the behaviour of [`collect_session_recipients`] with
+    /// a dehydrated device
+    mod dehydrated_device {
+        use std::{collections::HashSet, iter};
+
+        use insta::{allow_duplicates, assert_json_snapshot, with_settings};
+        use matrix_sdk_common::deserialized_responses::WithheldCode;
+        use matrix_sdk_test::{
+            async_test, ruma_response_to_json,
+            test_json::keys_query_sets::{
+                KeyDistributionTestData, KeyQueryResponseTemplate,
+                KeyQueryResponseTemplateDeviceOptions,
+            },
+        };
+        use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
+        use vodozemac::{Curve25519PublicKey, Ed25519SecretKey};
+
+        use super::{
+            all_devices_strategy_settings, create_test_outbound_group_session,
+            error_on_verification_problem_encryption_settings, identity_based_strategy_settings,
+            test_machine,
+        };
+        use crate::{
+            session_manager::group_sessions::{
+                share_strategy::collect_session_recipients, CollectRecipientsResult,
+            },
+            EncryptionSettings, OlmMachine,
+        };
+
+        #[async_test]
+        async fn test_all_devices_strategy_should_share_with_verified_dehydrated_device() {
+            should_share_with_verified_dehydrated_device(&all_devices_strategy_settings()).await
+        }
+
+        #[async_test]
+        async fn test_error_on_verification_problem_strategy_should_share_with_verified_dehydrated_device(
+        ) {
+            should_share_with_verified_dehydrated_device(
+                &error_on_verification_problem_encryption_settings(),
+            )
+            .await
+        }
+
+        #[async_test]
+        async fn test_identity_based_strategy_should_share_with_verified_dehydrated_device() {
+            should_share_with_verified_dehydrated_device(&identity_based_strategy_settings()).await
+        }
+
+        /// Common helper for
+        /// [`test_all_devices_strategy_should_share_with_verified_dehydrated_device`],
+        /// [`test_error_on_verification_problem_strategy_should_share_with_verified_dehydrated_device`]
+        /// and [`test_identity_based_strategy_should_share_with_verified_dehydrated_device`].
+        async fn should_share_with_verified_dehydrated_device(
+            encryption_settings: &EncryptionSettings,
+        ) {
+            let machine = test_machine().await;
+
+            // Bob is a user with cross-signing, who has a single (verified) dehydrated
+            // device.
+            let bob_user_id = user_id!("@bob:localhost");
+            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
+                .with_dehydrated_device(bob_dehydrated_device_id, true)
+                .build_response();
+            allow_duplicates! {
+                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+            }
+            machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+            // When we collect the recipients ...
+            let recips = share_test_session_and_collect_recipients(
+                &machine,
+                bob_user_id,
+                encryption_settings,
+            )
+            .await;
+
+            // ... then the dehydrated device should be included
+            assert_shared_with(recips, bob_user_id, [bob_dehydrated_device_id].into());
+        }
+
+        #[async_test]
+        async fn test_all_devices_strategy_should_not_share_with_unverified_dehydrated_device() {
+            should_not_share_with_unverified_dehydrated_device(&all_devices_strategy_settings())
+                .await
+        }
+
+        #[async_test]
+        async fn test_error_on_verification_problem_strategy_should_not_share_with_unverified_dehydrated_device(
+        ) {
+            should_not_share_with_unverified_dehydrated_device(
+                &error_on_verification_problem_encryption_settings(),
+            )
+            .await
+        }
+
+        #[async_test]
+        async fn test_identity_based_strategy_should_not_share_with_unverified_dehydrated_device() {
+            should_not_share_with_unverified_dehydrated_device(&identity_based_strategy_settings())
+                .await
+        }
+
+        /// Common helper for
+        /// [`test_all_devices_strategy_should_not_share_with_unverified_dehydrated_device`],
+        /// [`test_error_on_verification_problem_strategy_should_not_share_with_unverified_dehydrated_device`]
+        /// and [`test_identity_based_strategy_should_not_share_with_unverified_dehydrated_device`].
+        async fn should_not_share_with_unverified_dehydrated_device(
+            encryption_settings: &EncryptionSettings,
+        ) {
+            let machine = test_machine().await;
+
+            // Bob is a user with cross-signing, who has a single (unverified) dehydrated
+            // device.
+            let bob_user_id = user_id!("@bob:localhost");
+            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
+                .with_dehydrated_device(bob_dehydrated_device_id, false)
+                .build_response();
+            allow_duplicates! {
+                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+            }
+            machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+            // When we collect the recipients ...
+            let recips = share_test_session_and_collect_recipients(
+                &machine,
+                bob_user_id,
+                encryption_settings,
+            )
+            .await;
+
+            // ... it shouldn't be shared with anyone, and there should be a withheld
+            // message for the dehydrated device.
+            assert_withheld_to(recips, bob_user_id, bob_dehydrated_device_id);
+        }
+
+        #[async_test]
+        async fn test_all_devices_strategy_should_share_with_verified_device_of_pin_violation_user()
+        {
+            should_share_with_verified_device_of_pin_violation_user(
+                &all_devices_strategy_settings(),
+            )
+            .await
+        }
+
+        #[async_test]
+        async fn test_error_on_verification_problem_strategy_should_share_with_verified_device_of_pin_violation_user(
+        ) {
+            should_share_with_verified_device_of_pin_violation_user(
+                &error_on_verification_problem_encryption_settings(),
+            )
+            .await
+        }
+
+        #[async_test]
+        async fn test_identity_based_strategy_should_share_with_verified_device_of_pin_violation_user(
+        ) {
+            should_share_with_verified_device_of_pin_violation_user(
+                &identity_based_strategy_settings(),
+            )
+            .await
+        }
+
+        /// Common helper for
+        /// [`test_all_devices_strategy_should_share_with_verified_device_of_pin_violation_user`],
+        /// [`test_error_on_verification_problem_strategy_should_share_with_verified_device_of_pin_violation_user`]
+        /// and [`test_identity_based_strategy_should_share_with_verified_device_of_pin_violation_user`].
+        async fn should_share_with_verified_device_of_pin_violation_user(
+            encryption_settings: &EncryptionSettings,
+        ) {
+            let machine = test_machine().await;
+
+            // Bob starts out with one identity
+            let bob_user_id = user_id!("@bob:localhost");
+            let keys_query =
+                key_query_response_template_with_cross_signing(bob_user_id).build_response();
+            machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+            // He then changes identity, and adds a dehydrated device (signed with his new
+            // identity)
+            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let keys_query = key_query_response_template_with_changed_cross_signing(bob_user_id)
+                .with_dehydrated_device(bob_dehydrated_device_id, true)
+                .build_response();
+            allow_duplicates! {
+                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+            }
+            machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+            // When we collect the recipients ...
+            let recips = share_test_session_and_collect_recipients(
+                &machine,
+                bob_user_id,
+                encryption_settings,
+            )
+            .await;
+
+            // ... then the dehydrated device should be included
+            assert_shared_with(recips, bob_user_id, [bob_dehydrated_device_id].into());
+        }
+
+        #[async_test]
+        async fn test_all_devices_strategy_should_not_share_with_dehydrated_device_of_verification_violation_user(
+        ) {
+            should_not_share_with_dehydrated_device_of_verification_violation_user(
+                &all_devices_strategy_settings(),
+            )
+            .await
+        }
+
+        /// Helper function for
+        /// [`test_all_devices_strategy_should_not_share_with_dehydrated_device_of_verification_violation_user`].
+        async fn should_not_share_with_dehydrated_device_of_verification_violation_user(
+            encryption_settings: &EncryptionSettings,
+        ) {
+            let bob_user_id = user_id!("@bob:localhost");
+            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let machine = prepare_machine_with_dehydrated_device_of_verification_violation_user(
+                bob_user_id,
+                bob_dehydrated_device_id,
+            )
+            .await;
+
+            // When we collect the recipients ...
+            let recips = share_test_session_and_collect_recipients(
+                &machine,
+                bob_user_id,
+                encryption_settings,
+            )
+            .await;
+
+            // ... it shouldn't be shared with anyone, and there should be a withheld
+            // message for the dehydrated device.
+            assert_withheld_to(recips, bob_user_id, bob_dehydrated_device_id);
+        }
+
+        #[async_test]
+        async fn test_error_on_verification_problem_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user(
+        ) {
+            should_give_error_for_dehydrated_device_of_verification_violation_user(
+                &error_on_verification_problem_encryption_settings(),
+            )
+            .await
+        }
+
+        #[async_test]
+        async fn test_identity_based_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user(
+        ) {
+            // This hits the same codepath as
+            // `test_share_identity_strategy_report_verification_violation`, but
+            // we test dehydrated devices here specifically, for completeness.
+            should_give_error_for_dehydrated_device_of_verification_violation_user(
+                &identity_based_strategy_settings(),
+            )
+            .await
+        }
+
+        /// Common helper for
+        /// [`test_error_on_verification_problem_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user`]
+        /// and [`test_identity_based_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user`].
+        async fn should_give_error_for_dehydrated_device_of_verification_violation_user(
+            encryption_settings: &EncryptionSettings,
+        ) {
+            let bob_user_id = user_id!("@bob:localhost");
+            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let machine = prepare_machine_with_dehydrated_device_of_verification_violation_user(
+                bob_user_id,
+                bob_dehydrated_device_id,
+            )
+            .await;
+
+            let group_session = create_test_outbound_group_session(&machine, encryption_settings);
+            let share_result = collect_session_recipients(
+                machine.store(),
+                iter::once(bob_user_id),
+                encryption_settings,
+                &group_session,
+            )
+            .await;
+
+            // The key share should fail with an error indicating that recipients
+            // were previously verified.
+            assert_matches::assert_matches!(
+                share_result,
+                Err(crate::OlmError::SessionRecipientCollectionError(
+                    crate::SessionRecipientCollectionError::VerifiedUserChangedIdentity(_)
+                ))
+            );
+        }
+
+        /// Prepare an OlmMachine which knows about a user `bob_user_id`, who
+        /// has recently changed identity, and then added a new
+        /// dehydrated device `bob_dehydrated_device_id`.
+        async fn prepare_machine_with_dehydrated_device_of_verification_violation_user(
+            bob_user_id: &UserId,
+            bob_dehydrated_device_id: &DeviceId,
+        ) -> OlmMachine {
+            let machine = test_machine().await;
+
+            // Bob starts out with one identity, which we have verified
+            let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
+                .with_user_verification_signature(
+                    KeyDistributionTestData::me_id(),
+                    &KeyDistributionTestData::me_private_user_signing_key(),
+                )
+                .build_response();
+            machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+            // He then changes identity, and adds a dehydrated device (signed with his new
+            // identity)
+            let keys_query = key_query_response_template_with_changed_cross_signing(bob_user_id)
+                .with_dehydrated_device(bob_dehydrated_device_id, true)
+                .build_response();
+            allow_duplicates! {
+                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+            }
+            machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+            machine
+        }
+
+        /// Create a test megolm session and prepare to share it with the given
+        /// users, using the given sharing strategy.
+        async fn share_test_session_and_collect_recipients(
+            machine: &OlmMachine,
+            target_user_id: &UserId,
+            encryption_settings: &EncryptionSettings,
+        ) -> CollectRecipientsResult {
+            let group_session = create_test_outbound_group_session(machine, encryption_settings);
+            collect_session_recipients(
+                machine.store(),
+                iter::once(target_user_id),
+                encryption_settings,
+                &group_session,
+            )
+            .await
+            .unwrap()
+        }
+
+        /// Assert that the session is shared with the given devices, and that
+        /// there are no "withheld" messages
+        fn assert_shared_with(
+            recips: CollectRecipientsResult,
+            user_id: &UserId,
+            device_ids: HashSet<&DeviceId>,
+        ) {
+            let bob_devices_shared: HashSet<_> = recips
+                .devices
+                .get(user_id)
+                .unwrap_or_else(|| panic!("session not shared with {user_id}"))
+                .iter()
+                .map(|d| d.device_id())
+                .collect();
+            assert_eq!(bob_devices_shared, device_ids);
+
+            assert!(recips.withheld_devices.is_empty(), "Unexpected withheld messages");
+        }
+
+        /// Assert that the session is not shared with any devices, and that
+        /// there is a withheld code for the given device.
+        fn assert_withheld_to(
+            recips: CollectRecipientsResult,
+            bob_user_id: &UserId,
+            bob_dehydrated_device_id: &DeviceId,
+        ) {
+            // The share list should be empty
+            for (user, device_list) in recips.devices {
+                assert_eq!(device_list.len(), 0, "session unexpectedly shared with {}", user);
+            }
+
+            // ... and there should be one withheld message
+            assert_eq!(recips.withheld_devices.len(), 1);
+            assert_eq!(recips.withheld_devices[0].0.user_id(), bob_user_id);
+            assert_eq!(recips.withheld_devices[0].0.device_id(), bob_dehydrated_device_id);
+            assert_eq!(recips.withheld_devices[0].1, WithheldCode::Unverified);
+        }
+
+        /// Start a [`KeysQueryResponseTemplate`] for the given user, with
+        /// cross-signing keys.
+        fn key_query_response_template_with_cross_signing(
+            user_id: &UserId,
+        ) -> KeyQueryResponseTemplate {
+            KeyQueryResponseTemplate::new(user_id.to_owned()).with_cross_signing_keys(
+                Ed25519SecretKey::from_slice(b"master12master12master12master12"),
+                Ed25519SecretKey::from_slice(b"self1234self1234self1234self1234"),
+                Ed25519SecretKey::from_slice(b"user1234user1234user1234user1234"),
+            )
+        }
+
+        /// Start a [`KeysQueryResponseTemplate`] for the given user, with
+        /// *different* cross signing key to
+        /// [`key_query_response_template_with_cross_signing`].
+        fn key_query_response_template_with_changed_cross_signing(
+            bob_user_id: &UserId,
+        ) -> KeyQueryResponseTemplate {
+            KeyQueryResponseTemplate::new(bob_user_id.to_owned()).with_cross_signing_keys(
+                Ed25519SecretKey::from_slice(b"newmaster__newmaster__newmaster_"),
+                Ed25519SecretKey::from_slice(b"self1234self1234self1234self1234"),
+                Ed25519SecretKey::from_slice(b"user1234user1234user1234user1234"),
+            )
+        }
+
+        trait KeyQueryResponseTemplateExt {
+            fn with_dehydrated_device(
+                self,
+                device_id: &DeviceId,
+                verified: bool,
+            ) -> KeyQueryResponseTemplate;
+        }
+
+        impl KeyQueryResponseTemplateExt for KeyQueryResponseTemplate {
+            /// Add a dehydrated device to the KeyQueryResponseTemplate
+            fn with_dehydrated_device(
+                self,
+                device_id: &DeviceId,
+                verified: bool,
+            ) -> KeyQueryResponseTemplate {
+                self.with_device(
+                    device_id,
+                    &Curve25519PublicKey::from(b"curvepubcurvepubcurvepubcurvepub".to_owned()),
+                    &Ed25519SecretKey::from_slice(b"device12device12device12device12"),
+                    KeyQueryResponseTemplateDeviceOptions::new()
+                        .dehydrated(true)
+                        .verified(verified),
+                )
+            }
+        }
     }
 
     #[async_test]
