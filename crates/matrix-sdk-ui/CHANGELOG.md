@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
   introduced due to the introduction of the banned state for rooms, and the
   non-left room filter did not take the new room stat into account.
   ([#4448](https://github.com/matrix-org/matrix-rust-sdk/pull/4448))
+- Fix `EventTimelineItem::latest_edit_json()` when it is populated by a live
+  edit. ([#4552](https://github.com/matrix-org/matrix-rust-sdk/pull/4552))
 
 ### Features
 

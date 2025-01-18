@@ -528,6 +528,16 @@ impl EventTimelineItem {
         Self { sender_profile, ..self.clone() }
     }
 
+    /// Clone the current event item, and update its `encryption_info`.
+    pub(super) fn with_encryption_info(&self, encryption_info: Option<EncryptionInfo>) -> Self {
+        let mut new = self.clone();
+        if let EventTimelineItemKind::Remote(r) = &mut new.kind {
+            r.encryption_info = encryption_info;
+        }
+
+        new
+    }
+
     /// Create a clone of the current item, with content that's been redacted.
     pub(super) fn redact(&self, room_version: &RoomVersionId) -> Self {
         let content = self.content.redact(room_version);
