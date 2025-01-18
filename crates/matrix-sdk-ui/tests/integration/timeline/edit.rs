@@ -101,6 +101,7 @@ async fn test_edit() {
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     let item = first.as_event().unwrap();
     assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
+    assert_matches!(item.latest_edit_json(), None);
     assert_let!(TimelineItemContent::Message(msg) = item.content());
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert_matches!(msg.in_reply_to(), None);
@@ -131,6 +132,7 @@ async fn test_edit() {
     assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
 
     assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_matches!(item.latest_edit_json(), None);
     assert_let!(MessageType::Text(TextMessageEventContent { body, .. }) = msg.msgtype());
     assert_eq!(body, "Test");
     assert_matches!(msg.in_reply_to(), None);
@@ -140,6 +142,7 @@ async fn test_edit() {
     // something after the second event.
     assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
     let item = item.as_event().unwrap();
+    assert_matches!(item.latest_edit_json(), None);
     assert_let!(TimelineItemContent::Message(msg) = item.content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hello");
@@ -158,6 +161,7 @@ async fn test_edit() {
     // The text changes in Alice's message.
     assert_let!(Some(VectorDiff::Set { index: 1, value: edit }) = timeline_stream.next().await);
     let item = edit.as_event().unwrap();
+    assert_matches!(item.latest_edit_json(), Some(_));
     assert_let!(TimelineItemContent::Message(edited) = item.content());
     assert_let!(MessageType::Text(text) = edited.msgtype());
     assert_eq!(text.body, "hi");

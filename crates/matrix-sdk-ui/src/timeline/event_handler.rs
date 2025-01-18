@@ -687,12 +687,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let mut new_item = item.with_content(TimelineItemContent::Message(new_msg), edit_json);
 
-        if let EventTimelineItemKind::Remote(remote_event) = &item.kind {
-            if let Flow::Remote { encryption_info, .. } = &self.ctx.flow {
-                new_item = new_item.with_kind(EventTimelineItemKind::Remote(
-                    remote_event.with_encryption_info(encryption_info.clone()),
-                ));
-            }
+        if let Flow::Remote { encryption_info, .. } = &self.ctx.flow {
+            new_item = new_item.with_encryption_info(encryption_info.clone());
         }
 
         Some(new_item)
