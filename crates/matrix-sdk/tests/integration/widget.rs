@@ -25,21 +25,11 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_common::{executor::spawn, timeout::timeout};
-use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, EventBuilder, JoinedRoomBuilder, ALICE, BOB,
-};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB};
 use once_cell::sync::Lazy;
 use ruma::{
     event_id,
-    events::{
-        room::{
-            member::{MembershipState, RoomMemberEventContent},
-            message::RoomMessageEventContent,
-            name::RoomNameEventContent,
-            topic::RoomTopicEventContent,
-        },
-        MessageLikeEventType, StateEventType,
-    },
+    events::{room::member::MembershipState, MessageLikeEventType, StateEventType},
     owned_room_id,
     serde::JsonObject,
     user_id, OwnedRoomId,
@@ -398,51 +388,34 @@ async fn test_receive_live_events() {
     // No messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
+    let f = EventFactory::new();
+
     mock_server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            let event_builder = EventBuilder::new();
             sync_builder.add_joined_room(
                 JoinedRoomBuilder::new(&ROOM_ID)
                     // text message from alice - matches filter #2
-                    .add_timeline_event(event_builder.make_sync_message_event(
-                        &ALICE,
-                        RoomMessageEventContent::text_plain("simple text message"),
-                    ))
+                    .add_timeline_event(f.text_msg("simple text message").sender(&ALICE))
                     // emote from alice - doesn't match
-                    .add_timeline_event(event_builder.make_sync_message_event(
-                        &ALICE,
-                        RoomMessageEventContent::emote_plain("emote message"),
-                    ))
+                    .add_timeline_event(f.emote("emote message").sender(&ALICE))
                     // pointless member event - matches filter #4
-                    .add_timeline_event(event_builder.make_sync_state_event(
-                        user_id!("@example:localhost"),
-                        "@example:localhost",
-                        RoomMemberEventContent::new(MembershipState::Join),
-                        Some(RoomMemberEventContent::new(MembershipState::Join)),
-                    ))
+                    .add_timeline_event(
+                        f.member(user_id!("@example:localhost"))
+                            .membership(MembershipState::Join)
+                            .previous(MembershipState::Join),
+                    )
                     // kick alice - doesn't match because the `#@example:localhost` bit
                     // is about the state_key, not the sender
-                    .add_timeline_event(event_builder.make_sync_state_event(
-                        user_id!("@example:localhost"),
-                        ALICE.as_str(),
-                        RoomMemberEventContent::new(MembershipState::Ban),
-                        Some(RoomMemberEventContent::new(MembershipState::Join)),
-                    ))
-                    // set room tpoic - doesn't match
-                    .add_timeline_event(event_builder.make_sync_state_event(
-                        &BOB,
-                        "",
-                        RoomTopicEventContent::new("new room topic".to_owned()),
-                        None,
-                    ))
+                    .add_timeline_event(
+                        f.member(user_id!("@example:localhost"))
+                            .banned(&ALICE)
+                            .previous(MembershipState::Join),
+                    )
+                    // set room topic - doesn't match
+                    .add_timeline_event(f.room_topic("new room topic").sender(&BOB))
                     // set room name - matches filter #3
-                    .add_timeline_event(event_builder.make_sync_state_event(
-                        &BOB,
-                        "",
-                        RoomNameEventContent::new("New Room Name".to_owned()),
-                        None,
-                    )),
+                    .add_timeline_event(f.room_name("New Room Name").sender(&BOB)),
             );
         })
         .await;

@@ -44,7 +44,9 @@ use ruma::{
                 FormattedBody, ImageMessageEventContent, MessageType, Relation,
                 RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
+            name::RoomNameEventContent,
             redaction::RoomRedactionEventContent,
+            topic::RoomTopicEventContent,
         },
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
     },
@@ -371,6 +373,11 @@ impl EventFactory {
         self.event(RoomMessageEventContent::text_plain(content.into()))
     }
 
+    /// Create a new plain emote `m.room.message`.
+    pub fn emote(&self, content: impl Into<String>) -> EventBuilder<RoomMessageEventContent> {
+        self.event(RoomMessageEventContent::emote_plain(content.into()))
+    }
+
     /// Create a new `m.room.member` event for the given member.
     ///
     /// The given member will be used as the `sender` as well as the `state_key`
@@ -411,6 +418,22 @@ impl EventFactory {
 
         event.state_key = Some(member.to_string());
 
+        event
+    }
+
+    /// Create a state event for the topic.
+    pub fn room_topic(&self, topic: impl Into<String>) -> EventBuilder<RoomTopicEventContent> {
+        let mut event = self.event(RoomTopicEventContent::new(topic.into()));
+        // The state key is empty for a room topic state event.
+        event.state_key = Some("".to_owned());
+        event
+    }
+
+    /// Create a state event for the room name.
+    pub fn room_name(&self, name: impl Into<String>) -> EventBuilder<RoomNameEventContent> {
+        let mut event = self.event(RoomNameEventContent::new(name.into()));
+        // The state key is empty for a room name state event.
+        event.state_key = Some("".to_owned());
         event
     }
 
@@ -583,6 +606,19 @@ impl EventBuilder<RoomMemberEventContent> {
         );
         self.content.membership = MembershipState::Leave;
         self.state_key = Some(kicked_user.to_string());
+        self
+    }
+
+    /// Set that the sender of this event banned the user passed as a parameter
+    /// here.
+    pub fn banned(mut self, banned_user: &UserId) -> Self {
+        assert_ne!(
+            self.sender.as_deref().unwrap(),
+            banned_user,
+            "a user can't ban itself" // hopefully
+        );
+        self.content.membership = MembershipState::Ban;
+        self.state_key = Some(banned_user.to_string());
         self
     }
 
