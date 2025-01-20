@@ -1,10 +1,14 @@
-use std::time::Duration;
+use std::{ops::ControlFlow, time::Duration};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
-    assert_next_matches_with_timeout, config::SyncSettings, sync::SyncResponse,
-    test_utils::logged_in_client_with_server, Client,
+    assert_next_matches_with_timeout,
+    config::SyncSettings,
+    event_cache::{BackPaginationOutcome, TimelineHasBeenResetWhilePaginating},
+    sync::SyncResponse,
+    test_utils::logged_in_client_with_server,
+    Client,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
@@ -393,6 +397,81 @@ async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_is_just_empty() {
     assert!(items.is_empty());
 
     test_helper.server.reset().await;
+}
+
+#[async_test]
+async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty() {
+    let mut test_helper = TestHelper::new().await;
+    let room_id = test_helper.room_id.clone();
+    let event_id = event_id!("$1.localhost");
+    let sender_id = owned_user_id!("@example:localhost");
+
+    // Join the room
+    let _ = test_helper.setup_initial_sync_response().await;
+    test_helper.server.reset().await;
+
+    // Load initial timeline items: an empty `m.room.pinned_events` event
+    test_helper.setup_sync_response(Vec::new(), Some(Vec::new())).await.expect("Sync failed");
+
+    let room = test_helper.client.get_room(&room_id).unwrap();
+    let pinned_timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+
+    // Create a non-pinned event
+    let not_pinned_event = EventFactory::new()
+        .room(&room_id)
+        .sender(&sender_id)
+        .text_msg("Hey")
+        .event_id(event_id)
+        .into_raw_timeline();
+
+    mock_event(
+        &test_helper.server,
+        &room_id,
+        event_id,
+        TimelineEvent::new(not_pinned_event.clone()),
+    )
+    .await;
+
+    // The timeline couldn't load any events, but it expected none, so it just
+    // returns an empty list
+    let (pinned_items, mut pinned_events_stream) = pinned_timeline.subscribe().await;
+    assert!(pinned_items.is_empty());
+
+    // Mock the /messages endpoint with the not pinned event
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "start": "prev1",
+            "chunk": vec![not_pinned_event],
+        })))
+        .expect(1)
+        .mount(&test_helper.server)
+        .await;
+
+    let (event_cache, _) = room.event_cache().await.expect("Event cache should be accessible");
+
+    async fn once(
+        outcome: BackPaginationOutcome,
+        _timeline_has_been_reset: TimelineHasBeenResetWhilePaginating,
+    ) -> ControlFlow<BackPaginationOutcome, ()> {
+        ControlFlow::Break(outcome)
+    }
+
+    // Paginate backwards once using the event cache to load the event
+    event_cache
+        .pagination()
+        .run_backwards(10, once)
+        .await
+        .expect("Pagination of events should successful");
+
+    // Assert the event is loaded and added to the cache
+    assert!(event_cache.event(event_id).await.is_some());
+
+    // And it won't cause an update in the pinned events timeline since it's not
+    // pinned
+    assert_pending!(pinned_events_stream);
 }
 
 #[async_test]
