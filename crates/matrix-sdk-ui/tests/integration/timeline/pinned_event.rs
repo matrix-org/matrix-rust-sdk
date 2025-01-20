@@ -1,10 +1,11 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use futures_util::StreamExt as _;
 use matrix_sdk::{
-    assert_next_matches_with_timeout, config::SyncSettings, sync::SyncResponse,
-    test_utils::logged_in_client_with_server, Client,
+    config::SyncSettings, sync::SyncResponse, test_utils::logged_in_client_with_server, Client,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
@@ -71,7 +72,7 @@ async fn test_new_pinned_events_are_added_on_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -93,23 +94,31 @@ async fn test_new_pinned_events_are_added_on_sync() {
         .into_timeline();
     let _ = test_helper.setup_sync_response(vec![(event_2, true), (event_3, true)], None).await;
 
+    sleep(Duration::from_millis(250)).await;
+
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 5);
+
     // The item is added automatically
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
+
     // The list is reloaded, so it's reset
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
+    assert_let!(VectorDiff::Clear = &timeline_updates[1]);
+
     // Then the loaded list items are added
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
+
     test_helper.server.reset().await;
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -151,7 +160,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -167,16 +176,20 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         )
         .await;
 
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+    assert!(value.is_date_divider());
+
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
 
@@ -185,7 +198,10 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         .setup_sync_response(vec![(event_1, false), (event_2, false)], Some(Vec::new()))
         .await;
 
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
 }
@@ -256,7 +272,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert!(!items.is_empty()); // We just loaded some events
     assert_pending!(timeline_stream);
@@ -280,7 +296,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let timeline =
         Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
-    let (items, _) = timeline.subscribe().await;
+    let (items, _) = timeline.subscribe_batched().await;
     assert!(!items.is_empty()); // These events came from the cache
     assert!(room_cache.event(event_id!("$1")).await.is_some());
 
@@ -347,7 +363,7 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
-    let (items, _) = timeline.subscribe().await;
+    let (items, _) = timeline.subscribe_batched().await;
     assert!(items.is_empty());
 
     test_helper.server.reset().await;
@@ -389,7 +405,7 @@ async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_is_just_empty() {
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
-    let (items, _) = timeline.subscribe().await;
+    let (items, _) = timeline.subscribe_batched().await;
     assert!(items.is_empty());
 
     test_helper.server.reset().await;
@@ -443,7 +459,7 @@ async fn test_pinned_timeline_with_pinned_utd_contains_it() {
         Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline loaded with just a day divider and the pinned UTD
-    let (items, _) = timeline.subscribe().await;
+    let (items, _) = timeline.subscribe_batched().await;
     assert_eq!(items.len(), 2);
     let pinned_utd_event = items.last().unwrap().as_event().unwrap();
     assert_eq!(pinned_utd_event.event_id().unwrap(), event_id);
@@ -482,7 +498,7 @@ async fn test_edited_events_are_reflected_in_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -503,26 +519,30 @@ async fn test_edited_events_are_reflected_in_sync() {
     // Load new pinned event contents from sync, where $2 is and edit on $1
     let _ = test_helper.setup_sync_response(vec![(edited_event, true)], None).await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
     // The list is reloaded, so it's reset
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+
     // Then the loaded list items are added
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        let event = value.as_event().unwrap();
-        assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    let event = value.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+    assert!(value.is_date_divider());
+
     // The edit replaces the original event
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index, value } => {
-        assert_eq!(index, 1);
-        match value.as_event().unwrap().content() {
-            TimelineItemContent::Message(m) => {
-                assert_eq!(m.body(), "* edited message!")
-            }
-            _ => panic!("Should be a message event"),
+    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[3]);
+    assert_eq!(*index, 1);
+    match value.as_event().unwrap().content() {
+        TimelineItemContent::Message(m) => {
+            assert_eq!(m.body(), "* edited message!")
         }
-    });
+        _ => panic!("Should be a message event"),
+    }
+
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
 }
@@ -558,7 +578,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -575,21 +595,25 @@ async fn test_redacted_events_are_reflected_in_sync() {
     // Load new pinned event contents from sync, where $1 is now redacted
     let _ = test_helper.setup_sync_response(vec![(redaction_event, true)], None).await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
     // The list is reloaded, so it's reset
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+
     // Then the loaded list items are added
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        let event = value.as_event().unwrap();
-        assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    let event = value.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+    assert!(value.is_date_divider());
+
     // The redaction replaces the original event
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index, value } => {
-        assert_eq!(index, 1);
-        assert_matches!(value.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
-    });
+    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[3]);
+    assert_eq!(*index, 1);
+    assert_matches!(value.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
+
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
 }
@@ -625,7 +649,7 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -648,26 +672,30 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     let _ = test_helper.setup_sync_response(vec![(edited_pinned_event, true)], None).await;
     test_helper.server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
     // The list is reloaded, so it's reset
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+
     // Then the loaded list items are added
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        let event = value.as_event().unwrap();
-        assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    let event = value.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+    assert!(value.is_date_divider());
+
     // The edit replaces the original event
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index, value } => {
-        assert_eq!(index, 1);
-        match value.as_event().unwrap().content() {
-            TimelineItemContent::Message(m) => {
-                assert_eq!(m.body(), "edited message!")
-            }
-            _ => panic!("Should be a message event"),
+    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[3]);
+    assert_eq!(*index, 1);
+    match value.as_event().unwrap().content() {
+        TimelineItemContent::Message(m) => {
+            assert_eq!(m.body(), "edited message!")
         }
-    });
+        _ => panic!("Should be a message event"),
+    }
+
     assert_pending!(timeline_stream);
 
     let new_pinned_event = f
@@ -682,36 +710,42 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
         .await;
     test_helper.server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // New item gets added
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        let event = value.as_event().unwrap();
-        assert_eq!(event.event_id().unwrap(), event_id!("$3"));
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event = value.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id!("$3"));
+
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 5);
+
     // The list is reloaded, so it's reset
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+
     // Then the loaded list items are added
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        let event = value.as_event().unwrap();
-        assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    let event = value.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+
     // The edit replaces the original event
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index, value } => {
-        assert_eq!(index, 0);
-        match value.as_event().unwrap().content() {
-            TimelineItemContent::Message(m) => {
-                assert_eq!(m.body(), "edited message!")
-            }
-            _ => panic!("Should be a message event"),
+    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[2]);
+    assert_eq!(*index, 0);
+    match value.as_event().unwrap().content() {
+        TimelineItemContent::Message(m) => {
+            assert_eq!(m.body(), "edited message!")
         }
-    });
+        _ => panic!("Should be a message event"),
+    }
     // The new pinned event is added
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
-        let event = value.as_event().unwrap();
-        assert_eq!(event.event_id().unwrap(), event_id!("$3"));
-    });
-    assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
+    let event = value.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id!("$3"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
+
     assert_pending!(timeline_stream);
 }
 

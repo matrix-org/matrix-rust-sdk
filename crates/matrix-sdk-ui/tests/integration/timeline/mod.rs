@@ -19,7 +19,6 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    assert_let_timeout,
     config::SyncSettings,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
@@ -40,7 +39,7 @@ use ruma::{
     owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
-use stream_assert::{assert_next_matches, assert_pending};
+use stream_assert::assert_pending;
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
@@ -80,7 +79,7 @@ async fn test_reaction() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -113,17 +112,18 @@ async fn test_reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
     // The new message starts with their author's read receipt.
-    assert_let_timeout!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next());
+    assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
     let event_item = message.as_event().unwrap();
     assert_matches!(event_item.content(), TimelineItemContent::Message(_));
     assert_eq!(event_item.read_receipts().len(), 1);
 
     // The new message is getting the reaction, which implies an implicit read
     // receipt that's obtained first.
-    assert_let_timeout!(
-        Some(VectorDiff::Set { index: 0, value: updated_message }) = timeline_stream.next()
-    );
+    assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[1]);
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
@@ -131,9 +131,7 @@ async fn test_reaction() {
     assert_eq!(event_item.reactions().len(), 0);
 
     // Then the reaction is taken into account.
-    assert_let_timeout!(
-        Some(VectorDiff::Set { index: 0, value: updated_message }) = timeline_stream.next()
-    );
+    assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[2]);
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
@@ -145,9 +143,7 @@ async fn test_reaction() {
     assert_eq!(senders.as_slice(), [user_id!("@bob:example.org")]);
 
     // The date divider.
-    assert_let_timeout!(
-        Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next()
-    );
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
     assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -165,13 +161,16 @@ async fn test_reaction() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let_timeout!(
-        Some(VectorDiff::Set { index: 1, value: updated_message }) = timeline_stream.next()
-    );
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: updated_message } = &timeline_updates[0]);
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
     assert_eq!(event_item.reactions().len(), 0);
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -191,7 +190,7 @@ async fn test_redacted_message() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -226,11 +225,16 @@ async fn test_redacted_message() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -244,7 +248,7 @@ async fn test_redact_message() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let factory = EventFactory::new();
     factory.set_next_ts(MilliSecondsSinceUnixEpoch::now().get().into());
@@ -258,13 +262,16 @@ async fn test_redact_message() {
         )
         .await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     assert_eq!(
         first.as_event().unwrap().content().as_message().unwrap().body(),
         "buy my bitcoins bro"
     );
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     // Redacting a remote event works.
@@ -278,14 +285,20 @@ async fn test_redact_message() {
         .await
         .unwrap();
 
-    assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
 
     let second = second.as_event().unwrap();
     assert_matches!(second.send_state(), Some(EventSendState::NotSentYet));
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // We haven't set a route for sending events, so this will fail.
-    assert_let!(Some(VectorDiff::Set { index, value: second }) = timeline_stream.next().await);
-    assert_eq!(index, 2);
+    assert_let!(VectorDiff::Set { index, value: second } = &timeline_updates[0]);
+    assert_eq!(*index, 2);
 
     let second = second.as_event().unwrap();
     assert!(second.is_local_echo());
@@ -294,8 +307,13 @@ async fn test_redact_message() {
     // Let's redact the local echo.
     timeline.redact(&second.identifier(), None).await.unwrap();
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // Observe local echo being removed.
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
+    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[0]);
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -309,7 +327,7 @@ async fn test_redact_local_sent_message() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     // Mock event sending.
     server.mock_room_send().ok(event_id!("$wWgymRfo7ri1uQx0NXO40vLJ")).mock_once().mount().await;
@@ -320,21 +338,27 @@ async fn test_redact_local_sent_message() {
         .await
         .unwrap();
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Assert the local event is in the timeline now and is not sent yet.
-    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     let event = item.as_event().unwrap();
     assert!(event.is_local_echo());
     assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
 
     // As well as a date divider.
-    assert_let_timeout!(
-        Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next()
-    );
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // We receive an update in the timeline from the send queue.
-    assert_let_timeout!(Some(VectorDiff::Set { index, value: item }) = timeline_stream.next());
-    assert_eq!(index, 1);
+    assert_let!(VectorDiff::Set { index, value: item } = &timeline_updates[0]);
+    assert_eq!(*index, 1);
+
+    assert_pending!(timeline_stream);
 
     // Check the event is sent but still considered local.
     let event = item.as_event().unwrap();
@@ -396,7 +420,7 @@ async fn test_read_marker() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
@@ -415,10 +439,13 @@ async fn test_read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(
@@ -448,13 +475,16 @@ async fn test_read_marker() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
-    assert_let!(
-        Some(VectorDiff::Insert { index: 2, value: marker }) = timeline_stream.next().await
-    );
+    assert_let!(VectorDiff::Insert { index: 2, value: marker } = &timeline_updates[1]);
     assert_matches!(marker.as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -480,7 +510,7 @@ async fn test_sync_highlighted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
@@ -499,12 +529,15 @@ async fn test_sync_highlighted() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     let remote_event = first.as_event().unwrap();
     // Own events don't trigger push rules.
     assert!(!remote_event.is_highlighted());
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -525,10 +558,15 @@ async fn test_sync_highlighted() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
     let remote_event = second.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -724,7 +762,7 @@ async fn test_timeline_without_encryption_info() {
     // Previously this would have panicked.
     let timeline = room.timeline().await.unwrap();
 
-    let (items, _) = timeline.subscribe().await;
+    let (items, _) = timeline.subscribe_batched().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].as_virtual().is_some());
     // No encryption, no shields
@@ -756,7 +794,7 @@ async fn test_timeline_without_encryption_can_update() {
     // encryption changes
     let timeline = Timeline::builder(&room).build().await.unwrap();
 
-    let (items, mut stream) = timeline.subscribe().await;
+    let (items, mut stream) = timeline.subscribe_batched().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].as_virtual().is_some());
     // No encryption, no shields
@@ -772,21 +810,24 @@ async fn test_timeline_without_encryption_can_update() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = stream.next().await);
+    assert_eq!(timeline_updates.len(), 3);
+
     // Previous timeline event now has a shield
-    assert_next_matches!(stream, VectorDiff::Set { index, value } => {
-        assert_eq!(index, 1);
-        assert!(value.as_event().unwrap().get_shield(false).is_some());
-    });
+    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[0]);
+    assert_eq!(*index, 1);
+    assert!(value.as_event().unwrap().get_shield(false).is_some());
+
     // Room encryption event is received
-    assert_next_matches!(stream, VectorDiff::PushBack { value } => {
-        assert_let!(TimelineItemContent::OtherState(other_state) = value.as_event().unwrap().content());
-        assert_let!(AnyOtherFullStateEventContent::RoomEncryption(_) = other_state.content());
-        assert!(value.as_event().unwrap().get_shield(false).is_some());
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    assert_let!(TimelineItemContent::OtherState(other_state) = value.as_event().unwrap().content());
+    assert_let!(AnyOtherFullStateEventContent::RoomEncryption(_) = other_state.content());
+    assert!(value.as_event().unwrap().get_shield(false).is_some());
+
     // New message event is received and has a shield
-    assert_next_matches!(stream, VectorDiff::PushBack { value } => {
-        assert!(value.as_event().unwrap().get_shield(false).is_some());
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
+    assert!(value.as_event().unwrap().get_shield(false).is_some());
+
     assert_pending!(stream);
 }
 

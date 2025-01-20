@@ -19,10 +19,7 @@ use std::time::Duration;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{
-    assert_next_matches_with_timeout, config::SyncSettings,
-    test_utils::logged_in_client_with_server,
-};
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
     SyncResponseBuilder, ALICE, BOB,
@@ -89,7 +86,7 @@ async fn test_new_focused() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 5 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
@@ -129,23 +126,27 @@ async fn test_new_focused() {
 
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushFront { value: message }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
+    assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[0]);
     assert_eq!(
         message.as_event().unwrap().content().as_message().unwrap().body(),
         "And even though I tried, it all fell apart"
     );
 
-    assert_let!(Some(VectorDiff::PushFront { value: message }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[1]);
     assert_eq!(
         message.as_event().unwrap().content().as_message().unwrap().body(),
         "I kept everything inside"
     );
 
     // Date divider post processing.
-    assert_let!(Some(VectorDiff::PushFront { value: item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: item } = &timeline_updates[2]);
     assert!(item.is_date_divider());
-    assert_let!(Some(VectorDiff::Remove { index }) = timeline_stream.next().await);
-    assert_eq!(index, 3);
+
+    assert_let!(VectorDiff::Remove { index } = &timeline_updates[3]);
+    assert_eq!(*index, 3);
 
     // Now trigger a forward pagination.
     mock_messages(
@@ -165,13 +166,16 @@ async fn test_new_focused() {
 
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
     assert_eq!(
         message.as_event().unwrap().content().as_message().unwrap().body(),
         "I had to fall, to lose it all"
     );
 
-    assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[1]);
     assert_eq!(
         message.as_event().unwrap().content().as_message().unwrap().body(),
         "But in the end, it doesn't event matter"
@@ -225,7 +229,7 @@ async fn test_focused_timeline_reacts() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
@@ -250,7 +254,10 @@ async fn test_focused_timeline_reacts() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let item = assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index: 1, value: item } => item);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
     let event_item = item.as_event().unwrap();
     // Text hasn't changed.
@@ -307,7 +314,7 @@ async fn test_focused_timeline_local_echoes() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
@@ -322,8 +329,11 @@ async fn test_focused_timeline_local_echoes() {
     // Add a reaction to the focused event, which will cause a local echo to happen.
     timeline.toggle_reaction(&event_item.identifier(), "✨").await.unwrap();
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // We immediately get the local echo for the reaction.
-    let item = assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index: 1, value: item } => item);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
     let event_item = item.as_event().unwrap();
     // Text hasn't changed.
@@ -383,7 +393,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());

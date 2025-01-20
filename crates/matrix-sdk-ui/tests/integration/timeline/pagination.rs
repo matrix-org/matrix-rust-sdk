@@ -66,7 +66,7 @@ async fn test_back_pagination() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     Mock::given(method("GET"))
@@ -87,9 +87,11 @@ async fn test_back_pagination() {
     };
     join(paginate, observe_paginating).await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+
     // `m.room.name`
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
@@ -104,13 +106,13 @@ async fn test_back_pagination() {
 
     // `m.room.name` receives an update
     {
-        assert_let!(Some(VectorDiff::Set { index, .. }) = timeline_stream.next().await);
-        assert_eq!(index, 0);
+        assert_let!(VectorDiff::Set { index, .. } = &timeline_updates[1]);
+        assert_eq!(*index, 0);
     }
 
     // `m.room.message`: “the world is big”
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2]);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "the world is big");
@@ -118,7 +120,7 @@ async fn test_back_pagination() {
 
     // `m.room.message`: “hello world”
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[3]);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello world");
@@ -126,9 +128,7 @@ async fn test_back_pagination() {
 
     // Date divider is updated.
     {
-        assert_let!(
-            Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await
-        );
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[4]);
         assert!(date_divider.is_date_divider());
     }
 
@@ -181,7 +181,7 @@ async fn test_back_pagination_highlighted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let response_json = json!({
         "chunk": [
@@ -224,9 +224,11 @@ async fn test_back_pagination_highlighted() {
     timeline.live_paginate_backwards(10).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+
     // `m.room.tombstone`
     {
-        assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let remote_event = second.as_event().unwrap();
         // `m.room.tombstone` should be highlighted by default.
         assert!(remote_event.is_highlighted());
@@ -234,7 +236,7 @@ async fn test_back_pagination_highlighted() {
 
     // `m.room.message`
     {
-        assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[1]);
         let remote_event = first.as_event().unwrap();
         // Own events don't trigger push rules.
         assert!(!remote_event.is_highlighted());
@@ -242,9 +244,7 @@ async fn test_back_pagination_highlighted() {
 
     // Date divider
     {
-        assert_let!(
-            Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await
-        );
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
         assert!(date_divider.is_date_divider());
     }
 
@@ -594,7 +594,7 @@ async fn test_empty_chunk() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     // It should try to do another request after the empty chunk.
@@ -631,9 +631,11 @@ async fn test_empty_chunk() {
     };
     join(paginate, observe_paginating).await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+
     // `m.room.name`
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
@@ -648,13 +650,13 @@ async fn test_empty_chunk() {
 
     // `m.room.name` is updated
     {
-        assert_let!(Some(VectorDiff::Set { index, .. }) = timeline_stream.next().await);
-        assert_eq!(index, 0);
+        assert_let!(VectorDiff::Set { index, .. } = &timeline_updates[1]);
+        assert_eq!(*index, 0);
     }
 
     // `m.room.message`: “the world is big”
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2]);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "the world is big");
@@ -662,7 +664,7 @@ async fn test_empty_chunk() {
 
     // `m.room.name`: “hello world”
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[3]);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello world");
@@ -670,9 +672,7 @@ async fn test_empty_chunk() {
 
     // Date divider
     {
-        assert_let!(
-            Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await
-        );
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[4]);
         assert!(date_divider.is_date_divider());
     }
 
@@ -696,7 +696,7 @@ async fn test_until_num_items_with_empty_chunk() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     Mock::given(method("GET"))
@@ -741,9 +741,11 @@ async fn test_until_num_items_with_empty_chunk() {
     };
     join(paginate, observe_paginating).await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+
     // `m.room.name`
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
@@ -758,13 +760,13 @@ async fn test_until_num_items_with_empty_chunk() {
 
     // `m.room.name` is updated
     {
-        assert_let!(Some(VectorDiff::Set { index, .. }) = timeline_stream.next().await);
-        assert_eq!(index, 0);
+        assert_let!(VectorDiff::Set { index, .. } = &timeline_updates[1]);
+        assert_eq!(*index, 0);
     }
 
     // `m.room.message`: “the world is big”
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2]);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "the world is big");
@@ -772,7 +774,7 @@ async fn test_until_num_items_with_empty_chunk() {
 
     // `m.room.name`: “hello world”
     {
-        assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[3]);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello world");
@@ -780,20 +782,18 @@ async fn test_until_num_items_with_empty_chunk() {
 
     // Date divider
     {
-        assert_let!(
-            Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await
-        );
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[4]);
         assert!(date_divider.is_date_divider());
     }
 
     timeline.live_paginate_backwards(10).await.unwrap();
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+
     // `m.room.name`: “hello room then”
     {
-        assert_let!(
-            Some(VectorDiff::Insert { index, value: message }) = timeline_stream.next().await
-        );
-        assert_eq!(index, 1);
+        assert_let!(VectorDiff::Insert { index, value: message } = &timeline_updates[0]);
+        assert_eq!(*index, 1);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello room then");
