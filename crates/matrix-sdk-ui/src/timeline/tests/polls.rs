@@ -1,4 +1,4 @@
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use fakes::poll_a2;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     events::{
@@ -164,26 +164,27 @@ async fn test_events_received_before_start_are_not_lost() {
     let poll_id: OwnedEventId = EventId::new(server_name!("dummy.server"));
 
     // Alice votes
-    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(&ALICE, vec!["0"], &poll_id).await;
 
     // Now Bob also votes
-    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(&BOB, vec!["0"], &poll_id).await;
 
     // Alice changes her mind and votes again
-    timeline.send_poll_response(&ALICE, vec!["id_down"], &poll_id).await;
+    timeline.send_poll_response(&ALICE, vec!["1"], &poll_id).await;
 
     // Poll finishes
     timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
 
     // Now the start event arrives
-    timeline.send_poll_start_with_id(&ALICE, &poll_id, fakes::poll_a()).await;
+    let start_ev = poll_a2(&timeline.factory).sender(&ALICE).event_id(&poll_id);
+    timeline.handle_live_event(start_ev).await;
 
     // Now Bob votes again but his vote won't count
-    timeline.send_poll_response(&BOB, vec!["id_down"], &poll_id).await;
+    timeline.send_poll_response(&BOB, vec!["1"], &poll_id).await;
 
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
-    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["0"], vec![BOB.to_string()]);
+    assert_eq!(results.votes["1"], vec![ALICE.to_string()]);
 }
 
 impl TestTimeline {
@@ -204,20 +205,6 @@ impl TestTimeline {
             NewUnstablePollStartEventContent::new(content).into(),
         );
         self.handle_live_event(self.factory.event(event_content).sender(sender)).await;
-    }
-
-    async fn send_poll_start_with_id(
-        &self,
-        sender: &UserId,
-        event_id: &EventId,
-        content: UnstablePollStartContentBlock,
-    ) {
-        let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            NewUnstablePollStartEventContent::new(content).into(),
-        );
-        let event =
-            self.event_builder.make_sync_message_event_with_id(sender, event_id, event_content);
-        self.handle_live_event(SyncTimelineEvent::new(event)).await;
     }
 
     async fn send_poll_response(&self, sender: &UserId, answers: Vec<&str>, poll_id: &EventId) {
@@ -263,10 +250,18 @@ fn assert_poll_start_eq(a: &UnstablePollStartContentBlock, b: &UnstablePollStart
 }
 
 mod fakes {
+    use matrix_sdk_test::event_factory::{EventBuilder, EventFactory};
     use ruma::events::poll::{
         start::PollKind,
-        unstable_start::{UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock},
+        unstable_start::{
+            UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
+            UnstablePollStartEventContent,
+        },
     };
+
+    pub fn poll_a2(f: &EventFactory) -> EventBuilder<UnstablePollStartEventContent> {
+        f.poll_start("Up or down?", "Up or down?", vec!["Up", "Down"])
+    }
 
     pub fn poll_a() -> UnstablePollStartContentBlock {
         let mut content = UnstablePollStartContentBlock::new(
