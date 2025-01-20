@@ -113,7 +113,7 @@ async fn test_add_reaction_success() {
 
     // When the remote echo is received from sync,
     let f = EventFactory::new();
-    timeline.handle_live_event(f.reaction(&event_id, REACTION_KEY.to_owned()).sender(*ALICE)).await;
+    timeline.handle_live_event(f.reaction(&event_id, REACTION_KEY).sender(*ALICE)).await;
 
     // The reaction is still present on the item, as a remote echo.
     assert_reaction_is_updated!(stream, &event_id, item_pos, true);
@@ -132,9 +132,7 @@ async fn test_redact_reaction_success() {
     // A reaction is added by sync.
     let reaction_id = event_id!("$reaction_id");
     timeline
-        .handle_live_event(
-            f.reaction(&event_id, REACTION_KEY.to_owned()).sender(&ALICE).event_id(reaction_id),
-        )
+        .handle_live_event(f.reaction(&event_id, REACTION_KEY).sender(&ALICE).event_id(reaction_id))
         .await;
     assert_reaction_is_updated!(stream, &event_id, item_pos, true);
 
@@ -198,7 +196,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
         .add_events_at(
             [
                 // Reaction comes first.
-                f.reaction(&message_event_id, REACTION_KEY.to_owned())
+                f.reaction(&message_event_id, REACTION_KEY)
                     .server_ts(reaction_timestamp)
                     .into_sync(),
                 // Event comes next.

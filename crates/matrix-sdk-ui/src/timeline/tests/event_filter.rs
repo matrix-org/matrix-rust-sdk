@@ -82,7 +82,7 @@ async fn test_default_filter() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let third_event_id = item.as_event().unwrap().event_id().unwrap();
 
-    timeline.handle_live_event(f.reaction(third_event_id, "+1".to_owned()).sender(&BOB)).await;
+    timeline.handle_live_event(f.reaction(third_event_id, "+1").sender(&BOB)).await;
     timeline.handle_live_event(f.redaction(second_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 3, value } => value);
     assert_eq!(item.as_event().unwrap().reactions().len(), 1);

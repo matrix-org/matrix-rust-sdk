@@ -114,7 +114,7 @@ async fn test_reaction_redaction() {
 
     let msg_event_id = item.event_id().unwrap();
 
-    timeline.handle_live_event(f.reaction(msg_event_id, "+1".to_owned()).sender(&BOB)).await;
+    timeline.handle_live_event(f.reaction(msg_event_id, "+1").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_eq!(item.reactions().len(), 1);
 
@@ -161,9 +161,7 @@ async fn test_reaction_redaction_timeline_filter() {
     assert_eq!(timeline.controller.items().await.len(), 2);
 
     // Reaction is attached to the message and doesn't add a timeline item.
-    timeline
-        .handle_live_event(f.reaction(item.event_id().unwrap(), "+1".to_owned()).sender(&BOB))
-        .await;
+    timeline.handle_live_event(f.reaction(item.event_id().unwrap(), "+1").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     let reaction_event_id = item.event_id().unwrap();
     assert_eq!(timeline.controller.items().await.len(), 2);

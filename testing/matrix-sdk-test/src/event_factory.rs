@@ -482,9 +482,12 @@ impl EventFactory {
     pub fn reaction(
         &self,
         event_id: &EventId,
-        annotation: String,
+        annotation: impl Into<String>,
     ) -> EventBuilder<ReactionEventContent> {
-        self.event(ReactionEventContent::new(Annotation::new(event_id.to_owned(), annotation)))
+        self.event(ReactionEventContent::new(Annotation::new(
+            event_id.to_owned(),
+            annotation.into(),
+        )))
     }
 
     /// Create a redaction for the given event id.

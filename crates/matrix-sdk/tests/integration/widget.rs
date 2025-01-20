@@ -298,7 +298,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
         let chunk2 = vec![
             f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
             f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
-            f.reaction(event_id!("$event_id"), "annotation".to_owned()).into_raw_timeline(),
+            f.reaction(event_id!("$event_id"), "annotation").into_raw_timeline(),
         ];
         mock_server
             .mock_room_messages()

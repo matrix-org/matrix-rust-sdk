@@ -199,7 +199,7 @@ async fn test_redact_failed() {
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
             .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id))
-            .add_timeline_event(f.reaction(event_id, "😆".to_owned()).sender(user_id)),
+            .add_timeline_event(f.reaction(event_id, "😆").sender(user_id)),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
