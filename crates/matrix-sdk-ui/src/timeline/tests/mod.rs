@@ -216,7 +216,11 @@ impl TestTimeline {
         &self,
         receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
     ) {
-        let ev_content = self.event_builder.make_receipt_event_content(receipts);
+        let mut read_receipt = self.factory.read_receipts();
+        for (event_id, tyype, user_id, thread) in receipts {
+            read_receipt = read_receipt.add(&event_id, &user_id, tyype, thread);
+        }
+        let ev_content = read_receipt.build();
         self.controller.handle_read_receipts(ev_content).await;
     }
 

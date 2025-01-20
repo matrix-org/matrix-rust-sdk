@@ -35,6 +35,7 @@ use ruma::{
             },
         },
         reaction::ReactionEventContent,
+        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
@@ -565,9 +566,9 @@ impl EventFactory {
             sender: redacter.to_owned(),
             origin_server_ts: self.next_server_ts(),
         };
-        builder.unsigned.get_or_insert_default().redacted_because = Some(redacted_because);
         builder.unsigned.get_or_insert_with(Default::default).redacted_because =
             Some(redacted_because);
+        builder.state_key = Some(state_key.into());
 
         builder
     }
@@ -649,6 +650,11 @@ impl EventFactory {
     ) -> EventBuilder<RoomMessageEventContent> {
         let image_event_content = ImageMessageEventContent::plain(filename, url);
         self.event(RoomMessageEventContent::new(MessageType::Image(image_event_content)))
+    }
+
+    /// Create a read receipt event.
+    pub fn read_receipts(&self) -> ReadReceiptBuilder<'_> {
+        ReadReceiptBuilder { factory: self, content: ReceiptEventContent(Default::default()) }
     }
 
     /// Set the next server timestamp.
@@ -740,6 +746,36 @@ impl EventBuilder<RoomMemberEventContent> {
 
         self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev_content);
         self
+    }
+}
+
+pub struct ReadReceiptBuilder<'a> {
+    factory: &'a EventFactory,
+    content: ReceiptEventContent,
+}
+
+impl ReadReceiptBuilder<'_> {
+    /// Add a single read receipt to the event.
+    pub fn add(
+        mut self,
+        event_id: &EventId,
+        user_id: &UserId,
+        tyype: ReceiptType,
+        thread: ReceiptThread,
+    ) -> Self {
+        let by_event = self.content.0.entry(event_id.to_owned()).or_default();
+        let by_type = by_event.entry(tyype).or_default();
+
+        let mut receipt = Receipt::new(self.factory.next_server_ts());
+        receipt.thread = thread;
+
+        by_type.insert(user_id.to_owned(), receipt);
+        self
+    }
+
+    /// Finalize the builder into the receipt event content.
+    pub fn build(self) -> ReceiptEventContent {
+        self.content
     }
 }
 
