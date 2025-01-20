@@ -1,23 +1,20 @@
 use std::{sync::Arc, time::Duration};
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use matrix_sdk::{
-    config::SyncSettings, test_utils::logged_in_client_with_server, utils::IntoRawStateEventContent,
-};
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_base::{
     store::StoreConfig, BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{
-    event_factory::EventFactory, EventBuilder, JoinedRoomBuilder, StateTestEvent,
-    SyncResponseBuilder,
+    event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
 };
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
 use ruma::{
     api::client::membership::get_member_events,
     device_id,
-    events::room::member::{RoomMemberEvent, RoomMemberEventContent},
-    owned_room_id, owned_user_id,
+    events::room::member::{MembershipState, RoomMemberEvent},
+    mxc_uri, owned_room_id, owned_user_id,
     serde::Raw,
     user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
 };
@@ -35,28 +32,17 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
     let room_id = owned_room_id!("!room:example.com");
 
-    let ev_builder = EventBuilder::new();
+    let f = EventFactory::new().room(&room_id);
     let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(MEMBERS_IN_ROOM);
-    let member_content_json = json!({
-        "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-        "displayname": "Alice Margatroid",
-        "membership": "join",
-        "reason": "Looking for support",
-    });
-    let member_content: Raw<RoomMemberEventContent> =
-        member_content_json.into_raw_state_event_content().cast();
     for i in 0..MEMBERS_IN_ROOM {
         let user_id = OwnedUserId::try_from(format!("@user_{}:matrix.org", i)).unwrap();
-        let state_key = user_id.to_string();
-        let event: Raw<RoomMemberEvent> = ev_builder
-            .make_state_event(
-                &user_id,
-                &room_id,
-                &state_key,
-                member_content.deserialize().unwrap(),
-                None,
-            )
-            .cast();
+        let event = f
+            .member(&user_id)
+            .membership(MembershipState::Join)
+            .avatar_url(mxc_uri!("mxc://example.org/SEsfnsuifSDFSSEF"))
+            .display_name("Alice Margatroid")
+            .reason("Looking for support")
+            .into_raw();
         member_events.push(event);
     }
 

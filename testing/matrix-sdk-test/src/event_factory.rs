@@ -50,8 +50,8 @@ use ruma::{
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
     },
     serde::Raw,
-    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    server_name, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -620,6 +620,18 @@ impl EventBuilder<RoomMemberEventContent> {
     /// Set the display name of the `m.room.member` event.
     pub fn display_name(mut self, display_name: impl Into<String>) -> Self {
         self.content.displayname = Some(display_name.into());
+        self
+    }
+
+    /// Set the avatar URL of the `m.room.member` event.
+    pub fn avatar_url(mut self, url: &MxcUri) -> Self {
+        self.content.avatar_url = Some(url.to_owned());
+        self
+    }
+
+    /// Set the reason field of the `m.room.member` event.
+    pub fn reason(mut self, reason: impl Into<String>) -> Self {
+        self.content.reason = Some(reason.into());
         self
     }
 

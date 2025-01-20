@@ -22,11 +22,11 @@ use std::{
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        AnySyncTimelineEvent, AnyTimelineEvent, RedactedMessageLikeEventContent,
-        RedactedStateEventContent, StateEventContent,
+        AnySyncTimelineEvent, RedactedMessageLikeEventContent, RedactedStateEventContent,
+        StateEventContent,
     },
     serde::Raw,
-    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, UserId,
+    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -54,32 +54,6 @@ impl EventBuilder {
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
     pub fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
-    }
-
-    pub fn make_state_event<C: StateEventContent>(
-        &self,
-        sender: &UserId,
-        room_id: &RoomId,
-        state_key: &str,
-        content: C,
-        prev_content: Option<C>,
-    ) -> Raw<AnyTimelineEvent> {
-        let unsigned = if let Some(prev_content) = prev_content {
-            json!({ "prev_content": prev_content })
-        } else {
-            json!({})
-        };
-
-        timeline_event!({
-            "type": content.event_type(),
-            "state_key": state_key,
-            "content": content,
-            "event_id": EventId::new(server_name!("dummy.server")),
-            "sender": sender,
-            "room_id": room_id,
-            "origin_server_ts": self.next_server_ts(),
-            "unsigned": unsigned,
-        })
     }
 
     pub fn make_sync_redacted_message_event<C: RedactedMessageLikeEventContent>(
