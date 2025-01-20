@@ -14,14 +14,13 @@
 
 //! Extend `BaseClient` with capabilities to handle MSC4186.
 
-pub mod http;
-
 use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
+pub use ruma::api::client::sync::sync_events::v5 as http;
 use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom, KnockedRoom},
     events::{
