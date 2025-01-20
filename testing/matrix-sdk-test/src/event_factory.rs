@@ -48,6 +48,7 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
+        RedactedMessageLikeEventContent,
     },
     serde::Raw,
     server_name, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
@@ -72,6 +73,23 @@ impl TimestampArg for u64 {
     }
 }
 
+/// A thin copy of [`ruma::events::UnsignedRoomRedactionEvent`].
+#[derive(Debug, Serialize)]
+struct RedactedBecause {
+    /// Data specific to the event type.
+    content: RoomRedactionEventContent,
+
+    /// The globally unique event identifier for the user who sent the event.
+    event_id: OwnedEventId,
+
+    /// The fully-qualified ID of the user who sent this event.
+    sender: OwnedUserId,
+
+    /// Timestamp in milliseconds on originating homeserver when this event was
+    /// sent.
+    origin_server_ts: MilliSecondsSinceUnixEpoch,
+}
+
 #[derive(Debug, Serialize)]
 struct Unsigned<C: EventContent> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,12 +100,15 @@ struct Unsigned<C: EventContent> {
 
     #[serde(rename = "m.relations", skip_serializing_if = "Option::is_none")]
     relations: Option<BundledMessageLikeRelations<Raw<AnySyncTimelineEvent>>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    redacted_because: Option<RedactedBecause>,
 }
 
 // rustc can't derive Default because C isn't marked as `Default` 🤔 oh well.
 impl<C: EventContent> Default for Unsigned<C> {
     fn default() -> Self {
-        Self { prev_content: None, transaction_id: None, relations: None }
+        Self { prev_content: None, transaction_id: None, relations: None, redacted_because: None }
     }
 }
 
@@ -154,7 +175,7 @@ where
     }
 
     #[inline(always)]
-    fn construct_json<T>(self, requires_room: bool) -> Raw<T> {
+    fn construct_json(self, requires_room: bool) -> serde_json::Value {
         let event_id = self
             .event_id
             .or_else(|| {
@@ -189,7 +210,7 @@ where
             map.insert("state_key".to_owned(), json!(state_key));
         }
 
-        Raw::new(map).unwrap().cast()
+        json
     }
 
     /// Build an event from the [`EventBuilder`] and convert it into a
@@ -198,11 +219,11 @@ where
     /// The generic argument `T` allows you to automatically cast the [`Raw`]
     /// event into any desired type.
     pub fn into_raw<T>(self) -> Raw<T> {
-        self.construct_json(true)
+        Raw::new(&self.construct_json(true)).unwrap().cast()
     }
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
-        self.construct_json(true)
+        Raw::new(&self.construct_json(true)).unwrap().cast()
     }
 
     pub fn into_timeline(self) -> TimelineEvent {
@@ -210,7 +231,7 @@ where
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
-        self.construct_json(false)
+        Raw::new(&self.construct_json(false)).unwrap().cast()
     }
 
     pub fn into_sync(self) -> SyncTimelineEvent {
@@ -490,10 +511,34 @@ impl EventFactory {
         )))
     }
 
-    /// Create a redaction for the given event id.
+    /// Create a live redaction for the given event id.
+    ///
+    /// Note: this is not a redacted event, but a redaction event, that will
+    /// cause another event to be redacted.
     pub fn redaction(&self, event_id: &EventId) -> EventBuilder<RoomRedactionEventContent> {
         let mut builder = self.event(RoomRedactionEventContent::new_v11(event_id.to_owned()));
         builder.redacts = Some(event_id.to_owned());
+        builder
+    }
+
+    /// Create a redacted event, with extra information in the unsigned section
+    /// about the redaction itself.
+    pub fn redacted<T: RedactedMessageLikeEventContent>(
+        &self,
+        redacter: &UserId,
+        content: T,
+    ) -> EventBuilder<T> {
+        let mut builder = self.event(content);
+
+        let redacted_because = RedactedBecause {
+            content: RoomRedactionEventContent::default(),
+            event_id: EventId::new(server_name!("dummy.server")),
+            sender: redacter.to_owned(),
+            origin_server_ts: self.next_server_ts(),
+        };
+        builder.unsigned.get_or_insert_with(Default::default).redacted_because =
+            Some(redacted_because);
+
         builder
     }
 

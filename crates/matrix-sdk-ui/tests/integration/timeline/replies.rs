@@ -7,8 +7,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, EventBuilder,
-    JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
@@ -671,7 +671,6 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     // the reply.
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -689,11 +688,12 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let redacted_event_id_from_bob = event_id!("$event_from_bob");
-    let raw_redacted_event_from_bob = event_builder.make_sync_redacted_message_event_with_id(
-        &BOB,
-        redacted_event_id_from_bob,
-        RedactedReactionEventContent::new(),
-    );
+    let f = EventFactory::new();
+    let raw_redacted_event_from_bob = f
+        .redacted(&BOB, RedactedReactionEventContent::new())
+        .sender(&BOB)
+        .event_id(redacted_event_id_from_bob)
+        .into_raw_sync();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(raw_redacted_event_from_bob.clone()),
     );
