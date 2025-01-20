@@ -71,12 +71,23 @@ impl TimestampArg for u64 {
     }
 }
 
-#[derive(Debug, Default, Serialize)]
-struct Unsigned {
+#[derive(Debug, Serialize)]
+struct Unsigned<C: EventContent> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prev_content: Option<C>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     transaction_id: Option<OwnedTransactionId>,
+
     #[serde(rename = "m.relations", skip_serializing_if = "Option::is_none")]
     relations: Option<BundledMessageLikeRelations<Raw<AnySyncTimelineEvent>>>,
+}
+
+// rustc can't derive Default because C isn't marked as `Default` 🤔 oh well.
+impl<C: EventContent> Default for Unsigned<C> {
+    fn default() -> Self {
+        Self { prev_content: None, transaction_id: None, relations: None }
+    }
 }
 
 #[derive(Debug)]
@@ -87,7 +98,7 @@ pub struct EventBuilder<C: EventContent> {
     redacts: Option<OwnedEventId>,
     content: C,
     server_ts: MilliSecondsSinceUnixEpoch,
-    unsigned: Option<Unsigned>,
+    unsigned: Option<Unsigned<C>>,
     state_key: Option<String>,
 }
 
@@ -562,9 +573,29 @@ impl EventBuilder<RoomMemberEventContent> {
         self
     }
 
+    /// Set that the sender of this event kicked the user passed as a parameter
+    /// here.
+    pub fn kicked(mut self, kicked_user: &UserId) -> Self {
+        assert_ne!(
+            self.sender.as_deref().unwrap(),
+            kicked_user,
+            "kicked user and sender can't be the same person, otherwise it's just a Leave"
+        );
+        self.content.membership = MembershipState::Leave;
+        self.state_key = Some(kicked_user.to_string());
+        self
+    }
+
     /// Set the display name of the `m.room.member` event.
     pub fn display_name(mut self, display_name: impl Into<String>) -> Self {
         self.content.displayname = Some(display_name.into());
+        self
+    }
+
+    /// Set the previous membership state (in the unsigned section).
+    pub fn previous(mut self, state: MembershipState) -> Self {
+        self.unsigned.get_or_insert_default().prev_content =
+            Some(RoomMemberEventContent::new(state));
         self
     }
 }

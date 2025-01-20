@@ -17,14 +17,11 @@ use std::{sync::Arc, time::Duration};
 use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
-    ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
-use ruma::events::room::{
-    member::{MembershipState, RoomMemberEventContent},
-    message::RoomMessageEventContent,
-};
+use ruma::events::room::member::MembershipState;
 use serde_json::json;
 use wiremock::{
     matchers::{method, path_regex},
@@ -38,7 +35,7 @@ async fn test_update_sender_profiles() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
 
@@ -54,24 +51,15 @@ async fn test_update_sender_profiles() {
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
             // Alice accepts an invite into the room
-            .add_timeline_event(event_builder.make_sync_state_event(
-                &ALICE,
-                ALICE.as_str(),
-                RoomMemberEventContent::new(MembershipState::Join),
-                Some(RoomMemberEventContent::new(MembershipState::Invite)),
-            ))
+            .add_timeline_event(
+                f.member(&ALICE)
+                    .membership(MembershipState::Join)
+                    .previous(MembershipState::Invite),
+            )
             // Bob sends a text message
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &BOB,
-                RoomMessageEventContent::text_plain("text message event"),
-            ))
+            .add_timeline_event(f.text_msg("text message event").sender(&BOB))
             // Carol kicks bob
-            .add_timeline_event(event_builder.make_sync_state_event(
-                &CAROL,
-                BOB.as_str(),
-                RoomMemberEventContent::new(MembershipState::Leave),
-                Some(RoomMemberEventContent::new(MembershipState::Join)),
-            )),
+            .add_timeline_event(f.member(&CAROL).kicked(&BOB).previous(MembershipState::Join)),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -118,36 +106,20 @@ async fn test_update_sender_profiles() {
         TimelineDetails::Error(_)
     );
 
+    let f = f.room(&DEFAULT_TEST_ROOM_ID);
+
     // Try again, this time we mock the endpoint to get a useful response.
     Mock::given(method("GET"))
         .and(path_regex(r"/_matrix/client/r0/rooms/.*/members"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": [
                 // This event wasn't previously observed by the client
-                event_builder.make_state_event(
-                    &CAROL,
-                    &DEFAULT_TEST_ROOM_ID,
-                    CAROL.as_str(),
-                    RoomMemberEventContent::new(MembershipState::Join),
-                    None,
-                ),
+                f.member(&CAROL).membership(MembershipState::Join).into_raw_timeline(),
 
                 // Same as above
-                event_builder.make_state_event(
-                    &ALICE,
-                    &DEFAULT_TEST_ROOM_ID,
-                    ALICE.as_str(),
-                    RoomMemberEventContent::new(MembershipState::Join),
-                    Some(RoomMemberEventContent::new(MembershipState::Invite)),
-                ),
+                f.member(&ALICE).membership(MembershipState::Join).previous(MembershipState::Invite).into_raw_timeline(),
 
-                event_builder.make_state_event(
-                    &CAROL,
-                    &DEFAULT_TEST_ROOM_ID,
-                    BOB.as_str(),
-                    RoomMemberEventContent::new(MembershipState::Leave),
-                    Some(RoomMemberEventContent::new(MembershipState::Join)),
-                ),
+                f.member(&CAROL).kicked(&BOB).previous(MembershipState::Join).into_raw_timeline(),
             ]
         })))
         .mount(&server)
