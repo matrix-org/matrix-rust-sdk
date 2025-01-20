@@ -21,15 +21,12 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
-    EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
+    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails, TimelineItemContent};
 use ruma::{
     event_id,
-    events::room::{
-        member::{MembershipState, RoomMemberEventContent},
-        message::{MessageType, RoomMessageEventContent},
-    },
+    events::room::{member::MembershipState, message::MessageType},
     room_id, user_id,
 };
 use serde_json::json;
@@ -43,7 +40,7 @@ async fn test_batched() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
@@ -66,20 +63,11 @@ async fn test_batched() {
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &ALICE,
-                RoomMessageEventContent::text_plain("text message event"),
-            ))
-            .add_timeline_event(event_builder.make_sync_state_event(
-                &BOB,
-                BOB.as_str(),
-                RoomMemberEventContent::new(MembershipState::Join),
-                Some(RoomMemberEventContent::new(MembershipState::Invite)),
-            ))
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &BOB,
-                RoomMessageEventContent::notice_plain("notice message event"),
-            )),
+            .add_timeline_event(f.text_msg("text message event").sender(&ALICE))
+            .add_timeline_event(
+                f.member(&BOB).membership(MembershipState::Join).previous(MembershipState::Invite),
+            )
+            .add_timeline_event(f.notice("notice message event").sender(&BOB)),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
