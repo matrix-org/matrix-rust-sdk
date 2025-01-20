@@ -82,15 +82,6 @@ impl EventBuilder {
         })
     }
 
-    pub fn make_sync_message_event<C: MessageLikeEventContent>(
-        &self,
-        sender: &UserId,
-        content: C,
-    ) -> Raw<AnySyncTimelineEvent> {
-        let event_id = EventId::new(server_name!("dummy.server"));
-        self.make_sync_message_event_with_id(sender, &event_id, content)
-    }
-
     pub fn make_sync_message_event_with_id<C: MessageLikeEventContent>(
         &self,
         sender: &UserId,
