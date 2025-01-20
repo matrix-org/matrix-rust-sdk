@@ -1529,6 +1529,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-device-code-login"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dirs",
+ "matrix-sdk",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "example-emoji-verification"
 version = "0.1.0"
 dependencies = [

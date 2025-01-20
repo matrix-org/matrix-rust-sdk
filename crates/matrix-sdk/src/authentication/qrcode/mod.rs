@@ -22,7 +22,6 @@
 //! QR code. To log in using a QR code, please take a look at the
 //! [`Oidc::login_with_qr_code()`] method
 
-use as_variant::as_variant;
 use matrix_sdk_base::crypto::SecretImportError;
 pub use openidconnect::{
     core::CoreErrorResponseType, ConfigurationError, DeviceCodeErrorResponseType, DiscoveryError,
@@ -38,7 +37,6 @@ use crate::{oidc::CrossProcessRefreshLockError, HttpError};
 
 mod login;
 mod messages;
-mod oidc_client;
 mod rendezvous_channel;
 mod secure_channel;
 
@@ -50,6 +48,7 @@ pub use self::{
     login::{LoginProgress, LoginWithQrCode},
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };
+use crate::authentication::common_oidc::DeviceAuhorizationOidcError;
 
 /// The error type for failures while trying to log in a new device using a QR
 /// code.
@@ -104,67 +103,6 @@ pub enum QRCodeLoginError {
     /// imported.
     #[error(transparent)]
     SecretImport(#[from] SecretImportError),
-}
-
-/// Error type describing failures in the interaction between the device
-/// attempting to log in and the OIDC provider.
-#[derive(Debug, Error)]
-pub enum DeviceAuhorizationOidcError {
-    /// A generic OIDC error happened while we were attempting to register the
-    /// device with the OIDC provider.
-    #[error(transparent)]
-    Oidc(#[from] crate::oidc::OidcError),
-
-    /// The issuer URL failed to be parsed.
-    #[error(transparent)]
-    InvalidIssuerUrl(#[from] url::ParseError),
-
-    /// There was an error with our device configuration right before attempting
-    /// to wait for the access token to be issued by the OIDC provider.
-    #[error(transparent)]
-    Configuration(#[from] ConfigurationError),
-
-    /// An error happened while we attempted to discover the authentication
-    /// issuer URL.
-    #[error(transparent)]
-    AuthenticationIssuer(HttpError),
-
-    /// An error happened while we attempted to request a device authorization
-    /// from the OIDC provider.
-    #[error(transparent)]
-    DeviceAuthorization(
-        #[from]
-        RequestTokenError<
-            HttpClientError<reqwest::Error>,
-            StandardErrorResponse<CoreErrorResponseType>,
-        >,
-    ),
-
-    /// An error happened while waiting for the access token to be issued and
-    /// sent to us by the OIDC provider.
-    #[error(transparent)]
-    RequestToken(
-        #[from]
-        RequestTokenError<
-            HttpClientError<reqwest::Error>,
-            StandardErrorResponse<DeviceCodeErrorResponseType>,
-        >,
-    ),
-
-    /// An error happened during the discovery of the OIDC provider metadata.
-    #[error(transparent)]
-    Discovery(#[from] DiscoveryError<HttpClientError<reqwest::Error>>),
-}
-
-impl DeviceAuhorizationOidcError {
-    /// If the [`DeviceAuhorizationOidcError`] is of the
-    /// [`DeviceCodeErrorResponseType`] error variant, return it.
-    pub fn as_request_token_error(&self) -> Option<&DeviceCodeErrorResponseType> {
-        let error = as_variant!(self, DeviceAuhorizationOidcError::RequestToken)?;
-        let request_token_error = as_variant!(error, RequestTokenError::ServerResponse)?;
-
-        Some(request_token_error.error())
-    }
 }
 
 /// Error type for failures in when receiving or sending messages over the

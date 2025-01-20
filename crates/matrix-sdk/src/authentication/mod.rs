@@ -30,8 +30,14 @@ use crate::{
     Client, RefreshTokenError, SessionChange,
 };
 
+#[cfg(feature = "experimental-oidc")]
+pub mod common_oidc;
+
 #[cfg(all(feature = "experimental-oidc", feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
+
+#[cfg(all(feature = "experimental-oidc", feature = "e2e-encryption", not(target_arch = "wasm32")))]
+pub mod device_code;
 
 /// Session tokens, for any kind of authentication.
 #[allow(missing_debug_implementations, clippy::large_enum_variant)]

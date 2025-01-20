@@ -219,7 +219,7 @@ use self::{
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
 };
 use crate::{
-    authentication::{qrcode::LoginWithQrCode, AuthData},
+    authentication::{device_code::LoginWithDeviceCode, qrcode::LoginWithQrCode, AuthData},
     client::SessionChange,
     oidc::registrations::{ClientId, OidcRegistrations},
     Client, HttpError, RefreshTokenError, Result,
@@ -436,6 +436,23 @@ impl Oidc {
         LoginWithQrCode::new(&self.client, client_metadata, data)
     }
 
+    /// Log in using a device code.
+    ///
+    /// This method allows you to generate a device code so another device can
+    /// log this one in
+    #[cfg(all(
+        feature = "experimental-oidc",
+        feature = "e2e-encryption",
+        not(target_arch = "wasm32")
+    ))]
+    pub fn login_with_device_code(
+        &self,
+        client_metadata: VerifiedClientMetadata,
+        registrations: OidcRegistrations,
+    ) -> LoginWithDeviceCode<'_> {
+        LoginWithDeviceCode::new(&self.client, client_metadata, registrations)
+    }
+
     /// A higher level wrapper around the configuration and login methods that
     /// will take some client metadata, register the client if needed and begin
     /// the login process, returning the authorization data required to show a
@@ -513,7 +530,7 @@ impl Oidc {
 
     /// Higher level wrapper that restores the OIDC client with automatic
     /// static/dynamic client registration.
-    async fn configure(
+    pub(crate) async fn configure(
         &self,
         issuer: String,
         client_metadata: VerifiedClientMetadata,
