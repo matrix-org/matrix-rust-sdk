@@ -22,8 +22,8 @@ use std::{
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
+        AnySyncTimelineEvent, AnyTimelineEvent, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, StateEventContent,
     },
     serde::Raw,
     server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, UserId,
@@ -79,21 +79,6 @@ impl EventBuilder {
             "room_id": room_id,
             "origin_server_ts": self.next_server_ts(),
             "unsigned": unsigned,
-        })
-    }
-
-    pub fn make_sync_message_event_with_id<C: MessageLikeEventContent>(
-        &self,
-        sender: &UserId,
-        event_id: &EventId,
-        content: C,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": content.event_type(),
-            "content": content,
-            "event_id": event_id,
-            "sender": sender,
-            "origin_server_ts": self.next_server_ts(),
         })
     }
 
