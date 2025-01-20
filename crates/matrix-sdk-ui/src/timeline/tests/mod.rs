@@ -36,9 +36,7 @@ use matrix_sdk::{
 use matrix_sdk_base::{
     crypto::types::events::CryptoContextInfo, latest_event::LatestEvent, RoomInfo, RoomState,
 };
-use matrix_sdk_test::{
-    event_factory::EventFactory, EventBuilder, ALICE, BOB, DEFAULT_TEST_ROOM_ID,
-};
+use matrix_sdk_test::{event_factory::EventFactory, ALICE, BOB, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     event_id,
     events::{
@@ -85,7 +83,6 @@ mod virt;
 
 struct TestTimeline {
     controller: TimelineController<TestRoomDataProvider>,
-    event_builder: EventBuilder,
     /// An [`EventFactory`] that can be used for creating events in this
     /// timeline.
     pub factory: EventFactory,
@@ -110,7 +107,6 @@ impl TestTimeline {
                 None,
                 Some(false),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
@@ -124,7 +120,6 @@ impl TestTimeline {
                 None,
                 Some(false),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
@@ -138,7 +133,6 @@ impl TestTimeline {
                 Some(hook),
                 Some(true),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
@@ -153,7 +147,6 @@ impl TestTimeline {
                 None,
                 Some(encrypted),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
