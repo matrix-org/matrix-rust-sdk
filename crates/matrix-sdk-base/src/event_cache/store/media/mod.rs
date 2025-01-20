@@ -15,5 +15,9 @@
 //! Types and traits regarding media caching of the event cache store.
 
 mod media_retention_policy;
+mod media_service;
 
-pub use self::media_retention_policy::MediaRetentionPolicy;
+pub use self::{
+    media_retention_policy::MediaRetentionPolicy,
+    media_service::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaService},
+};
