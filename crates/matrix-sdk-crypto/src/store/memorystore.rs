@@ -26,7 +26,7 @@ use ruma::{
     events::secret::request::SecretName, time::Instant, DeviceId, OwnedDeviceId, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
 use vodozemac::Curve25519PublicKey;
 
@@ -102,6 +102,7 @@ pub struct MemoryStore {
     dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
     next_batch_token: RwLock<Option<String>>,
     room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 impl Default for MemoryStore {
@@ -128,6 +129,7 @@ impl Default for MemoryStore {
             secret_inbox: Default::default(),
             next_batch_token: Default::default(),
             room_settings: Default::default(),
+            save_changes_lock: Default::default(),
         }
     }
 }
@@ -238,6 +240,8 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
+        let _guard = self.save_changes_lock.lock().await;
+
         let pickled_account = if let Some(account) = changes.account {
             *self.static_account.write() = Some(account.static_data().clone());
             Some(account.pickle())
@@ -254,6 +258,8 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
+        let _guard = self.save_changes_lock.lock().await;
+
         let mut pickled_session: Vec<(String, PickledSession)> = Vec::new();
         for session in changes.sessions {
             let session_id = session.session_id().to_owned();
