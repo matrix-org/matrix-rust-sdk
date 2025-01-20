@@ -600,31 +600,37 @@ impl TimelineStateTransaction<'_> {
                             .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
                     };
 
-                    match origin {
-                        RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
-                            should_add = match self.timeline_focus {
-                                TimelineFocusKind::PinnedEvents => {
-                                    // Only insert timeline items for pinned events, if the event
-                                    // came from the sync.
-                                    room_data_provider.is_pinned_event(&event_id)
-                                }
-
-                                TimelineFocusKind::Live => {
+                    // If the event should be added according to the general event filter, use a
+                    // second filter to decide whether it should be added depending on the timeline
+                    // focus and events origin, if needed
+                    match self.timeline_focus {
+                        TimelineFocusKind::PinnedEvents => {
+                            // Only add pinned events for the pinned events timeline
+                            should_add = room_data_provider.is_pinned_event(&event_id);
+                        }
+                        TimelineFocusKind::Live => {
+                            match origin {
+                                RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
                                     // Always add new items to a live timeline receiving items from
                                     // sync.
-                                    true
+                                    should_add = true;
                                 }
-
-                                TimelineFocusKind::Event => {
+                                RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => {
+                                    // Forward the previous decision to add it.
+                                }
+                            }
+                        }
+                        TimelineFocusKind::Event => {
+                            match origin {
+                                RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
                                     // Never add any item to a focused timeline when the item comes
                                     // down from the sync.
-                                    false
+                                    should_add = false;
                                 }
-                            };
-                        }
-
-                        RemoteEventOrigin::Pagination | RemoteEventOrigin::Cache => {
-                            // Forward the previous decision to add it.
+                                RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => {
+                                    // Forward the previous decision to add it.
+                                }
+                            }
                         }
                     }
                 }
