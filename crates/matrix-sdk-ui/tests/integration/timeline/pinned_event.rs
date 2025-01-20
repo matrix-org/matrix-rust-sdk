@@ -6,8 +6,10 @@ use matrix_sdk::{
     assert_next_matches_with_timeout,
     config::SyncSettings,
     event_cache::{BackPaginationOutcome, TimelineHasBeenResetWhilePaginating},
-    sync::SyncResponse,
-    test_utils::logged_in_client_with_server,
+    test_utils::{
+        logged_in_client_with_server,
+        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+    },
     Client,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
@@ -20,7 +22,7 @@ use matrix_sdk_ui::{
     Timeline,
 };
 use ruma::{
-    event_id,
+    assign, event_id,
     events::{
         room::{
             encrypted::{
@@ -39,10 +41,10 @@ use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{
     matchers::{header, method, path_regex},
-    Mock, MockServer, ResponseTemplate,
+    Mock, ResponseTemplate,
 };
 
-use crate::{mock_event, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_new_pinned_events_are_added_on_sync() {
@@ -50,8 +52,7 @@ async fn test_new_pinned_events_are_added_on_sync() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    let _ = test_helper.do_initial_sync().await;
 
     let f = EventFactory::new().room(&room_id).sender(*BOB);
     let event_1 = f
@@ -60,14 +61,16 @@ async fn test_new_pinned_events_are_added_on_sync() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
-    // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // events $1 and $2 pinned
-    let _ = test_helper.setup_sync_response(vec![(event_1, false)], Some(vec!["$1", "$2"])).await;
+    // Mock /event endpoint for a timeline event
+    test_helper.mock_events(vec![event_1.clone()]).await;
+
+    // Load initial timeline items: a `m.room.pinned_events` with events $1 and $2
+    // pinned
+    test_helper.sync_once(Vec::new(), Some(vec!["$1", "$2"])).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
         Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
-    test_helper.server.reset().await;
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -81,7 +84,6 @@ async fn test_new_pinned_events_are_added_on_sync() {
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 
     // Load new pinned event contents from sync, $2 was pinned but wasn't available
     // before
@@ -95,7 +97,8 @@ async fn test_new_pinned_events_are_added_on_sync() {
         .event_id(event_id!("$3"))
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
-    let _ = test_helper.setup_sync_response(vec![(event_2, true), (event_3, true)], None).await;
+    test_helper.mock_events(vec![event_2.clone(), event_3.clone()]).await;
+    test_helper.sync_once(vec![event_2, event_3], None).await.expect("Sync failed");
 
     // The item is added automatically
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -113,7 +116,6 @@ async fn test_new_pinned_events_are_added_on_sync() {
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
         assert!(value.is_date_divider());
     });
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -122,8 +124,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    test_helper.do_initial_sync().await;
 
     let f = EventFactory::new().room(&room_id).sender(*BOB);
     let event_1 = f
@@ -139,12 +140,8 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
 
     // Load initial timeline items: 2 text messages and a `m.room.pinned_events`
     // with event $1 and $2 pinned
-    let _ = test_helper
-        .setup_sync_response(
-            vec![(event_1.clone(), false), (event_2.clone(), true)],
-            Some(vec!["$1"]),
-        )
-        .await;
+    test_helper.mock_events(vec![event_1.clone(), event_2.clone()]).await;
+    let _ = test_helper.sync_once(vec![event_2.clone()], Some(vec!["$1"])).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
@@ -161,15 +158,10 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 
     // Reload timeline with new pinned event ids
-    let _ = test_helper
-        .setup_sync_response(
-            vec![(event_1.clone(), false), (event_2.clone(), false)],
-            Some(vec!["$1", "$2"]),
-        )
-        .await;
+    test_helper.mock_events(vec![event_1.clone(), event_2.clone()]).await;
+    test_helper.sync_once(Vec::new(), Some(vec!["$1", "$2"])).await.expect("Sync failed");
 
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -182,16 +174,13 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         assert!(value.is_date_divider());
     });
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 
-    // Reload timeline with no pinned event ids
-    let _ = test_helper
-        .setup_sync_response(vec![(event_1, false), (event_2, false)], Some(Vec::new()))
-        .await;
+    // Reload timeline with no pinned event
+    test_helper.mock_events(vec![event_1.clone(), event_2.clone()]).await;
+    let _ = test_helper.sync_once(Vec::new(), Some(Vec::new())).await;
 
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -200,8 +189,7 @@ async fn test_max_events_to_load_is_honored() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    let _ = test_helper.do_initial_sync().await;
 
     let f = EventFactory::new().room(&room_id).sender(*BOB);
     let pinned_event = f
@@ -212,8 +200,8 @@ async fn test_max_events_to_load_is_honored() {
 
     // Load initial timeline items: a text message and a `m.room.pinned_events`
     // with event $1 and $2 pinned
-    let _ =
-        test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1", "$2"])).await;
+    test_helper.mock_events(vec![pinned_event]).await;
+    test_helper.sync_once(Vec::new(), Some(vec!["$1", "$2"])).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
@@ -221,8 +209,6 @@ async fn test_max_events_to_load_is_honored() {
     // We're only taking the last event id, `$2`, and it's not available so the
     // timeline fails to initialise.
     assert!(ret.is_err());
-
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -235,8 +221,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    test_helper.do_initial_sync().await;
 
     let f = EventFactory::new().room(&room_id).sender(*BOB);
     let pinned_event = f
@@ -245,10 +230,12 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
-    // Load initial timeline items: a text message and a `m.room.pinned_events`
-    // with event $1 and $2 pinned
-    let _ =
-        test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1", "$2"])).await;
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![pinned_event]).await;
+
+    // Load initial timeline items: a `m.room.pinned_events` with event $1 and $2
+    // pinned
+    test_helper.sync_once(Vec::new(), Some(vec!["$1", "$2"])).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let (room_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -268,14 +255,13 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     assert!(room_cache.event(event_id!("$1")).await.is_some());
 
     // Drop the existing room and timeline instances
-    test_helper.server.reset().await;
     drop(timeline_stream);
     drop(timeline);
     drop(room);
 
     // Set up a sync response with only the pinned event ids and no events, so if
     // they exist later we know they come from the cache
-    let _ = test_helper.setup_sync_response(Vec::new(), Some(vec!["$1", "$2"])).await;
+    test_helper.sync_once(Vec::new(), Some(vec!["$1", "$2"])).await.expect("Sync failed");
 
     // Get a new room instance
     let room = test_helper.client.get_room(&room_id).unwrap();
@@ -289,14 +275,14 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     assert!(room_cache.event(event_id!("$1")).await.is_some());
 
     // Drop the existing room and timeline instances
-    test_helper.server.reset().await;
+    test_helper.server.server().reset().await;
     drop(timeline);
     drop(room);
 
     // Now remove the pinned events from the cache and try again
     test_helper.client.event_cache().empty_immutable_cache().await;
 
-    let _ = test_helper.setup_sync_response(Vec::new(), Some(vec!["$1", "$2"])).await;
+    test_helper.sync_once(Vec::new(), Some(vec!["$1", "$2"])).await.expect("Sync failed");
 
     // Get a new room instance
     let room = test_helper.client.get_room(&room_id).unwrap();
@@ -307,8 +293,6 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     // Since the events are no longer in the cache the timeline couldn't load them
     // and can't be initialised.
     assert!(ret.is_err());
-
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -317,20 +301,17 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    test_helper.do_initial_sync().await;
 
     // Load initial timeline items: a `m.room.pinned_events` with event $1 and $2
     // pinned, but they're not available neither in the cache nor in the HS
-    let _ = test_helper.setup_sync_response(Vec::new(), Some(vec!["$1", "$2"])).await;
+    test_helper.sync_once(Vec::new(), Some(vec!["$1", "$2"])).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
 
     // The timeline couldn't load any events so it fails to initialise
     assert!(ret.is_err());
-
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -339,11 +320,10 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    test_helper.do_initial_sync().await;
 
     // Load initial timeline items: an empty `m.room.pinned_events` event
-    let _ = test_helper.setup_sync_response(Vec::new(), Some(Vec::new())).await;
+    test_helper.sync_once(Vec::new(), Some(Vec::new())).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
@@ -353,12 +333,10 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
     // returns an empty list
     let (items, _) = timeline.subscribe().await;
     assert!(items.is_empty());
-
-    test_helper.server.reset().await;
 }
 
 #[async_test]
-async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_is_just_empty() {
+async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_on_sync_is_just_empty() {
     let mut test_helper = TestHelper::new().await;
     let room_id = test_helper.room_id.clone();
     let event_id = event_id!("$1:morpheus.localhost");
@@ -370,22 +348,26 @@ async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_is_just_empty() {
         .add_state_event(StateTestEvent::Encryption);
 
     // Sync the joined room
-    let json_response =
-        SyncResponseBuilder::new().add_joined_room(joined_room_builder).build_json_sync_response();
-    mock_sync(&test_helper.server, json_response, None).await;
     test_helper
-        .client
-        .sync_once(test_helper.sync_settings.clone())
-        .await
-        .expect("Sync should work");
-    test_helper.server.reset().await;
+        .server
+        .mock_sync()
+        .ok_and_run(&test_helper.client, move |sync_builder| {
+            sync_builder.add_joined_room(joined_room_builder);
+        })
+        .await;
 
     // Load initial timeline items: an empty `m.room.pinned_events` event
-    let _ = test_helper.setup_sync_response(Vec::new(), Some(Vec::new())).await;
+    test_helper.sync_once(Vec::new(), Some(Vec::new())).await.expect("Sync failed");
 
-    // Mock encrypted event for which we have now keys (an UTD)
+    // Mock encrypted event for which we don't have keys (an UTD)
     let utd_event = create_utd(&room_id, &sender_id, event_id);
-    mock_event(&test_helper.server, &room_id, event_id, TimelineEvent::new(utd_event)).await;
+    test_helper
+        .server
+        .mock_room_event()
+        .match_event_id()
+        .ok(TimelineEvent::new(utd_event))
+        .mount()
+        .await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
@@ -395,8 +377,6 @@ async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_is_just_empty() {
     // returns an empty list
     let (items, _) = timeline.subscribe().await;
     assert!(items.is_empty());
-
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -407,17 +387,32 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
     let sender_id = owned_user_id!("@example:localhost");
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        // Set up encryption
+        .add_state_event(StateTestEvent::Encryption);
+
+    // Sync the joined room
+    test_helper
+        .server
+        .mock_sync()
+        .ok_and_run(&test_helper.client, move |sync_builder| {
+            sync_builder.add_joined_room(joined_room_builder);
+        })
+        .await;
 
     // Load initial timeline items: an empty `m.room.pinned_events` event
-    test_helper.setup_sync_response(Vec::new(), Some(Vec::new())).await.expect("Sync failed");
+    test_helper.sync_once(Vec::new(), Some(Vec::new())).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let pinned_timeline =
         Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
-    // Create a non-pinned event
+    // The timeline couldn't load any events, but it expected none, so it just
+    // returns an empty list
+    let (pinned_items, mut pinned_events_stream) = pinned_timeline.subscribe().await;
+    assert!(pinned_items.is_empty());
+
+    // Create a non-pinned event to return in the pagination
     let not_pinned_event = EventFactory::new()
         .room(&room_id)
         .sender(&sender_id)
@@ -425,29 +420,14 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
         .event_id(event_id)
         .into_raw_timeline();
 
-    mock_event(
-        &test_helper.server,
-        &room_id,
-        event_id,
-        TimelineEvent::new(not_pinned_event.clone()),
-    )
-    .await;
-
-    // The timeline couldn't load any events, but it expected none, so it just
-    // returns an empty list
-    let (pinned_items, mut pinned_events_stream) = pinned_timeline.subscribe().await;
-    assert!(pinned_items.is_empty());
-
-    // Mock the /messages endpoint with the not pinned event
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "start": "prev1",
-            "chunk": vec![not_pinned_event],
-        })))
-        .expect(1)
-        .mount(&test_helper.server)
+    test_helper
+        .server
+        .mock_room_messages()
+        .ok(assign!(RoomMessagesResponseTemplate::default(), {
+            chunk: vec![not_pinned_event]
+        }))
+        .mock_once()
+        .mount()
         .await;
 
     let (event_cache, _) = room.event_cache().await.expect("Event cache should be accessible");
@@ -475,7 +455,7 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
 }
 
 #[async_test]
-async fn test_pinned_timeline_with_pinned_utd_contains_it() {
+async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
     let test_helper = TestHelper::new().await;
     let room_id = test_helper.room_id.clone();
     let event_id = event_id!("$1:morpheus.localhost");
@@ -503,19 +483,24 @@ async fn test_pinned_timeline_with_pinned_utd_contains_it() {
         )));
 
     // Sync the joined room
-    let json_response =
-        SyncResponseBuilder::new().add_joined_room(joined_room_builder).build_json_sync_response();
-    mock_sync(&test_helper.server, json_response, None).await;
     test_helper
-        .client
-        .sync_once(test_helper.sync_settings.clone())
-        .await
-        .expect("Sync should work");
-    test_helper.server.reset().await;
+        .server
+        .mock_sync()
+        .ok_and_run(&test_helper.client, move |sync_builder| {
+            sync_builder.add_joined_room(joined_room_builder);
+        })
+        .await;
 
-    // Mock encrypted pinned event for which we have now keys (an UTD)
+    // Mock encrypted pinned event for which we don't have keys (an UTD)
     let utd_event = create_utd(&room_id, &sender_id, event_id);
-    mock_event(&test_helper.server, &room_id, event_id, TimelineEvent::new(utd_event)).await;
+    test_helper
+        .server
+        .mock_room_event()
+        .match_event_id()
+        .ok(TimelineEvent::new(utd_event))
+        .mock_once()
+        .mount()
+        .await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
@@ -526,8 +511,6 @@ async fn test_pinned_timeline_with_pinned_utd_contains_it() {
     assert_eq!(items.len(), 2);
     let pinned_utd_event = items.last().unwrap().as_event().unwrap();
     assert_eq!(pinned_utd_event.event_id().unwrap(), event_id);
-
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -536,8 +519,7 @@ async fn test_edited_events_are_reflected_in_sync() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    test_helper.do_initial_sync().await;
 
     let f = EventFactory::new().room(&room_id).sender(*BOB);
     let pinned_event = f
@@ -546,14 +528,16 @@ async fn test_edited_events_are_reflected_in_sync() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![pinned_event]).await;
+
     // Load initial timeline items: a text message and a `m.room.pinned_events` with
     // event $1
-    let _ = test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1"])).await;
+    test_helper.sync_once(Vec::new(), Some(vec!["$1"])).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
         Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
-    test_helper.server.reset().await;
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -567,7 +551,6 @@ async fn test_edited_events_are_reflected_in_sync() {
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 
     let edited_event = f
         .text_msg("edited message!")
@@ -579,8 +562,11 @@ async fn test_edited_events_are_reflected_in_sync() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![edited_event.clone()]).await;
+
     // Load new pinned event contents from sync, where $2 is and edit on $1
-    let _ = test_helper.setup_sync_response(vec![(edited_event, true)], None).await;
+    test_helper.sync_once(vec![edited_event], None).await.expect("Sync failed");
 
     // The list is reloaded, so it's reset
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
@@ -603,7 +589,6 @@ async fn test_edited_events_are_reflected_in_sync() {
         }
     });
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -612,8 +597,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    test_helper.do_initial_sync().await;
 
     let f = EventFactory::new().room(&room_id).sender(*BOB);
     let pinned_event = f
@@ -622,14 +606,16 @@ async fn test_redacted_events_are_reflected_in_sync() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![pinned_event]).await;
+
     // Load initial timeline items: a text message and a `m.room.pinned_events` with
     // event $1
-    let _ = test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1"])).await;
+    test_helper.sync_once(Vec::new(), Some(vec!["$1"])).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
         Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
-    test_helper.server.reset().await;
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -643,7 +629,6 @@ async fn test_redacted_events_are_reflected_in_sync() {
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 
     let redaction_event = f
         .redaction(event_id!("$1"))
@@ -651,8 +636,11 @@ async fn test_redacted_events_are_reflected_in_sync() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![redaction_event.clone()]).await;
+
     // Load new pinned event contents from sync, where $1 is now redacted
-    let _ = test_helper.setup_sync_response(vec![(redaction_event, true)], None).await;
+    let _ = test_helper.sync_once(vec![redaction_event], None).await;
 
     // The list is reloaded, so it's reset
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
@@ -670,7 +658,6 @@ async fn test_redacted_events_are_reflected_in_sync() {
         assert_matches!(value.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
     });
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 }
 
 #[async_test]
@@ -679,8 +666,7 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     let room_id = test_helper.room_id.clone();
 
     // Join the room
-    let _ = test_helper.setup_initial_sync_response().await;
-    test_helper.server.reset().await;
+    test_helper.do_initial_sync().await;
 
     let f = EventFactory::new().room(&room_id).sender(*BOB);
     let pinned_event = f
@@ -689,14 +675,15 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
-    // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // event $1
-    let _ = test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1"])).await;
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![pinned_event]).await;
+
+    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
+    test_helper.sync_once(Vec::new(), Some(vec!["$1"])).await.expect("Sync failed");
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let timeline =
         Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
-    test_helper.server.reset().await;
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -710,7 +697,6 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
-    test_helper.server.reset().await;
 
     let edited_pinned_event = f
         .text_msg("* edited message!")
@@ -722,10 +708,12 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![edited_pinned_event.clone()]).await;
+
     // Load new pinned event contents from sync, $2 was pinned but wasn't available
     // before
-    let _ = test_helper.setup_sync_response(vec![(edited_pinned_event, true)], None).await;
-    test_helper.server.reset().await;
+    test_helper.sync_once(vec![edited_pinned_event], None).await.expect("Sync failed");
 
     // The list is reloaded, so it's reset
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Clear);
@@ -755,11 +743,14 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
 
+    // Mock /event for some timeline events
+    test_helper.mock_events(vec![new_pinned_event.clone()]).await;
+
     // Load new pinned event contents from sync: $3
-    let _ = test_helper
-        .setup_sync_response(vec![(new_pinned_event, true)], Some(vec!["$1", "$3"]))
-        .await;
-    test_helper.server.reset().await;
+    test_helper
+        .sync_once(vec![new_pinned_event], Some(vec!["$1", "$3"]))
+        .await
+        .expect("Sync failed");
 
     // New item gets added
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -869,58 +860,51 @@ async fn test_ensure_max_concurrency_is_observed() {
 
 struct TestHelper {
     pub client: Client,
-    pub server: MockServer,
+    pub server: MatrixMockServer,
     pub room_id: OwnedRoomId,
-    pub sync_settings: SyncSettings,
-    pub sync_response_builder: SyncResponseBuilder,
 }
 
 impl TestHelper {
     async fn new() -> Self {
-        let (client, server) = logged_in_client_with_server().await;
-        Self {
-            client,
-            server,
-            room_id: owned_room_id!("!a98sd12bjh:example.org"),
-            sync_settings: SyncSettings::new().timeout(Duration::from_millis(3000)),
-            sync_response_builder: SyncResponseBuilder::new(),
-        }
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        Self { client, server, room_id: owned_room_id!("!a98sd12bjh:example.org") }
     }
 
-    async fn setup_initial_sync_response(&mut self) -> Result<SyncResponse, matrix_sdk::Error> {
+    async fn do_initial_sync(&mut self) {
         let joined_room_builder = JoinedRoomBuilder::new(&self.room_id)
             // Set up encryption
             .add_state_event(StateTestEvent::Encryption);
 
-        // Mark the room as joined.
-        let json_response = self
-            .sync_response_builder
-            .add_joined_room(joined_room_builder)
-            .build_json_sync_response();
-        mock_sync(&self.server, json_response, None).await;
-        self.client.sync_once(self.sync_settings.clone()).await
+        self.server
+            .mock_sync()
+            .ok_and_run(&self.client, move |sync_builder| {
+                // Mark the room as joined.
+                sync_builder.add_joined_room(joined_room_builder);
+            })
+            .await;
     }
 
-    async fn setup_sync_response(
-        &mut self,
-        text_messages: Vec<(TimelineEvent, bool)>,
-        pinned_event_ids: Option<Vec<&str>>,
-    ) -> Result<SyncResponse, matrix_sdk::Error> {
-        let mut joined_room_builder = JoinedRoomBuilder::new(&self.room_id);
-        for (timeline_event, add_to_timeline) in text_messages {
-            let deserialized_event = timeline_event.raw().deserialize()?;
-            mock_event(
-                &self.server,
-                &self.room_id,
-                deserialized_event.event_id(),
-                timeline_event.clone(),
-            )
-            .await;
+    async fn mock_events(&mut self, events: Vec<TimelineEvent>) {
+        for event in events {
+            self.server
+                .mock_room_event()
+                .room(self.room_id.to_owned())
+                .match_event_id()
+                .ok(event)
+                .mount()
+                .await;
+        }
+    }
 
-            if add_to_timeline {
-                joined_room_builder =
-                    joined_room_builder.add_timeline_event(timeline_event.into_raw());
-            }
+    async fn sync_once(
+        &mut self,
+        timeline_events: Vec<TimelineEvent>,
+        pinned_event_ids: Option<Vec<&str>>,
+    ) -> Result<(), matrix_sdk::Error> {
+        let mut joined_room_builder = JoinedRoomBuilder::new(&self.room_id);
+        for timeline_event in timeline_events {
+            joined_room_builder = joined_room_builder.add_timeline_event(timeline_event.into_raw());
         }
 
         if let Some(pinned_event_ids) = pinned_event_ids {
@@ -944,13 +928,14 @@ impl TestHelper {
                 )))
         }
 
-        // Mark the room as joined.
-        let json_response = self
-            .sync_response_builder
-            .add_joined_room(joined_room_builder)
-            .build_json_sync_response();
-        mock_sync(&self.server, json_response, None).await;
-        self.client.sync_once(self.sync_settings.clone()).await
+        self.server
+            .mock_sync()
+            .ok_and_run(&self.client, move |sync_builder| {
+                sync_builder.add_joined_room(joined_room_builder);
+            })
+            .await;
+
+        Ok(())
     }
 }
 
