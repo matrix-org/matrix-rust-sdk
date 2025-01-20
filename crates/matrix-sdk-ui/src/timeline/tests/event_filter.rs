@@ -102,9 +102,7 @@ async fn test_filter_always_false() {
     let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
 
-    timeline
-        .handle_live_redacted_message_event(&ALICE, RedactedRoomMessageEventContent::new())
-        .await;
+    timeline.handle_live_event(f.redacted(&ALICE, RedactedRoomMessageEventContent::new())).await;
 
     timeline
         .handle_live_state_event_with_state_key(
@@ -136,9 +134,7 @@ async fn test_custom_filter() {
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
-    timeline
-        .handle_live_redacted_message_event(&ALICE, RedactedRoomMessageEventContent::new())
-        .await;
+    timeline.handle_live_event(f.redacted(&ALICE, RedactedRoomMessageEventContent::new())).await;
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     timeline

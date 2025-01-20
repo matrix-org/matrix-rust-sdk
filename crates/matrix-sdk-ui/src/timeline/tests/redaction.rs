@@ -151,7 +151,7 @@ async fn test_reaction_redaction_timeline_filter() {
     assert_eq!(timeline.controller.items().await.len(), 0);
 
     // Adding a live redacted reaction does nothing.
-    timeline.handle_live_redacted_message_event(&ALICE, RedactedReactionEventContent::new()).await;
+    timeline.handle_live_event(f.redacted(&ALICE, RedactedReactionEventContent::new())).await;
     assert_eq!(timeline.controller.items().await.len(), 0);
 
     // Adding a room message

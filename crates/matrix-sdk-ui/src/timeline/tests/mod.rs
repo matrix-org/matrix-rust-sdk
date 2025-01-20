@@ -45,8 +45,8 @@ use ruma::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::{Annotation, RelationType},
-        AnyMessageLikeEventContent, AnyTimelineEvent, EmptyStateKey,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StaticStateEventContent,
+        AnyMessageLikeEventContent, AnyTimelineEvent, EmptyStateKey, RedactedStateEventContent,
+        StaticStateEventContent,
     },
     int,
     power_levels::NotificationPowerLevels,
@@ -179,14 +179,6 @@ impl TestTimeline {
 
     async fn len(&self) -> usize {
         self.controller.items().await.len()
-    }
-
-    async fn handle_live_redacted_message_event<C>(&self, sender: &UserId, content: C)
-    where
-        C: RedactedMessageLikeEventContent,
-    {
-        let ev = self.event_builder.make_sync_redacted_message_event(sender, content);
-        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
     }
 
     async fn handle_live_state_event<C>(&self, sender: &UserId, content: C, prev_content: Option<C>)

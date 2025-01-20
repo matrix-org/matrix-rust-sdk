@@ -183,11 +183,18 @@ where
             })
             .unwrap_or_else(|| EventId::new(server_name!("dummy.org")));
 
+        // Use the `sender` preferably, or resort to the `redacted_because` sender if
+        // none has been set.
+        let sender = self
+            .sender
+            .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone()))
+            .expect("we should have a sender user id at this point");
+
         let mut json = json!({
             "type": self.content.event_type(),
             "content": self.content,
             "event_id": event_id,
-            "sender": self.sender.expect("we should have a sender user id at this point"),
+            "sender": sender,
             "origin_server_ts": self.server_ts,
         });
 

@@ -691,7 +691,6 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     let f = EventFactory::new();
     let raw_redacted_event_from_bob = f
         .redacted(&BOB, RedactedReactionEventContent::new())
-        .sender(&BOB)
         .event_id(redacted_event_id_from_bob)
         .into_raw_sync();
     sync_builder.add_joined_room(
