@@ -17,19 +17,20 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::deserialized_responses::SyncTimelineEvent;
-use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB, CAROL};
+use matrix_sdk_test::{
+    async_test, event_factory::PreviousMembership, sync_timeline_event, ALICE, BOB, CAROL,
+};
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            member::{MembershipState, RedactedRoomMemberEventContent, RoomMemberEventContent},
+            member::{MembershipState, RedactedRoomMemberEventContent},
             message::MessageType,
-            name::RoomNameEventContent,
             topic::RedactedRoomTopicEventContent,
         },
         FullStateEventContent,
     },
-    owned_event_id, owned_mxc_uri, MilliSecondsSinceUnixEpoch,
+    mxc_uri, owned_event_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
@@ -148,16 +149,9 @@ async fn test_room_member() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
-    let mut first_room_member_content = RoomMemberEventContent::new(MembershipState::Invite);
-    first_room_member_content.displayname = Some("Alice".to_owned());
-    timeline
-        .handle_live_state_event_with_state_key(
-            &BOB,
-            ALICE.to_owned(),
-            first_room_member_content.clone(),
-            None,
-        )
-        .await;
+    // Bob invites Alice.
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.member(&BOB).invited(&ALICE).display_name("Alice")).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.can_be_replied_to());
@@ -165,14 +159,12 @@ async fn test_room_member() {
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::Invited));
 
-    let mut second_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
-    second_room_member_content.displayname = Some("Alice".to_owned());
     timeline
-        .handle_live_state_event_with_state_key(
-            &ALICE,
-            ALICE.to_owned(),
-            second_room_member_content.clone(),
-            Some(first_room_member_content),
+        .handle_live_event(
+            f.member(&ALICE)
+                .membership(MembershipState::Join)
+                .display_name("Alice")
+                .previous(PreviousMembership::new(MembershipState::Invite).display_name("Alice")),
         )
         .await;
 
@@ -181,14 +173,12 @@ async fn test_room_member() {
     assert_matches!(membership.content(), FullStateEventContent::Original { .. });
     assert_matches!(membership.change(), Some(MembershipChange::InvitationAccepted));
 
-    let mut third_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
-    third_room_member_content.displayname = Some("Alice In Wonderland".to_owned());
     timeline
-        .handle_live_state_event_with_state_key(
-            &ALICE,
-            ALICE.to_owned(),
-            third_room_member_content.clone(),
-            Some(second_room_member_content),
+        .handle_live_event(
+            f.member(&ALICE)
+                .membership(MembershipState::Join)
+                .display_name("Alice In Wonderland")
+                .previous(PreviousMembership::new(MembershipState::Join).display_name("Alice")),
         )
         .await;
 
@@ -197,15 +187,16 @@ async fn test_room_member() {
     assert_matches!(profile.displayname_change(), Some(_));
     assert_matches!(profile.avatar_url_change(), None);
 
-    let mut fourth_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
-    fourth_room_member_content.displayname = Some("Alice In Wonderland".to_owned());
-    fourth_room_member_content.avatar_url = Some(owned_mxc_uri!("mxc://lolcathost.io/abc"));
     timeline
-        .handle_live_state_event_with_state_key(
-            &ALICE,
-            ALICE.to_owned(),
-            fourth_room_member_content.clone(),
-            Some(third_room_member_content),
+        .handle_live_event(
+            f.member(&ALICE)
+                .membership(MembershipState::Join)
+                .display_name("Alice In Wonderland")
+                .avatar_url(mxc_uri!("mxc://lolcathost.io/abc"))
+                .previous(
+                    PreviousMembership::new(MembershipState::Join)
+                        .display_name("Alice In Wonderland"),
+                ),
         )
         .await;
 
@@ -217,14 +208,13 @@ async fn test_room_member() {
     {
         // No avatar or display name in the new room member event content, but it's
         // possible to get the previous one using the getters.
-        let room_member_content = RoomMemberEventContent::new(MembershipState::Leave);
-
         timeline
-            .handle_live_state_event_with_state_key(
-                &ALICE,
-                ALICE.to_owned(),
-                room_member_content,
-                Some(fourth_room_member_content),
+            .handle_live_event(
+                f.member(&ALICE).membership(MembershipState::Leave).previous(
+                    PreviousMembership::new(MembershipState::Join)
+                        .display_name("Alice In Wonderland")
+                        .avatar_url(mxc_uri!("mxc://lolcathost.io/abc")),
+                ),
             )
             .await;
 
@@ -258,9 +248,7 @@ async fn test_other_state() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    timeline
-        .handle_live_state_event(&ALICE, RoomNameEventContent::new("Alice's room".to_owned()), None)
-        .await;
+    timeline.handle_live_event(timeline.factory.room_name("Alice's room").sender(&ALICE)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());

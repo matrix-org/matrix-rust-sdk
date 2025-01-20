@@ -18,8 +18,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::events::{
-    reaction::RedactedReactionEventContent,
-    room::{message::OriginalSyncRoomMessageEvent, name::RoomNameEventContent},
+    reaction::RedactedReactionEventContent, room::message::OriginalSyncRoomMessageEvent,
     FullStateEventContent,
 };
 use stream_assert::assert_next_matches;
@@ -37,13 +36,7 @@ async fn test_redact_state_event() {
 
     let f = &timeline.factory;
 
-    timeline
-        .handle_live_state_event(
-            &ALICE,
-            RoomNameEventContent::new("Fancy room name".to_owned()),
-            None,
-        )
-        .await;
+    timeline.handle_live_event(f.room_name("Fancy room name").sender(&ALICE)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(state) = item.content());

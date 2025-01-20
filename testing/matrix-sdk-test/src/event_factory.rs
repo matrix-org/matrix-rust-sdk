@@ -646,6 +646,19 @@ impl EventBuilder<RoomMemberEventContent> {
         self
     }
 
+    /// Set that the sender of this event invited the user passed as a parameter
+    /// here.
+    pub fn invited(mut self, invited_user: &UserId) -> Self {
+        assert_ne!(
+            self.sender.as_deref().unwrap(),
+            invited_user,
+            "invited user and sender can't be the same person"
+        );
+        self.content.membership = MembershipState::Invite;
+        self.state_key = Some(invited_user.to_string());
+        self
+    }
+
     /// Set that the sender of this event kicked the user passed as a parameter
     /// here.
     pub fn kicked(mut self, kicked_user: &UserId) -> Self {
@@ -691,9 +704,46 @@ impl EventBuilder<RoomMemberEventContent> {
     }
 
     /// Set the previous membership state (in the unsigned section).
-    pub fn previous(mut self, state: MembershipState) -> Self {
-        self.unsigned.get_or_insert_default().prev_content =
-            Some(RoomMemberEventContent::new(state));
+    pub fn previous(mut self, previous: impl Into<PreviousMembership>) -> Self {
+        let previous = previous.into();
+
+        let mut prev_content = RoomMemberEventContent::new(previous.state);
+        if let Some(avatar_url) = previous.avatar_url {
+            prev_content.avatar_url = Some(avatar_url);
+        }
+        if let Some(display_name) = previous.display_name {
+            prev_content.displayname = Some(display_name);
+        }
+
+        self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev_content);
         self
+    }
+}
+
+pub struct PreviousMembership {
+    state: MembershipState,
+    avatar_url: Option<OwnedMxcUri>,
+    display_name: Option<String>,
+}
+
+impl PreviousMembership {
+    pub fn new(state: MembershipState) -> Self {
+        Self { state, avatar_url: None, display_name: None }
+    }
+
+    pub fn avatar_url(mut self, url: &MxcUri) -> Self {
+        self.avatar_url = Some(url.to_owned());
+        self
+    }
+
+    pub fn display_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
+    }
+}
+
+impl From<MembershipState> for PreviousMembership {
+    fn from(state: MembershipState) -> Self {
+        Self::new(state)
     }
 }
