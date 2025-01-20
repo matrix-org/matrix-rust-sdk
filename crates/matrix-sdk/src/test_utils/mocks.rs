@@ -1859,7 +1859,9 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     pub fn ok(self, event: TimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
             let event_id = event.kind.event_id().expect("an event id is required");
-            event_id.to_string()
+            // The event id should begin with `$`, which would be taken as the end of the
+            // regex so we need to escape it
+            event_id.as_str().replace("$", "\\$")
         } else {
             // Event is at the end, so no need to add anything.
             "".to_owned()
@@ -1869,7 +1871,7 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
 
         let mock = self
             .mock
-            .and(path_regex(format!("^/_matrix/client/v3/rooms/{room_path}/event/{event_path}")))
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/{event_path}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(event.into_raw().json()));
         MatrixMock { server: self.server, mock }
     }
