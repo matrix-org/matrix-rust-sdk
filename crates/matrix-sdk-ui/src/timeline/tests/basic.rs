@@ -230,11 +230,11 @@ async fn test_room_member() {
     }
 
     timeline
-        .handle_live_redacted_state_event_with_state_key(
+        .handle_live_event(f.redacted_state(
             &ALICE,
-            ALICE.to_owned(),
+            ALICE.as_str(),
             RedactedRoomMemberEventContent::new(MembershipState::Join),
-        )
+        ))
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -248,7 +248,8 @@ async fn test_other_state() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    timeline.handle_live_event(timeline.factory.room_name("Alice's room").sender(&ALICE)).await;
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.room_name("Alice's room").sender(&ALICE)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
@@ -260,7 +261,9 @@ async fn test_other_state() {
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());
 
-    timeline.handle_live_redacted_state_event(&ALICE, RedactedRoomTopicEventContent::new()).await;
+    timeline
+        .handle_live_event(f.redacted_state(&ALICE, "", RedactedRoomTopicEventContent::new()))
+        .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());

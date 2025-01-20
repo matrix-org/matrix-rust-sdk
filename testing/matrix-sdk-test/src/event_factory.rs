@@ -48,7 +48,7 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
-        RedactedMessageLikeEventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent,
     },
     serde::Raw,
     server_name, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
@@ -543,6 +543,29 @@ impl EventFactory {
             sender: redacter.to_owned(),
             origin_server_ts: self.next_server_ts(),
         };
+        builder.unsigned.get_or_insert_with(Default::default).redacted_because =
+            Some(redacted_because);
+
+        builder
+    }
+
+    /// Create a redacted state event, with extra information in the unsigned
+    /// section about the redaction itself.
+    pub fn redacted_state<T: RedactedStateEventContent>(
+        &self,
+        redacter: &UserId,
+        state_key: impl Into<String>,
+        content: T,
+    ) -> EventBuilder<T> {
+        let mut builder = self.event(content);
+
+        let redacted_because = RedactedBecause {
+            content: RoomRedactionEventContent::default(),
+            event_id: EventId::new(server_name!("dummy.server")),
+            sender: redacter.to_owned(),
+            origin_server_ts: self.next_server_ts(),
+        };
+        builder.unsigned.get_or_insert_default().redacted_because = Some(redacted_because);
         builder.unsigned.get_or_insert_with(Default::default).redacted_because =
             Some(redacted_because);
 
