@@ -38,7 +38,7 @@ use ruma::{
     room_id,
     serde::Raw,
     uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, TransactionId, UserId,
+    OneTimeKeyAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde_json::json;
 use vodozemac::{
@@ -48,7 +48,7 @@ use vodozemac::{
 
 use super::CrossSigningBootstrapRequests;
 use crate::{
-    error::EventError,
+    error::{EventError, OlmResult},
     machine::{
         test_helpers::{
             get_machine_after_query_test_helper, get_machine_pair_with_session,
@@ -58,7 +58,7 @@ use crate::{
     },
     olm::{BackedUpRoomKey, ExportedRoomKey, SenderData, VerifyJson},
     session_manager::CollectStrategy,
-    store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore},
+    store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomKeyInfo},
     types::{
         events::{
             room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
@@ -388,9 +388,37 @@ async fn test_missing_sessions_calculation() {
 #[async_test]
 async fn test_room_key_sharing() {
     let (alice, bob) = get_machine_pair_with_session(alice_id(), user_id(), false).await;
-
     let room_id = room_id!("!test:example.org");
 
+    let (decrypted, room_key_updates) =
+        send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
+
+    let event = decrypted[0].deserialize().unwrap();
+
+    if let AnyToDeviceEvent::RoomKey(event) = event {
+        assert_eq!(&event.sender, alice.user_id());
+        assert!(event.content.session_key.is_empty());
+    } else {
+        panic!("expected RoomKeyEvent found {event:?}");
+    }
+
+    let alice_session =
+        alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+    let session = bob.store().get_inbound_group_session(room_id, alice_session.session_id()).await;
+
+    assert!(session.unwrap().is_some());
+
+    assert_eq!(room_key_updates.len(), 1);
+    assert_eq!(room_key_updates[0].room_id, room_id);
+    assert_eq!(room_key_updates[0].session_id, alice_session.session_id());
+}
+
+async fn send_room_key_to_device(
+    alice: &OlmMachine,
+    bob: &OlmMachine,
+    room_id: &RoomId,
+) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
     let to_device_requests = alice
         .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
         .await
@@ -402,36 +430,14 @@ async fn test_room_key_sharing() {
     );
     let event = json_convert(&event).unwrap();
 
-    let alice_session =
-        alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
-
-    let (decrypted, room_key_updates) = bob
-        .receive_sync_changes(EncryptionSyncChanges {
-            to_device_events: vec![event],
-            changed_devices: &Default::default(),
-            one_time_keys_counts: &Default::default(),
-            unused_fallback_keys: None,
-            next_batch_token: None,
-        })
-        .await
-        .unwrap();
-
-    let event = decrypted[0].deserialize().unwrap();
-
-    if let AnyToDeviceEvent::RoomKey(event) = event {
-        assert_eq!(&event.sender, alice.user_id());
-        assert!(event.content.session_key.is_empty());
-    } else {
-        panic!("expected RoomKeyEvent found {event:?}");
-    }
-
-    let session = bob.store().get_inbound_group_session(room_id, alice_session.session_id()).await;
-
-    assert!(session.unwrap().is_some());
-
-    assert_eq!(room_key_updates.len(), 1);
-    assert_eq!(room_key_updates[0].room_id, room_id);
-    assert_eq!(room_key_updates[0].session_id, alice_session.session_id());
+    bob.receive_sync_changes(EncryptionSyncChanges {
+        to_device_events: vec![event],
+        changed_devices: &Default::default(),
+        one_time_keys_counts: &Default::default(),
+        unused_fallback_keys: None,
+        next_batch_token: None,
+    })
+    .await
 }
 
 #[async_test]
