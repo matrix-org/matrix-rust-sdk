@@ -26,10 +26,9 @@ use matrix_sdk_common::deserialized_responses::{
 use ruma::{
     events::{
         member_hints::MemberHintsEventContent,
-        message::TextContentBlock,
         poll::{
-            end::PollEndEventContent,
-            response::{PollResponseEventContent, SelectionsContentBlock},
+            unstable_end::UnstablePollEndEventContent,
+            unstable_response::UnstablePollResponseEventContent,
             unstable_start::{
                 NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
                 UnstablePollAnswer, UnstablePollStartContentBlock, UnstablePollStartEventContent,
@@ -544,13 +543,13 @@ impl EventFactory {
     /// start event id.
     pub fn poll_response(
         &self,
-        answer_id: impl Into<String>,
+        answers: Vec<impl Into<String>>,
         poll_start_id: &EventId,
-    ) -> EventBuilder<PollResponseEventContent> {
-        let selection_content: SelectionsContentBlock = vec![answer_id.into()].into();
-        let poll_response_content =
-            PollResponseEventContent::new(selection_content, poll_start_id.to_owned());
-        self.event(poll_response_content)
+    ) -> EventBuilder<UnstablePollResponseEventContent> {
+        self.event(UnstablePollResponseEventContent::new(
+            answers.into_iter().map(Into::into).collect(),
+            poll_start_id.to_owned(),
+        ))
     }
 
     /// Create a poll response with the given text and the associated poll start
@@ -559,12 +558,8 @@ impl EventFactory {
         &self,
         content: impl Into<String>,
         poll_start_id: &EventId,
-    ) -> EventBuilder<PollEndEventContent> {
-        let poll_end_content = PollEndEventContent::new(
-            TextContentBlock::plain(content.into()),
-            poll_start_id.to_owned(),
-        );
-        self.event(poll_end_content)
+    ) -> EventBuilder<UnstablePollEndEventContent> {
+        self.event(UnstablePollEndEventContent::new(content.into(), poll_start_id.to_owned()))
     }
 
     /// Creates a plain (unencrypted) image event content referencing the given
