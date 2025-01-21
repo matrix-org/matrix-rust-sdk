@@ -14,6 +14,8 @@
 
 use std::{collections::BTreeMap, fmt};
 
+#[cfg(doc)]
+use ruma::events::AnyTimelineEvent;
 use ruma::{
     events::{AnyMessageLikeEvent, AnySyncTimelineEvent},
     push::Action,

@@ -326,7 +326,11 @@ impl Room {
             start: http_response.start,
             end: http_response.end,
             #[cfg(not(feature = "e2e-encryption"))]
-            chunk: http_response.chunk.into_iter().map(TimelineEvent::new).collect(),
+            chunk: http_response
+                .chunk
+                .into_iter()
+                .map(|raw| TimelineEvent::new(raw.cast()))
+                .collect(),
             #[cfg(feature = "e2e-encryption")]
             chunk: Vec::with_capacity(http_response.chunk.len()),
             state: http_response.state,
@@ -481,7 +485,7 @@ impl Room {
 
         // Save the event into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
-            cache.save_event(event.clone().into()).await;
+            cache.save_event(event.clone()).await;
         }
 
         Ok(event)
@@ -527,15 +531,15 @@ impl Room {
         if let Ok((cache, _handles)) = self.event_cache().await {
             let mut events_to_save: Vec<TimelineEvent> = Vec::new();
             if let Some(event) = &target_event {
-                events_to_save.push(event.clone().into());
+                events_to_save.push(event.clone());
             }
 
             for event in &events_before {
-                events_to_save.push(event.clone().into());
+                events_to_save.push(event.clone());
             }
 
             for event in &events_after {
-                events_to_save.push(event.clone().into());
+                events_to_save.push(event.clone());
             }
 
             cache.save_events(events_to_save).await;
