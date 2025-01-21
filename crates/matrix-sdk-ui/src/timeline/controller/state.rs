@@ -279,7 +279,7 @@ impl TimelineState {
 
             let handle_one_res = txn
                 .handle_remote_event(
-                    event.into(),
+                    event,
                     TimelineItemPosition::UpdateAt { timeline_item_index: idx },
                     room_data_provider,
                     settings,
@@ -759,7 +759,7 @@ impl TimelineStateTransaction<'_> {
             },
             is_highlighted: push_actions
                 .as_ref()
-                .map_or(false, |actions| actions.iter().any(Action::is_highlight)),
+                .is_some_and(|actions| actions.iter().any(Action::is_highlight)),
             flow: Flow::Remote {
                 event_id: event_id.clone(),
                 raw_event: raw,

@@ -325,7 +325,7 @@ mod tests {
                 }))
                 .unwrap()
                 .cast()
-            ).into()
+            )
         };
     }
 
@@ -616,8 +616,7 @@ mod tests {
                 }))
                 .unwrap()
                 .cast(),
-            )
-            .into()],
+            )],
         };
 
         let serialized = serde_json::to_value(&frozen_room).unwrap();
@@ -669,7 +668,6 @@ mod tests {
                         .unwrap()
                         .cast(),
                     )
-                    .into()
                 })
                 .collect::<Vec<_>>();
 
@@ -706,7 +704,6 @@ mod tests {
                     .unwrap()
                     .cast(),
                 )
-                .into()
                 })
                 .collect::<Vec<_>>();
 
