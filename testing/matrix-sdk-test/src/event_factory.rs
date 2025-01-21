@@ -119,6 +119,8 @@ pub struct EventBuilder<C: EventContent> {
     sender: Option<OwnedUserId>,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
+    /// Whether the event should *not* have an event id. False by default.
+    no_event_id: bool,
     redacts: Option<OwnedEventId>,
     content: C,
     server_ts: MilliSecondsSinceUnixEpoch,
@@ -142,6 +144,13 @@ where
 
     pub fn event_id(mut self, event_id: &EventId) -> Self {
         self.event_id = Some(event_id.to_owned());
+        self.no_event_id = false;
+        self
+    }
+
+    pub fn no_event_id(mut self) -> Self {
+        self.event_id = None;
+        self.no_event_id = true;
         self
     }
 
@@ -182,13 +191,6 @@ where
 
     #[inline(always)]
     fn construct_json(self, requires_room: bool) -> serde_json::Value {
-        let event_id = self
-            .event_id
-            .or_else(|| {
-                self.room.as_ref().map(|room_id| EventId::new(room_id.server_name().unwrap()))
-            })
-            .unwrap_or_else(|| EventId::new(server_name!("dummy.org")));
-
         // Use the `sender` preferably, or resort to the `redacted_because` sender if
         // none has been set.
         let sender = self
@@ -199,12 +201,21 @@ where
         let mut json = json!({
             "type": self.content.event_type(),
             "content": self.content,
-            "event_id": event_id,
             "sender": sender,
             "origin_server_ts": self.server_ts,
         });
 
         let map = json.as_object_mut().unwrap();
+
+        let event_id = self
+            .event_id
+            .or_else(|| {
+                self.room.as_ref().map(|room_id| EventId::new(room_id.server_name().unwrap()))
+            })
+            .or_else(|| (!self.no_event_id).then(|| EventId::new(server_name!("dummy.org"))));
+        if let Some(event_id) = event_id {
+            map.insert("event_id".to_owned(), json!(event_id));
+        }
 
         if requires_room {
             let room_id = self.room.expect("TimelineEvent requires a room id");
@@ -394,6 +405,7 @@ impl EventFactory {
             room: self.room.clone(),
             server_ts: self.next_server_ts(),
             event_id: None,
+            no_event_id: false,
             redacts: None,
             content,
             unsigned: None,
