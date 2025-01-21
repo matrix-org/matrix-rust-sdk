@@ -266,18 +266,6 @@ impl Timeline {
         }
     }
 
-    /// Get the current timeline items, and a stream of changes.
-    ///
-    /// You can poll this stream to receive updates. See
-    /// [`futures_util::StreamExt`] for a high-level API on top of [`Stream`].
-    pub async fn subscribe(
-        &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
-        let (items, stream) = self.controller.subscribe().await;
-        let stream = TimelineStream::new(stream, self.drop_handle.clone());
-        (items, stream)
-    }
-
     /// Get the current timeline items, and a batched stream of changes.
     ///
     /// In contrast to [`subscribe`](Self::subscribe), this stream can yield
