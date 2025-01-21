@@ -535,7 +535,7 @@ impl BaseClient {
                                 },
                             );
                         }
-                        event.push_actions = actions.to_owned();
+                        event.push_actions = Some(actions.to_owned());
                     }
                 }
                 Err(e) => {

@@ -353,7 +353,8 @@ impl Room {
             let push_rules = self.client().account().push_rules().await?;
 
             for event in &mut response.chunk {
-                event.push_actions = push_rules.get_actions(event.raw(), &push_context).to_owned();
+                event.push_actions =
+                    Some(push_rules.get_actions(event.raw(), &push_context).to_owned());
             }
         }
 
@@ -458,7 +459,7 @@ impl Room {
         }
 
         let mut event = SyncTimelineEvent::new(event.cast());
-        event.push_actions = self.event_push_actions(event.raw()).await?.unwrap_or_default();
+        event.push_actions = self.event_push_actions(event.raw()).await?;
 
         Ok(event)
     }
@@ -1298,7 +1299,7 @@ impl Room {
             }
         };
 
-        event.push_actions = self.event_push_actions(event.raw()).await?.unwrap_or_default();
+        event.push_actions = self.event_push_actions(event.raw()).await?;
         Ok(event)
     }
 
