@@ -273,12 +273,9 @@ impl TimelineState {
                 continue;
             };
 
-            event.push_actions = push_rules_context
-                .as_ref()
-                .map(|(push_rules, push_context)| {
-                    push_rules.get_actions(event.raw(), push_context).to_owned()
-                })
-                .unwrap_or_default();
+            event.push_actions = push_rules_context.as_ref().map(|(push_rules, push_context)| {
+                push_rules.get_actions(event.raw(), push_context).to_owned()
+            });
 
             let handle_one_res = txn
                 .handle_remote_event(
@@ -760,7 +757,9 @@ impl TimelineStateTransaction<'_> {
             } else {
                 Default::default()
             },
-            is_highlighted: push_actions.iter().any(Action::is_highlight),
+            is_highlighted: push_actions
+                .as_ref()
+                .map_or(false, |actions| actions.iter().any(Action::is_highlight)),
             flow: Flow::Remote {
                 event_id: event_id.clone(),
                 raw_event: raw,

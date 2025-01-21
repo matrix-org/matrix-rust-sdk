@@ -66,7 +66,7 @@ pub fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
             encryption_info,
             unsigned_encryption_info: None,
         }),
-        push_actions: vec![Action::Notify],
+        push_actions: Some(vec![Action::Notify]),
     }
 }
 
@@ -77,7 +77,7 @@ pub fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
 #[track_caller]
 pub fn check_test_event(event: &SyncTimelineEvent, text: &str) {
     // Check push actions.
-    let actions = &event.push_actions;
+    let actions = event.push_actions.as_ref().unwrap();
     assert_eq!(actions.len(), 1);
     assert_matches!(&actions[0], Action::Notify);
 
