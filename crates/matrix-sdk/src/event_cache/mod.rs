@@ -36,7 +36,7 @@ use std::{
 use eyeball::Subscriber;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    deserialized_responses::{AmbiguityChange, SyncTimelineEvent, TimelineEvent},
+    deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
     store_locks::LockStoreError,
     sync::RoomUpdates,
@@ -662,7 +662,7 @@ pub struct BackPaginationOutcome {
     /// technically, the last one in the topological ordering).
     ///
     /// Note: they're not deduplicated (TODO: smart reconciliation).
-    pub events: Vec<TimelineEvent>,
+    pub events: Vec<SyncTimelineEvent>,
 }
 
 /// An update related to events happened in a room.

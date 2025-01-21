@@ -20,7 +20,7 @@ use std::{
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent, sliding_sync::http, RoomState, StoreError,
+    deserialized_responses::SyncTimelineEvent, sliding_sync::http, RoomState, StoreError,
 };
 use ruma::{
     assign,
@@ -159,7 +159,7 @@ impl NotificationClient {
         &self,
         room: &Room,
         raw_event: &Raw<AnySyncTimelineEvent>,
-    ) -> Result<Option<TimelineEvent>, Error> {
+    ) -> Result<Option<SyncTimelineEvent>, Error> {
         let event: AnySyncTimelineEvent =
             raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
 
@@ -507,9 +507,9 @@ impl NotificationClient {
                 if let Some(mut timeline_event) =
                     self.retry_decryption(&room, timeline_event).await?
                 {
-                    let push_actions = timeline_event.push_actions.take();
+                    let push_actions = std::mem::take(&mut timeline_event.push_actions);
                     raw_event = RawNotificationEvent::Timeline(timeline_event.into_raw());
-                    push_actions
+                    Some(push_actions)
                 } else {
                     room.event_push_actions(timeline_event).await?
                 }
@@ -564,18 +564,19 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if let Some(actions) = timeline_event.push_actions.as_ref() {
-            if !actions.iter().any(|a| a.should_notify()) {
-                return Ok(None);
-            }
+        // TODO: nope
+        if !timeline_event.push_actions.is_empty()
+            && !timeline_event.push_actions.iter().any(|a| a.should_notify())
+        {
+            return Ok(None);
         }
 
-        let push_actions = timeline_event.push_actions.take();
+        let push_actions = std::mem::take(&mut timeline_event.push_actions);
         Ok(Some(
             NotificationItem::new(
                 &room,
                 RawNotificationEvent::Timeline(timeline_event.into_raw()),
-                push_actions.as_deref(),
+                Some(&push_actions),
                 state_events,
             )
             .await?,

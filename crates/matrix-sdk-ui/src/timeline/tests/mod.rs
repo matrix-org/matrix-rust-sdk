@@ -27,7 +27,7 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
-    deserialized_responses::{SyncTimelineEvent, TimelineEvent},
+    deserialized_responses::SyncTimelineEvent,
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
     send_queue::RoomSendQueueUpdate,
@@ -196,7 +196,7 @@ impl TestTimeline {
     }
 
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
-        let timeline_event = TimelineEvent::new(event.cast());
+        let timeline_event = SyncTimelineEvent::new(event.cast());
         self.controller
             .add_events_at(
                 [timeline_event].into_iter(),

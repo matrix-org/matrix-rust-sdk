@@ -21,7 +21,7 @@ use std::{
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::{
-    SyncTimelineEvent, TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
+    SyncTimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
 };
 use ruma::{
     events::{
@@ -248,10 +248,6 @@ where
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
         Raw::new(&self.construct_json(true)).unwrap().cast()
-    }
-
-    pub fn into_timeline(self) -> TimelineEvent {
-        TimelineEvent::new(self.into_raw_timeline())
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {

@@ -214,7 +214,6 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 #[cfg(test)]
 mod tests {
     use imbl::vector;
-    use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw, RoomId};
@@ -315,7 +314,7 @@ mod tests {
 
     macro_rules! timeline_event {
         (from $sender:literal with id $event_id:literal at $ts:literal: $message:literal) => {
-            TimelineEvent::new(
+            SyncTimelineEvent::new(
                 Raw::new(&json!({
                     "content": RoomMessageEventContent::text_plain($message),
                     "type": "m.room.message",
@@ -606,7 +605,7 @@ mod tests {
         let frozen_room = FrozenSlidingSyncRoom {
             room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
             prev_batch: Some("foo".to_owned()),
-            timeline_queue: vector![TimelineEvent::new(
+            timeline_queue: vector![SyncTimelineEvent::new(
                 Raw::new(&json!({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
                     "type": "m.room.message",
@@ -658,7 +657,7 @@ mod tests {
             let max = NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE - 1;
             let timeline_events = (0..=max)
                 .map(|nth| {
-                    TimelineEvent::new(
+                    SyncTimelineEvent::new(
                         Raw::new(&json!({
                             "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
                             "type": "m.room.message",
@@ -695,7 +694,7 @@ mod tests {
             let max = NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE + 2;
             let timeline_events = (0..=max)
                 .map(|nth| {
-                    TimelineEvent::new(
+                    SyncTimelineEvent::new(
                     Raw::new(&json!({
                         "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
                         "type": "m.room.message",
