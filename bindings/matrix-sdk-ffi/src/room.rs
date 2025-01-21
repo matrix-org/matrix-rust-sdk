@@ -11,7 +11,9 @@ use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{default_event_filter, PaginationError, RoomExt, TimelineFocus};
+use matrix_sdk_ui::timeline::{
+    default_event_filter, PaginationError, RoomExt, TimelineBuilder, TimelineFocus,
+};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -82,6 +84,36 @@ impl Room {
 
     pub(crate) fn with_timeline(inner: SdkRoom, timeline: TimelineLock) -> Self {
         Room { inner, timeline }
+    }
+
+    fn message_filtered_timeline_builder(
+        &self,
+        internal_id_prefix: Option<String>,
+        allowed_message_types: Vec<RoomMessageEventMessageType>,
+        date_divider_mode: DateDividerMode,
+    ) -> TimelineBuilder {
+        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
+
+        if let Some(internal_id_prefix) = internal_id_prefix {
+            builder = builder.with_internal_id_prefix(internal_id_prefix);
+        }
+
+        builder = builder.with_date_divider_mode(date_divider_mode.into());
+
+        builder = builder.event_filter(move |event, room_version_id| {
+            default_event_filter(event, room_version_id)
+                && match event {
+                    AnySyncTimelineEvent::MessageLike(msg) => match msg.original_content() {
+                        Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
+                            allowed_message_types.contains(&content.msgtype.into())
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                }
+        });
+
+        builder
     }
 }
 
@@ -278,34 +310,67 @@ impl Room {
     ///
     /// * `allowed_message_types` - A list of `RoomMessageEventMessageType` that
     ///   will be allowed to appear in the timeline
+    ///
+    /// * `date_divider_mode` - The mode to use for date dividers in the
+    ///   timeline
     pub async fn message_filtered_timeline(
         &self,
         internal_id_prefix: Option<String>,
         allowed_message_types: Vec<RoomMessageEventMessageType>,
         date_divider_mode: DateDividerMode,
     ) -> Result<Arc<Timeline>, ClientError> {
-        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
-
-        if let Some(internal_id_prefix) = internal_id_prefix {
-            builder = builder.with_internal_id_prefix(internal_id_prefix);
-        }
-
-        builder = builder.with_date_divider_mode(date_divider_mode.into());
-
-        builder = builder.event_filter(move |event, room_version_id| {
-            default_event_filter(event, room_version_id)
-                && match event {
-                    AnySyncTimelineEvent::MessageLike(msg) => match msg.original_content() {
-                        Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
-                            allowed_message_types.contains(&content.msgtype.into())
-                        }
-                        _ => false,
-                    },
-                    _ => false,
-                }
-        });
+        let builder = self.message_filtered_timeline_builder(
+            internal_id_prefix,
+            allowed_message_types,
+            date_divider_mode,
+        );
 
         let timeline = builder.build().await?;
+        Ok(Timeline::new(timeline))
+    }
+
+    /// A variant of the message filtered timeline that
+    /// allows focusing on a particular event.
+    pub async fn message_filtered_timeline_focused_on_event(
+        &self,
+        internal_id_prefix: Option<String>,
+        allowed_message_types: Vec<RoomMessageEventMessageType>,
+        date_divider_mode: DateDividerMode,
+        focused_event_id: String,
+        num_context_events: u16,
+    ) -> Result<Arc<Timeline>, ClientError> {
+        let parsed_event_id =
+            EventId::parse(&focused_event_id).map_err(|err| FocusEventError::InvalidEventId {
+                event_id: focused_event_id.clone(),
+                err: err.to_string(),
+            })?;
+
+        let builder = self.message_filtered_timeline_builder(
+            internal_id_prefix,
+            allowed_message_types,
+            date_divider_mode,
+        );
+
+        let timeline = match builder
+            .with_focus(TimelineFocus::Event { target: parsed_event_id, num_context_events })
+            .build()
+            .await
+        {
+            Ok(t) => t,
+            Err(err) => {
+                if let matrix_sdk_ui::timeline::Error::PaginationError(
+                    PaginationError::Paginator(PaginatorError::EventNotFound(..)),
+                ) = err
+                {
+                    return Err(FocusEventError::EventNotFound {
+                        event_id: focused_event_id.to_string(),
+                    }
+                    .into());
+                }
+                return Err(FocusEventError::Other { msg: err.to_string() }.into());
+            }
+        };
+
         Ok(Timeline::new(timeline))
     }
 
