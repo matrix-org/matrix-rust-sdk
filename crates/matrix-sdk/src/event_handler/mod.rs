@@ -672,7 +672,9 @@ where
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
+        async_test,
+        event_factory::{EventFactory, PreviousMembership},
+        InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use stream_assert::{assert_closed, assert_pending, assert_ready};
     #[cfg(target_arch = "wasm32")]
@@ -686,14 +688,14 @@ mod tests {
     };
 
     use matrix_sdk_test::{
-        sync_timeline_event, EphemeralTestEvent, StateTestEvent, StrippedStateTestEvent,
-        SyncResponseBuilder,
+        EphemeralTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
     };
     use once_cell::sync::Lazy;
     use ruma::{
+        event_id,
         events::{
             room::{
-                member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
+                member::{MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
                 name::OriginalSyncRoomNameEvent,
                 power_levels::OriginalSyncRoomPowerLevelsEvent,
             },
@@ -702,6 +704,7 @@ mod tests {
         },
         room_id,
         serde::Raw,
+        user_id,
     };
     use serde_json::json;
 
@@ -712,28 +715,13 @@ mod tests {
     };
 
     static MEMBER_EVENT: Lazy<Raw<AnySyncTimelineEvent>> = Lazy::new(|| {
-        sync_timeline_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "join"
-            },
-            "event_id": "$151800140517rfvjc:localhost",
-            "membership": "join",
-            "origin_server_ts": 151800140,
-            "sender": "@example:localhost",
-            "state_key": "@example:localhost",
-            "type": "m.room.member",
-            "prev_content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "invite"
-            },
-            "unsigned": {
-                "age": 297036,
-                "replaces_state": "$151800111315tsynI:localhost"
-            }
-        })
+        EventFactory::new()
+            .member(user_id!("@example:localhost"))
+            .membership(MembershipState::Join)
+            .display_name("example")
+            .event_id(event_id!("$151800140517rfvjc:localhost"))
+            .previous(PreviousMembership::new(MembershipState::Invite).display_name("example"))
+            .into()
     });
 
     #[async_test]

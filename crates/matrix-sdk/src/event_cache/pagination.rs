@@ -376,14 +376,11 @@ mod tests {
 
         use assert_matches::assert_matches;
         use matrix_sdk_base::RoomState;
-        use matrix_sdk_test::{
-            async_test, event_factory::EventFactory, sync_timeline_event, ALICE,
-        };
-        use ruma::room_id;
+        use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE};
+        use ruma::{event_id, room_id, user_id};
         use tokio::{spawn, time::sleep};
 
         use crate::{
-            deserialized_responses::SyncTimelineEvent,
             event_cache::{pagination::PaginationToken, room::events::Gap},
             test_utils::logged_in_client,
         };
@@ -541,13 +538,11 @@ mod tests {
                     .await
                     .with_events_mut(|room_events| {
                         room_events.push_gap(Gap { prev_token: expected_token.clone() });
-                        room_events.push_events([SyncTimelineEvent::new(sync_timeline_event!({
-                            "sender": "b@z.h",
-                            "type": "m.room.message",
-                            "event_id": "$ida",
-                            "origin_server_ts": 12344446,
-                            "content": { "body":"yolo", "msgtype": "m.text" },
-                        }))]);
+                        room_events.push_events([EventFactory::new()
+                            .text_msg("yolo")
+                            .sender(user_id!("@b:z.h"))
+                            .event_id(event_id!("$ida"))
+                            .into_sync()]);
                     })
                     .await
                     .unwrap();
