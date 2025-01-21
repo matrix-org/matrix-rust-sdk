@@ -453,8 +453,9 @@ mod tests {
                 .write()
                 .await
                 .with_events_mut(|events| {
-                    events
-                        .push_events([f.text_msg("this is the start of the timeline").into_sync()]);
+                    events.push_events([f
+                        .text_msg("this is the start of the timeline")
+                        .into_event()]);
                 })
                 .await
                 .unwrap();
@@ -498,7 +499,7 @@ mod tests {
                     .with_events_mut(|events| {
                         events.push_events([f
                             .text_msg("this is the start of the timeline")
-                            .into_sync()]);
+                            .into_event()]);
                     })
                     .await
                     .unwrap();
@@ -542,7 +543,7 @@ mod tests {
                             .text_msg("yolo")
                             .sender(user_id!("@b:z.h"))
                             .event_id(event_id!("$ida"))
-                            .into_sync()]);
+                            .into_event()]);
                     })
                     .await
                     .unwrap();

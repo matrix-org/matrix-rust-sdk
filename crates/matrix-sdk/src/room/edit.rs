@@ -589,7 +589,7 @@ mod tests {
             .caption(Some("caption".to_owned()), None)
             .event_id(event_id)
             .sender(own_user_id)
-            .into_sync();
+            .into_event();
 
         {
             // Sanity checks.
@@ -648,7 +648,7 @@ mod tests {
             .image(filename.to_owned(), owned_mxc_uri!("mxc://sdk.rs/rickroll"))
             .event_id(event_id)
             .sender(own_user_id)
-            .into_sync();
+            .into_event();
 
         {
             // Sanity checks.

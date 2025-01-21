@@ -198,9 +198,9 @@ async fn test_initial_reaction_timestamp_is_stored() {
                 // Reaction comes first.
                 f.reaction(&message_event_id, REACTION_KEY)
                     .server_ts(reaction_timestamp)
-                    .into_sync(),
+                    .into_event(),
                 // Event comes next.
-                f.text_msg("A").event_id(&message_event_id).into_sync(),
+                f.text_msg("A").event_id(&message_event_id).into_event(),
             ]
             .into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },

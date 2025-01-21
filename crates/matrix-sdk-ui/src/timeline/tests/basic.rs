@@ -89,7 +89,7 @@ async fn test_replace_with_initial_events_and_read_marker() {
     .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
     let f = &timeline.factory;
-    let ev = f.text_msg("hey").sender(*ALICE).into_sync();
+    let ev = f.text_msg("hey").sender(*ALICE).into_event();
 
     timeline
         .controller
@@ -104,7 +104,7 @@ async fn test_replace_with_initial_events_and_read_marker() {
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
-    let ev = f.text_msg("yo").sender(*BOB).into_sync();
+    let ev = f.text_msg("yo").sender(*BOB).into_event();
     timeline
         .controller
         .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
@@ -276,9 +276,9 @@ async fn test_internal_id_prefix() {
     let timeline = TestTimeline::with_internal_id_prefix("le_prefix_".to_owned());
 
     let f = &timeline.factory;
-    let ev_a = f.text_msg("A").sender(*ALICE).into_sync();
-    let ev_b = f.text_msg("B").sender(*BOB).into_sync();
-    let ev_c = f.text_msg("C").sender(*CAROL).into_sync();
+    let ev_a = f.text_msg("A").sender(*ALICE).into_event();
+    let ev_b = f.text_msg("B").sender(*BOB).into_event();
+    let ev_c = f.text_msg("C").sender(*CAROL).into_event();
 
     timeline
         .controller
@@ -445,7 +445,7 @@ async fn test_replace_with_initial_events_when_batched() {
         .with_settings(TimelineSettings::default());
 
     let f = &timeline.factory;
-    let ev = f.text_msg("hey").sender(*ALICE).into_sync();
+    let ev = f.text_msg("hey").sender(*ALICE).into_event();
 
     timeline
         .controller
@@ -460,7 +460,7 @@ async fn test_replace_with_initial_events_when_batched() {
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
-    let ev = f.text_msg("yo").sender(*BOB).into_sync();
+    let ev = f.text_msg("yo").sender(*BOB).into_event();
     timeline
         .controller
         .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
