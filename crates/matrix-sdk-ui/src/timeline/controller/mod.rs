@@ -20,14 +20,14 @@ use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
 #[cfg(test)]
-use matrix_sdk::crypto::OlmMachine;
+use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEventKind as SdkTimelineEventKind},
     event_cache::{paginator::Paginator, RoomEventCache},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
-    Result, Room, SendOutsideWasm,
+    Result, Room,
 };
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
@@ -477,6 +477,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.state.read().await.items.clone_items()
     }
 
+    #[cfg(test)]
     pub(super) async fn subscribe(
         &self,
     ) -> (
