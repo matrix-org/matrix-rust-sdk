@@ -14,12 +14,12 @@
 
 //! Event cache store and common types shared with `matrix_sdk::event_cache`.
 
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::deserialized_responses::TimelineEvent;
 
 pub mod store;
 
 /// The kind of event the event storage holds.
-pub type Event = SyncTimelineEvent;
+pub type Event = TimelineEvent;
 
 /// The kind of gap the event storage holds.
 #[derive(Clone, Debug)]

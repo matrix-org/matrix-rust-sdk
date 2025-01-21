@@ -19,7 +19,7 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
     events::{
         direct::OwnedDirectUserIdentifier,
@@ -76,7 +76,7 @@ pub struct RoomInfoV1 {
     sync_info: SyncInfo,
     #[serde(default = "encryption_state_default")] // see fn docs for why we use this default
     encryption_state_synced: bool,
-    latest_event: Option<SyncTimelineEvent>,
+    latest_event: Option<TimelineEvent>,
     base_info: BaseRoomInfoV1,
 }
 

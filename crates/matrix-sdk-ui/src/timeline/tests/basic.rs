@@ -16,7 +16,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
     async_test, event_factory::PreviousMembership, sync_timeline_event, ALICE, BOB, CAROL,
 };
@@ -122,7 +122,7 @@ async fn test_sticker() {
     let mut stream = timeline.subscribe_events().await;
 
     timeline
-        .handle_live_event(SyncTimelineEvent::new(sync_timeline_event!({
+        .handle_live_event(TimelineEvent::new(sync_timeline_event!({
             "content": {
                 "body": "Happy sticker",
                 "info": {

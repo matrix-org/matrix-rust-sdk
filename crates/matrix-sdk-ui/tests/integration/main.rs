@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use itertools::Itertools as _;
-use matrix_sdk::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk::deserialized_responses::TimelineEvent;
 use ruma::{events::AnyStateEvent, serde::Raw, EventId, RoomId};
 use serde::Serialize;
 use serde_json::json;
@@ -62,9 +62,9 @@ async fn mock_context(
     room_id: &RoomId,
     event_id: &EventId,
     prev_batch_token: Option<String>,
-    events_before: Vec<SyncTimelineEvent>,
-    event: SyncTimelineEvent,
-    events_after: Vec<SyncTimelineEvent>,
+    events_before: Vec<TimelineEvent>,
+    event: TimelineEvent,
+    events_after: Vec<TimelineEvent>,
     next_batch_token: Option<String>,
     state: Vec<Raw<AnyStateEvent>>,
 ) {
@@ -92,7 +92,7 @@ async fn mock_messages(
     server: &MockServer,
     start: String,
     end: Option<String>,
-    chunk: Vec<SyncTimelineEvent>,
+    chunk: Vec<TimelineEvent>,
     state: Vec<Raw<AnyStateEvent>>,
 ) {
     Mock::given(method("GET"))
