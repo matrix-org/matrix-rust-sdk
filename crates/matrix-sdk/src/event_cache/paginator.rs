@@ -20,7 +20,9 @@
 use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_base::{
+    deserialized_responses::SyncTimelineEvent, SendOutsideWasm, SyncOutsideWasm,
+};
 use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 
 use super::pagination::PaginationToken;
@@ -116,7 +118,7 @@ pub struct PaginationResult {
     ///
     /// If this is the result of a forward pagination, then the events are in
     /// topological order.
-    pub events: Vec<TimelineEvent>,
+    pub events: Vec<SyncTimelineEvent>,
 
     /// Did we hit *an* end of the timeline?
     ///
@@ -132,7 +134,7 @@ pub struct PaginationResult {
 #[derive(Debug)]
 pub struct StartFromResult {
     /// All the events returned during this pagination, in topological ordering.
-    pub events: Vec<TimelineEvent>,
+    pub events: Vec<SyncTimelineEvent>,
 
     /// Whether the /context query returned a previous batch token.
     pub has_prev: bool,
@@ -536,7 +538,7 @@ mod tests {
     use assert_matches2::assert_let;
     use futures_core::Future;
     use futures_util::FutureExt as _;
-    use matrix_sdk_base::deserialized_responses::TimelineEvent;
+    use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use once_cell::sync::Lazy;
     use ruma::{api::Direction, event_id, room_id, uint, user_id, EventId, RoomId, UInt, UserId};
@@ -559,8 +561,8 @@ mod tests {
         wait_for_ready: bool,
 
         target_event_text: Arc<Mutex<String>>,
-        next_events: Arc<Mutex<Vec<TimelineEvent>>>,
-        prev_events: Arc<Mutex<Vec<TimelineEvent>>>,
+        next_events: Arc<Mutex<Vec<SyncTimelineEvent>>>,
+        prev_events: Arc<Mutex<Vec<SyncTimelineEvent>>>,
         prev_batch_token: Arc<Mutex<Option<String>>>,
         next_batch_token: Arc<Mutex<Option<String>>>,
 
@@ -609,7 +611,7 @@ mod tests {
                 .event_factory
                 .text_msg(self.target_event_text.lock().await.clone())
                 .event_id(event_id)
-                .into_timeline();
+                .into_sync();
 
             // Properly simulate `num_events`: take either the closest num_events events
             // before, or use all of the before events and then consume after events.
@@ -707,17 +709,10 @@ mod tests {
         *room.target_event_text.lock().await = "fetch_from".to_owned();
         *room.prev_events.lock().await = (0..10)
             .rev()
-            .map(|i| {
-                TimelineEvent::new(
-                    event_factory.text_msg(format!("before-{i}")).into_raw_timeline(),
-                )
-            })
+            .map(|i| event_factory.text_msg(format!("before-{i}")).into_sync())
             .collect();
-        *room.next_events.lock().await = (0..10)
-            .map(|i| {
-                TimelineEvent::new(event_factory.text_msg(format!("after-{i}")).into_raw_timeline())
-            })
-            .collect();
+        *room.next_events.lock().await =
+            (0..10).map(|i| event_factory.text_msg(format!("after-{i}")).into_sync()).collect();
 
         // When I call `Paginator::start_from`, it works,
         let paginator = Arc::new(Paginator::new(room.clone()));
@@ -753,12 +748,8 @@ mod tests {
         let event_factory = &room.event_factory;
 
         *room.target_event_text.lock().await = "fetch_from".to_owned();
-        *room.prev_events.lock().await = (0..100)
-            .rev()
-            .map(|i| {
-                TimelineEvent::new(event_factory.text_msg(format!("ev{i}")).into_raw_timeline())
-            })
-            .collect();
+        *room.prev_events.lock().await =
+            (0..100).rev().map(|i| event_factory.text_msg(format!("ev{i}")).into_sync()).collect();
 
         // When I call `Paginator::start_from`, it works,
         let paginator = Arc::new(Paginator::new(room.clone()));
@@ -811,7 +802,7 @@ mod tests {
         assert!(paginator.hit_timeline_end());
 
         // Preparing data for the next back-pagination.
-        *room.prev_events.lock().await = vec![event_factory.text_msg("previous").into_timeline()];
+        *room.prev_events.lock().await = vec![event_factory.text_msg("previous").into_sync()];
         *room.prev_batch_token.lock().await = Some("prev2".to_owned());
 
         // When I backpaginate, I get the events I expect.
@@ -824,7 +815,7 @@ mod tests {
 
         // And I can backpaginate again, because there's a prev batch token
         // still.
-        *room.prev_events.lock().await = vec![event_factory.text_msg("oldest").into_timeline()];
+        *room.prev_events.lock().await = vec![event_factory.text_msg("oldest").into_sync()];
         *room.prev_batch_token.lock().await = None;
 
         let prev = paginator
@@ -875,9 +866,7 @@ mod tests {
         // Preparing data for the next back-pagination.
         *room.prev_events.lock().await = (0..100)
             .rev()
-            .map(|i| {
-                TimelineEvent::new(event_factory.text_msg(format!("prev{i}")).into_raw_timeline())
-            })
+            .map(|i| event_factory.text_msg(format!("prev{i}")).into_sync())
             .collect();
         *room.prev_batch_token.lock().await = None;
 
@@ -927,7 +916,7 @@ mod tests {
         assert!(!paginator.hit_timeline_end());
 
         // Preparing data for the next forward-pagination.
-        *room.next_events.lock().await = vec![event_factory.text_msg("next").into_timeline()];
+        *room.next_events.lock().await = vec![event_factory.text_msg("next").into_sync()];
         *room.next_batch_token.lock().await = Some("next2".to_owned());
 
         // When I forward-paginate, I get the events I expect.
@@ -940,7 +929,7 @@ mod tests {
 
         // And I can forward-paginate again, because there's a prev batch token
         // still.
-        *room.next_events.lock().await = vec![event_factory.text_msg("latest").into_timeline()];
+        *room.next_events.lock().await = vec![event_factory.text_msg("latest").into_sync()];
         *room.next_batch_token.lock().await = None;
 
         let next = paginator

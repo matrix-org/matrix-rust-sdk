@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use itertools::Itertools as _;
-use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::deserialized_responses::SyncTimelineEvent;
 use ruma::{events::AnyStateEvent, serde::Raw, EventId, RoomId};
 use serde::Serialize;
 use serde_json::json;
@@ -55,15 +55,16 @@ async fn mock_sync(server: &MockServer, response_body: impl Serialize, since: Op
 ///
 /// Note: pass `events_before` in the normal order, I'll revert the order for
 /// you.
+// TODO: replace with MatrixMockServer
 #[allow(clippy::too_many_arguments)] // clippy you've got such a fixed mindset
 async fn mock_context(
     server: &MockServer,
     room_id: &RoomId,
     event_id: &EventId,
     prev_batch_token: Option<String>,
-    events_before: Vec<TimelineEvent>,
-    event: TimelineEvent,
-    events_after: Vec<TimelineEvent>,
+    events_before: Vec<SyncTimelineEvent>,
+    event: SyncTimelineEvent,
+    events_after: Vec<SyncTimelineEvent>,
     next_batch_token: Option<String>,
     state: Vec<Raw<AnyStateEvent>>,
 ) {
@@ -86,11 +87,12 @@ async fn mock_context(
 ///
 /// Note: pass `chunk` in the correct order: topological for forward pagination,
 /// reverse topological for backwards pagination.
+// TODO: replace with MatrixMockServer
 async fn mock_messages(
     server: &MockServer,
     start: String,
     end: Option<String>,
-    chunk: Vec<TimelineEvent>,
+    chunk: Vec<SyncTimelineEvent>,
     state: Vec<Raw<AnyStateEvent>>,
 ) {
     Mock::given(method("GET"))

@@ -38,7 +38,7 @@ use matrix_sdk_base::crypto::{DecryptionSettings, RoomEventDecryptionResult};
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 use matrix_sdk_base::{
     deserialized_responses::{
-        RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
+        RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
     media::MediaThumbnailSettings,
     store::StateStoreExt,
@@ -341,10 +341,10 @@ impl Room {
                 if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
                     event
                 } else {
-                    TimelineEvent::new(event)
+                    SyncTimelineEvent::new(event.cast())
                 }
             } else {
-                TimelineEvent::new(event)
+                SyncTimelineEvent::new(event.cast())
             };
             response.chunk.push(decrypted_event);
         }
@@ -353,8 +353,7 @@ impl Room {
             let push_rules = self.client().account().push_rules().await?;
 
             for event in &mut response.chunk {
-                event.push_actions =
-                    Some(push_rules.get_actions(event.raw(), &push_context).to_owned());
+                event.push_actions = push_rules.get_actions(event.raw(), &push_context).to_owned();
             }
         }
 
@@ -447,7 +446,7 @@ impl Room {
     ///
     /// Doesn't return an error `Result` when decryption failed; only logs from
     /// the crypto crate will indicate so.
-    async fn try_decrypt_event(&self, event: Raw<AnyTimelineEvent>) -> Result<TimelineEvent> {
+    async fn try_decrypt_event(&self, event: Raw<AnyTimelineEvent>) -> Result<SyncTimelineEvent> {
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
             SyncMessageLikeEvent::Original(_),
@@ -458,8 +457,8 @@ impl Room {
             }
         }
 
-        let mut event = TimelineEvent::new(event);
-        event.push_actions = self.event_push_actions(event.raw()).await?;
+        let mut event = SyncTimelineEvent::new(event.cast());
+        event.push_actions = self.event_push_actions(event.raw()).await?.unwrap_or_default();
 
         Ok(event)
     }
@@ -472,7 +471,7 @@ impl Room {
         &self,
         event_id: &EventId,
         request_config: Option<RequestConfig>,
-    ) -> Result<TimelineEvent> {
+    ) -> Result<SyncTimelineEvent> {
         let request =
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
@@ -1278,14 +1277,14 @@ impl Room {
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
-    ) -> Result<TimelineEvent> {
+    ) -> Result<SyncTimelineEvent> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
         let decryption_settings = DecryptionSettings {
             sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
         };
-        let mut event: TimelineEvent = match machine
+        let mut event: SyncTimelineEvent = match machine
             .try_decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
             .await?
         {
@@ -1295,11 +1294,11 @@ impl Room {
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-                TimelineEvent::new_utd_event(event.clone().cast(), utd_info)
+                SyncTimelineEvent::new_utd_event(event.clone().cast(), utd_info)
             }
         };
 
-        event.push_actions = self.event_push_actions(event.raw()).await?;
+        event.push_actions = self.event_push_actions(event.raw()).await?.unwrap_or_default();
         Ok(event)
     }
 

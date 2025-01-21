@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use ruma::{
-    events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent},
+    events::{AnyMessageLikeEvent, AnySyncTimelineEvent},
     push::Action,
     serde::{
         AsRefStr, AsStrAsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, JsonObject, Raw,
@@ -416,16 +416,9 @@ impl SyncTimelineEvent {
     }
 }
 
-impl From<TimelineEvent> for SyncTimelineEvent {
-    fn from(o: TimelineEvent) -> Self {
-        Self { kind: o.kind, push_actions: o.push_actions.unwrap_or_default() }
-    }
-}
-
 impl From<DecryptedRoomEvent> for SyncTimelineEvent {
     fn from(decrypted: DecryptedRoomEvent) -> Self {
-        let timeline_event: TimelineEvent = decrypted.into();
-        timeline_event.into()
+        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: Vec::new() }
     }
 }
 
@@ -468,72 +461,6 @@ impl<'de> Deserialize<'de> for SyncTimelineEvent {
                 })?;
             Ok(v1.into())
         }
-    }
-}
-
-/// Represents a matrix room event that has been returned from a Matrix
-/// client-server API endpoint such as `/messages`, after initial processing.
-///
-/// The "initial processing" includes an attempt to decrypt encrypted events, so
-/// the main thing this adds over [`AnyTimelineEvent`] is information on
-/// encryption.
-///
-/// Previously, this differed from [`SyncTimelineEvent`] by wrapping an
-/// [`AnyTimelineEvent`] instead of an [`AnySyncTimelineEvent`], but nowadays
-/// they are essentially identical, and one of them should probably be removed.
-#[derive(Clone, Debug)]
-pub struct TimelineEvent {
-    /// The event itself, together with any information on decryption.
-    pub kind: TimelineEventKind,
-
-    /// The push actions associated with this event, if we had sufficient
-    /// context to compute them.
-    pub push_actions: Option<Vec<Action>>,
-}
-
-impl TimelineEvent {
-    /// Create a new `TimelineEvent` from the given raw event.
-    ///
-    /// This is a convenience constructor for a plaintext event when you don't
-    /// need to set `push_action`, for example inside a test.
-    pub fn new(event: Raw<AnyTimelineEvent>) -> Self {
-        Self {
-            // This conversion is unproblematic since a `SyncTimelineEvent` is just a
-            // `TimelineEvent` without the `room_id`. By converting the raw value in
-            // this way, we simply cause the `room_id` field in the json to be
-            // ignored by a subsequent deserialization.
-            kind: TimelineEventKind::PlainText { event: event.cast() },
-            push_actions: None,
-        }
-    }
-
-    /// Create a new `TimelineEvent` to represent the given decryption failure.
-    pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
-        Self { kind: TimelineEventKind::UnableToDecrypt { event, utd_info }, push_actions: None }
-    }
-
-    /// Returns a reference to the (potentially decrypted) Matrix event inside
-    /// this `TimelineEvent`.
-    pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
-        self.kind.raw()
-    }
-
-    /// If the event was a decrypted event that was successfully decrypted, get
-    /// its encryption info. Otherwise, `None`.
-    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
-        self.kind.encryption_info()
-    }
-
-    /// Takes ownership of this `TimelineEvent`, returning the (potentially
-    /// decrypted) Matrix event within.
-    pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
-        self.kind.into_raw()
-    }
-}
-
-impl From<DecryptedRoomEvent> for TimelineEvent {
-    fn from(decrypted: DecryptedRoomEvent) -> Self {
-        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None }
     }
 }
 
@@ -957,17 +884,15 @@ mod tests {
     use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
-        device_id, event_id,
-        events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
-        serde::Raw,
-        user_id, DeviceKeyAlgorithm,
+        device_id, event_id, events::room::message::RoomMessageEventContent, serde::Raw, user_id,
+        DeviceKeyAlgorithm,
     };
     use serde::Deserialize;
     use serde_json::json;
 
     use super::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ShieldState,
-        ShieldStateCode, SyncTimelineEvent, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
+        ShieldStateCode, SyncTimelineEvent, TimelineEventKind, UnableToDecryptInfo,
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
         VerificationState, WithheldCode,
     };
@@ -991,18 +916,6 @@ mod tests {
             !debug_s.contains("secret"),
             "Debug representation contains event content!\n{debug_s}"
         );
-    }
-
-    #[test]
-    fn room_event_to_sync_room_event() {
-        let room_event = TimelineEvent::new(Raw::new(&example_event()).unwrap().cast());
-        let converted_room_event: SyncTimelineEvent = room_event.into();
-
-        let converted_event: AnySyncTimelineEvent =
-            converted_room_event.raw().deserialize().unwrap();
-
-        assert_eq!(converted_event.event_id(), "$xxxxx:example.org");
-        assert_eq!(converted_event.sender(), "@carl:example.com");
     }
 
     #[test]

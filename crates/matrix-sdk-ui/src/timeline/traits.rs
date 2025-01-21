@@ -19,7 +19,7 @@ use indexmap::IndexMap;
 #[cfg(test)]
 use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustRequirement};
 use matrix_sdk::{
-    crypto::types::events::CryptoContextInfo, deserialized_responses::TimelineEvent,
+    crypto::types::events::CryptoContextInfo, deserialized_responses::SyncTimelineEvent,
     event_cache::paginator::PaginableRoom, AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
@@ -281,18 +281,24 @@ pub(super) trait Decryptor: AsyncTraitDeps + Clone + 'static {
     fn decrypt_event_impl(
         &self,
         raw: &Raw<AnySyncTimelineEvent>,
-    ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm;
+    ) -> impl Future<Output = Result<SyncTimelineEvent>> + SendOutsideWasm;
 }
 
 impl Decryptor for Room {
-    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
+    async fn decrypt_event_impl(
+        &self,
+        raw: &Raw<AnySyncTimelineEvent>,
+    ) -> Result<SyncTimelineEvent> {
         self.decrypt_event(raw.cast_ref()).await
     }
 }
 
 #[cfg(test)]
 impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
-    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
+    async fn decrypt_event_impl(
+        &self,
+        raw: &Raw<AnySyncTimelineEvent>,
+    ) -> Result<SyncTimelineEvent> {
         let (olm_machine, room_id) = self;
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
@@ -302,7 +308,7 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => Ok(decrypted.into()),
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                Ok(TimelineEvent::new_utd_event(raw.clone(), utd_info))
+                Ok(SyncTimelineEvent::new_utd_event(raw.clone(), utd_info))
             }
         }
     }

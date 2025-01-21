@@ -24,7 +24,6 @@ use itertools::Itertools as _;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
 };
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
@@ -257,7 +256,7 @@ impl TimelineState {
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) where
-        Fut: Future<Output = Option<TimelineEvent>>,
+        Fut: Future<Output = Option<SyncTimelineEvent>>,
     {
         let mut txn = self.transaction();
 
@@ -274,9 +273,12 @@ impl TimelineState {
                 continue;
             };
 
-            event.push_actions = push_rules_context.as_ref().map(|(push_rules, push_context)| {
-                push_rules.get_actions(event.raw(), push_context).to_owned()
-            });
+            event.push_actions = push_rules_context
+                .as_ref()
+                .map(|(push_rules, push_context)| {
+                    push_rules.get_actions(event.raw(), push_context).to_owned()
+                })
+                .unwrap_or_default();
 
             let handle_one_res = txn
                 .handle_remote_event(

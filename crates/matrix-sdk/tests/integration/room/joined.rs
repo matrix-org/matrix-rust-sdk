@@ -797,7 +797,7 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
     let event_id = event_id!("$1");
     let f = EventFactory::new();
     mock.mock_room_event()
-        .ok(f.text_msg("hi").event_id(event_id).sender(&user_id).room(room_id).into_timeline())
+        .ok(f.text_msg("hi").event_id(event_id).sender(&user_id).room(room_id).into_sync())
         .expect(1)
         .named("/event")
         .mount()
