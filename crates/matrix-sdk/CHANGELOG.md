@@ -28,6 +28,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
+  `TimelineEvent`, and its field `push_actions` has been made `Option`al (it is set to `None` when
+  we couldn't compute the push actions, because we lacked some information).
+  ([#4568](https://github.com/matrix-org/matrix-rust-sdk/pull/4568))
+
 - [**breaking**] Move the optional `RequestConfig` argument of the
   `Client::send()` method to the `with_request_config()` builder method. You
   should call `Client::send(request).with_request_config(request_config).await`
