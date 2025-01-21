@@ -17,7 +17,9 @@ use crate::{CryptoStoreError, DehydratedDeviceKey};
 #[uniffi(flat_error)]
 pub enum DehydrationError {
     #[error(transparent)]
-    Pickle(#[from] matrix_sdk_crypto::vodozemac::LibolmPickleError),
+    Pickle(#[from] matrix_sdk_crypto::vodozemac::DehydratedDeviceError),
+    #[error(transparent)]
+    LegacyPickle(#[from] matrix_sdk_crypto::vodozemac::LibolmPickleError),
     #[error(transparent)]
     MissingSigningKey(#[from] matrix_sdk_crypto::SignatureError),
     #[error(transparent)]
@@ -35,6 +37,9 @@ impl From<matrix_sdk_crypto::dehydrated_devices::DehydrationError> for Dehydrati
         match value {
             matrix_sdk_crypto::dehydrated_devices::DehydrationError::Json(e) => Self::Json(e),
             matrix_sdk_crypto::dehydrated_devices::DehydrationError::Pickle(e) => Self::Pickle(e),
+            matrix_sdk_crypto::dehydrated_devices::DehydrationError::LegacyPickle(e) => {
+                Self::LegacyPickle(e)
+            }
             matrix_sdk_crypto::dehydrated_devices::DehydrationError::MissingSigningKey(e) => {
                 Self::MissingSigningKey(e)
             }
