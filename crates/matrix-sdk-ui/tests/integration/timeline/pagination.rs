@@ -22,18 +22,15 @@ use futures_util::{
 };
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, StateTestEvent,
-    SyncResponseBuilder, ALICE, BOB,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    StateTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{
     AnyOtherFullStateEventContent, LiveBackPaginationStatus, RoomExt, TimelineItemContent,
 };
 use once_cell::sync::Lazy;
 use ruma::{
-    events::{
-        room::message::{MessageType, RoomMessageEventContent},
-        FullStateEventContent,
-    },
+    events::{room::message::MessageType, FullStateEventContent},
     room_id,
 };
 use serde_json::{json, Value as JsonValue};
@@ -257,7 +254,7 @@ async fn test_wait_for_token() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
@@ -285,10 +282,7 @@ async fn test_wait_for_token() {
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &ALICE,
-                RoomMessageEventContent::text_plain("live event!"),
-            ))
+            .add_timeline_event(f.text_msg("live event!").sender(&ALICE))
             .set_timeline_prev_batch(from.to_owned())
             .set_timeline_limited(),
     );
@@ -321,7 +315,7 @@ async fn test_dedup_pagination() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
@@ -353,10 +347,7 @@ async fn test_dedup_pagination() {
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &ALICE,
-                RoomMessageEventContent::text_plain("live event!"),
-            ))
+            .add_timeline_event(f.text_msg("live event!").sender(&ALICE))
             .set_timeline_prev_batch(from.to_owned()),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -383,7 +374,7 @@ async fn test_timeline_reset_while_paginating() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
@@ -398,10 +389,7 @@ async fn test_timeline_reset_while_paginating() {
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &ALICE,
-                RoomMessageEventContent::text_plain("live event!"),
-            ))
+            .add_timeline_event(f.text_msg("live event!").sender(&ALICE))
             .set_timeline_prev_batch("pagination_1".to_owned())
             .set_timeline_limited(),
     );
@@ -413,10 +401,7 @@ async fn test_timeline_reset_while_paginating() {
     // response, resetting the timeline
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &BOB,
-                RoomMessageEventContent::text_plain("new live event."),
-            ))
+            .add_timeline_event(f.text_msg("new live event.").sender(&BOB))
             .set_timeline_prev_batch("pagination_2".to_owned())
             .set_timeline_limited(),
     );

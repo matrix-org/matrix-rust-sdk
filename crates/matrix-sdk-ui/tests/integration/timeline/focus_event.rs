@@ -242,7 +242,7 @@ async fn test_focused_timeline_reacts() {
         // This event must be ignored.
         f.text_msg("this is a sync event").sender(*ALICE).into(),
         // This event must not be ignored.
-        f.reaction(target_event, "👍".to_owned()).sender(*BOB).into(),
+        f.reaction(target_event, "👍").sender(*BOB).into(),
     ]));
 
     // Sync the room.

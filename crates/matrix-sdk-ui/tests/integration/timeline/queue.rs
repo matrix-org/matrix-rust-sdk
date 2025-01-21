@@ -21,8 +21,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Error};
 use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
-    ALICE,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE,
 };
 use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
 use ruma::{
@@ -314,7 +314,7 @@ async fn test_clear_with_echoes() {
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
@@ -355,12 +355,10 @@ async fn test_clear_with_echoes() {
     timeline.send(RoomMessageEventContent::text_plain("Pending").into()).await.unwrap();
 
     // Another message comes in.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event(
-            &ALICE,
-            RoomMessageEventContent::text_plain("another message"),
-        ),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("another message").sender(&ALICE)),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     client.sync_once(sync_settings.clone()).await.unwrap();
 
@@ -475,23 +473,23 @@ async fn test_no_duplicate_date_divider() {
     assert_pending!(timeline_stream);
 
     // Now have the sync return both events with more data.
-    let ev_builder = EventBuilder::new();
+    let f = EventFactory::new();
 
     let now = MilliSecondsSinceUnixEpoch::now();
-    ev_builder.set_next_ts(now.0.into());
+    f.set_next_ts(now.0.into());
 
     sync_response_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(ev_builder.make_sync_message_event_with_id(
-                client.user_id().unwrap(),
-                event_id!("$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP"),
-                RoomMessageEventContent::text_plain("First!"),
-            ))
-            .add_timeline_event(ev_builder.make_sync_message_event_with_id(
-                client.user_id().unwrap(),
-                event_id!("$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ"),
-                RoomMessageEventContent::text_plain("Second."),
-            )),
+            .add_timeline_event(
+                f.text_msg("First!")
+                    .sender(client.user_id().unwrap())
+                    .event_id(event_id!("$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP")),
+            )
+            .add_timeline_event(
+                f.text_msg("Second.")
+                    .sender(client.user_id().unwrap())
+                    .event_id(event_id!("$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ")),
+            ),
     );
 
     mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;

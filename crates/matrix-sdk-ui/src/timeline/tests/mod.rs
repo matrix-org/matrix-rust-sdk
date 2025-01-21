@@ -36,17 +36,14 @@ use matrix_sdk::{
 use matrix_sdk_base::{
     crypto::types::events::CryptoContextInfo, latest_event::LatestEvent, RoomInfo, RoomState,
 };
-use matrix_sdk_test::{
-    event_factory::EventFactory, EventBuilder, ALICE, BOB, DEFAULT_TEST_ROOM_ID,
-};
+use matrix_sdk_test::{event_factory::EventFactory, ALICE, BOB, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     event_id,
     events::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::{Annotation, RelationType},
-        AnyMessageLikeEventContent, AnyTimelineEvent, EmptyStateKey,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StaticStateEventContent,
+        AnyMessageLikeEventContent, AnyTimelineEvent,
     },
     int,
     power_levels::NotificationPowerLevels,
@@ -86,7 +83,6 @@ mod virt;
 
 struct TestTimeline {
     controller: TimelineController<TestRoomDataProvider>,
-    event_builder: EventBuilder,
     /// An [`EventFactory`] that can be used for creating events in this
     /// timeline.
     pub factory: EventFactory,
@@ -111,7 +107,6 @@ impl TestTimeline {
                 None,
                 Some(false),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
@@ -125,7 +120,6 @@ impl TestTimeline {
                 None,
                 Some(false),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
@@ -139,7 +133,6 @@ impl TestTimeline {
                 Some(hook),
                 Some(true),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
@@ -154,7 +147,6 @@ impl TestTimeline {
                 None,
                 Some(encrypted),
             ),
-            event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
     }
@@ -179,61 +171,6 @@ impl TestTimeline {
 
     async fn len(&self) -> usize {
         self.controller.items().await.len()
-    }
-
-    async fn handle_live_redacted_message_event<C>(&self, sender: &UserId, content: C)
-    where
-        C: RedactedMessageLikeEventContent,
-    {
-        let ev = self.event_builder.make_sync_redacted_message_event(sender, content);
-        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
-    }
-
-    async fn handle_live_state_event<C>(&self, sender: &UserId, content: C, prev_content: Option<C>)
-    where
-        C: StaticStateEventContent<StateKey = EmptyStateKey>,
-    {
-        let ev = self.event_builder.make_sync_state_event(sender, "", content, prev_content);
-        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
-    }
-
-    async fn handle_live_state_event_with_state_key<C>(
-        &self,
-        sender: &UserId,
-        state_key: C::StateKey,
-        content: C,
-        prev_content: Option<C>,
-    ) where
-        C: StaticStateEventContent,
-    {
-        let ev = self.event_builder.make_sync_state_event(
-            sender,
-            state_key.as_ref(),
-            content,
-            prev_content,
-        );
-        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
-    }
-
-    async fn handle_live_redacted_state_event<C>(&self, sender: &UserId, content: C)
-    where
-        C: RedactedStateEventContent<StateKey = EmptyStateKey>,
-    {
-        let ev = self.event_builder.make_sync_redacted_state_event(sender, "", content);
-        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
-    }
-
-    async fn handle_live_redacted_state_event_with_state_key<C>(
-        &self,
-        sender: &UserId,
-        state_key: C::StateKey,
-        content: C,
-    ) where
-        C: RedactedStateEventContent,
-    {
-        let ev =
-            self.event_builder.make_sync_redacted_state_event(sender, state_key.as_ref(), content);
-        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
     }
 
     async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {
@@ -272,7 +209,11 @@ impl TestTimeline {
         &self,
         receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
     ) {
-        let ev_content = self.event_builder.make_receipt_event_content(receipts);
+        let mut read_receipt = self.factory.read_receipts();
+        for (event_id, tyype, user_id, thread) in receipts {
+            read_receipt = read_receipt.add(&event_id, &user_id, tyype, thread);
+        }
+        let ev_content = read_receipt.build();
         self.controller.handle_read_receipts(ev_content).await;
     }
 

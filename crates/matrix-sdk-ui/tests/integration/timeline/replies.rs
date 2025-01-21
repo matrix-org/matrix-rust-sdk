@@ -7,8 +7,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, EventBuilder,
-    JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
@@ -18,13 +18,10 @@ use ruma::{
     events::{
         reaction::RedactedReactionEventContent,
         relation::InReplyTo,
-        room::message::{
-            AddMentions, ForwardThread, OriginalRoomMessageEvent, Relation, ReplyWithinThread,
-            RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-        },
-        Mentions, MessageLikeUnsigned,
+        room::message::{ForwardThread, Relation, RoomMessageEventContentWithoutRelation},
+        Mentions,
     },
-    owned_event_id, owned_room_id, owned_user_id, room_id, uint, MilliSecondsSinceUnixEpoch,
+    owned_event_id, room_id,
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
@@ -251,7 +248,6 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
 async fn test_send_reply() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -269,13 +265,12 @@ async fn test_send_reply() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let event_id_from_bob = event_id!("$event_from_bob");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            &BOB,
-            event_id_from_bob,
-            RoomMessageEventContent::text_plain("Hello from Bob"),
+    let f = EventFactory::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob),
         ),
-    ));
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -364,7 +359,6 @@ async fn test_send_reply() {
 async fn test_send_reply_to_self() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -382,13 +376,14 @@ async fn test_send_reply_to_self() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let event_id_from_self = event_id!("$event_from_self");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            client.user_id().expect("Client must have a user ID"),
-            event_id_from_self,
-            RoomMessageEventContent::text_plain("Hello from self"),
+    let f = EventFactory::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.text_msg("Hello from self")
+                .sender(client.user_id().expect("Client must have a user ID"))
+                .event_id(event_id_from_self),
         ),
-    ));
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -462,7 +457,6 @@ async fn test_send_reply_to_self() {
 async fn test_send_reply_to_threaded() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -479,27 +473,18 @@ async fn test_send_reply_to_threaded() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
-    let thread_root = OriginalRoomMessageEvent {
-        content: RoomMessageEventContent::text_plain("Thread root"),
-        event_id: owned_event_id!("$thread_root"),
-        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(10_000)),
-        room_id: owned_room_id!("!testroomid:example.org"),
-        sender: owned_user_id!("@user:example.org"),
-        unsigned: MessageLikeUnsigned::default(),
-    };
+    let thread_root = owned_event_id!("$thread_root");
 
     let event_id_1 = event_id!("$event1");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            &BOB,
-            event_id_1,
-            RoomMessageEventContent::text_plain("Hello, World!").make_for_thread(
-                &thread_root,
-                ReplyWithinThread::No,
-                AddMentions::No,
-            ),
+    let f = EventFactory::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.text_msg("Hello, World!")
+                .sender(&BOB)
+                .event_id(event_id_1)
+                .in_thread(&thread_root, &thread_root),
         ),
-    ));
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -570,7 +555,6 @@ async fn test_send_reply_to_threaded() {
 async fn test_send_reply_with_event_id() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -588,11 +572,9 @@ async fn test_send_reply_with_event_id() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let event_id_from_bob = event_id!("$event_from_bob");
-    let raw_event_from_bob = event_builder.make_sync_message_event_with_id(
-        &BOB,
-        event_id_from_bob,
-        RoomMessageEventContent::text_plain("Hello from Bob"),
-    );
+    let f = EventFactory::new();
+    let raw_event_from_bob =
+        f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob).into_raw_sync();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(raw_event_from_bob.clone()),
     );
@@ -689,7 +671,6 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     // the reply.
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -707,11 +688,11 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let redacted_event_id_from_bob = event_id!("$event_from_bob");
-    let raw_redacted_event_from_bob = event_builder.make_sync_redacted_message_event_with_id(
-        &BOB,
-        redacted_event_id_from_bob,
-        RedactedReactionEventContent::new(),
-    );
+    let f = EventFactory::new();
+    let raw_redacted_event_from_bob = f
+        .redacted(&BOB, RedactedReactionEventContent::new())
+        .event_id(redacted_event_id_from_bob)
+        .into_raw_sync();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(raw_redacted_event_from_bob.clone()),
     );

@@ -41,9 +41,7 @@ async fn test_live_redacted() {
 
     let f = &timeline.factory;
 
-    timeline
-        .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
-        .await;
+    timeline.handle_live_event(f.redacted(*ALICE, RedactedRoomMessageEventContent::new())).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     let redacted_event_id = item.as_event().unwrap().event_id().unwrap();

@@ -621,7 +621,7 @@ mod tests {
 
     use eyeball_im::Vector;
     use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
-    use matrix_sdk_test::{sync_timeline_event, EventBuilder};
+    use matrix_sdk_test::{event_factory::EventFactory, sync_timeline_event};
     use ruma::{
         event_id,
         events::receipt::{ReceiptThread, ReceiptType},
@@ -975,12 +975,12 @@ mod tests {
         let ev1 = sync_timeline_message(other_user_id, receipt_event_id, "A");
         let ev2 = sync_timeline_message(other_user_id, "$2", "A");
 
-        let receipt_event = EventBuilder::new().make_receipt_event_content([(
-            receipt_event_id.to_owned(),
-            ReceiptType::Read,
-            user_id.to_owned(),
-            ReceiptThread::Unthreaded,
-        )]);
+        let f = EventFactory::new();
+
+        let receipt_event = f
+            .read_receipts()
+            .add(receipt_event_id, user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .build();
 
         let mut read_receipts = Default::default();
         compute_unread_counts(
@@ -1035,30 +1035,32 @@ mod tests {
 
         // Given a receipt event marking events 1-3 as read using a combination of
         // different thread and privacy types,
+        let f = EventFactory::new();
         for receipt_type_1 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
             for receipt_thread_1 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
                 for receipt_type_2 in &[ReceiptType::Read, ReceiptType::ReadPrivate] {
                     for receipt_thread_2 in &[ReceiptThread::Unthreaded, ReceiptThread::Main] {
-                        let receipt_event = EventBuilder::new().make_receipt_event_content([
-                            (
-                                owned_event_id!("$2"),
+                        let receipt_event = f
+                            .read_receipts()
+                            .add(
+                                event_id!("$2"),
+                                user_id,
                                 receipt_type_1.clone(),
-                                user_id.to_owned(),
                                 receipt_thread_1.clone(),
-                            ),
-                            (
-                                owned_event_id!("$3"),
+                            )
+                            .add(
+                                event_id!("$3"),
+                                user_id,
                                 receipt_type_2.clone(),
-                                user_id.to_owned(),
                                 receipt_thread_2.clone(),
-                            ),
-                            (
-                                owned_event_id!("$1"),
+                            )
+                            .add(
+                                event_id!("$1"),
+                                user_id,
                                 receipt_type_1.clone(),
-                                user_id.to_owned(),
                                 receipt_thread_2.clone(),
-                            ),
-                        ]);
+                            )
+                            .build();
 
                         // When I compute the notifications for this room (with no new events),
                         let mut read_receipts = RoomReadReceipts::default();
@@ -1118,12 +1120,11 @@ mod tests {
 
         let events = make_test_events(user_id!("@bob:example.org"));
 
-        let receipt_event = EventBuilder::new().make_receipt_event_content([(
-            owned_event_id!("$6"),
-            ReceiptType::Read,
-            user_id.clone(),
-            ReceiptThread::Unthreaded,
-        )]);
+        let f = EventFactory::new();
+        let receipt_event = f
+            .read_receipts()
+            .add(event_id!("$6"), &user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .build();
 
         let mut read_receipts = RoomReadReceipts::default();
         assert!(read_receipts.pending.is_empty());
@@ -1154,12 +1155,11 @@ mod tests {
 
         let events = make_test_events(user_id!("@bob:example.org"));
 
-        let receipt_event = EventBuilder::new().make_receipt_event_content([(
-            owned_event_id!("$1"),
-            ReceiptType::Read,
-            user_id.clone(),
-            ReceiptThread::Unthreaded,
-        )]);
+        let f = EventFactory::new();
+        let receipt_event = f
+            .read_receipts()
+            .add(event_id!("$1"), &user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .build();
 
         // Sync with a read receipt *and* a single event that was already known: in that
         // case, only consider the new events in isolation, and compute the
@@ -1412,21 +1412,25 @@ mod tests {
 
     #[test]
     fn test_receipt_selector_handle_new_receipt() {
-        let myself = owned_user_id!("@alice:example.org");
+        let myself = user_id!("@alice:example.org");
         let events = make_test_events(user_id!("@bob:example.org"));
 
+        let f = EventFactory::new();
         {
             // Thread receipts are ignored.
             let mut selector = ReceiptSelector::new(&events, None);
 
-            let receipt_event = EventBuilder::new().make_receipt_event_content([(
-                owned_event_id!("$5"),
-                ReceiptType::Read,
-                myself.clone(),
-                ReceiptThread::Thread(owned_event_id!("$2")),
-            )]);
+            let receipt_event = f
+                .read_receipts()
+                .add(
+                    event_id!("$5"),
+                    myself,
+                    ReceiptType::Read,
+                    ReceiptThread::Thread(owned_event_id!("$2")),
+                )
+                .build();
 
-            let pending = selector.handle_new_receipt(&myself, &receipt_event);
+            let pending = selector.handle_new_receipt(myself, &receipt_event);
             assert!(pending.is_empty());
 
             let best_receipt = selector.select();
@@ -1440,14 +1444,12 @@ mod tests {
                     // receipt.
                     let mut selector = ReceiptSelector::new(&events, None);
 
-                    let receipt_event = EventBuilder::new().make_receipt_event_content([(
-                        owned_event_id!("$6"),
-                        receipt_type.clone(),
-                        myself.clone(),
-                        receipt_thread.clone(),
-                    )]);
+                    let receipt_event = f
+                        .read_receipts()
+                        .add(event_id!("$6"), myself, receipt_type.clone(), receipt_thread.clone())
+                        .build();
 
-                    let pending = selector.handle_new_receipt(&myself, &receipt_event);
+                    let pending = selector.handle_new_receipt(myself, &receipt_event);
                     assert_eq!(pending[0], event_id!("$6"));
                     assert_eq!(pending.len(), 1);
 
@@ -1460,14 +1462,12 @@ mod tests {
                     // receipt.
                     let mut selector = ReceiptSelector::new(&events, None);
 
-                    let receipt_event = EventBuilder::new().make_receipt_event_content([(
-                        owned_event_id!("$3"),
-                        receipt_type.clone(),
-                        myself.clone(),
-                        receipt_thread.clone(),
-                    )]);
+                    let receipt_event = f
+                        .read_receipts()
+                        .add(event_id!("$3"), myself, receipt_type.clone(), receipt_thread.clone())
+                        .build();
 
-                    let pending = selector.handle_new_receipt(&myself, &receipt_event);
+                    let pending = selector.handle_new_receipt(myself, &receipt_event);
                     assert!(pending.is_empty());
 
                     let best_receipt = selector.select();
@@ -1479,14 +1479,12 @@ mod tests {
                     // better receipt.
                     let mut selector = ReceiptSelector::new(&events, Some(event_id!("$4")));
 
-                    let receipt_event = EventBuilder::new().make_receipt_event_content([(
-                        owned_event_id!("$3"),
-                        receipt_type.clone(),
-                        myself.clone(),
-                        receipt_thread.clone(),
-                    )]);
+                    let receipt_event = f
+                        .read_receipts()
+                        .add(event_id!("$3"), myself, receipt_type.clone(), receipt_thread.clone())
+                        .build();
 
-                    let pending = selector.handle_new_receipt(&myself, &receipt_event);
+                    let pending = selector.handle_new_receipt(myself, &receipt_event);
                     assert!(pending.is_empty());
 
                     let best_receipt = selector.select();
@@ -1498,14 +1496,12 @@ mod tests {
                     // new better receipt.
                     let mut selector = ReceiptSelector::new(&events, Some(event_id!("$2")));
 
-                    let receipt_event = EventBuilder::new().make_receipt_event_content([(
-                        owned_event_id!("$3"),
-                        receipt_type.clone(),
-                        myself.clone(),
-                        receipt_thread.clone(),
-                    )]);
+                    let receipt_event = f
+                        .read_receipts()
+                        .add(event_id!("$3"), myself, receipt_type.clone(), receipt_thread.clone())
+                        .build();
 
-                    let pending = selector.handle_new_receipt(&myself, &receipt_event);
+                    let pending = selector.handle_new_receipt(myself, &receipt_event);
                     assert!(pending.is_empty());
 
                     let best_receipt = selector.select();
@@ -1519,23 +1515,14 @@ mod tests {
             // new better receipt.
             let mut selector = ReceiptSelector::new(&events, Some(event_id!("$2")));
 
-            let receipt_event = EventBuilder::new().make_receipt_event_content([
-                (
-                    owned_event_id!("$4"),
-                    ReceiptType::ReadPrivate,
-                    myself.clone(),
-                    ReceiptThread::Unthreaded,
-                ),
-                (
-                    owned_event_id!("$6"),
-                    ReceiptType::ReadPrivate,
-                    myself.clone(),
-                    ReceiptThread::Main,
-                ),
-                (owned_event_id!("$3"), ReceiptType::Read, myself.clone(), ReceiptThread::Main),
-            ]);
+            let receipt_event = f
+                .read_receipts()
+                .add(event_id!("$4"), myself, ReceiptType::ReadPrivate, ReceiptThread::Unthreaded)
+                .add(event_id!("$6"), myself, ReceiptType::ReadPrivate, ReceiptThread::Main)
+                .add(event_id!("$3"), myself, ReceiptType::Read, ReceiptThread::Main)
+                .build();
 
-            let pending = selector.handle_new_receipt(&myself, &receipt_event);
+            let pending = selector.handle_new_receipt(myself, &receipt_event);
             assert_eq!(pending.len(), 1);
             assert_eq!(pending[0], event_id!("$6"));
 
@@ -1573,7 +1560,7 @@ mod tests {
 
     #[test]
     fn test_compute_unread_counts_with_implicit_receipt() {
-        let user_id = owned_user_id!("@alice:example.org");
+        let user_id = user_id!("@alice:example.org");
         let bob = user_id!("@bob:example.org");
         let room_id = room_id!("!room:example.org");
 
@@ -1581,7 +1568,7 @@ mod tests {
         let mut events = make_test_events(bob);
 
         // One by me,
-        events.push_back(sync_timeline_message(&user_id, "$6", "A mulatto, an albino"));
+        events.push_back(sync_timeline_message(user_id, "$6", "A mulatto, an albino"));
 
         // And others by Bob,
         events.push_back(sync_timeline_message(bob, "$7", "A mosquito, my libido"));
@@ -1590,19 +1577,18 @@ mod tests {
         let events: Vec<_> = events.into_iter().collect();
 
         // I have a read receipt attached to one of Bob's event sent before my message,
-        let receipt_event = EventBuilder::new().make_receipt_event_content([(
-            owned_event_id!("$3"),
-            ReceiptType::Read,
-            user_id.clone(),
-            ReceiptThread::Unthreaded,
-        )]);
+        let f = EventFactory::new();
+        let receipt_event = f
+            .read_receipts()
+            .add(event_id!("$3"), user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .build();
 
         let mut read_receipts = RoomReadReceipts::default();
 
         // And I compute the unread counts for all those new events (no previous events
         // in that room),
         compute_unread_counts(
-            &user_id,
+            user_id,
             room_id,
             Some(&receipt_event),
             Vector::new(),

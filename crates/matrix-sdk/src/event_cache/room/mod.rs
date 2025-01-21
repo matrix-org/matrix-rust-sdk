@@ -940,7 +940,7 @@ mod tests {
         assert_relations(
             room_id,
             f.text_msg("Original event").event_id(original_id).into(),
-            f.reaction(original_id, ":D".to_owned()).event_id(related_id).into(),
+            f.reaction(original_id, ":D").event_id(related_id).into(),
             f,
         )
         .await;
@@ -958,7 +958,7 @@ mod tests {
             f.poll_start("Poll start event", "A poll question", vec!["An answer"])
                 .event_id(original_id)
                 .into(),
-            f.poll_response("1", original_id).event_id(related_id).into(),
+            f.poll_response(vec!["1"], original_id).event_id(related_id).into(),
             f,
         )
         .await;

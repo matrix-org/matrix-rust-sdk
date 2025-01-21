@@ -111,8 +111,6 @@ pub mod __macro_support {
     pub use tracing_subscriber;
 }
 
-mod event_builder;
-
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mocks;
 
@@ -121,13 +119,10 @@ pub mod notification_settings;
 mod sync_builder;
 pub mod test_json;
 
-pub use self::{
-    event_builder::EventBuilder,
-    sync_builder::{
-        bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
-        JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, PresenceTestEvent,
-        RoomAccountDataTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
-    },
+pub use self::sync_builder::{
+    bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
+    JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, PresenceTestEvent,
+    RoomAccountDataTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
 };
 
 pub static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
