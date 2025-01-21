@@ -16,7 +16,12 @@
 
 mod media_retention_policy;
 mod media_service;
+#[cfg(any(test, feature = "testing"))]
+#[macro_use]
+pub mod integration_tests;
 
+#[cfg(any(test, feature = "testing"))]
+pub use self::integration_tests::EventCacheStoreMediaIntegrationTests;
 pub use self::{
     media_retention_policy::MediaRetentionPolicy,
     media_service::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaService},
