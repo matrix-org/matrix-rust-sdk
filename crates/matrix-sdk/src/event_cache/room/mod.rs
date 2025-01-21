@@ -805,8 +805,8 @@ mod private {
                 content: ChunkContent::Items(vec![
                     f.text_msg("hey")
                         .event_id(event_id!("$123456789101112131415617181920"))
-                        .into_sync(),
-                    f.text_msg("you").event_id(event_id!("$2")).into_sync(),
+                        .into_event(),
+                    f.text_msg("you").event_id(event_id!("$2")).into_event(),
                 ]),
                 identifier: CId::new(1),
                 previous: Some(CId::new(0)),
@@ -1125,7 +1125,7 @@ mod tests {
         let timeline = Timeline {
             limited: true,
             prev_batch: Some("raclette".to_owned()),
-            events: vec![f.text_msg("hey yo").sender(*ALICE).into_sync()],
+            events: vec![f.text_msg("hey yo").sender(*ALICE).into_event()],
         };
 
         room_event_cache
@@ -1197,7 +1197,7 @@ mod tests {
         let mut relations = BundledMessageLikeRelations::new();
         relations.replace =
             Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
-        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_sync();
+        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_event();
 
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
 
@@ -1261,8 +1261,8 @@ mod tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_sync();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_sync();
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         event_cache_store
@@ -1372,8 +1372,8 @@ mod tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_sync();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_sync();
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         event_cache_store
@@ -1547,7 +1547,7 @@ mod tests {
                     timeline: Timeline {
                         limited: true,
                         prev_batch: Some("raclette".to_owned()),
-                        events: vec![f.text_msg("hey yo").into_sync()],
+                        events: vec![f.text_msg("hey yo").into_event()],
                     },
                     ..Default::default()
                 },
@@ -1583,7 +1583,7 @@ mod tests {
                     timeline: Timeline {
                         limited: false,
                         prev_batch: Some("fondue".to_owned()),
-                        events: vec![f.text_msg("sup").into_sync()],
+                        events: vec![f.text_msg("sup").into_event()],
                     },
                     ..Default::default()
                 },

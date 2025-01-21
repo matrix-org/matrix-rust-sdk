@@ -894,7 +894,7 @@ mod tests {
             .event_id(original_event_id)
             .bundled_relations(relations)
             .server_ts(42)
-            .into_sync();
+            .into_event();
 
         let client = logged_in_client(None).await;
 
@@ -950,7 +950,7 @@ mod tests {
             .event_id(original_event_id)
             .bundled_relations(relations)
             .sender(user_id)
-            .into_sync();
+            .into_event();
 
         let client = logged_in_client(None).await;
 

@@ -729,7 +729,7 @@ mod tests {
                 .text_msg("A")
                 .sender(user_id)
                 .event_id(event_id!("$ida"))
-                .into_sync();
+                .into_event();
             ev.push_actions = Some(push_actions);
             ev
         }
@@ -919,8 +919,8 @@ mod tests {
         let mut previous_events = Vector::new();
 
         let f = EventFactory::new();
-        let ev1 = f.text_msg("A").sender(other_user_id).event_id(receipt_event_id).into_sync();
-        let ev2 = f.text_msg("A").sender(other_user_id).event_id(event_id!("$2")).into_sync();
+        let ev1 = f.text_msg("A").sender(other_user_id).event_id(receipt_event_id).into_event();
+        let ev2 = f.text_msg("A").sender(other_user_id).event_id(event_id!("$2")).into_event();
 
         let receipt_event = f
             .read_receipts()
@@ -944,7 +944,8 @@ mod tests {
         previous_events.push_back(ev1);
         previous_events.push_back(ev2);
 
-        let new_event = f.text_msg("A").sender(other_user_id).event_id(event_id!("$3")).into_sync();
+        let new_event =
+            f.text_msg("A").sender(other_user_id).event_id(event_id!("$3")).into_event();
         compute_unread_counts(
             user_id,
             room_id,
@@ -1134,7 +1135,7 @@ mod tests {
         let events = make_test_events(uid);
 
         // An event with no id.
-        let ev6 = EventFactory::new().text_msg("yolo").sender(uid).no_event_id().into_sync();
+        let ev6 = EventFactory::new().text_msg("yolo").sender(uid).no_event_id().into_event();
 
         let index = ReceiptSelector::create_sync_index(events.iter().chain(&[ev6]));
 
@@ -1201,8 +1202,8 @@ mod tests {
     fn test_receipt_selector_handle_pending_receipts_noop() {
         let sender = user_id!("@bob:example.org");
         let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_sync();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_sync();
+        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
+        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
         let events: Vector<_> = vec![ev1, ev2].into();
 
         {
@@ -1237,8 +1238,8 @@ mod tests {
     fn test_receipt_selector_handle_pending_receipts_doesnt_match_known_events() {
         let sender = user_id!("@bob:example.org");
         let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_sync();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_sync();
+        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
+        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
         let events: Vector<_> = vec![ev1, ev2].into();
 
         {
@@ -1274,8 +1275,8 @@ mod tests {
     fn test_receipt_selector_handle_pending_receipts_matches_known_events_no_initial() {
         let sender = user_id!("@bob:example.org");
         let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_sync();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_sync();
+        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
+        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
         let events: Vector<_> = vec![ev1, ev2].into();
 
         {
@@ -1316,8 +1317,8 @@ mod tests {
     fn test_receipt_selector_handle_pending_receipts_matches_known_events_with_initial() {
         let sender = user_id!("@bob:example.org");
         let f = EventFactory::new().sender(sender);
-        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_sync();
-        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_sync();
+        let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
+        let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
         let events: Vector<_> = vec![ev1, ev2].into();
 
         {
@@ -1495,10 +1496,10 @@ mod tests {
             f.text_msg("A mulatto, an albino")
                 .sender(&myself)
                 .event_id(event_id!("$6"))
-                .into_sync(),
+                .into_event(),
         );
         events.push_back(
-            f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_sync(),
+            f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_event(),
         );
 
         let mut selector = ReceiptSelector::new(&events, None);
@@ -1524,15 +1525,15 @@ mod tests {
             f.text_msg("A mulatto, an albino")
                 .sender(user_id)
                 .event_id(event_id!("$6"))
-                .into_sync(),
+                .into_event(),
         );
 
         // And others by Bob,
         events.push_back(
-            f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_sync(),
+            f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_event(),
         );
         events.push_back(
-            f.text_msg("A denial, a denial").sender(bob).event_id(event_id!("$8")).into_sync(),
+            f.text_msg("A denial, a denial").sender(bob).event_id(event_id!("$8")).into_event(),
         );
 
         let events: Vec<_> = events.into_iter().collect();

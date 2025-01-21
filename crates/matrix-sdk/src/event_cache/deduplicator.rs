@@ -166,7 +166,7 @@ mod tests {
             .text_msg("")
             .sender(user_id!("@mnt_io:matrix.org"))
             .event_id(event_id)
-            .into_sync()
+            .into_event()
     }
 
     #[test]
