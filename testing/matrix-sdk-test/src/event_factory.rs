@@ -21,7 +21,7 @@ use std::{
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::{
-    SyncTimelineEvent, TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
+    TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
 };
 use ruma::{
     events::{
@@ -250,27 +250,23 @@ where
         Raw::new(&self.construct_json(true)).unwrap().cast()
     }
 
-    pub fn into_timeline(self) -> TimelineEvent {
-        TimelineEvent::new(self.into_raw_timeline())
-    }
-
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
         Raw::new(&self.construct_json(false)).unwrap().cast()
     }
 
-    pub fn into_sync(self) -> SyncTimelineEvent {
-        SyncTimelineEvent::new(self.into_raw_sync())
+    pub fn into_event(self) -> TimelineEvent {
+        TimelineEvent::new(self.into_raw_sync())
     }
 }
 
 impl EventBuilder<RoomEncryptedEventContent> {
-    /// Turn this event into a SyncTimelineEvent representing a decryption
+    /// Turn this event into a [`TimelineEvent`] representing a decryption
     /// failure
-    pub fn into_utd_sync_timeline_event(self) -> SyncTimelineEvent {
+    pub fn into_utd_sync_timeline_event(self) -> TimelineEvent {
         let session_id = as_variant!(&self.content.scheme, EncryptedEventScheme::MegolmV1AesSha2)
             .map(|content| content.session_id.clone());
 
-        SyncTimelineEvent::new_utd_event(
+        TimelineEvent::new_utd_event(
             self.into(),
             UnableToDecryptInfo {
                 session_id,
@@ -358,12 +354,12 @@ where
     }
 }
 
-impl<E: EventContent> From<EventBuilder<E>> for SyncTimelineEvent
+impl<E: EventContent> From<EventBuilder<E>> for TimelineEvent
 where
     E::EventType: Serialize,
 {
     fn from(val: EventBuilder<E>) -> Self {
-        val.into_sync()
+        val.into_event()
     }
 }
 

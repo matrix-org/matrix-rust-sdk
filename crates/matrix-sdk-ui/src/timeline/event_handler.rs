@@ -211,7 +211,7 @@ impl TimelineEventKind {
                         Self::UnableToDecrypt { content, utd_cause }
                     } else {
                         // If we get here, it means that some part of the code has created a
-                        // `SyncTimelineEvent` containing an `m.room.encrypted` event
+                        // `TimelineEvent` containing an `m.room.encrypted` event
                         // without decrypting it. Possibly this means that encryption has not been
                         // configured.
                         // We treat it the same as any other message-like event.

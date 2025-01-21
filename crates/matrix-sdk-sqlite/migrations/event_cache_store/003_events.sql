@@ -36,7 +36,7 @@ CREATE TABLE "events" (
 
     -- `OwnedEventId` for events, can be null if malformed.
     "event_id" TEXT,
-    -- JSON serialized `SyncTimelineEvent` (encrypted value).
+    -- JSON serialized `TimelineEvent` (encrypted value).
     "content" BLOB NOT NULL,
     -- Position (index) in the chunk.
     "position" INTEGER NOT NULL,

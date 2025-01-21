@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use assert_matches2::assert_let;
-use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, SessionMeta};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, SessionMeta};
 use ruma::{
     api::MatrixVersion,
     device_id,
@@ -24,8 +24,8 @@ use crate::{
 
 /// Checks that an event is a message-like text event with the given text.
 #[track_caller]
-pub fn assert_event_matches_msg<E: Clone + Into<SyncTimelineEvent>>(event: &E, expected: &str) {
-    let event: SyncTimelineEvent = event.clone().into();
+pub fn assert_event_matches_msg<E: Clone + Into<TimelineEvent>>(event: &E, expected: &str) {
+    let event: TimelineEvent = event.clone().into();
     let event = event.raw().deserialize().unwrap();
     assert_let!(
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) = event

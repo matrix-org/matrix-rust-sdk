@@ -19,7 +19,7 @@ use matrix_sdk::{
     config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
     SendOutsideWasm, SyncOutsideWasm,
 };
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::{events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use thiserror::Error;
 use tracing::{debug, warn};
@@ -55,9 +55,9 @@ impl PinnedEventsLoader {
     /// `max_concurrent_requests` allows, to avoid overwhelming the server.
     ///
     /// It returns a `Result` with either a
-    /// chronologically sorted list of retrieved `SyncTimelineEvent`s
-    /// or a `PinnedEventsLoaderError`.
-    pub async fn load_events(&self) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
+    /// chronologically sorted list of retrieved [`TimelineEvent`]s
+    /// or a [`PinnedEventsLoaderError`].
+    pub async fn load_events(&self) -> Result<Vec<TimelineEvent>, PinnedEventsLoaderError> {
         let pinned_event_ids: Vec<OwnedEventId> = self
             .room
             .pinned_event_ids()
@@ -74,7 +74,7 @@ impl PinnedEventsLoader {
 
         let request_config = Some(RequestConfig::default().retry_limit(3));
 
-        let mut loaded_events: Vec<SyncTimelineEvent> =
+        let mut loaded_events: Vec<TimelineEvent> =
             stream::iter(pinned_event_ids.into_iter().map(|event_id| {
                 let provider = self.room.clone();
                 let relations_filter =
@@ -132,7 +132,7 @@ pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
         event_id: &'a EventId,
         request_config: Option<RequestConfig>,
         related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>>;
+    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), PaginatorError>>;
 
     /// Get the pinned event ids for a room.
     fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>>;
@@ -150,7 +150,7 @@ impl PinnedEventsRoom for Room {
         event_id: &'a EventId,
         request_config: Option<RequestConfig>,
         related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>> {
+    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), PaginatorError>> {
         Box::pin(async move {
             if let Ok((cache, _handles)) = self.event_cache().await {
                 if let Some(ret) = cache.event_with_relations(event_id, related_event_filters).await
@@ -163,7 +163,7 @@ impl PinnedEventsRoom for Room {
             debug!("Loading pinned event {event_id} from HS");
             self.event(event_id, request_config)
                 .await
-                .map(|e| (e.into(), Vec::new()))
+                .map(|e| (e, Vec::new()))
                 .map_err(|err| PaginatorError::SdkError(Box::new(err)))
         })
     }

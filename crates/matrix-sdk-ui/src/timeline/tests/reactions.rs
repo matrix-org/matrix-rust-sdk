@@ -18,7 +18,7 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
-use matrix_sdk::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_timeline_event, ALICE, BOB};
 use ruma::{
     event_id, events::AnyMessageLikeEventContent, server_name, uint, EventId,
@@ -151,7 +151,7 @@ async fn test_redact_reaction_success() {
 
     // When that redaction is confirmed by the server,
     timeline
-        .handle_live_event(SyncTimelineEvent::new(sync_timeline_event!({
+        .handle_live_event(TimelineEvent::new(sync_timeline_event!({
             "sender": *ALICE,
             "type": "m.room.redaction",
             "event_id": "$idb",
@@ -198,9 +198,9 @@ async fn test_initial_reaction_timestamp_is_stored() {
                 // Reaction comes first.
                 f.reaction(&message_event_id, REACTION_KEY)
                     .server_ts(reaction_timestamp)
-                    .into_sync(),
+                    .into_event(),
                 // Event comes next.
-                f.text_msg("A").event_id(&message_event_id).into_sync(),
+                f.text_msg("A").event_id(&message_event_id).into_event(),
             ]
             .into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },

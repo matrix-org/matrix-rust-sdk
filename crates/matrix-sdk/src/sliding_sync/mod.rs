@@ -36,7 +36,7 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, executor::spawn, timer};
+use matrix_sdk_common::{deserialized_responses::TimelineEvent, executor::spawn, timer};
 use ruma::{
     api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
@@ -345,7 +345,7 @@ impl SlidingSync {
                         if let Some(joined_room) = sync_response.rooms.join.remove(&room_id) {
                             joined_room.timeline.events
                         } else {
-                            room_data.timeline.drain(..).map(SyncTimelineEvent::new).collect()
+                            room_data.timeline.drain(..).map(TimelineEvent::new).collect()
                         };
 
                     match rooms_map.get_mut(&room_id) {
@@ -1103,7 +1103,7 @@ mod tests {
     use assert_matches::assert_matches;
     use event_listener::Listener;
     use futures_util::{future::join_all, pin_mut, StreamExt};
-    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::error::ErrorKind, assign, owned_room_id, room_id, serde::Raw, uint,
@@ -2268,8 +2268,8 @@ mod tests {
 
     #[async_test]
     async fn test_limited_flag_computation() {
-        let make_event = |event_id: &str| -> SyncTimelineEvent {
-            SyncTimelineEvent::new(
+        let make_event = |event_id: &str| -> TimelineEvent {
+            TimelineEvent::new(
                 Raw::from_json_string(
                     json!({
                         "event_id": event_id,

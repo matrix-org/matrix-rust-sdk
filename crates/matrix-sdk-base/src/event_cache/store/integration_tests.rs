@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use async_trait::async_trait;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEventKind,
+        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, TimelineEvent, TimelineEventKind,
         VerificationState,
     },
     linked_chunk::{
@@ -42,7 +42,7 @@ use crate::{
 /// correctly stores event data.
 ///
 /// Keep in sync with [`check_test_event`].
-pub fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
+pub fn make_test_event(room_id: &RoomId, content: &str) -> TimelineEvent {
     let encryption_info = EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
@@ -60,13 +60,13 @@ pub fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
         .into_raw_timeline()
         .cast();
 
-    SyncTimelineEvent {
+    TimelineEvent {
         kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
             event,
             encryption_info,
             unsigned_encryption_info: None,
         }),
-        push_actions: vec![Action::Notify],
+        push_actions: Some(vec![Action::Notify]),
     }
 }
 
@@ -75,9 +75,9 @@ pub fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
 ///
 /// Keep in sync with [`make_test_event`].
 #[track_caller]
-pub fn check_test_event(event: &SyncTimelineEvent, text: &str) {
+pub fn check_test_event(event: &TimelineEvent, text: &str) {
     // Check push actions.
-    let actions = &event.push_actions;
+    let actions = event.push_actions.as_ref().unwrap();
     assert_eq!(actions.len(), 1);
     assert_matches!(&actions[0], Action::Notify);
 

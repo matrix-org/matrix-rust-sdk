@@ -27,7 +27,7 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
-    deserialized_responses::{SyncTimelineEvent, TimelineEvent},
+    deserialized_responses::TimelineEvent,
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
     send_queue::RoomSendQueueUpdate,
@@ -173,7 +173,7 @@ impl TestTimeline {
         self.controller.items().await.len()
     }
 
-    async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {
+    async fn handle_live_event(&self, event: impl Into<TimelineEvent>) {
         let event = event.into();
         self.controller
             .add_events_at(
@@ -297,7 +297,7 @@ impl PinnedEventsRoom for TestRoomDataProvider {
         _event_id: &'a EventId,
         _request_config: Option<RequestConfig>,
         _related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>> {
+    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), PaginatorError>> {
         unimplemented!();
     }
 

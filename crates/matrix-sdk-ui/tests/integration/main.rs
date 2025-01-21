@@ -55,6 +55,7 @@ async fn mock_sync(server: &MockServer, response_body: impl Serialize, since: Op
 ///
 /// Note: pass `events_before` in the normal order, I'll revert the order for
 /// you.
+// TODO: replace with MatrixMockServer
 #[allow(clippy::too_many_arguments)] // clippy you've got such a fixed mindset
 async fn mock_context(
     server: &MockServer,
@@ -86,6 +87,7 @@ async fn mock_context(
 ///
 /// Note: pass `chunk` in the correct order: topological for forward pagination,
 /// reverse topological for backwards pagination.
+// TODO: replace with MatrixMockServer
 async fn mock_messages(
     server: &MockServer,
     start: String,
