@@ -39,9 +39,22 @@ pub struct MemoryStore {
 
 #[derive(Debug)]
 struct MemoryStoreInner {
-    media: RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>,
+    media: RingBuffer<MediaContent>,
     leases: HashMap<String, (String, Instant)>,
     events: RelationalLinkedChunk<Event, Gap>,
+}
+
+/// A media content in the `MemoryStore`.
+#[derive(Debug)]
+struct MediaContent {
+    /// The URI of the content.
+    uri: OwnedMxcUri,
+
+    /// The unique key of the content.
+    key: String,
+
+    /// The bytes of the content.
+    data: Vec<u8>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -119,7 +132,11 @@ impl EventCacheStore for MemoryStore {
 
         // Now, let's add it.
         let mut inner = self.inner.write().unwrap();
-        inner.media.push((request.uri().to_owned(), request.unique_key(), data));
+        inner.media.push(MediaContent {
+            uri: request.uri().to_owned(),
+            key: request.unique_key(),
+            data,
+        });
 
         Ok(())
     }
@@ -133,10 +150,11 @@ impl EventCacheStore for MemoryStore {
 
         let mut inner = self.inner.write().unwrap();
 
-        if let Some((mxc, key, _)) = inner.media.iter_mut().find(|(_, key, _)| *key == expected_key)
+        if let Some(media_content) =
+            inner.media.iter_mut().find(|media_content| media_content.key == expected_key)
         {
-            *mxc = to.uri().to_owned();
-            *key = to.unique_key();
+            media_content.uri = to.uri().to_owned();
+            media_content.key = to.unique_key();
         }
 
         Ok(())
@@ -147,8 +165,8 @@ impl EventCacheStore for MemoryStore {
 
         let inner = self.inner.read().unwrap();
 
-        Ok(inner.media.iter().find_map(|(_media_uri, media_key, media_content)| {
-            (media_key == &expected_key).then(|| media_content.to_owned())
+        Ok(inner.media.iter().find_map(|media_content| {
+            (media_content.key == expected_key).then(|| media_content.data.clone())
         }))
     }
 
@@ -157,10 +175,8 @@ impl EventCacheStore for MemoryStore {
 
         let mut inner = self.inner.write().unwrap();
 
-        let Some(index) = inner
-            .media
-            .iter()
-            .position(|(_media_uri, media_key, _media_content)| media_key == &expected_key)
+        let Some(index) =
+            inner.media.iter().position(|media_content| media_content.key == expected_key)
         else {
             return Ok(());
         };
@@ -176,21 +192,20 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Vec<u8>>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        Ok(inner.media.iter().find_map(|(media_uri, _media_key, media_content)| {
-            (media_uri == uri).then(|| media_content.to_owned())
+        Ok(inner.media.iter().find_map(|media_content| {
+            (media_content.uri == uri).then(|| media_content.data.clone())
         }))
     }
 
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+    async fn remove_media_content_for_uri(&self, expected_uri: &MxcUri) -> Result<()> {
         let mut inner = self.inner.write().unwrap();
 
-        let expected_key = uri.to_owned();
         let positions = inner
             .media
             .iter()
             .enumerate()
-            .filter_map(|(position, (media_uri, _media_key, _media_content))| {
-                (media_uri == &expected_key).then_some(position)
+            .filter_map(|(position, media_content)| {
+                (media_content.uri == expected_uri).then_some(position)
             })
             .collect::<Vec<_>>();
 
