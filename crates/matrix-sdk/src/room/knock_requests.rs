@@ -107,9 +107,7 @@ impl KnockRequestMemberInfo {
 mod tests {
     use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
     use ruma::{
-        event_id,
-        events::room::member::{MembershipState, RoomMemberEventContent},
-        owned_user_id, room_id, user_id, EventId,
+        event_id, events::room::member::MembershipState, owned_user_id, room_id, user_id, EventId,
     };
 
     use crate::{
@@ -128,10 +126,9 @@ mod tests {
 
         let f = EventFactory::new().room(room_id);
         let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
-            .event(RoomMemberEventContent::new(MembershipState::Knock))
+            .member(user_id)
+            .membership(MembershipState::Knock)
             .event_id(event_id)
-            .sender(user_id)
-            .state_key(user_id)
             .into_raw_timeline()
             .cast()]);
         let room = server.sync_room(&client, joined_room_builder).await;

@@ -3694,11 +3694,7 @@ mod tests {
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder,
     };
-    use ruma::{
-        device_id, event_id,
-        events::room::member::{MembershipState, RoomMemberEventContent},
-        int, room_id, user_id,
-    };
+    use ruma::{device_id, event_id, events::room::member::MembershipState, int, room_id, user_id};
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
@@ -3894,10 +3890,9 @@ mod tests {
 
         let f = EventFactory::new().room(room_id);
         let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
-            .event(RoomMemberEventContent::new(MembershipState::Knock))
+            .member(user_id)
+            .membership(MembershipState::Knock)
             .event_id(event_id)
-            .sender(user_id)
-            .state_key(user_id)
             .into_raw_timeline()
             .cast()]);
         let room = server.sync_room(&client, joined_room_builder).await;

@@ -28,7 +28,7 @@ use ruma::{
         direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::{
-            member::{MembershipState, RoomMemberEventContent},
+            member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
         TimelineEventType,
@@ -843,10 +843,9 @@ async fn test_subscribe_to_knock_requests() {
     let user_id = user_id!("@alice:b.c");
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .member(user_id)
+        .membership(MembershipState::Knock)
         .event_id(knock_event_id)
-        .sender(user_id)
-        .state_key(user_id)
         .into_raw_timeline()
         .cast();
 
@@ -877,9 +876,8 @@ async fn test_subscribe_to_knock_requests() {
 
     // If we then receive a new member event for Alice that's not 'knock'
     let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
-        .event(RoomMemberEventContent::new(MembershipState::Invite))
-        .sender(user_id)
-        .state_key(user_id)
+        .member(user_id)
+        .membership(MembershipState::Invite)
         .into_raw_timeline()
         .cast()]);
     server.sync_room(&client, joined_room_builder).await;
@@ -917,12 +915,8 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
     let f = EventFactory::new().room(room_id);
 
     let user_id = user_id!("@alice:b.c");
-    let knock_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Knock))
-        .sender(user_id)
-        .state_key(user_id)
-        .into_raw_timeline()
-        .cast();
+    let knock_event =
+        f.member(user_id).membership(MembershipState::Knock).into_raw_timeline().cast();
 
     server
         .mock_get_members()
@@ -969,10 +963,9 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() 
     let user_id = user_id!("@alice:b.c");
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .member(user_id)
+        .membership(MembershipState::Knock)
         .event_id(knock_event_id)
-        .sender(user_id)
-        .state_key(user_id)
         .into_raw_timeline()
         .cast();
 
@@ -990,12 +983,8 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() 
 
     // If we then load the members again and the previously knocking member is in
     // another state now
-    let joined_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Join))
-        .sender(user_id)
-        .state_key(user_id)
-        .into_raw_timeline()
-        .cast();
+    let joined_event =
+        f.member(user_id).membership(MembershipState::Join).into_raw_timeline().cast();
 
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
 
@@ -1024,10 +1013,9 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_k
     let user_id = user_id!("@alice:b.c");
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .member(user_id)
+        .membership(MembershipState::Knock)
         .event_id(knock_event_id)
-        .sender(user_id)
-        .state_key(user_id)
         .into_raw_timeline()
         .cast();
 
@@ -1046,10 +1034,9 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_k
     // If we then load the members again and the previously knocking member has a
     // different event id
     let knock_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .member(user_id)
+        .membership(MembershipState::Knock)
         .event_id(event_id!("$knock-2:b.c"))
-        .sender(user_id)
-        .state_key(user_id)
         .into_raw_timeline()
         .cast();
 
@@ -1080,10 +1067,9 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
     let user_id = user_id!("@alice:b.c");
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Knock))
+        .member(user_id)
+        .membership(MembershipState::Knock)
         .event_id(knock_event_id)
-        .sender(user_id)
-        .state_key(user_id)
         .into_raw_timeline()
         .cast();
 
@@ -1114,12 +1100,8 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
 
     // If we then load the members again and the previously knocking member is in
     // another state now
-    let joined_event = f
-        .event(RoomMemberEventContent::new(MembershipState::Join))
-        .sender(user_id)
-        .state_key(user_id)
-        .into_raw_timeline()
-        .cast();
+    let joined_event =
+        f.member(user_id).membership(MembershipState::Join).into_raw_timeline().cast();
 
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
 
@@ -1163,9 +1145,8 @@ async fn test_room_member_updates_sender_on_full_member_reload() {
     let user_id = user_id!("@alice:b.c");
     let joined_event = EventFactory::new()
         .room(room_id)
-        .event(RoomMemberEventContent::new(MembershipState::Join))
-        .sender(user_id)
-        .state_key(user_id)
+        .member(user_id)
+        .membership(MembershipState::Join)
         .into_raw_timeline()
         .cast();
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
@@ -1191,9 +1172,8 @@ async fn test_room_member_updates_sender_on_partial_members_update() {
     let user_id = user_id!("@alice:b.c");
     let joined_event = EventFactory::new()
         .room(room_id)
-        .event(RoomMemberEventContent::new(MembershipState::Join))
-        .sender(user_id)
-        .state_key(user_id)
+        .member(user_id)
+        .membership(MembershipState::Join)
         .into_raw_sync()
         .cast();
     server

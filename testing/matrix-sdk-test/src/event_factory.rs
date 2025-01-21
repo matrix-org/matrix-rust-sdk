@@ -38,6 +38,7 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
+            avatar::{self, RoomAvatarEventContent},
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
@@ -170,6 +171,10 @@ where
         self
     }
 
+    /// For state events manually created, define the state key.
+    ///
+    /// For other state events created in the [`EventFactory`], this is
+    /// automatically filled upon creation or update of the events.
     pub fn state_key(mut self, state_key: impl Into<String>) -> Self {
         self.state_key = Some(state_key.into());
         self
@@ -465,6 +470,14 @@ impl EventFactory {
         event
     }
 
+    /// Create an empty state event for the room avatar.
+    pub fn room_avatar(&self) -> EventBuilder<RoomAvatarEventContent> {
+        let mut event = self.event(RoomAvatarEventContent::new());
+        // The state key is empty for a room avatar state event.
+        event.state_key = Some("".to_owned());
+        event
+    }
+
     /// Create a new `m.member_hints` event with the given service members.
     ///
     /// ```
@@ -745,6 +758,20 @@ impl EventBuilder<RoomMemberEventContent> {
         }
 
         self.unsigned.get_or_insert_with(Default::default).prev_content = Some(prev_content);
+        self
+    }
+}
+
+impl EventBuilder<RoomAvatarEventContent> {
+    /// Defines the URL for the room avatar.
+    pub fn url(mut self, url: &MxcUri) -> Self {
+        self.content.url = Some(url.to_owned());
+        self
+    }
+
+    /// Defines the image info for the avatar.
+    pub fn info(mut self, image: avatar::ImageInfo) -> Self {
+        self.content.info = Some(Box::new(image));
         self
     }
 }
