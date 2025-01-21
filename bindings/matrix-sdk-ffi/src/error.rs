@@ -9,7 +9,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use uniffi::UnexpectedUniFFICallbackError;
 
-use crate::room_list::RoomListError;
+use crate::{room_list::RoomListError, timeline::FocusEventError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -158,6 +158,12 @@ impl From<RoomSendQueueError> for ClientError {
 impl From<NotYetImplemented> for ClientError {
     fn from(_: NotYetImplemented) -> Self {
         Self::new("This functionality is not implemented yet.")
+    }
+}
+
+impl From<FocusEventError> for ClientError {
+    fn from(e: FocusEventError) -> Self {
+        Self::new(e)
     }
 }
 
