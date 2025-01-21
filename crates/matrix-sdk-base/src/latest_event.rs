@@ -1,7 +1,7 @@
 //! Utilities for working with events to decide whether they are suitable for
 //! use as a [crate::Room::latest_event].
 
-use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::deserialized_responses::TimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::{
     events::{
@@ -164,7 +164,7 @@ pub fn is_suitable_for_latest_event<'a>(
 #[derive(Clone, Debug, Serialize)]
 pub struct LatestEvent {
     /// The actual event.
-    event: SyncTimelineEvent,
+    event: TimelineEvent,
 
     /// The member profile of the event' sender.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -178,7 +178,7 @@ pub struct LatestEvent {
 #[derive(Deserialize)]
 struct SerializedLatestEvent {
     /// The actual event.
-    event: SyncTimelineEvent,
+    event: TimelineEvent,
 
     /// The member profile of the event' sender.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -211,7 +211,7 @@ impl<'de> Deserialize<'de> for LatestEvent {
             Err(err) => variant_errors.push(err),
         }
 
-        match serde_json::from_str::<SyncTimelineEvent>(raw.get()) {
+        match serde_json::from_str::<TimelineEvent>(raw.get()) {
             Ok(value) => {
                 return Ok(LatestEvent {
                     event: value,
@@ -230,13 +230,13 @@ impl<'de> Deserialize<'de> for LatestEvent {
 
 impl LatestEvent {
     /// Create a new [`LatestEvent`] without the sender's profile.
-    pub fn new(event: SyncTimelineEvent) -> Self {
+    pub fn new(event: TimelineEvent) -> Self {
         Self { event, sender_profile: None, sender_name_is_ambiguous: None }
     }
 
     /// Create a new [`LatestEvent`] with maybe the sender's profile.
     pub fn new_with_sender_details(
-        event: SyncTimelineEvent,
+        event: TimelineEvent,
         sender_profile: Option<MinimalRoomMemberEvent>,
         sender_name_is_ambiguous: Option<bool>,
     ) -> Self {
@@ -244,17 +244,17 @@ impl LatestEvent {
     }
 
     /// Transform [`Self`] into an event.
-    pub fn into_event(self) -> SyncTimelineEvent {
+    pub fn into_event(self) -> TimelineEvent {
         self.event
     }
 
     /// Get a reference to the event.
-    pub fn event(&self) -> &SyncTimelineEvent {
+    pub fn event(&self) -> &TimelineEvent {
         &self.event
     }
 
     /// Get a mutable reference to the event.
-    pub fn event_mut(&mut self) -> &mut SyncTimelineEvent {
+    pub fn event_mut(&mut self) -> &mut TimelineEvent {
         &mut self.event
     }
 
@@ -301,7 +301,7 @@ mod tests {
     use assert_matches::assert_matches;
     #[cfg(feature = "e2e-encryption")]
     use assert_matches2::assert_let;
-    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use ruma::serde::Raw;
     #[cfg(feature = "e2e-encryption")]
     use ruma::{
@@ -596,7 +596,7 @@ mod tests {
             latest_event: LatestEvent,
         }
 
-        let event = SyncTimelineEvent::new(
+        let event = TimelineEvent::new(
             Raw::from_json_string(json!({ "event_id": "$1" }).to_string()).unwrap(),
         );
 

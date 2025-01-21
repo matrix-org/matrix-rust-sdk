@@ -30,7 +30,7 @@ use matrix_sdk::{
     crypto::{decrypt_room_key_export, types::events::UtdCause, OlmMachine},
     test_utils::test_client_builder,
 };
-use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, UnableToDecryptReason};
+use matrix_sdk_base::deserialized_responses::{TimelineEvent, UnableToDecryptReason};
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     assign, event_id,
@@ -750,7 +750,7 @@ async fn test_retry_decryption_updates_response() {
     }
 }
 
-fn utd_event_with_unsigned(unsigned: serde_json::Value) -> SyncTimelineEvent {
+fn utd_event_with_unsigned(unsigned: serde_json::Value) -> TimelineEvent {
     let raw = Raw::from_json(
         to_raw_value(&json!({
             "event_id": "$myevent",
@@ -770,7 +770,7 @@ fn utd_event_with_unsigned(unsigned: serde_json::Value) -> SyncTimelineEvent {
         .unwrap(),
     );
 
-    SyncTimelineEvent::new_utd_event(
+    TimelineEvent::new_utd_event(
         raw,
         matrix_sdk::deserialized_responses::UnableToDecryptInfo {
             session_id: Some("SESSION_ID".into()),

@@ -50,7 +50,7 @@ use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    deserialized_responses::{EncryptionInfo, TimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
 use pin_project_lite::pin_project;
@@ -380,7 +380,7 @@ impl Client {
     pub(crate) async fn handle_sync_timeline_events(
         &self,
         room: Option<&Room>,
-        timeline_events: &[SyncTimelineEvent],
+        timeline_events: &[TimelineEvent],
     ) -> serde_json::Result<()> {
         #[derive(Deserialize)]
         struct TimelineEventDetails<'a> {

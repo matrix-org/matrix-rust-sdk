@@ -2164,7 +2164,7 @@ mod tests {
     };
 
     use assign::assign;
-    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{
         async_test,
         event_factory::EventFactory,
@@ -2241,7 +2241,7 @@ mod tests {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
-            latest_event: Some(Box::new(LatestEvent::new(SyncTimelineEvent::new(
+            latest_event: Some(Box::new(LatestEvent::new(TimelineEvent::new(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap(),
             )))),
             base_info: Box::new(
@@ -3324,7 +3324,7 @@ mod tests {
 
     #[cfg(feature = "e2e-encryption")]
     fn make_latest_event(event_id: &str) -> Box<LatestEvent> {
-        Box::new(LatestEvent::new(SyncTimelineEvent::new(
+        Box::new(LatestEvent::new(TimelineEvent::new(
             Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap(),
         )))
     }

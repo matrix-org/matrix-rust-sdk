@@ -4,7 +4,7 @@ use std::{
 };
 
 use eyeball_im::Vector;
-use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sliding_sync::http};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, sliding_sync::http};
 use ruma::{OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
@@ -40,7 +40,7 @@ impl SlidingSyncRoom {
     pub fn new(
         room_id: OwnedRoomId,
         prev_batch: Option<String>,
-        timeline: Vec<SyncTimelineEvent>,
+        timeline: Vec<TimelineEvent>,
     ) -> Self {
         Self {
             inner: Arc::new(SlidingSyncRoomInner {
@@ -66,14 +66,14 @@ impl SlidingSyncRoom {
     ///
     /// Note: This API only exists temporarily, it *will* be removed in the
     /// future.
-    pub fn timeline_queue(&self) -> Vector<SyncTimelineEvent> {
+    pub fn timeline_queue(&self) -> Vector<TimelineEvent> {
         self.inner.timeline_queue.read().unwrap().clone()
     }
 
     pub(super) fn update(
         &mut self,
         room_data: http::response::Room,
-        timeline_updates: Vec<SyncTimelineEvent>,
+        timeline_updates: Vec<TimelineEvent>,
     ) {
         let http::response::Room { prev_batch, limited, .. } = room_data;
 
@@ -165,7 +165,7 @@ struct SlidingSyncRoomInner {
     ///
     /// When persisting the room, this queue is truncated to keep only the last
     /// N events.
-    timeline_queue: RwLock<Vector<SyncTimelineEvent>>,
+    timeline_queue: RwLock<Vector<TimelineEvent>>,
 }
 
 /// A “frozen” [`SlidingSyncRoom`], i.e. that can be written into, or read from
@@ -176,7 +176,7 @@ pub(super) struct FrozenSlidingSyncRoom {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) prev_batch: Option<String>,
     #[serde(rename = "timeline")]
-    pub(super) timeline_queue: Vector<SyncTimelineEvent>,
+    pub(super) timeline_queue: Vector<TimelineEvent>,
 }
 
 /// Number of timeline events to keep when [`SlidingSyncRoom`] is saved in the
@@ -214,7 +214,7 @@ impl From<&SlidingSyncRoom> for FrozenSlidingSyncRoom {
 #[cfg(test)]
 mod tests {
     use imbl::vector;
-    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw, RoomId};
     use serde_json::json;
@@ -237,7 +237,7 @@ mod tests {
     fn new_room_with_timeline(
         room_id: &RoomId,
         inner: http::response::Room,
-        timeline: Vec<SyncTimelineEvent>,
+        timeline: Vec<TimelineEvent>,
     ) -> SlidingSyncRoom {
         SlidingSyncRoom::new(room_id.to_owned(), inner.prev_batch, timeline)
     }
@@ -314,7 +314,7 @@ mod tests {
 
     macro_rules! timeline_event {
         (from $sender:literal with id $event_id:literal at $ts:literal: $message:literal) => {
-            SyncTimelineEvent::new(
+            TimelineEvent::new(
                 Raw::new(&json!({
                     "content": RoomMessageEventContent::text_plain($message),
                     "type": "m.room.message",
@@ -605,7 +605,7 @@ mod tests {
         let frozen_room = FrozenSlidingSyncRoom {
             room_id: room_id!("!29fhd83h92h0:example.com").to_owned(),
             prev_batch: Some("foo".to_owned()),
-            timeline_queue: vector![SyncTimelineEvent::new(
+            timeline_queue: vector![TimelineEvent::new(
                 Raw::new(&json!({
                     "content": RoomMessageEventContent::text_plain("let it gooo!"),
                     "type": "m.room.message",
@@ -657,7 +657,7 @@ mod tests {
             let max = NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE - 1;
             let timeline_events = (0..=max)
                 .map(|nth| {
-                    SyncTimelineEvent::new(
+                    TimelineEvent::new(
                         Raw::new(&json!({
                             "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
                             "type": "m.room.message",
@@ -694,7 +694,7 @@ mod tests {
             let max = NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE + 2;
             let timeline_events = (0..=max)
                 .map(|nth| {
-                    SyncTimelineEvent::new(
+                    TimelineEvent::new(
                     Raw::new(&json!({
                         "content": RoomMessageEventContent::text_plain(format!("message {nth}")),
                         "type": "m.room.message",

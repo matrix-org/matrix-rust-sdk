@@ -311,13 +311,13 @@ pub struct EncryptionInfo {
 //
 // 🚨 Note about this type, please read! 🚨
 //
-// `SyncTimelineEvent` is heavily used across the SDK crates. In some cases, we
+// `TimelineEvent` is heavily used across the SDK crates. In some cases, we
 // are reaching a [`recursion_limit`] when the compiler is trying to figure out
-// if `SyncTimelineEvent` implements `Sync` when it's embedded in other types.
+// if `TimelineEvent` implements `Sync` when it's embedded in other types.
 //
 // We want to help the compiler so that one doesn't need to increase the
 // `recursion_limit`. We stop the recursive check by (un)safely implement `Sync`
-// and `Send` on `SyncTimelineEvent` directly.
+// and `Send` on `TimelineEvent` directly.
 //
 // See
 // https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823
@@ -325,7 +325,7 @@ pub struct EncryptionInfo {
 //
 // [`recursion_limit`]: https://doc.rust-lang.org/reference/attributes/limits.html#the-recursion_limit-attribute
 #[derive(Clone, Debug, Serialize)]
-pub struct SyncTimelineEvent {
+pub struct TimelineEvent {
     /// The event itself, together with any information on decryption.
     pub kind: TimelineEventKind,
 
@@ -338,11 +338,11 @@ pub struct SyncTimelineEvent {
 
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
 #[cfg(not(feature = "test-send-sync"))]
-unsafe impl Send for SyncTimelineEvent {}
+unsafe impl Send for TimelineEvent {}
 
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
 #[cfg(not(feature = "test-send-sync"))]
-unsafe impl Sync for SyncTimelineEvent {}
+unsafe impl Sync for TimelineEvent {}
 
 #[cfg(feature = "test-send-sync")]
 #[test]
@@ -350,11 +350,11 @@ unsafe impl Sync for SyncTimelineEvent {}
 fn test_send_sync_for_sync_timeline_event() {
     fn assert_send_sync<T: Send + Sync>() {}
 
-    assert_send_sync::<SyncTimelineEvent>();
+    assert_send_sync::<TimelineEvent>();
 }
 
-impl SyncTimelineEvent {
-    /// Create a new `SyncTimelineEvent` from the given raw event.
+impl TimelineEvent {
+    /// Create a new [`TimelineEvent`] from the given raw event.
     ///
     /// This is a convenience constructor for a plaintext event when you don't
     /// need to set `push_action`, for example inside a test.
@@ -362,7 +362,7 @@ impl SyncTimelineEvent {
         Self { kind: TimelineEventKind::PlainText { event }, push_actions: None }
     }
 
-    /// Create a new `SyncTimelineEvent` from the given raw event and push
+    /// Create a new [`TimelineEvent`] from the given raw event and push
     /// actions.
     ///
     /// This is a convenience constructor for a plaintext event, for example
@@ -374,20 +374,20 @@ impl SyncTimelineEvent {
         Self { kind: TimelineEventKind::PlainText { event }, push_actions: Some(push_actions) }
     }
 
-    /// Create a new `SyncTimelineEvent` to represent the given decryption
+    /// Create a new [`TimelineEvent`] to represent the given decryption
     /// failure.
     pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
         Self { kind: TimelineEventKind::UnableToDecrypt { event, utd_info }, push_actions: None }
     }
 
-    /// Get the event id of this `SyncTimelineEvent` if the event has any valid
+    /// Get the event id of this [`TimelineEvent`] if the event has any valid
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.kind.event_id()
     }
 
     /// Returns a reference to the (potentially decrypted) Matrix event inside
-    /// this `TimelineEvent`.
+    /// this [`TimelineEvent`].
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
         self.kind.raw()
     }
@@ -418,14 +418,14 @@ impl SyncTimelineEvent {
     }
 }
 
-impl From<DecryptedRoomEvent> for SyncTimelineEvent {
+impl From<DecryptedRoomEvent> for TimelineEvent {
     fn from(decrypted: DecryptedRoomEvent) -> Self {
         Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None }
     }
 }
 
-impl<'de> Deserialize<'de> for SyncTimelineEvent {
-    /// Custom deserializer for [`SyncTimelineEvent`], to support older formats.
+impl<'de> Deserialize<'de> for TimelineEvent {
+    /// Custom deserializer for [`TimelineEvent`], to support older formats.
     ///
     /// Ideally we might use an untagged enum and then convert from that;
     /// however, that doesn't work due to a [serde bug](https://github.com/serde-rs/json/issues/497).
@@ -446,7 +446,7 @@ impl<'de> Deserialize<'de> for SyncTimelineEvent {
             let v0: SyncTimelineEventDeserializationHelperV0 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
                     serde::de::Error::custom(format!(
-                        "Unable to deserialize V0-format SyncTimelineEvent: {}",
+                        "Unable to deserialize V0-format TimelineEvent: {}",
                         e
                     ))
                 })?;
@@ -457,7 +457,7 @@ impl<'de> Deserialize<'de> for SyncTimelineEvent {
             let v1: SyncTimelineEventDeserializationHelperV1 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
                     serde::de::Error::custom(format!(
-                        "Unable to deserialize V1-format SyncTimelineEvent: {}",
+                        "Unable to deserialize V1-format TimelineEvent: {}",
                         e
                     ))
                 })?;
@@ -466,8 +466,7 @@ impl<'de> Deserialize<'de> for SyncTimelineEvent {
     }
 }
 
-/// The event within a [`TimelineEvent`] or [`SyncTimelineEvent`], together with
-/// encryption data.
+/// The event within a [`TimelineEvent`], together with encryption data.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum TimelineEventKind {
     /// A successfully-decrypted encrypted event.
@@ -806,9 +805,9 @@ impl fmt::Debug for PrivOwnedStr {
     }
 }
 
-/// Deserialization helper for [`SyncTimelineEvent`], for the modern format.
+/// Deserialization helper for [`TimelineEvent`], for the modern format.
 ///
-/// This has the exact same fields as [`SyncTimelineEvent`] itself, but has a
+/// This has the exact same fields as [`TimelineEvent`] itself, but has a
 /// regular `Deserialize` implementation.
 #[derive(Debug, Deserialize)]
 struct SyncTimelineEventDeserializationHelperV1 {
@@ -820,14 +819,14 @@ struct SyncTimelineEventDeserializationHelperV1 {
     push_actions: Vec<Action>,
 }
 
-impl From<SyncTimelineEventDeserializationHelperV1> for SyncTimelineEvent {
+impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
     fn from(value: SyncTimelineEventDeserializationHelperV1) -> Self {
         let SyncTimelineEventDeserializationHelperV1 { kind, push_actions } = value;
-        SyncTimelineEvent { kind, push_actions: Some(push_actions) }
+        TimelineEvent { kind, push_actions: Some(push_actions) }
     }
 }
 
-/// Deserialization helper for [`SyncTimelineEvent`], for an older format.
+/// Deserialization helper for [`TimelineEvent`], for an older format.
 #[derive(Deserialize)]
 struct SyncTimelineEventDeserializationHelperV0 {
     /// The actual event.
@@ -848,7 +847,7 @@ struct SyncTimelineEventDeserializationHelperV0 {
     unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
 }
 
-impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
+impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
     fn from(value: SyncTimelineEventDeserializationHelperV0) -> Self {
         let SyncTimelineEventDeserializationHelperV0 {
             event,
@@ -875,7 +874,7 @@ impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
             None => TimelineEventKind::PlainText { event },
         };
 
-        SyncTimelineEvent { kind, push_actions: Some(push_actions) }
+        TimelineEvent { kind, push_actions: Some(push_actions) }
     }
 }
 
@@ -894,7 +893,7 @@ mod tests {
 
     use super::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ShieldState,
-        ShieldStateCode, SyncTimelineEvent, TimelineEventKind, UnableToDecryptInfo,
+        ShieldStateCode, TimelineEvent, TimelineEventKind, UnableToDecryptInfo,
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
         VerificationState, WithheldCode,
     };
@@ -912,7 +911,7 @@ mod tests {
 
     #[test]
     fn sync_timeline_debug_content() {
-        let room_event = SyncTimelineEvent::new(Raw::new(&example_event()).unwrap().cast());
+        let room_event = TimelineEvent::new(Raw::new(&example_event()).unwrap().cast());
         let debug_s = format!("{room_event:?}");
         assert!(
             !debug_s.contains("secret"),
@@ -1030,7 +1029,7 @@ mod tests {
 
     #[test]
     fn sync_timeline_event_serialisation() {
-        let room_event = SyncTimelineEvent {
+        let room_event = TimelineEvent {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
                 event: Raw::new(&example_event()).unwrap().cast(),
                 encryption_info: EncryptionInfo {
@@ -1092,7 +1091,7 @@ mod tests {
         );
 
         // And it can be properly deserialized from the new format.
-        let event: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
+        let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
         assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
@@ -1121,7 +1120,7 @@ mod tests {
                 "verification_state": "Verified",
             },
         });
-        let event: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
+        let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
         assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
@@ -1154,7 +1153,7 @@ mod tests {
                 "RelationsReplace": {"UnableToDecrypt": {"session_id": "xyz"}}
             }
         });
-        let event: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
+        let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
         assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
@@ -1220,7 +1219,7 @@ mod tests {
         assert!(result.is_ok());
 
         // should have migrated to the new format
-        let event: SyncTimelineEvent = result.unwrap();
+        let event: TimelineEvent = result.unwrap();
         assert_matches!(
             event.kind,
             TimelineEventKind::UnableToDecrypt { utd_info, .. }=> {
@@ -1362,7 +1361,7 @@ mod tests {
 
     #[test]
     fn snapshot_test_sync_timeline_event() {
-        let room_event = SyncTimelineEvent {
+        let room_event = TimelineEvent {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
                 event: Raw::new(&example_event()).unwrap().cast(),
                 encryption_info: EncryptionInfo {

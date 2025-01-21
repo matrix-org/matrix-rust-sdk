@@ -48,7 +48,7 @@ use matrix_sdk_base::{
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_common::BoxFuture;
 use matrix_sdk_common::{
-    deserialized_responses::SyncTimelineEvent,
+    deserialized_responses::TimelineEvent,
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
@@ -341,10 +341,10 @@ impl Room {
                 if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
                     event
                 } else {
-                    SyncTimelineEvent::new(event.cast())
+                    TimelineEvent::new(event.cast())
                 }
             } else {
-                SyncTimelineEvent::new(event.cast())
+                TimelineEvent::new(event.cast())
             };
             response.chunk.push(decrypted_event);
         }
@@ -447,7 +447,7 @@ impl Room {
     ///
     /// Doesn't return an error `Result` when decryption failed; only logs from
     /// the crypto crate will indicate so.
-    async fn try_decrypt_event(&self, event: Raw<AnyTimelineEvent>) -> Result<SyncTimelineEvent> {
+    async fn try_decrypt_event(&self, event: Raw<AnyTimelineEvent>) -> Result<TimelineEvent> {
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
             SyncMessageLikeEvent::Original(_),
@@ -458,7 +458,7 @@ impl Room {
             }
         }
 
-        let mut event = SyncTimelineEvent::new(event.cast());
+        let mut event = TimelineEvent::new(event.cast());
         event.push_actions = self.event_push_actions(event.raw()).await?;
 
         Ok(event)
@@ -472,7 +472,7 @@ impl Room {
         &self,
         event_id: &EventId,
         request_config: Option<RequestConfig>,
-    ) -> Result<SyncTimelineEvent> {
+    ) -> Result<TimelineEvent> {
         let request =
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
@@ -525,7 +525,7 @@ impl Room {
 
         // Save the loaded events into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
-            let mut events_to_save: Vec<SyncTimelineEvent> = Vec::new();
+            let mut events_to_save: Vec<TimelineEvent> = Vec::new();
             if let Some(event) = &target_event {
                 events_to_save.push(event.clone().into());
             }
@@ -1278,14 +1278,14 @@ impl Room {
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
-    ) -> Result<SyncTimelineEvent> {
+    ) -> Result<TimelineEvent> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
         let decryption_settings = DecryptionSettings {
             sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
         };
-        let mut event: SyncTimelineEvent = match machine
+        let mut event: TimelineEvent = match machine
             .try_decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
             .await?
         {
@@ -1295,7 +1295,7 @@ impl Room {
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-                SyncTimelineEvent::new_utd_event(event.clone().cast(), utd_info)
+                TimelineEvent::new_utd_event(event.clone().cast(), utd_info)
             }
         };
 

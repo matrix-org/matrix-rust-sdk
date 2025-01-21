@@ -16,7 +16,7 @@
 
 use std::future::Future;
 
-use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, SendOutsideWasm};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm};
 use ruma::{
     events::{
         poll::unstable_start::{
@@ -129,11 +129,11 @@ trait EventSource {
     fn get_event(
         &self,
         event_id: &EventId,
-    ) -> impl Future<Output = Result<SyncTimelineEvent, EditError>> + SendOutsideWasm;
+    ) -> impl Future<Output = Result<TimelineEvent, EditError>> + SendOutsideWasm;
 }
 
 impl EventSource for &Room {
-    async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
+    async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, EditError> {
         match self.event_cache().await {
             Ok((event_cache, _drop_handles)) => {
                 if let Some(event) = event_cache.event(event_id).await {
@@ -359,7 +359,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches2::{assert_let, assert_matches};
-    use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
@@ -378,11 +378,11 @@ mod tests {
 
     #[derive(Default)]
     struct TestEventCache {
-        events: BTreeMap<OwnedEventId, SyncTimelineEvent>,
+        events: BTreeMap<OwnedEventId, TimelineEvent>,
     }
 
     impl EventSource for TestEventCache {
-        async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
+        async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, EditError> {
             Ok(self.events.get(event_id).unwrap().clone())
         }
     }
@@ -397,7 +397,7 @@ mod tests {
         cache.events.insert(
             event_id.to_owned(),
             // TODO: use the EventFactory for state events too.
-            SyncTimelineEvent::new(
+            TimelineEvent::new(
                 Raw::<AnySyncTimelineEvent>::from_json_string(
                     json!({
                         "content": {

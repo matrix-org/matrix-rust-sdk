@@ -16,7 +16,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::SyncTimelineEvent};
+use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::TimelineEvent};
 use ruma::{
     api::client::sync::sync_events::{
         v3::{InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate},
@@ -236,7 +236,7 @@ pub struct Timeline {
     pub prev_batch: Option<String>,
 
     /// A list of events.
-    pub events: Vec<SyncTimelineEvent>,
+    pub events: Vec<TimelineEvent>,
 }
 
 impl Timeline {

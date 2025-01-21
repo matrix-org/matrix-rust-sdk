@@ -20,9 +20,7 @@
 use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk_base::{
-    deserialized_responses::SyncTimelineEvent, SendOutsideWasm, SyncOutsideWasm,
-};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
 use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 
 use super::pagination::PaginationToken;
@@ -118,7 +116,7 @@ pub struct PaginationResult {
     ///
     /// If this is the result of a forward pagination, then the events are in
     /// topological order.
-    pub events: Vec<SyncTimelineEvent>,
+    pub events: Vec<TimelineEvent>,
 
     /// Did we hit *an* end of the timeline?
     ///
@@ -134,7 +132,7 @@ pub struct PaginationResult {
 #[derive(Debug)]
 pub struct StartFromResult {
     /// All the events returned during this pagination, in topological ordering.
-    pub events: Vec<SyncTimelineEvent>,
+    pub events: Vec<TimelineEvent>,
 
     /// Whether the /context query returned a previous batch token.
     pub has_prev: bool,
@@ -538,7 +536,7 @@ mod tests {
     use assert_matches2::assert_let;
     use futures_core::Future;
     use futures_util::FutureExt as _;
-    use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use once_cell::sync::Lazy;
     use ruma::{api::Direction, event_id, room_id, uint, user_id, EventId, RoomId, UInt, UserId};
@@ -561,8 +559,8 @@ mod tests {
         wait_for_ready: bool,
 
         target_event_text: Arc<Mutex<String>>,
-        next_events: Arc<Mutex<Vec<SyncTimelineEvent>>>,
-        prev_events: Arc<Mutex<Vec<SyncTimelineEvent>>>,
+        next_events: Arc<Mutex<Vec<TimelineEvent>>>,
+        prev_events: Arc<Mutex<Vec<TimelineEvent>>>,
         prev_batch_token: Arc<Mutex<Option<String>>>,
         next_batch_token: Arc<Mutex<Option<String>>>,
 
