@@ -3297,6 +3297,7 @@ dependencies = [
  "anyhow",
  "as_variant",
  "async-compat",
+ "async-trait",
  "extension-trait",
  "eyeball-im",
  "futures-util",

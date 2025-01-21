@@ -7,6 +7,9 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    authentication::{
+        ReloadSessionCallback, SaveSessionCallback, SessionCallbackError, SessionTokens,
+    },
     config::RequestConfig,
     executor::spawn,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
@@ -163,6 +166,30 @@ async fn test_no_refresh_token() {
     assert_matches!(res, Err(RefreshTokenError::RefreshTokenRequired));
 }
 
+struct TestReloadSessionCallback {}
+
+#[async_trait::async_trait]
+impl ReloadSessionCallback for TestReloadSessionCallback {
+    async fn reload_session(
+        &self,
+        _client: matrix_sdk::Client,
+    ) -> Result<SessionTokens, SessionCallbackError> {
+        panic!("reload session never called")
+    }
+}
+
+struct TestSaveSessionCallback {
+    counter: Arc<Mutex<u64>>,
+}
+
+#[async_trait::async_trait]
+impl SaveSessionCallback for TestSaveSessionCallback {
+    async fn save_session(&self, _client: matrix_sdk::Client) -> Result<(), SessionCallbackError> {
+        *self.counter.lock().unwrap() += 1;
+        Ok(())
+    }
+}
+
 #[async_test]
 async fn test_refresh_token() {
     let (builder, server) = test_client_builder_with_server().await;
@@ -176,13 +203,10 @@ async fn test_refresh_token() {
 
     let num_save_session_callback_calls = Arc::new(Mutex::new(0));
     client
-        .set_session_callbacks(Box::new(|_| panic!("reload session never called")), {
-            let num_save_session_callback_calls = num_save_session_callback_calls.clone();
-            Box::new(move |_client| {
-                *num_save_session_callback_calls.lock().unwrap() += 1;
-                Ok(())
-            })
-        })
+        .set_session_callbacks(
+            Box::new(TestReloadSessionCallback {}),
+            Box::new(TestSaveSessionCallback { counter: num_save_session_callback_calls.clone() }),
+        )
         .unwrap();
 
     let mut session_changes = client.subscribe_to_session_changes();

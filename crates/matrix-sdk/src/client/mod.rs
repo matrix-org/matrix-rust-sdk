@@ -2370,8 +2370,8 @@ impl Client {
     /// while [`Self::subscribe_to_session_changes`] provides an async update.
     pub fn set_session_callbacks(
         &self,
-        reload_session_callback: Box<ReloadSessionCallback>,
-        save_session_callback: Box<SaveSessionCallback>,
+        reload_session_callback: Box<dyn ReloadSessionCallback>,
+        save_session_callback: Box<dyn SaveSessionCallback>,
     ) -> Result<()> {
         self.inner
             .auth_ctx

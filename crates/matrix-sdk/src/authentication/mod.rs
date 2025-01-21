@@ -43,12 +43,21 @@ pub enum SessionTokens {
     Oidc(oidc::OidcSessionTokens),
 }
 
-pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
-pub(crate) type SaveSessionCallback =
-    dyn Fn(Client) -> Result<(), SessionCallbackError> + Send + Sync;
-pub(crate) type ReloadSessionCallback =
-    dyn Fn(Client) -> Result<SessionTokens, SessionCallbackError> + Send + Sync;
+/// An error that results from setting the session callback.
+pub type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
+/// Save the session tokens from the source of truth.
+#[async_trait::async_trait]
+pub trait SaveSessionCallback: Send + Sync {
+    /// Save the session tokens from the source of truth.
+    async fn save_session(&self, client: Client) -> Result<(), SessionCallbackError>;
+}
 
+/// Reload the session tokens from the source of truth.
+#[async_trait::async_trait]
+pub trait ReloadSessionCallback: Send + Sync {
+    /// Reload the session tokens from the source of truth.
+    async fn reload_session(&self, client: Client) -> Result<SessionTokens, SessionCallbackError>;
+}
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.
 pub(crate) struct AuthCtx {
@@ -74,7 +83,7 @@ pub(crate) struct AuthCtx {
     /// current session tokens.
     ///
     /// This is required only in multiple processes setups.
-    pub(crate) reload_session_callback: OnceCell<Box<ReloadSessionCallback>>,
+    pub(crate) reload_session_callback: OnceCell<Box<dyn ReloadSessionCallback>>,
 
     /// A callback to save a session back into the app's secure storage.
     ///
@@ -83,7 +92,7 @@ pub(crate) struct AuthCtx {
     ///
     /// Internal invariant: this must be called only after `set_session_tokens`
     /// has been called, not before.
-    pub(crate) save_session_callback: OnceCell<Box<SaveSessionCallback>>,
+    pub(crate) save_session_callback: OnceCell<Box<dyn SaveSessionCallback>>,
 }
 
 /// An enum over all the possible authentication APIs.
