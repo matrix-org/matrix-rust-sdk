@@ -22,7 +22,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
@@ -1856,7 +1856,7 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
 
     /// Returns a redact endpoint that emulates success, i.e. the redaction
     /// event has been sent with the given event id.
-    pub fn ok(self, event: TimelineEvent) -> MatrixMock<'a> {
+    pub fn ok(self, event: SyncTimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
             let event_id = event.kind.event_id().expect("an event id is required");
             // The event id should begin with `$`, which would be taken as the end of the

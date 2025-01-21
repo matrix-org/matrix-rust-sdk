@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use matrix_sdk_common::{debug::DebugStructExt as _, deserialized_responses::TimelineEvent};
+use matrix_sdk_common::{debug::DebugStructExt as _, deserialized_responses::SyncTimelineEvent};
 use ruma::{
     api::{
         client::{filter::RoomEventFilter, message::get_message_events},
@@ -134,7 +134,7 @@ pub struct Messages {
     pub end: Option<String>,
 
     /// A list of room events.
-    pub chunk: Vec<TimelineEvent>,
+    pub chunk: Vec<SyncTimelineEvent>,
 
     /// A list of state events relevant to showing the `chunk`.
     pub state: Vec<Raw<AnyStateEvent>>,
@@ -148,19 +148,19 @@ pub struct Messages {
 #[derive(Debug, Default)]
 pub struct EventWithContextResponse {
     /// The event targeted by the /context query.
-    pub event: Option<TimelineEvent>,
+    pub event: Option<SyncTimelineEvent>,
 
     /// Events before the target event, if a non-zero context size was
     /// requested.
     ///
     /// Like the corresponding Ruma response, these are in reverse chronological
     /// order.
-    pub events_before: Vec<TimelineEvent>,
+    pub events_before: Vec<SyncTimelineEvent>,
 
     /// Events after the target event, if a non-zero context size was requested.
     ///
     /// Like the corresponding Ruma response, these are in chronological order.
-    pub events_after: Vec<TimelineEvent>,
+    pub events_after: Vec<SyncTimelineEvent>,
 
     /// Token to paginate backwards, aka "start" token.
     pub prev_batch_token: Option<String>,
