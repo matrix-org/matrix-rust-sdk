@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
   related to room access and visibility.
   ([#4401](https://github.com/matrix-org/matrix-rust-sdk/pull/4401))
 
+- Enable HTTP/2 support in the HTTP client.
+  ([#4566](https://github.com/matrix-org/matrix-rust-sdk/pull/4566))
+
 ### Refactor
 
 - [**breaking**] Move the optional `RequestConfig` argument of the
