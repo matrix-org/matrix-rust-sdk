@@ -1746,10 +1746,13 @@ fn handle_room_member_event_for_profiles(
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, ruma_response_from_json, sync_timeline_event, InvitedRoomBuilder,
+        async_test, event_factory::EventFactory, ruma_response_from_json, InvitedRoomBuilder,
         LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
     };
-    use ruma::{api::client as api, room_id, serde::Raw, user_id};
+    use ruma::{
+        api::client as api, event_id, events::room::member::MembershipState, room_id, serde::Raw,
+        user_id,
+    };
     use serde_json::{json, value::to_raw_value};
 
     use super::BaseClient;
@@ -1769,17 +1772,15 @@ mod tests {
         let mut sync_builder = SyncResponseBuilder::new();
 
         let response = sync_builder
-            .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "displayname": "Alice",
-                    "membership": "left",
-                },
-                "event_id": "$994173582443PhrSn:example.org",
-                "origin_server_ts": 1432135524678u64,
-                "sender": user_id,
-                "state_key": user_id,
-                "type": "m.room.member",
-            })))
+            .add_left_room(
+                LeftRoomBuilder::new(room_id).add_timeline_event(
+                    EventFactory::new()
+                        .member(user_id)
+                        .membership(MembershipState::Leave)
+                        .display_name("Alice")
+                        .event_id(event_id!("$994173582443PhrSn:example.org")),
+                ),
+            )
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
