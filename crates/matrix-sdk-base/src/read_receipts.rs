@@ -1522,7 +1522,7 @@ mod tests {
                 .add(event_id!("$3"), myself, ReceiptType::Read, ReceiptThread::Main)
                 .build();
 
-            let pending = selector.handle_new_receipt(&myself, &receipt_event);
+            let pending = selector.handle_new_receipt(myself, &receipt_event);
             assert_eq!(pending.len(), 1);
             assert_eq!(pending[0], event_id!("$6"));
 
@@ -1588,7 +1588,7 @@ mod tests {
         // And I compute the unread counts for all those new events (no previous events
         // in that room),
         compute_unread_counts(
-            &user_id,
+            user_id,
             room_id,
             Some(&receipt_event),
             Vector::new(),
