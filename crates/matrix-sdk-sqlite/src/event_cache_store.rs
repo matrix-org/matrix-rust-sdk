@@ -623,10 +623,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         request: &MediaRequestParameters,
         content: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
-        self.media_service
-            .add_media_content(self, request, content, IgnoreMediaRetentionPolicy::No)
-            .await
+        self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
     async fn replace_media_key(
@@ -678,6 +677,29 @@ impl EventCacheStore for SqliteEventCacheStore {
         conn.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
 
         Ok(())
+    }
+
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.media_service.set_media_retention_policy(self, policy).await
+    }
+
+    fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        self.media_service.media_retention_policy()
+    }
+
+    async fn set_ignore_media_retention_policy(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
+    }
+
+    async fn clean_up_media_cache(&self) -> Result<(), Self::Error> {
+        self.media_service.clean_up_media_cache(self).await
     }
 }
 
@@ -1056,6 +1078,7 @@ mod tests {
         event_cache::{
             store::{
                 integration_tests::{check_test_event, make_test_event},
+                media::IgnoreMediaRetentionPolicy,
                 EventCacheStore, EventCacheStoreError,
             },
             Gap,
@@ -1123,7 +1146,7 @@ mod tests {
 
         // Add the media.
         event_cache_store
-            .add_media_content(&file_request, content.clone())
+            .add_media_content(&file_request, content.clone(), IgnoreMediaRetentionPolicy::No)
             .await
             .expect("adding file failed");
 
@@ -1132,7 +1155,11 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         event_cache_store
-            .add_media_content(&thumbnail_request, thumbnail_content.clone())
+            .add_media_content(
+                &thumbnail_request,
+                thumbnail_content.clone(),
+                IgnoreMediaRetentionPolicy::No,
+            )
             .await
             .expect("adding thumbnail failed");
 

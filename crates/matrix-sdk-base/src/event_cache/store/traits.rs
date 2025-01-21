@@ -21,7 +21,10 @@ use matrix_sdk_common::{
 };
 use ruma::{MxcUri, RoomId};
 
-use super::EventCacheStoreError;
+use super::{
+    media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
+    EventCacheStoreError,
+};
 use crate::{
     event_cache::{Event, Gap},
     media::MediaRequestParameters,
@@ -88,6 +91,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
         &self,
         request: &MediaRequestParameters,
         content: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), Self::Error>;
 
     /// Replaces the given media's content key with another one.
@@ -162,6 +166,42 @@ pub trait EventCacheStore: AsyncTraitDeps {
     ///
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error>;
+
+    /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
+    /// keep media content.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - The `MediaRetentionPolicy` to use.
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error>;
+
+    /// Get the current `MediaRetentionPolicy`.
+    fn media_retention_policy(&self) -> MediaRetentionPolicy;
+
+    /// Set whether the current [`MediaRetentionPolicy`] should be ignored for
+    /// the media.
+    ///
+    /// The change will be taken into account in the next cleanup.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequestParameters` of the file.
+    ///
+    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    ///   ignored.
+    async fn set_ignore_media_retention_policy(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error>;
+
+    /// Clean up the media cache with the current `MediaRetentionPolicy`.
+    ///
+    /// If there is already an ongoing cleanup, this is a noop.
+    async fn clean_up_media_cache(&self) -> Result<(), Self::Error>;
 }
 
 #[repr(transparent)]
@@ -211,8 +251,9 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         &self,
         request: &MediaRequestParameters,
         content: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), Self::Error> {
-        self.0.add_media_content(request, content).await.map_err(Into::into)
+        self.0.add_media_content(request, content, ignore_policy).await.map_err(Into::into)
     }
 
     async fn replace_media_key(
@@ -246,6 +287,29 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error> {
         self.0.remove_media_content_for_uri(uri).await.map_err(Into::into)
+    }
+
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.0.set_media_retention_policy(policy).await.map_err(Into::into)
+    }
+
+    fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        self.0.media_retention_policy()
+    }
+
+    async fn set_ignore_media_retention_policy(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.0.set_ignore_media_retention_policy(request, ignore_policy).await.map_err(Into::into)
+    }
+
+    async fn clean_up_media_cache(&self) -> Result<(), Self::Error> {
+        self.0.clean_up_media_cache().await.map_err(Into::into)
     }
 }
 

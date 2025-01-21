@@ -40,6 +40,7 @@ use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
     },
+    event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::MediaThumbnailSettings,
     store::StateStoreExt,
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
@@ -2034,7 +2035,10 @@ impl Room {
             let request =
                 MediaRequestParameters { source: media_source.clone(), format: MediaFormat::File };
 
-            if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {
+            if let Err(err) = cache_store_lock_guard
+                .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
+                .await
+            {
                 warn!("unable to cache the media after uploading it: {err}");
             }
 
@@ -2048,7 +2052,10 @@ impl Room {
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
                 };
 
-                if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {
+                if let Err(err) = cache_store_lock_guard
+                    .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
+                    .await
+                {
                     warn!("unable to cache the media after uploading it: {err}");
                 }
             }

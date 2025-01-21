@@ -15,6 +15,16 @@
 //! Configuration to decide whether or not to keep media in the cache, allowing
 //! to do periodic cleanups to avoid to have the size of the media cache grow
 //! indefinitely.
+//!
+//! To proceed to a cleanup, first set the [`MediaRetentionPolicy`] to use with
+//! [`EventCacheStore::set_media_retention_policy()`]. Then call
+//! [`EventCacheStore::clean_up_media_cache()`].
+//!
+//! In the future, other settings will allow to run automatic periodic cleanup
+//! jobs.
+//!
+//! [`EventCacheStore::set_media_retention_policy()`]: crate::event_cache::store::EventCacheStore::set_media_retention_policy
+//! [`EventCacheStore::clean_up_media_cache()`]: crate::event_cache::store::EventCacheStore::clean_up_media_cache
 
 use ruma::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};

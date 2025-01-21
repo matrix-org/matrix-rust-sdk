@@ -15,6 +15,7 @@
 //! Private implementations of the media upload mechanism.
 
 use matrix_sdk_base::{
+    event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::{MediaFormat, MediaRequestParameters},
     store::{
         ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
@@ -137,7 +138,12 @@ impl RoomSendQueue {
 
             // Cache the file itself in the cache store.
             cache_store
-                .add_media_content(&file_media_request, data.clone())
+                .add_media_content(
+                    &file_media_request,
+                    data.clone(),
+                    // Make sure that the file is stored until it has been uploaded.
+                    IgnoreMediaRetentionPolicy::Yes,
+                )
                 .await
                 .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
 
@@ -153,7 +159,12 @@ impl RoomSendQueue {
                 // Cache thumbnail in the cache store.
                 let thumbnail_media_request = Media::make_local_file_media_request(&txn);
                 cache_store
-                    .add_media_content(&thumbnail_media_request, data)
+                    .add_media_content(
+                        &thumbnail_media_request,
+                        data,
+                        // Make sure that the thumbnail is stored until it has been uploaded.
+                        IgnoreMediaRetentionPolicy::Yes,
+                    )
                     .await
                     .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
 
@@ -256,6 +267,12 @@ impl QueueStorage {
                 .await
                 .map_err(RoomSendQueueStorageError::LockError)?;
 
+            // The media can now be removed during cleanups.
+            cache_store
+                .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
+                .await
+                .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
             cache_store
                 .replace_media_key(
                     &from_req,
@@ -280,6 +297,12 @@ impl QueueStorage {
                 };
 
                 trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
+
+                // The media can now be removed during cleanups.
+                cache_store
+                    .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
+                    .await
+                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
 
                 cache_store
                     .replace_media_key(

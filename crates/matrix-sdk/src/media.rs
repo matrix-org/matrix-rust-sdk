@@ -23,6 +23,7 @@ use std::{fmt, fs::File, path::Path};
 
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
+use matrix_sdk_base::event_cache::store::media::IgnoreMediaRetentionPolicy;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
 use ruma::{
@@ -518,7 +519,7 @@ impl Media {
                 .event_cache_store()
                 .lock()
                 .await?
-                .add_media_content(request, content.clone())
+                .add_media_content(request, content.clone(), IgnoreMediaRetentionPolicy::No)
                 .await?;
         }
 

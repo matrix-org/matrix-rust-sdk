@@ -143,10 +143,9 @@ impl EventCacheStore for MemoryStore {
         &self,
         request: &MediaRequestParameters,
         data: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
-        self.media_service
-            .add_media_content(self, request, data, IgnoreMediaRetentionPolicy::No)
-            .await
+        self.media_service.add_media_content(self, request, data, ignore_policy).await
     }
 
     async fn replace_media_key(
@@ -211,6 +210,29 @@ impl EventCacheStore for MemoryStore {
         }
 
         Ok(())
+    }
+
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.media_service.set_media_retention_policy(self, policy).await
+    }
+
+    fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        self.media_service.media_retention_policy()
+    }
+
+    async fn set_ignore_media_retention_policy(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
+    }
+
+    async fn clean_up_media_cache(&self) -> Result<(), Self::Error> {
+        self.media_service.clean_up_media_cache(self).await
     }
 }
 
