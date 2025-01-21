@@ -31,6 +31,10 @@ pub enum CryptoStoreError {
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
 
+    /// An account was saved but no own device was found.
+    #[error("Incomplete account, account data was saved but no own device was found")]
+    IncompleteAccountNoOwnDevice,
+
     /// The store doesn't support multiple accounts and data from another device
     /// was discovered.
     #[error(
