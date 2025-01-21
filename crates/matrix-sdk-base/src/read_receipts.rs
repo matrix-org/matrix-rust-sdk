@@ -210,7 +210,11 @@ impl RoomReadReceipts {
         let mut has_notify = false;
         let mut has_mention = false;
 
-        for action in &event.push_actions {
+        let Some(actions) = event.push_actions.as_ref() else {
+            return;
+        };
+
+        for action in actions.iter() {
             if !has_notify && action.should_notify() {
                 self.num_notifications += 1;
                 has_notify = true;

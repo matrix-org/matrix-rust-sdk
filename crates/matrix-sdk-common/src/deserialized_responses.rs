@@ -330,8 +330,10 @@ pub struct SyncTimelineEvent {
     pub kind: TimelineEventKind,
 
     /// The push actions associated with this event.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub push_actions: Vec<Action>,
+    ///
+    /// If it's set to `None`, then it means we couldn't compute those actions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_actions: Option<Vec<Action>>,
 }
 
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
@@ -357,7 +359,7 @@ impl SyncTimelineEvent {
     /// This is a convenience constructor for a plaintext event when you don't
     /// need to set `push_action`, for example inside a test.
     pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
-        Self { kind: TimelineEventKind::PlainText { event }, push_actions: vec![] }
+        Self { kind: TimelineEventKind::PlainText { event }, push_actions: None }
     }
 
     /// Create a new `SyncTimelineEvent` from the given raw event and push
@@ -369,13 +371,13 @@ impl SyncTimelineEvent {
         event: Raw<AnySyncTimelineEvent>,
         push_actions: Vec<Action>,
     ) -> Self {
-        Self { kind: TimelineEventKind::PlainText { event }, push_actions }
+        Self { kind: TimelineEventKind::PlainText { event }, push_actions: Some(push_actions) }
     }
 
     /// Create a new `SyncTimelineEvent` to represent the given decryption
     /// failure.
     pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
-        Self { kind: TimelineEventKind::UnableToDecrypt { event, utd_info }, push_actions: vec![] }
+        Self { kind: TimelineEventKind::UnableToDecrypt { event, utd_info }, push_actions: None }
     }
 
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
@@ -418,7 +420,7 @@ impl SyncTimelineEvent {
 
 impl From<DecryptedRoomEvent> for SyncTimelineEvent {
     fn from(decrypted: DecryptedRoomEvent) -> Self {
-        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: Vec::new() }
+        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None }
     }
 }
 
@@ -821,7 +823,7 @@ struct SyncTimelineEventDeserializationHelperV1 {
 impl From<SyncTimelineEventDeserializationHelperV1> for SyncTimelineEvent {
     fn from(value: SyncTimelineEventDeserializationHelperV1) -> Self {
         let SyncTimelineEventDeserializationHelperV1 { kind, push_actions } = value;
-        SyncTimelineEvent { kind, push_actions }
+        SyncTimelineEvent { kind, push_actions: Some(push_actions) }
     }
 }
 
@@ -873,7 +875,7 @@ impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
             None => TimelineEventKind::PlainText { event },
         };
 
-        SyncTimelineEvent { kind, push_actions }
+        SyncTimelineEvent { kind, push_actions: Some(push_actions) }
     }
 }
 
