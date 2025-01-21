@@ -304,6 +304,13 @@ impl OlmMachine {
                     });
                 }
 
+                // The own device data is always created and saved when the account is created.
+                // So we expect the own device to exist here. Checking for consistency.
+                let own_device = store.get_own_device().await;
+                if own_device.is_err() {
+                    return Err(CryptoStoreError::IncompleteAccountNoOwnDevice);
+                }
+
                 Span::current()
                     .record("ed25519_key", display(account.identity_keys().ed25519))
                     .record("curve25519_key", display(account.identity_keys().curve25519));
