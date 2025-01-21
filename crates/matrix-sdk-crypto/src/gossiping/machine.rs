@@ -1115,6 +1115,7 @@ mod tests {
     use crate::{
         gossiping::KeyForwardDecision,
         olm::OutboundGroupSession,
+        store::{CryptoStore, DeviceChanges},
         types::requests::AnyOutgoingRequest,
         types::{
             events::{
@@ -1177,18 +1178,39 @@ mod tests {
         let user_id = user_id.to_owned();
         let device_id = DeviceId::new();
 
-        let account = Account::with_device_id(&user_id, &device_id);
-        let store = Arc::new(CryptoStoreWrapper::new(&user_id, &device_id, MemoryStore::new()));
+        let store = Arc::new(store_with_account_helper(&user_id, &device_id).await);
+        let static_data = store.load_account().await.unwrap().unwrap().static_data;
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
-            VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
-        let store = Store::new(account.static_data().clone(), identity, store, verification);
-        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
+            VerificationMachine::new(static_data.clone(), identity.clone(), store.clone());
+        let store = Store::new(static_data, identity, store, verification);
 
         let session_cache = GroupSessionCache::new(store.clone());
         let identity_manager = IdentityManager::new(store.clone());
 
         GossipMachine::new(store, identity_manager, session_cache, Default::default())
+    }
+
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    async fn store_with_account_helper(
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> CryptoStoreWrapper {
+        // Properly create the store by first saving the own device and then the account
+        // data.
+        let account = Account::with_device_id(user_id, device_id);
+        let device = DeviceData::from_account(&account);
+        device.set_trust_state(LocalTrust::Verified);
+
+        let changes = Changes {
+            devices: DeviceChanges { new: vec![device], ..Default::default() },
+            ..Default::default()
+        };
+        let mem_store = MemoryStore::new();
+        mem_store.save_changes(changes).await.unwrap();
+        mem_store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
+
+        CryptoStoreWrapper::new(user_id, device_id, mem_store)
     }
 
     async fn get_machine_test_helper() -> GossipMachine {
