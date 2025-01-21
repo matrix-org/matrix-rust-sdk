@@ -254,7 +254,7 @@ where
         Raw::new(&self.construct_json(false)).unwrap().cast()
     }
 
-    pub fn into_sync(self) -> TimelineEvent {
+    pub fn into_event(self) -> TimelineEvent {
         TimelineEvent::new(self.into_raw_sync())
     }
 }
@@ -359,7 +359,7 @@ where
     E::EventType: Serialize,
 {
     fn from(val: EventBuilder<E>) -> Self {
-        val.into_sync()
+        val.into_event()
     }
 }
 
