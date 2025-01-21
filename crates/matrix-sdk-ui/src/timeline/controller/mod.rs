@@ -22,7 +22,7 @@ use imbl::Vector;
 #[cfg(test)]
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
-    deserialized_responses::{SyncTimelineEvent, TimelineEventKind as SdkTimelineEventKind},
+    deserialized_responses::{TimelineEvent, TimelineEventKind as SdkTimelineEventKind},
     event_cache::{paginator::Paginator, RoomEventCache},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -396,7 +396,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     pub(crate) async fn reload_pinned_events(
         &self,
-    ) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
+    ) -> Result<Vec<TimelineEvent>, PinnedEventsLoaderError> {
         let focus_guard = self.focus.read().await;
 
         if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
@@ -663,7 +663,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) -> HandleManyEventsResult
     where
         Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        <Events as IntoIterator>::Item: Into<TimelineEvent>,
     {
         if events.len() == 0 {
             return Default::default();
@@ -676,7 +676,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs(
         &self,
-        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
     ) {
         if diffs.is_empty() {
@@ -711,7 +711,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         origin: RemoteEventOrigin,
     ) where
         Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        <Events as IntoIterator>::Item: Into<TimelineEvent>,
     {
         let mut state = self.state.write().await;
 

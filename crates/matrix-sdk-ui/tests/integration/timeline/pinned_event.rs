@@ -13,7 +13,7 @@ use matrix_sdk::{
     },
     Client, Room,
 };
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
     SyncResponseBuilder, BOB,
@@ -880,7 +880,7 @@ async fn mock_events_endpoint(
             .mock_room_event()
             .room(room_id.to_owned())
             .match_event_id()
-            .ok(SyncTimelineEvent::new(event.cast()))
+            .ok(TimelineEvent::new(event.cast()))
             .mount()
             .await;
     }

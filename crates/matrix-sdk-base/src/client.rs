@@ -68,7 +68,7 @@ use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLat
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
+    deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, TimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
     response_processors::AccountDataProcessor,
@@ -347,9 +347,9 @@ impl BaseClient {
         Ok(())
     }
 
-    /// Attempt to decrypt the given raw event into a `SyncTimelineEvent`.
+    /// Attempt to decrypt the given raw event into a [`TimelineEvent`].
     ///
-    /// In the case of a decryption error, returns a `SyncTimelineEvent`
+    /// In the case of a decryption error, returns a [`TimelineEvent`]
     /// representing the decryption error; in the case of problems with our
     /// application, returns `Err`.
     ///
@@ -359,7 +359,7 @@ impl BaseClient {
         &self,
         event: &Raw<AnySyncTimelineEvent>,
         room_id: &RoomId,
-    ) -> Result<Option<SyncTimelineEvent>> {
+    ) -> Result<Option<TimelineEvent>> {
         let olm = self.olm_machine().await;
         let Some(olm) = olm.as_ref() else { return Ok(None) };
 
@@ -372,7 +372,7 @@ impl BaseClient {
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let event: SyncTimelineEvent = decrypted.into();
+                let event: TimelineEvent = decrypted.into();
 
                 if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.raw().deserialize() {
                     match &e {
@@ -394,7 +394,7 @@ impl BaseClient {
                 event
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                SyncTimelineEvent::new_utd_event(event.clone(), utd_info)
+                TimelineEvent::new_utd_event(event.clone(), utd_info)
             }
         };
 
@@ -423,7 +423,7 @@ impl BaseClient {
         for raw_event in events {
             // Start by assuming we have a plaintext event. We'll replace it with a
             // decrypted or UTD event below if necessary.
-            let mut event = SyncTimelineEvent::new(raw_event);
+            let mut event = TimelineEvent::new(raw_event);
 
             match event.raw().deserialize() {
                 Ok(e) => {

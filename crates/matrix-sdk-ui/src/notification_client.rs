@@ -20,7 +20,7 @@ use std::{
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_base::{
-    deserialized_responses::SyncTimelineEvent, sliding_sync::http, RoomState, StoreError,
+    deserialized_responses::TimelineEvent, sliding_sync::http, RoomState, StoreError,
 };
 use ruma::{
     assign,
@@ -159,7 +159,7 @@ impl NotificationClient {
         &self,
         room: &Room,
         raw_event: &Raw<AnySyncTimelineEvent>,
-    ) -> Result<Option<SyncTimelineEvent>, Error> {
+    ) -> Result<Option<TimelineEvent>, Error> {
         let event: AnySyncTimelineEvent =
             raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
 

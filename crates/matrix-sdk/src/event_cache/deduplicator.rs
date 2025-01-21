@@ -155,13 +155,13 @@ pub enum Decoration<I> {
 #[cfg(test)]
 mod tests {
     use assert_matches2::{assert_let, assert_matches};
-    use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{owned_event_id, user_id, EventId};
 
     use super::*;
 
-    fn sync_timeline_event(event_id: &EventId) -> SyncTimelineEvent {
+    fn sync_timeline_event(event_id: &EventId) -> TimelineEvent {
         EventFactory::new()
             .text_msg("")
             .sender(user_id!("@mnt_io:matrix.org"))

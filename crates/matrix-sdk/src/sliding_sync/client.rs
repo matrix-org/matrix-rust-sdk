@@ -257,7 +257,7 @@ impl PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'_> {
     fn for_room(
         &self,
         room_id: &ruma::RoomId,
-    ) -> Vector<matrix_sdk_common::deserialized_responses::SyncTimelineEvent> {
+    ) -> Vector<matrix_sdk_common::deserialized_responses::TimelineEvent> {
         self.0.get(room_id).map(|room| room.timeline_queue()).unwrap_or_default()
     }
 }
