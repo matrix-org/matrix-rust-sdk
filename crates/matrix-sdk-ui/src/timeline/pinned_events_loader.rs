@@ -163,7 +163,7 @@ impl PinnedEventsRoom for Room {
             debug!("Loading pinned event {event_id} from HS");
             self.event(event_id, request_config)
                 .await
-                .map(|e| (e.into(), Vec::new()))
+                .map(|e| (e, Vec::new()))
                 .map_err(|err| PaginatorError::SdkError(Box::new(err)))
         })
     }
