@@ -1749,8 +1749,6 @@ mod tests {
         async_test, ruma_response_from_json, sync_timeline_event, InvitedRoomBuilder,
         LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
     };
-    #[cfg(feature = "e2e-encryption")]
-    use ruma::UserId;
     use ruma::{api::client as api, room_id, serde::Raw, user_id};
     use serde_json::{json, value::to_raw_value};
 
@@ -1898,13 +1896,32 @@ mod tests {
     async fn test_when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
         use std::collections::BTreeMap;
 
+        use matrix_sdk_test::event_factory::EventFactory;
+        use ruma::{event_id, events::room::member::MembershipState};
+
         use crate::{rooms::normal::RoomInfoNotableUpdateReasons, StateChanges};
 
         // Given a room
         let user_id = user_id!("@u:u.to");
         let room_id = room_id!("!r:u.to");
         let client = logged_in_base_client(Some(user_id)).await;
-        let room = process_room_join_test_helper(&client, room_id, "$1", user_id).await;
+
+        let mut sync_builder = SyncResponseBuilder::new();
+
+        let response = sync_builder
+            .add_joined_room(
+                matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_timeline_event(
+                    EventFactory::new()
+                        .member(user_id)
+                        .display_name("Alice")
+                        .membership(MembershipState::Join)
+                        .event_id(event_id!("$1")),
+                ),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_room(room_id).expect("Just-created room not found!");
 
         // Sanity: it has no latest_encrypted_events or latest_event
         assert!(room.latest_encrypted_events().is_empty());
@@ -1924,40 +1941,6 @@ mod tests {
             .copied()
             .unwrap_or_default()
             .contains(RoomInfoNotableUpdateReasons::LATEST_EVENT));
-    }
-
-    // TODO: I wanted to write more tests here for decrypt_latest_events but I got
-    // lost trying to set up my OlmMachine to be able to encrypt and decrypt
-    // events. In the meantime, there are tests for the most difficult logic
-    // inside Room.  --andyb
-
-    #[cfg(feature = "e2e-encryption")]
-    async fn process_room_join_test_helper(
-        client: &BaseClient,
-        room_id: &ruma::RoomId,
-        event_id: &str,
-        user_id: &UserId,
-    ) -> crate::Room {
-        let mut sync_builder = SyncResponseBuilder::new();
-        let response = sync_builder
-            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_timeline_event(
-                sync_timeline_event!({
-                    "content": {
-                        "displayname": "Alice",
-                        "membership": "join",
-                    },
-                    "event_id": event_id,
-                    "origin_server_ts": 1432135524678u64,
-                    "sender": user_id,
-                    "state_key": user_id,
-                    "type": "m.room.member",
-                }),
-            ))
-            .build_sync_response();
-
-        client.receive_sync_response(response).await.unwrap();
-
-        client.get_room(room_id).expect("Just-created room not found!")
     }
 
     #[async_test]
