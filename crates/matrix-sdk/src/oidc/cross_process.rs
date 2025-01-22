@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     store::{LockableCryptoStore, Store},
     CryptoStoreError,
