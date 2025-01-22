@@ -46,6 +46,12 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `Recovery::are_we_the_last_man_standing()` has been renamed to `is_last_device()`.
   ([#4522](https://github.com/matrix-org/matrix-rust-sdk/pull/4522))
 
+- [**breaking**] The `matrix_auth` module is now at `authentication::matrix`.
+  ([#4575](https://github.com/matrix-org/matrix-rust-sdk/pull/4575))
+
+- [**breaking**] The `oidc` module is now at `authentication::oidc`.
+  ([#4575](https://github.com/matrix-org/matrix-rust-sdk/pull/4575))
+
 ## [0.9.0] - 2024-12-18
 
 ### Bug Fixes
