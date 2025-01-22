@@ -207,15 +207,13 @@ impl Room {
 
         builder = builder.with_focus(configuration.focus.try_into()?);
 
-        if let AllowedMessageTypes::Only(allowed_message_types) =
-            configuration.allowed_message_types
-        {
+        if let AllowedMessageTypes::Only { types } = configuration.allowed_message_types {
             builder = builder.event_filter(move |event, room_version_id| {
                 default_event_filter(event, room_version_id)
                     && match event {
                         AnySyncTimelineEvent::MessageLike(msg) => match msg.original_content() {
                             Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
-                                allowed_message_types.contains(&content.msgtype.into())
+                                types.contains(&content.msgtype.into())
                             }
                             _ => false,
                         },

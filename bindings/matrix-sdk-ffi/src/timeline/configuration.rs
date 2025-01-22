@@ -54,7 +54,7 @@ impl From<DateDividerMode> for matrix_sdk_ui::timeline::DateDividerMode {
 #[derive(uniffi::Enum)]
 pub enum AllowedMessageTypes {
     All,
-    Only(Vec<RoomMessageEventMessageType>),
+    Only { types: Vec<RoomMessageEventMessageType> },
 }
 
 /// Various options used to configure the timeline's behavior.
