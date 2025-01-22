@@ -20,11 +20,16 @@ use std::time::Duration;
 /// non-wasm32 targets.
 pub async fn sleep(duration: Duration) {
     #[cfg(not(target_arch = "wasm32"))]
-    #[allow(clippy::disallowed_methods)]
     tokio::time::sleep(duration).await;
 
     #[cfg(target_arch = "wasm32")]
-    gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
+    gloo_timers::future::TimeoutFuture::new(u32::try_from(duration.as_millis()).unwrap_or_else(
+        |_| {
+            tracing::error!("Sleep duration too long, sleeping for u32::MAX ms");
+            u32::MAX
+        },
+    ))
+    .await;
 }
 
 #[cfg(test)]

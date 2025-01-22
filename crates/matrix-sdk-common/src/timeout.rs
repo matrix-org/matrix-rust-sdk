@@ -44,7 +44,6 @@ where
     F: Future<Output = T>,
 {
     #[cfg(not(target_arch = "wasm32"))]
-    #[allow(clippy::disallowed_methods)]
     return tokio_timeout(duration, future).await.map_err(|_| ElapsedError(()));
 
     #[cfg(target_arch = "wasm32")]
