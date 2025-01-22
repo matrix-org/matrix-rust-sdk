@@ -17,13 +17,13 @@ use std::sync::{Arc, Mutex};
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
     encryption::{
         backups::BackupState,
         recovery::{EnableProgress, RecoveryState},
         BackupDownloadStrategy, CrossSigningResetAuthType,
     },
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::{no_retry_test_client_with_server, test_client_builder_with_server},
     Client,
 };

@@ -17,8 +17,8 @@ pub mod client;
 pub mod mocks;
 
 use crate::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, ClientBuilder,
 };
 

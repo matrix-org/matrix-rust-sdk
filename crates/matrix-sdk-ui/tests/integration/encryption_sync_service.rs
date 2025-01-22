@@ -8,8 +8,8 @@ use std::{
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::{logged_in_client_with_server, test_client_builder_with_server},
     SessionMeta,
 };

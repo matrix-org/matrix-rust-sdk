@@ -1535,10 +1535,13 @@ impl Session {
         match auth_api {
             // Build the session from the regular Matrix Auth Session.
             AuthApi::Matrix(a) => {
-                let matrix_sdk::matrix_auth::MatrixSession {
+                let matrix_sdk::authentication::matrix::MatrixSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens:
-                        matrix_sdk::matrix_auth::MatrixSessionTokens { access_token, refresh_token },
+                        matrix_sdk::authentication::matrix::MatrixSessionTokens {
+                            access_token,
+                            refresh_token,
+                        },
                 } = a.session().context("Missing session")?;
 
                 Ok(Session {
@@ -1639,12 +1642,12 @@ impl TryFrom<Session> for AuthSession {
             Ok(AuthSession::Oidc(session.into()))
         } else {
             // Create a regular Matrix Session.
-            let session = matrix_sdk::matrix_auth::MatrixSession {
+            let session = matrix_sdk::authentication::matrix::MatrixSession {
                 meta: matrix_sdk::SessionMeta {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::matrix_auth::MatrixSessionTokens {
+                tokens: matrix_sdk::authentication::matrix::MatrixSessionTokens {
                     access_token,
                     refresh_token,
                 },

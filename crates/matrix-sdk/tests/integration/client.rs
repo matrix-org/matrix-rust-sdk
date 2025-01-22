@@ -4,8 +4,8 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::{RequestConfig, StoreConfig, SyncSettings},
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     sync::RoomUpdate,
     test_utils::no_retry_test_client_with_server,
     Client, MemoryStore, SessionMeta, StateChanges, StateStore,

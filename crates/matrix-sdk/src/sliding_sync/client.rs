@@ -380,8 +380,8 @@ mod tests {
 
     use super::{discover_homeserver, get_supported_versions, Version, VersionBuilder};
     use crate::{
+        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         error::Result,
-        matrix_auth::{MatrixSession, MatrixSessionTokens},
         sliding_sync::{http, VersionBuilderError},
         test_utils::logged_in_client_with_server,
         Client, SlidingSyncList, SlidingSyncMode,

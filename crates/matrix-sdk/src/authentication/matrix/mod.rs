@@ -760,7 +760,7 @@ impl MatrixAuth {
     /// ```no_run
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
-    /// # fn persist_session(_: &matrix_sdk::matrix_auth::MatrixSession) {};
+    /// # fn persist_session(_: &matrix_sdk::authentication::matrix::MatrixSession) {};
     /// # async {
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
@@ -835,7 +835,7 @@ impl MatrixAuth {
     ///
     /// ```no_run
     /// use matrix_sdk::{
-    ///     matrix_auth::{MatrixSession, MatrixSessionTokens},
+    ///     authentication::matrix::{MatrixSession, MatrixSessionTokens},
     ///     ruma::{device_id, user_id},
     ///     Client, SessionMeta,
     /// };
@@ -881,7 +881,7 @@ impl MatrixAuth {
     /// ```
     ///
     /// [`login`]: #method.login
-    /// [`LoginBuilder::send()`]: crate::matrix_auth::LoginBuilder::send
+    /// [`LoginBuilder::send()`]: crate::authentication::matrix::LoginBuilder::send
     #[instrument(skip_all)]
     pub async fn restore_session(&self, session: MatrixSession) -> Result<()> {
         debug!("Restoring Matrix auth session");
@@ -959,7 +959,7 @@ impl MatrixAuth {
 ///
 /// ```
 /// use matrix_sdk::{
-///     matrix_auth::{MatrixSession, MatrixSessionTokens},
+///     authentication::matrix::{MatrixSession, MatrixSessionTokens},
 ///     SessionMeta,
 /// };
 /// use ruma::{device_id, user_id};

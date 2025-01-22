@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, sync::Mutex};
 
 use assert_matches::assert_matches;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::{logged_in_client_with_server, no_retry_test_client_with_server},
     AuthApi, AuthSession, Client, RumaApiError,
 };

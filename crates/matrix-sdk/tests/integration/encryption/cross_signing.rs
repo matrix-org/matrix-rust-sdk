@@ -14,8 +14,8 @@
 
 use assert_matches2::assert_let;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     encryption::CrossSigningResetAuthType,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::no_retry_test_client_with_server,
     SessionMeta,
 };
