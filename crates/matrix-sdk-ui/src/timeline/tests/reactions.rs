@@ -19,13 +19,13 @@ use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
-use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::{assert_next_matches_with_timeout, deserialized_responses::TimelineEvent};
 use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_timeline_event, ALICE, BOB};
 use ruma::{
     event_id, events::AnyMessageLikeEventContent, server_name, uint, EventId,
     MilliSecondsSinceUnixEpoch, OwnedEventId,
 };
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 use tokio::time::timeout;
 
 use crate::timeline::{
@@ -233,4 +233,75 @@ async fn send_first_message(
     assert!(date_divider.is_date_divider());
 
     (item_id, event_id, position)
+}
+
+#[async_test]
+async fn test_reinserted_item_keeps_reactions() {
+    // This test checks that after deduplicating events, the reactions attached to
+    // the deduplicated event are not lost.
+    let timeline = TestTimeline::new();
+
+    let f = EventFactory::new().sender(*ALICE);
+
+    // We receive an initial update with one event and a reaction to this event.
+    let reaction_target = event_id!("$1");
+    let target_event = f.text_msg("hey").sender(&BOB).event_id(reaction_target).into_event();
+    let reaction_event = f
+        .reaction(reaction_target, REACTION_KEY)
+        .sender(&ALICE)
+        .event_id(event_id!("$2"))
+        .into_event();
+
+    let mut stream = timeline.subscribe_events().await;
+
+    timeline
+        .handle_event_update(
+            vec![VectorDiff::Append { values: vector![target_event.clone(), reaction_event] }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    // Get the event.
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value: item } => {
+        assert_eq!(item.content().as_message().unwrap().body(), "hey");
+        assert!(item.reactions().is_empty());
+    });
+
+    // Get the reaction.
+    assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value: item } => {
+        assert_eq!(item.content().as_message().unwrap().body(), "hey");
+        let reactions = item.reactions();
+        assert_eq!(reactions.len(), 1);
+        reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
+    });
+
+    // And that's it for now.
+    assert_pending!(stream);
+
+    // Then the event is removed and reinserted. This sequences of update is
+    // possible if the event cache decided to deduplicate a given event.
+    timeline
+        .handle_event_update(
+            vec![
+                VectorDiff::Remove { index: 0 },
+                VectorDiff::Insert { index: 0, value: target_event },
+            ],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    // The duplicate event is removed…
+    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 0 });
+
+    // …And reinserted.
+    assert_next_matches_with_timeout!(stream, VectorDiff::Insert { index: 0, value: item } => {
+        assert_eq!(item.content().as_message().unwrap().body(), "hey");
+        // And it still includes the reaction from Alice.
+        let reactions = item.reactions();
+        assert_eq!(reactions.len(), 1);
+        reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
+    });
+
+    // No other updates.
+    assert_pending!(stream);
 }

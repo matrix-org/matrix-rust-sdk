@@ -78,8 +78,10 @@ mod redaction;
 mod shields;
 mod virt;
 
+/// A timeline instance used only for testing purposes in unit tests.
 struct TestTimeline {
     controller: TimelineController<TestRoomDataProvider>,
+
     /// An [`EventFactory`] that can be used for creating events in this
     /// timeline.
     pub factory: EventFactory,
@@ -236,6 +238,14 @@ impl TestTimeline {
 
     async fn handle_room_send_queue_update(&self, update: RoomSendQueueUpdate) {
         self.controller.handle_room_send_queue_update(update).await
+    }
+
+    async fn handle_event_update(
+        &self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) {
+        self.controller.handle_remote_events_with_diffs(diffs, origin).await;
     }
 }
 
