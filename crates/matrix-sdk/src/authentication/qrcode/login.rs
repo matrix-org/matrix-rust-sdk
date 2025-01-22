@@ -34,7 +34,7 @@ use super::{
     SecureChannelError,
 };
 #[cfg(doc)]
-use crate::oidc::Oidc;
+use crate::authentication::oidc::Oidc;
 use crate::{
     authentication::qrcode::{
         messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,

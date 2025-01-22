@@ -129,8 +129,8 @@ async fn test_reset_oidc() {
         registration::{ClientMetadata, VerifiedClientMetadata},
     };
     use matrix_sdk::{
+        authentication::oidc::{OidcSession, OidcSessionTokens, UserSession},
         encryption::CrossSigningResetAuthType,
-        oidc::{OidcSession, OidcSessionTokens, UserSession},
     };
     use similar_asserts::assert_eq;
     use url::Url;

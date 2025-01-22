@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fmt, fmt::Display};
 
 use matrix_sdk::{
-    encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
-    room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
+    authentication::oidc::OidcError, encryption::CryptoStoreError, event_cache::EventCacheError,
+    reqwest, room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,
 };

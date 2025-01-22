@@ -30,9 +30,7 @@ use axum::{
 };
 use futures_util::StreamExt;
 use matrix_sdk::{
-    config::SyncSettings,
-    encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
-    oidc::{
+    authentication::oidc::{
         requests::account_management::AccountManagementActionFull,
         types::{
             client_credentials::ClientCredentials,
@@ -44,6 +42,8 @@ use matrix_sdk::{
         },
         AuthorizationCode, AuthorizationResponse, OidcAuthorizationData, OidcSession, UserSession,
     },
+    config::SyncSettings,
+    encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
     room::Room,
     ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     Client, ClientBuildError, Result, RoomState,
