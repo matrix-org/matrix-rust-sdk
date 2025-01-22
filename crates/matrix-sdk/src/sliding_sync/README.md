@@ -30,11 +30,6 @@ To create a new Sliding Sync session, one must query an existing
 Typically one configures the custom homeserver endpoint, although it's
 automatically detected using the `.well-known` endpoint, if configured.
 
-At the time of writing, no Matrix server natively supports Sliding Sync;
-a sidecar called the [Sliding Sync Proxy][proxy] is needed. As that
-typically runs on a separate domain, it can be configured on the
-[`SlidingSyncBuilder`].
-
 A unique identifier, less than 16 chars long, is required for each instance
 of Sliding Sync, and must be provided when getting a builder:
 
@@ -46,7 +41,7 @@ of Sliding Sync, and must be provided when getting a builder:
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .version(Version::Proxy { url: Url::parse("http://sliding-sync.example.org")? });
+    .version(Version::Native);
 
 # anyhow::Ok(())
 # };
@@ -183,9 +178,7 @@ data.
 
 To allow for a quick startup, client might want to request only a very low
 `timeline_limit` (maybe 1 or even 0) at first and update the count later on
-the list or room subscription (see [reactive api](#reactive-api)), Since
-`0.99.0-rc1` the [sliding sync proxy][proxy] will then "paginate back" and
-resent the now larger number of events. All this is handled transparently.
+the list or room subscription (see [reactive api](#reactive-api)).
 
 ## Long Polling
 
@@ -346,7 +339,7 @@ let full_sync_list_name = "full-sync".to_owned();
 let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .version(Version::Proxy { url: Url::parse("http://sliding-sync.example.org")? }) // our proxy server
+    .version(Version::Native)
     .with_account_data_extension(
         assign!(http::request::AccountData::default(), { enabled: Some(true) }),
     ) // we enable the account-data extension
@@ -412,5 +405,4 @@ loop {
 ```
 
 [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
-[proxy]: https://github.com/matrix-org/sliding-sync
 [ruma-types]: https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/index.html
