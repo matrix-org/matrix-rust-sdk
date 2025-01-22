@@ -286,24 +286,6 @@ jobs:
         run: |
           target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
 
-  formatting:
-    name: Check Formatting
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2024-11-26
-          components: rustfmt
-
-      - name: Cargo fmt
-        run: |
-          cargo fmt -- --check
-
   typos:
     name: Spell Check with Typos
     runs-on: ubuntu-latest
@@ -315,8 +297,8 @@ jobs:
       - name: Check the spelling of the files in our repo
         uses: crate-ci/typos@v1.29.4
 
-  clippy:
-    name: Run clippy
+  lint:
+    name: Lint
     needs: xtask
     runs-on: ubuntu-latest
 
@@ -333,7 +315,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2024-11-26
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
@@ -346,6 +328,10 @@ jobs:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
           fail-on-cache-miss: true
+
+      - name: Check Formatting
+        run: |
+          target/debug/xtask ci style
 
       - name: Clippy
         run: |
