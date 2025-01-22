@@ -7,11 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
-    media::{
-        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
-        MediaThumbnailSettings,
-    },
-    oidc::{
+    authentication::oidc::{
         registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
         types::{
@@ -22,6 +18,10 @@ use matrix_sdk::{
             requests::Prompt as SdkOidcPrompt,
         },
         OidcAuthorizationData, OidcSession,
+    },
+    media::{
+        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
+        MediaThumbnailSettings,
     },
     reqwest::StatusCode,
     ruma::{
@@ -1556,10 +1556,10 @@ impl Session {
             }
             // Build the session from the OIDC UserSession.
             AuthApi::Oidc(api) => {
-                let matrix_sdk::oidc::UserSession {
+                let matrix_sdk::authentication::oidc::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens:
-                        matrix_sdk::oidc::OidcSessionTokens {
+                        matrix_sdk::authentication::oidc::OidcSessionTokens {
                             access_token,
                             refresh_token,
                             latest_id_token,
@@ -1620,12 +1620,12 @@ impl TryFrom<Session> for AuthSession {
                 .transpose()
                 .context("OIDC latest_id_token is invalid.")?;
 
-            let user_session = matrix_sdk::oidc::UserSession {
+            let user_session = matrix_sdk::authentication::oidc::UserSession {
                 meta: matrix_sdk::SessionMeta {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::oidc::OidcSessionTokens {
+                tokens: matrix_sdk::authentication::oidc::OidcSessionTokens {
                     access_token,
                     refresh_token,
                     latest_id_token,

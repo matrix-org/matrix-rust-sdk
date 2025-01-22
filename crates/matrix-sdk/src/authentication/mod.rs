@@ -15,7 +15,6 @@
 //! Types and functions related to authentication in Matrix.
 
 // TODO:(pixlwave) Move AuthenticationService from the FFI into this module.
-// TODO:(poljar) Move the oidc module under this module.
 
 use std::sync::Arc;
 
@@ -24,10 +23,12 @@ use matrix_sdk_base::SessionMeta;
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
 pub mod matrix;
+#[cfg(feature = "experimental-oidc")]
+pub mod oidc;
 
 use self::matrix::{MatrixAuth, MatrixAuthData};
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::{self, Oidc, OidcAuthData, OidcCtx};
+use self::oidc::{Oidc, OidcAuthData, OidcCtx};
 use crate::{Client, RefreshTokenError, SessionChange};
 
 #[cfg(all(feature = "experimental-oidc", feature = "e2e-encryption", not(target_arch = "wasm32")))]

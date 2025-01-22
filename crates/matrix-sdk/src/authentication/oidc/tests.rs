@@ -26,14 +26,11 @@ use wiremock::{
 
 use super::{
     backend::mock::{MockImpl, AUTHORIZATION_URL, ISSUER_URL},
+    registrations::{ClientId, OidcRegistrations},
     AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc, OidcError, OidcSession,
     OidcSessionTokens, RedirectUriQueryParseError, UserSession,
 };
-use crate::{
-    oidc::registrations::{ClientId, OidcRegistrations},
-    test_utils::test_client_builder,
-    Client, Error,
-};
+use crate::{test_utils::test_client_builder, Client, Error};
 
 const CLIENT_ID: &str = "test_client_id";
 const REDIRECT_URI_STRING: &str = "http://matrix.example.com/oidc/callback";

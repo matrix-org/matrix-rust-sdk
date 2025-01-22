@@ -217,11 +217,11 @@ pub use self::{
 use self::{
     backend::{server::OidcServer, OidcBackend},
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
+    registrations::{ClientId, OidcRegistrations},
 };
 use crate::{
     authentication::{qrcode::LoginWithQrCode, AuthData},
     client::SessionChange,
-    oidc::registrations::{ClientId, OidcRegistrations},
     Client, HttpError, RefreshTokenError, Result,
 };
 
