@@ -517,6 +517,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
+    use insta::assert_snapshot;
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_test::{
         async_test, test_json,
@@ -577,6 +578,15 @@ mod tests {
         machine.mark_request_as_sent(&txn_id_good, &keys_query_good).await.unwrap();
 
         machine
+    }
+
+    /// Assert that [`CollectStrategy::DeviceBasedStrategy`] retains the same
+    /// serialization format.
+    #[test]
+    fn test_serialize_device_based_strategy() {
+        let encryption_settings = device_based_strategy_settings();
+        let serialized = serde_json::to_string(&encryption_settings).unwrap();
+        assert_snapshot!(serialized);
     }
 
     #[async_test]
