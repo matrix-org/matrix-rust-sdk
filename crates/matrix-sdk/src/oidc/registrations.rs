@@ -50,7 +50,7 @@ pub enum OidcRegistrationsError {
 pub struct ClientId(pub String);
 
 /// The data needed to restore an OpenID Connect session.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OidcRegistrations {
     /// The path of the file where the registrations are stored.
     file_path: PathBuf,
