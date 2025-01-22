@@ -3124,7 +3124,7 @@ dependencies = [
  "similar-asserts",
  "stream_assert",
  "tempfile",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
  "tokio-test",
@@ -3170,7 +3170,7 @@ dependencies = [
  "serde_json",
  "similar-asserts",
  "stream_assert",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "unicode-normalization",
@@ -3197,7 +3197,7 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3248,7 +3248,7 @@ dependencies = [
  "similar-asserts",
  "stream_assert",
  "subtle",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "time",
  "tokio",
  "tokio-stream",
@@ -3281,7 +3281,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tracing-subscriber",
  "uniffi",
@@ -3311,7 +3311,7 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -3359,7 +3359,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "sha2",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3409,7 +3409,7 @@ dependencies = [
  "image",
  "qrcode",
  "ruma-common",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "vodozemac",
 ]
 
@@ -3435,7 +3435,7 @@ dependencies = [
  "serde_json",
  "similar-asserts",
  "tempfile",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "vodozemac",
@@ -3457,7 +3457,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "zeroize",
 ]
 
@@ -3526,7 +3526,7 @@ dependencies = [
  "serde_json",
  "stream_assert",
  "tempfile",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -4361,9 +4361,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b0487d90e047de87f984913713b85c601c05609aad5b0df4b4573fbf69aa13f"
+checksum = "2c0fef6c4230e4ccf618a35c59d7ede15dea37de8427500f50aff708806e42ec"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -4371,12 +4371,12 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9552f850d5f0964a4e4d0bf306459ac29323ddfbae05e35a7c0d35cb0803cc5"
+checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn",
@@ -4821,7 +4821,7 @@ dependencies = [
  "serde",
  "serde_html_form",
  "serde_json",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "url",
  "web-time",
 ]
@@ -4849,7 +4849,7 @@ dependencies = [
  "serde",
  "serde_html_form",
  "serde_json",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "time",
  "tracing",
  "url",
@@ -4876,7 +4876,7 @@ dependencies = [
  "ruma-macros",
  "serde",
  "serde_json",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
  "tracing",
  "url",
  "web-time",
@@ -4915,7 +4915,7 @@ version = "0.10.1"
 source = "git+https://github.com/ruma/ruma?rev=b868438f5d91918e97d2c3f64d7c82a0d86d29d4#b868438f5d91918e97d2c3f64d7c82a0d86d29d4"
 dependencies = [
  "js_int",
- "thiserror 2.0.3",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -5165,9 +5165,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.210"
+version = "1.0.217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8e3592472072e6e22e0a54d5904d9febf8508f65fb8552499a1abc7d1078c3a"
+checksum = "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70"
 dependencies = [
  "serde_derive",
 ]
@@ -5204,9 +5204,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.210"
+version = "1.0.217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "243902eda00fad750862fc144cea25caca5e20d615af0a81bee94ca738f1df1f"
+checksum = "5a9bf7cf98d04a2b28aead066b7496853d4779c9cc183c440dbac457641e19a0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5239,9 +5239,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.128"
+version = "1.0.137"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ff5456707a1de34e7e37f2a6fd3d3f808c318259cbd01ab6377795054b483d8"
+checksum = "930cfb6e6abf99298aaad7d29abbef7a9999a9a8806a40088f55f0dcec03146b"
 dependencies = [
  "indexmap 2.6.0",
  "itoa",
@@ -5668,11 +5668,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.3"
+version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c006c85c7651b3cf2ada4584faa36773bd07bac24acfb39f3c431b36d7e667aa"
+checksum = "d452f284b73e6d76dd36758a0c8684b1d5be31f92b89d07fd5822175732206fc"
 dependencies = [
- "thiserror-impl 2.0.3",
+ "thiserror-impl 2.0.11",
 ]
 
 [[package]]
@@ -5688,9 +5688,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.3"
+version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f077553d607adc1caf65430528a576c757a71ed73944b66ebb58ef2bbd243568"
+checksum = "26afc1baea8a989337eeb52b6e72a039780ce45c3edfcc9c5b9d112feeb173c2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6411,8 +6411,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd4b56780b7827dd72c3c6398c3048752bebf8d1d84ec19b606b15dbc3c850b8"
+source = "git+https://github.com/matrix-org/vodozemac?rev=3d655add09992d17fdb2b55c60f532658090487d#3d655add09992d17fdb2b55c60f532658090487d"
 dependencies = [
  "aes",
  "arrayvec",
@@ -6433,7 +6432,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "subtle",
- "thiserror 1.0.63",
+ "thiserror 2.0.11",
  "x25519-dalek",
  "zeroize",
 ]
