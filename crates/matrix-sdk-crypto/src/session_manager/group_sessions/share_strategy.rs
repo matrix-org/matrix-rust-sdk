@@ -93,7 +93,7 @@ impl Default for CollectStrategy {
 /// (`should_rotate`) and the list of users/devices that should receive
 /// (`devices`) or not the session,  including withheld reason
 /// `withheld_devices`.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
@@ -118,8 +118,7 @@ pub(crate) async fn collect_session_recipients(
     outbound: &OutboundGroupSession,
 ) -> OlmResult<CollectRecipientsResult> {
     let users: BTreeSet<&UserId> = users.collect();
-    let mut devices: BTreeMap<OwnedUserId, Vec<DeviceData>> = Default::default();
-    let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
+    let mut result = CollectRecipientsResult::default();
     let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
 
     trace!(?users, ?settings, "Calculating group session recipients");
@@ -144,7 +143,7 @@ pub(crate) async fn collect_session_recipients(
     // 4. The encryption algorithm changed.
     //
     // This is calculated in the following code and stored in this variable.
-    let mut should_rotate = user_left || visibility_changed || algorithm_changed;
+    result.should_rotate = user_left || visibility_changed || algorithm_changed;
 
     let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
@@ -194,23 +193,7 @@ pub(crate) async fn collect_session_recipients(
                         unsigned_devices_of_verified_users.insert(user_id.to_owned(), devices);
                     }
                     DeviceBasedRecipientDevices::Devices(recipient_devices) => {
-                        // If we haven't already concluded that the session should be
-                        // rotated for other reasons, we also need to check whether any
-                        // of the devices in the session got deleted or blacklisted in the
-                        // meantime. If so, we should also rotate the session.
-                        if !should_rotate {
-                            should_rotate = is_session_overshared_for_user(
-                                outbound,
-                                user_id,
-                                &recipient_devices.allowed_devices,
-                            )
-                        }
-
-                        devices
-                            .entry(user_id.to_owned())
-                            .or_default()
-                            .extend(recipient_devices.allowed_devices);
-                        withheld_devices.extend(recipient_devices.denied_devices_with_code);
+                        result.update_for_user(outbound, user_id, recipient_devices);
                     }
                 }
             }
@@ -263,23 +246,7 @@ pub(crate) async fn collect_session_recipients(
                     &device_owner_identity,
                 );
 
-                // If we haven't already concluded that the session should be
-                // rotated for other reasons, we also need to check whether any
-                // of the devices in the session got deleted or blacklisted in the
-                // meantime. If so, we should also rotate the session.
-                if !should_rotate {
-                    should_rotate = is_session_overshared_for_user(
-                        outbound,
-                        user_id,
-                        &recipient_devices.allowed_devices,
-                    )
-                }
-
-                devices
-                    .entry(user_id.to_owned())
-                    .or_default()
-                    .extend(recipient_devices.allowed_devices);
-                withheld_devices.extend(recipient_devices.denied_devices_with_code);
+                update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
             }
         }
     }
@@ -294,18 +261,43 @@ pub(crate) async fn collect_session_recipients(
         ));
     }
 
-    if should_rotate {
+    if result.should_rotate {
         debug!(
-            should_rotate,
+            result.should_rotate,
             user_left,
             visibility_changed,
             algorithm_changed,
             "Rotating room key to protect room history",
         );
     }
-    trace!(should_rotate, "Done calculating group session recipients");
+    trace!(result.should_rotate, "Done calculating group session recipients");
 
-    Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
+    Ok(result)
+}
+
+/// Update this [`CollectRecipientsResult`] with the device list for a specific
+/// user.
+fn update_recipients_for_user(
+    recipients: &mut CollectRecipientsResult,
+    outbound: &OutboundGroupSession,
+    user_id: &UserId,
+    recipient_devices: RecipientDevicesForUser,
+) {
+    // If we haven't already concluded that the session should be
+    // rotated for other reasons, we also need to check whether any
+    // of the devices in the session got deleted or blacklisted in the
+    // meantime. If so, we should also rotate the session.
+    if !recipients.should_rotate {
+        recipients.should_rotate =
+            is_session_overshared_for_user(outbound, user_id, &recipient_devices.allowed_devices)
+    }
+
+    recipients
+        .devices
+        .entry(user_id.to_owned())
+        .or_default()
+        .extend(recipient_devices.allowed_devices);
+    recipients.withheld_devices.extend(recipient_devices.denied_devices_with_code);
 }
 
 /// Check if the session has been shared with a device belonging to the given
