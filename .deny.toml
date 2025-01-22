@@ -61,4 +61,6 @@ allow-git = [
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
     "https://github.com/jplatte/async-compat",
+    # A newer version of vodozemac to support new dehydrated devices format.
+    "https://github.com/matrix-org/vodozemac",
 ]
