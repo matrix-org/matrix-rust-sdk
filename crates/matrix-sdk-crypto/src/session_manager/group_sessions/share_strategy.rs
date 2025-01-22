@@ -189,37 +189,30 @@ pub(crate) async fn collect_session_recipients(
                     error_on_verified_user_problem,
                 );
 
-                // If `error_on_verified_user_problem` is set, then
-                // `unsigned_of_verified_user` may be populated. If so, add an entry to the
-                // list of users with unsigned devices.
-                if !recipient_devices.unsigned_of_verified_user.is_empty() {
-                    unsigned_devices_of_verified_users.insert(
-                        user_id.to_owned(),
-                        recipient_devices
-                            .unsigned_of_verified_user
-                            .into_iter()
-                            .map(|d| d.device_id().to_owned())
-                            .collect(),
-                    );
-                }
+                match recipient_devices {
+                    DeviceBasedRecipientDevices::UnsignedDevicesOfVerifiedUser(devices) => {
+                        unsigned_devices_of_verified_users.insert(user_id.to_owned(), devices);
+                    }
+                    DeviceBasedRecipientDevices::Devices(recipient_devices) => {
+                        // If we haven't already concluded that the session should be
+                        // rotated for other reasons, we also need to check whether any
+                        // of the devices in the session got deleted or blacklisted in the
+                        // meantime. If so, we should also rotate the session.
+                        if !should_rotate {
+                            should_rotate = is_session_overshared_for_user(
+                                outbound,
+                                user_id,
+                                &recipient_devices.allowed_devices,
+                            )
+                        }
 
-                // If we haven't already concluded that the session should be
-                // rotated for other reasons, we also need to check whether any
-                // of the devices in the session got deleted or blacklisted in the
-                // meantime. If so, we should also rotate the session.
-                if !should_rotate {
-                    should_rotate = is_session_overshared_for_user(
-                        outbound,
-                        user_id,
-                        &recipient_devices.allowed_devices,
-                    )
+                        devices
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .extend(recipient_devices.allowed_devices);
+                        withheld_devices.extend(recipient_devices.denied_devices_with_code);
+                    }
                 }
-
-                devices
-                    .entry(user_id.to_owned())
-                    .or_default()
-                    .extend(recipient_devices.allowed_devices);
-                withheld_devices.extend(recipient_devices.denied_devices_with_code);
             }
 
             // If `error_on_verified_user_problem` is set, then
@@ -265,7 +258,7 @@ pub(crate) async fn collect_session_recipients(
                     continue;
                 }
 
-                let recipient_devices = split_recipients_withhelds_for_user_based_on_identity(
+                let recipient_devices = split_devices_for_user_for_identity_based_strategy(
                     user_devices,
                     &device_owner_identity,
                 );
@@ -368,33 +361,45 @@ fn is_session_overshared_for_user(
     should_rotate
 }
 
-/// Result type for [`split_devices_for_user`].
+/// Result type for [`split_devices_for_user_for_identity_based_strategy`] and
+/// [`split_devices_for_user`].
+///
+/// A partitioning of the devices for a given user.
 #[derive(Default)]
-struct DeviceBasedRecipientDevices {
+struct RecipientDevicesForUser {
     /// Devices that should receive the room key.
     allowed_devices: Vec<DeviceData>,
     /// Devices that should receive a withheld code.
     denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
-    /// Devices that should cause the transmission to fail, due to being an
-    /// unsigned device belonging to a verified user. Only populated by
-    /// [`split_devices_for_user`], when
-    /// `error_on_verified_user_problem` is set.
-    unsigned_of_verified_user: Vec<DeviceData>,
+}
+
+/// Result type for [`split_devices_for_user`].
+enum DeviceBasedRecipientDevices {
+    /// We found devices that should cause the transmission to fail, due to
+    /// being an unsigned device belonging to a verified user. Only
+    /// populated when `error_on_verified_user_problem` is set.
+    UnsignedDevicesOfVerifiedUser(Vec<OwnedDeviceId>),
+
+    /// There were no unsigned devices of verified users.
+    Devices(RecipientDevicesForUser),
 }
 
 /// Partition the list of a user's devices according to whether they should
 /// receive the key, for [`CollectStrategy::DeviceBasedStrategy`].
 ///
-/// We split the list into three buckets:
+/// This function returns one of two values:
 ///
-///  * the devices that should receive the room key.
+/// * If `error_on_verified_user_problem` is set, returns a list the devices
+///   that should cause the transmission to fail due to being unsigned. In this
+///   case, we don't bother to return the rest of the devices, because we assume
+///   transmission will fail.
 ///
-///  * the devices that should receive a withheld code.
+///   (If error_on_verified_user_problem` is unset, these devices are otherwise
+///   partitioned into `allowed_devices`.)
 ///
-///  * If `error_on_verified_user_problem` is set, the devices that should cause
-///    the transmission to fail due to being unsigned. (If
-///    `error_on_verified_user_problem` is unset, these devices are otherwise
-///    partitioned into `allowed_devices`.)
+/// * Otherwise, returns a [`RecipientDevicesForUser`] which lists, separately,
+///   the devices that should receive the room key, and those that should
+///   receive a withheld code.
 fn split_devices_for_user(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
@@ -402,7 +407,12 @@ fn split_devices_for_user(
     only_allow_trusted_devices: bool,
     error_on_verified_user_problem: bool,
 ) -> DeviceBasedRecipientDevices {
-    let mut recipient_devices: DeviceBasedRecipientDevices = Default::default();
+    let mut recipient_devices = RecipientDevicesForUser::default();
+
+    // We construct unsigned_devices_of_verified_users lazily, because chances are
+    // we won't need it.
+    let mut unsigned_devices_of_verified_users: Option<Vec<OwnedDeviceId>> = None;
+
     for d in user_devices.into_values() {
         if d.is_blacklisted() {
             recipient_devices.denied_devices_with_code.push((d, WithheldCode::Blacklisted));
@@ -419,32 +429,30 @@ fn split_devices_for_user(
                 &d,
             )
         {
-            recipient_devices.unsigned_of_verified_user.push(d)
+            unsigned_devices_of_verified_users
+                .get_or_insert_with(Vec::default)
+                .push(d.device_id().to_owned())
         } else {
             recipient_devices.allowed_devices.push(d);
         }
     }
-    recipient_devices
+
+    if let Some(devices) = unsigned_devices_of_verified_users {
+        DeviceBasedRecipientDevices::UnsignedDevicesOfVerifiedUser(devices)
+    } else {
+        DeviceBasedRecipientDevices::Devices(recipient_devices)
+    }
 }
 
-/// Result type for [`split_recipients_withhelds_for_user_based_on_identity`].
-#[derive(Default)]
-struct IdentityBasedRecipientDevices {
-    /// Devices that should receive the room key.
-    allowed_devices: Vec<DeviceData>,
-    /// Devices that should receive a withheld code.
-    denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
-}
-
-fn split_recipients_withhelds_for_user_based_on_identity(
+fn split_devices_for_user_for_identity_based_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     device_owner_identity: &Option<UserIdentityData>,
-) -> IdentityBasedRecipientDevices {
+) -> RecipientDevicesForUser {
     match device_owner_identity {
         None => {
             // withheld all the users devices, we need to have an identity for this
             // distribution mode
-            IdentityBasedRecipientDevices {
+            RecipientDevicesForUser {
                 allowed_devices: Vec::default(),
                 denied_devices_with_code: user_devices
                     .into_values()
@@ -464,7 +472,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                     Either::Right((d, WithheldCode::Unverified))
                 }
             });
-            IdentityBasedRecipientDevices {
+            RecipientDevicesForUser {
                 allowed_devices: recipients,
                 denied_devices_with_code: withheld_recipients,
             }
