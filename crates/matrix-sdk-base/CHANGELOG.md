@@ -6,6 +6,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] `EventCacheStore` allows to control which media content is
+  allowed in the media cache, and how long it should be kept, with a
+  `MediaRetentionPolicy`:
+  - `EventCacheStore::add_media_content()` has an extra argument,
+    `ignore_policy`, which decides whether a media content should ignore the
+    `MediaRetentionPolicy`. It should be stored alongside the media content.
+  - `EventCacheStore` has four new methods: `media_retention_policy()`,
+    `set_media_retention_policy()`, `set_ignore_media_retention_policy()` and
+    `clean_up_media_cache()`.
+  - `EventCacheStore` implementations should delegate media cache methods to the
+    methods of the same name of `MediaService` to use the `MediaRetentionPolicy`.
+    They need to implement the `EventCacheStoreMedia` trait that can be tested
+    with the `event_cache_store_media_integration_tests!` macro.
+    ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
+
 ### Refactor
 
 - [**breaking**] Replaced `Room::compute_display_name` with the reintroduced
