@@ -58,7 +58,7 @@ use ruma::{
     OwnedRoomId,
 };
 use serde_json::json;
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{task::yield_now, time::sleep};
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -86,7 +86,7 @@ async fn test_edit() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let event_id = event_id!("$msda7m:localhost");
     sync_builder.add_joined_room(
@@ -98,7 +98,10 @@ async fn test_edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     let item = first.as_event().unwrap();
     assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
     assert_matches!(item.latest_edit_json(), None);
@@ -107,7 +110,7 @@ async fn test_edit() {
     assert_matches!(msg.in_reply_to(), None);
     assert!(!msg.is_edited());
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(
@@ -124,7 +127,10 @@ async fn test_edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
+    assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
     let item = second.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
@@ -140,7 +146,7 @@ async fn test_edit() {
 
     // No more implicit read receipt in Alice's message, because they edited
     // something after the second event.
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
     let item = item.as_event().unwrap();
     assert_matches!(item.latest_edit_json(), None);
     assert_let!(TimelineItemContent::Message(msg) = item.content());
@@ -151,7 +157,7 @@ async fn test_edit() {
     assert_eq!(item.read_receipts().len(), 0, "no more implicit read receipt");
 
     // ... so Alice's read receipt moves to Bob's message.
-    assert_let!(Some(VectorDiff::Set { index: 2, value: second }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 2, value: second } = &timeline_updates[2]);
     let item = second.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
@@ -159,7 +165,7 @@ async fn test_edit() {
     assert_eq!(item.read_receipts().len(), 2, "should carry alice and bob's read receipts");
 
     // The text changes in Alice's message.
-    assert_let!(Some(VectorDiff::Set { index: 1, value: edit }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 1, value: edit } = &timeline_updates[3]);
     let item = edit.as_event().unwrap();
     assert_matches!(item.latest_edit_json(), Some(_));
     assert_let!(TimelineItemContent::Message(edited) = item.content());
@@ -181,7 +187,7 @@ async fn test_edit_local_echo() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let mounted_send =
         server.mock_room_send().error_too_large().mock_once().mount_as_scoped().await;
@@ -189,19 +195,25 @@ async fn test_edit_local_echo() {
     // Redacting a local event works.
     timeline.send(RoomMessageEventContent::text_plain("hello, just you").into()).await.unwrap();
 
-    assert_let!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
 
     let internal_id = item.unique_id();
 
     let item = item.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     // We haven't set a route for sending events, so this will fail.
 
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
     let item = item.as_event().unwrap();
     assert!(item.is_local_echo());
@@ -212,7 +224,7 @@ async fn test_edit_local_echo() {
         Some(EventSendState::SendingFailed { is_recoverable: false, .. })
     );
 
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // Set up the success response before editing, since edit causes an immediate
     // retry (the room's send queue is not blocked, since the one event it couldn't
@@ -229,8 +241,11 @@ async fn test_edit_local_echo() {
         .await
         .unwrap();
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // Observe local echo being replaced.
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
     assert_eq!(item.unique_id(), internal_id);
 
@@ -246,8 +261,11 @@ async fn test_edit_local_echo() {
     // Re-enable the room's queue.
     timeline.room().send_queue().set_enabled(true);
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // Observe the event being sent, and replacing the local echo.
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
     let item = item.as_event().unwrap();
     assert!(item.is_local_echo());
@@ -256,7 +274,7 @@ async fn test_edit_local_echo() {
     assert_eq!(edit_message.body(), "hello, world");
 
     // No new updates.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -740,7 +758,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
@@ -761,17 +779,22 @@ async fn test_edit_local_echo_with_unsupported_content() {
 
     timeline.send(RoomMessageEventContent::text_plain("hello, just you").into()).await.unwrap();
 
-    assert_let!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
 
     let item = item.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     // We haven't set a route for sending events, so this will fail.
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
 
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
     let item = item.as_event().unwrap();
     assert!(item.is_local_echo());
@@ -782,7 +805,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
         Some(EventSendState::SendingFailed { is_recoverable: false, .. })
     );
 
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // Set up the success response before editing, since edit causes an immediate
     // retry (the room's send queue is not blocked, since the one event it couldn't
@@ -814,7 +837,10 @@ async fn test_edit_local_echo_with_unsupported_content() {
         .await
         .unwrap();
 
-    assert_let!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
 
     let item = item.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
@@ -832,6 +858,8 @@ async fn test_edit_local_echo_with_unsupported_content() {
 
     // We couldn't edit the local echo, since their content types didn't match
     assert_matches!(edit_err, Error::EditError(EditError::ContentMismatch { .. }));
+
+    assert_pending!(timeline_stream);
 }
 
 struct PendingEditHelper {
@@ -888,7 +916,7 @@ async fn test_pending_edit() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
 
     // When I receive an edit event for an event I don't know about…
     let original_event_id = event_id!("$original");
@@ -905,7 +933,7 @@ async fn test_pending_edit() {
     .await;
 
     // Nothing happens.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // But when I receive the original event after a bit…
     h.handle_sync(
@@ -914,8 +942,11 @@ async fn test_pending_edit() {
     )
     .await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Then I get the edited content immediately.
-    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
 
     let event = value.as_event().unwrap();
     let latest_edit_json = event.latest_edit_json().expect("we should have an edit json");
@@ -926,12 +957,11 @@ async fn test_pending_edit() {
     assert_eq!(msg.body(), "[edit]");
 
     // The date divider.
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
+    assert!(date_divider.is_date_divider());
 
     // And nothing else.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -939,7 +969,7 @@ async fn test_pending_edit_overrides() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
 
     // When I receive multiple edit events for an event I don't know about…
     let original_event_id = event_id!("$original");
@@ -963,7 +993,7 @@ async fn test_pending_edit_overrides() {
     .await;
 
     // Nothing happens.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // And then I receive the original event after a bit…
     h.handle_sync(
@@ -972,19 +1002,21 @@ async fn test_pending_edit_overrides() {
     )
     .await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Then I get the latest edited content immediately.
-    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let msg = value.as_event().unwrap().content().as_message().unwrap();
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "bonjour");
 
     // The date divider.
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
 
     // And nothing else.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -992,7 +1024,7 @@ async fn test_pending_edit_from_backpagination() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
 
     // When I receive an edit from a back-pagination for an event I don't know
     // about…
@@ -1020,19 +1052,21 @@ async fn test_pending_edit_from_backpagination() {
     )
     .await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Then I get the latest edited content immediately.
-    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let msg = value.as_event().unwrap().content().as_message().unwrap();
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "hello");
 
     // The date divider.
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
 
     // And nothing else.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -1056,7 +1090,7 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     )
     .await;
 
-    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
 
     // And then I receive an edit from a back-pagination for the same event…
     let edit_event_id2 = event_id!("$edit2");
@@ -1073,7 +1107,7 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     .await;
 
     // Nothing happens.
-    assert_matches!(timeline_stream.next().now_or_never(), None);
+    assert_pending!(timeline_stream);
 
     // And then I receive the original event after a bit…
     h.handle_sync(
@@ -1082,20 +1116,22 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     )
     .await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Then I get the edit from the sync, even if the back-pagination happened
     // after.
-    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let msg = value.as_event().unwrap().content().as_message().unwrap();
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "[edit]");
 
     // The date divider.
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
 
     // And nothing else.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -1103,7 +1139,7 @@ async fn test_pending_poll_edit() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
 
     // When I receive an edit event for an event I don't know about…
     let original_event_id = event_id!("$original");
@@ -1131,7 +1167,7 @@ async fn test_pending_poll_edit() {
     .await;
 
     // Nothing happens.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // But when I receive the original event after a bit…
     let event_content = NewUnstablePollStartEventContent::new(UnstablePollStartContentBlock::new(
@@ -1149,8 +1185,11 @@ async fn test_pending_poll_edit() {
     )
     .await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Then I get the edited content immediately.
-    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let poll = as_variant!(value.as_event().unwrap().content(), TimelineItemContent::Poll).unwrap();
     assert!(poll.is_edit());
 
@@ -1160,12 +1199,11 @@ async fn test_pending_poll_edit() {
     assert_eq!(results.answers[1].text, "No");
 
     // The date divider.
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
 
     // And nothing else.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
