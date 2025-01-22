@@ -17,7 +17,7 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
@@ -30,7 +30,7 @@ use ruma::{
     room_id, user_id,
 };
 use serde_json::json;
-use stream_assert::{assert_next_matches, assert_pending};
+use stream_assert::assert_pending;
 
 use crate::mock_sync;
 
@@ -93,7 +93,7 @@ async fn test_event_filter() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let first_event_id = event_id!("$YTQwYl2ply");
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -113,7 +113,10 @@ async fn test_event_filter() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     let first_event = first.as_event().unwrap();
     assert_eq!(first_event.event_id(), Some(first_event_id));
     assert_eq!(first_event.read_receipts().len(), 1, "implicit read receipt");
@@ -122,7 +125,7 @@ async fn test_event_filter() {
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert!(!msg.is_edited());
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     let second_event_id = event_id!("$Ga6Y2l0gKY");
@@ -165,18 +168,21 @@ async fn test_event_filter() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 3);
+
+    assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
     let second_event = second.as_event().unwrap();
     assert_eq!(second_event.event_id(), Some(second_event_id));
     assert_eq!(second_event.read_receipts().len(), 1, "implicit read receipt");
 
     // The implicit read receipt of Alice is moving from Alice's message...
-    assert_let!(Some(VectorDiff::Set { index: 1, value: first }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 1, value: first } = &timeline_updates[1]);
     assert_eq!(first.as_event().unwrap().read_receipts().len(), 0, "no more implicit read receipt");
     // … to Alice's edit. But since this item isn't visible, it's lost in the weeds!
 
     // The edit is applied to the first event.
-    assert_let!(Some(VectorDiff::Set { index: 1, value: first }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 1, value: first } = &timeline_updates[2]);
     let first_event = first.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
     assert_matches!(first_event.latest_edit_json(), Some(_));
@@ -184,6 +190,8 @@ async fn test_event_filter() {
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hi");
     assert!(msg.is_edited());
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -203,8 +211,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().build().await.unwrap();
-    let (_, timeline_stream) = timeline.subscribe().await;
-    pin_mut!(timeline_stream);
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let alice = user_id!("@alice:example.org");
     let bob = user_id!("@bob:example.org");
@@ -228,21 +235,24 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(second_event_id));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(third_event_id));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 5);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(second_event_id));
+
+    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(first_event_id));
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(third_event_id));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
+
     assert_pending!(timeline_stream);
 
     sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
@@ -258,9 +268,11 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
     // The timeline has been emptied.
-    assert_next_matches!(timeline_stream, VectorDiff::Clear);
-    assert_pending!(timeline_stream);
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
 
     let fourth_event_id = event_id!("$YTQwYl2pl4");
     let fifth_event_id = event_id!("$YTQwYl2pl5");
@@ -278,21 +290,25 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 5);
+
     // Timeline receives events as before.
-    assert_next_matches!(timeline_stream, VectorDiff::Clear); // TODO: Remove `RoomEventCacheUpdate::Clear` as it creates double
-                                                              // `VectorDiff::Clear`.
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
-    });
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]); // TODO: Remove `RoomEventCacheUpdate::Clear` as it creates double
+                                                           // `VectorDiff::Clear`.
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
+
+    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
+
     assert_pending!(timeline_stream);
 }
 
@@ -313,8 +329,7 @@ async fn test_profile_updates() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().build().await.unwrap();
-    let (_, timeline_stream) = timeline.subscribe().await;
-    pin_mut!(timeline_stream);
+    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
 
     let alice = "@alice:example.org";
     let bob = "@bob:example.org";
@@ -351,19 +366,21 @@ async fn test_profile_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    let item_1 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 3);
+
+    assert_let!(VectorDiff::PushBack { value: item_1 } = &timeline_updates[0]);
     let event_1_item = item_1.as_event().unwrap();
     assert_eq!(event_1_item.event_id(), Some(event_1_id));
     assert_matches!(event_1_item.sender_profile(), TimelineDetails::Unavailable);
 
-    let item_2 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_let!(VectorDiff::PushBack { value: item_2 } = &timeline_updates[1]);
     let event_2_item = item_2.as_event().unwrap();
     assert_eq!(event_2_item.event_id(), Some(event_2_id));
     assert_matches!(event_2_item.sender_profile(), TimelineDetails::Unavailable);
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+    assert!(value.is_date_divider());
 
     assert_pending!(timeline_stream);
 
@@ -412,13 +429,15 @@ async fn test_profile_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 8);
+
     // Read receipt change.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(event_2_id));
-    });
+    assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(event_2_id));
 
     // The events are added.
-    let item_3 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_let!(VectorDiff::PushBack { value: item_3 } = &timeline_updates[1]);
     let event_3_item = item_3.as_event().unwrap();
     assert_eq!(event_3_item.event_id(), Some(event_3_id));
     let profile =
@@ -427,11 +446,10 @@ async fn test_profile_updates() {
     assert!(!profile.display_name_ambiguous);
 
     // Read receipt change.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(event_1_id));
-    });
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[2]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(event_1_id));
 
-    let item_4 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_let!(VectorDiff::PushBack { value: item_4 } = &timeline_updates[3]);
     let event_4_item = item_4.as_event().unwrap();
     assert_eq!(event_4_item.event_id(), Some(event_4_id));
     let profile =
@@ -440,11 +458,10 @@ async fn test_profile_updates() {
     assert!(!profile.display_name_ambiguous);
 
     // Read receipt change.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 4, value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(event_4_id));
-    });
+    assert_let!(VectorDiff::Set { index: 4, value } = &timeline_updates[4]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(event_4_id));
 
-    let item_5 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_let!(VectorDiff::PushBack { value: item_5 } = &timeline_updates[5]);
     let event_5_item = item_5.as_event().unwrap();
     assert_eq!(event_5_item.event_id(), Some(event_5_id));
     let profile =
@@ -453,8 +470,7 @@ async fn test_profile_updates() {
     assert!(!profile.display_name_ambiguous);
 
     // The profiles changed.
-    let item_1 =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
+    assert_let!(VectorDiff::Set { index: 1, value: item_1 } = &timeline_updates[6]);
     let event_1_item = item_1.as_event().unwrap();
     assert_eq!(event_1_item.event_id(), Some(event_1_id));
     let profile =
@@ -462,16 +478,13 @@ async fn test_profile_updates() {
     assert_eq!(profile.display_name.as_deref(), Some("Alice"));
     assert!(!profile.display_name_ambiguous);
 
-    let item_2 =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => value);
+    assert_let!(VectorDiff::Set { index: 2, value: item_2 } = &timeline_updates[7]);
     let event_2_item = item_2.as_event().unwrap();
     assert_eq!(event_2_item.event_id(), Some(event_2_id));
     let profile =
         assert_matches!(event_2_item.sender_profile(), TimelineDetails::Ready(profile) => profile);
     assert_eq!(profile.display_name.as_deref(), Some("Member"));
     assert!(!profile.display_name_ambiguous);
-
-    assert_pending!(timeline_stream);
 
     // Change name to be ambiguous.
     let event_6_id = event_id!("$YTQwYl2pl6");
@@ -494,13 +507,15 @@ async fn test_profile_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 7);
+
     // Read receipt change.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 5, value } => {
-        assert_eq!(value.as_event().unwrap().event_id(), Some(event_5_id));
-    });
+    assert_let!(VectorDiff::Set { index: 5, value } = &timeline_updates[0]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(event_5_id));
 
     // The event is added.
-    let item_6 = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_let!(VectorDiff::PushBack { value: item_6 } = &timeline_updates[1]);
     let event_6_item = item_6.as_event().unwrap();
     assert_eq!(event_6_item.event_id(), Some(event_6_id));
     let profile =
@@ -509,8 +524,7 @@ async fn test_profile_updates() {
     assert!(profile.display_name_ambiguous);
 
     // The profiles changed.
-    let item_1 =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => value);
+    assert_let!(VectorDiff::Set { index: 1, value: item_1 } = &timeline_updates[2]);
     let event_1_item = item_1.as_event().unwrap();
     assert_eq!(event_1_item.event_id(), Some(event_1_id));
     let profile =
@@ -518,8 +532,7 @@ async fn test_profile_updates() {
     assert_eq!(profile.display_name.as_deref(), Some("Member"));
     assert!(profile.display_name_ambiguous);
 
-    let item_2 =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => value);
+    assert_let!(VectorDiff::Set { index: 2, value: item_2 } = &timeline_updates[3]);
     let event_2_item = item_2.as_event().unwrap();
     assert_eq!(event_2_item.event_id(), Some(event_2_id));
     let profile =
@@ -527,8 +540,7 @@ async fn test_profile_updates() {
     assert_eq!(profile.display_name.as_deref(), Some("Member"));
     assert!(profile.display_name_ambiguous);
 
-    let item_3 =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 3, value } => value);
+    assert_let!(VectorDiff::Set { index: 3, value: item_3 } = &timeline_updates[4]);
     let event_3_item = item_3.as_event().unwrap();
     assert_eq!(event_3_item.event_id(), Some(event_3_id));
     let profile =
@@ -536,8 +548,7 @@ async fn test_profile_updates() {
     assert_eq!(profile.display_name.as_deref(), Some("Member"));
     assert!(profile.display_name_ambiguous);
 
-    let item_4 =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 4, value } => value);
+    assert_let!(VectorDiff::Set { index: 4, value: item_4 } = &timeline_updates[5]);
     let event_4_item = item_4.as_event().unwrap();
     assert_eq!(event_4_item.event_id(), Some(event_4_id));
     let profile =
@@ -545,8 +556,7 @@ async fn test_profile_updates() {
     assert_eq!(profile.display_name.as_deref(), Some("Member"));
     assert!(profile.display_name_ambiguous);
 
-    let item_5 =
-        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 5, value } => value);
+    assert_let!(VectorDiff::Set { index: 5, value: item_5 } = &timeline_updates[6]);
     let event_5_item = item_5.as_event().unwrap();
     assert_eq!(event_5_item.event_id(), Some(event_5_id));
     let profile =
