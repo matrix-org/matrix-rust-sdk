@@ -62,9 +62,9 @@ use crate::{
         },
         event_item::{PollState, RemoteEventOrigin, ResponseData},
         item::TimelineUniqueId,
-        reactions::Reactions,
+        reactions::{PendingReaction, Reactions},
         traits::RoomDataProvider,
-        Profile, TimelineItem, TimelineItemKind,
+        Profile, ReactionStatus, TimelineItem, TimelineItemKind,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -794,7 +794,39 @@ impl TimelineStateTransaction<'_> {
         if let Some(event_meta) = self.items.all_remote_events().get(event_index) {
             // Fetch the `timeline_item_index` associated to the remote event.
             if let Some(timeline_item_index) = event_meta.timeline_item_index {
-                let _removed_timeline_item = self.items.remove(timeline_item_index);
+                let removed_timeline_item = self.items.remove(timeline_item_index);
+
+                // Restash reactions, if there were any.
+                if let Some(event_item) = removed_timeline_item.as_event() {
+                    if let Some(event_id) = event_item.event_id() {
+                        let target_event = event_id.to_owned();
+
+                        for (key, user_to_reaction) in event_item.reactions().iter() {
+                            for (user_id, reaction_info) in user_to_reaction {
+                                let reaction_event = match &reaction_info.status {
+                                    ReactionStatus::LocalToLocal(_)
+                                    | ReactionStatus::LocalToRemote(_) => continue,
+                                    ReactionStatus::RemoteToRemote(event) => event,
+                                };
+
+                                let pending_reaction = PendingReaction {
+                                    key: key.to_owned(),
+                                    sender_id: user_id.to_owned(),
+                                    timestamp: reaction_info.timestamp,
+                                };
+
+                                self.meta
+                                    .reactions
+                                    .pending
+                                    .entry(target_event.clone())
+                                    .or_default()
+                                    .insert(reaction_event.to_owned(), pending_reaction);
+                            }
+                        }
+                    }
+                }
+
+                // TODO restash poll responses/ends, edits. etc.?
             }
 
             // Now we can remove the remote event.
