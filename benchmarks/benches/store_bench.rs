@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::StoreConfig,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, RoomInfo, RoomState, StateChanges,
 };
 use matrix_sdk_base::{store::MemoryStore, SessionMeta, StateStore as _};

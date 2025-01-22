@@ -18,8 +18,8 @@ use matrix_sdk_base::{store::StoreConfig, SessionMeta};
 use ruma::{api::MatrixVersion, device_id, user_id};
 
 use crate::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     Client, ClientBuilder,
 };
 

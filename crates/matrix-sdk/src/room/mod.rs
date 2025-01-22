@@ -3702,8 +3702,8 @@ mod tests {
 
     use super::ReportedContentScore;
     use crate::{
+        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        matrix_auth::{MatrixSession, MatrixSessionTokens},
         test_utils::{logged_in_client, mocks::MatrixMockServer},
         Client,
     };

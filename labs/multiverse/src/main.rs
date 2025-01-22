@@ -17,9 +17,9 @@ use crossterm::{
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use matrix_sdk::{
+    authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
-    matrix_auth::MatrixSession,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{MessageType, RoomMessageEventContent},

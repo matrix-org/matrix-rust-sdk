@@ -7,9 +7,9 @@ use assert_matches2::assert_matches;
 use futures_util::FutureExt;
 use imbl::HashSet;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
     encryption::VerificationState,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::logged_in_client_with_server,
     Client,
 };
