@@ -1350,30 +1350,30 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         content: &TimelineItemContent,
     ) -> Option<ReactionsByKeyBySender> {
+        let event_id = self.ctx.flow.event_id()?;
+        let reactions = self.meta.reactions.pending.remove(event_id)?;
+
         // Drop pending reactions if the message is redacted.
         if let TimelineItemContent::RedactedMessage = content {
             return None;
         }
 
-        self.ctx.flow.event_id().and_then(|event_id| {
-            let reactions = self.meta.reactions.pending.remove(event_id)?;
-            let mut bundled = ReactionsByKeyBySender::default();
+        let mut bundled = ReactionsByKeyBySender::default();
 
-            for (reaction_event_id, reaction) in reactions {
-                let group: &mut IndexMap<OwnedUserId, ReactionInfo> =
-                    bundled.entry(reaction.key).or_default();
+        for (reaction_event_id, reaction) in reactions {
+            let group: &mut IndexMap<OwnedUserId, ReactionInfo> =
+                bundled.entry(reaction.key).or_default();
 
-                group.insert(
-                    reaction.sender_id,
-                    ReactionInfo {
-                        timestamp: reaction.timestamp,
-                        status: ReactionStatus::RemoteToRemote(reaction_event_id),
-                    },
-                );
-            }
+            group.insert(
+                reaction.sender_id,
+                ReactionInfo {
+                    timestamp: reaction.timestamp,
+                    status: ReactionStatus::RemoteToRemote(reaction_event_id),
+                },
+            );
+        }
 
-            Some(bundled)
-        })
+        Some(bundled)
     }
 }
 
