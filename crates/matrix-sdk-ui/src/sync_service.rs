@@ -520,7 +520,7 @@ impl TerminationReport {
 // Testing helpers, mostly.
 #[doc(hidden)]
 impl SyncService {
-    /// Return the existential states of internal tasks.
+    /// Is the task supervisor running?
     pub async fn is_supervisor_running(&self) -> bool {
         self.inner.lock().await.supervisor.is_some()
     }
