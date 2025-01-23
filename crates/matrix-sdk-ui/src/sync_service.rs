@@ -329,6 +329,11 @@ struct SyncServiceInner {
 /// with a Matrix server. It can initiate and maintain the necessary
 /// synchronization tasks for you.
 ///
+/// **Note**: The [`SyncService`] requires a server with support for [MSC4186],
+/// otherwise it will fail with an 404 `M_UNRECOGNIZED` request error.
+///
+/// [MSC4186]: https://github.com/matrix-org/matrix-spec-proposals/pull/4186/
+///
 /// # Example
 ///
 /// ```no_run
