@@ -77,13 +77,23 @@ struct SyncTaskSupervisor {
 }
 
 impl SyncTaskSupervisor {
-    async fn new(inner: &SyncServiceInner) -> Self {
+    async fn new(
+        inner: &SyncServiceInner,
+        room_list_service: Arc<RoomListService>,
+        encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    ) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(16);
-        let (room_list_task, encryption_sync_task) =
-            Self::spawn_child_tasks(inner, sender.clone()).await;
+        let (room_list_task, encryption_sync_task) = Self::spawn_child_tasks(
+            inner,
+            room_list_service.clone(),
+            encryption_sync_permit,
+            sender.clone(),
+        )
+        .await;
 
         let task = spawn(Self::spawn_supervisor_task(
             inner,
+            room_list_service,
             room_list_task,
             encryption_sync_task,
             receiver,
@@ -98,12 +108,12 @@ impl SyncTaskSupervisor {
     /// other one too).
     fn spawn_supervisor_task(
         inner: &SyncServiceInner,
+        room_list_service: Arc<RoomListService>,
         room_list_task: JoinHandle<()>,
         encryption_sync_task: JoinHandle<()>,
         mut receiver: Receiver<TerminationReport>,
     ) -> impl Future<Output = ()> {
         let encryption_sync = inner.encryption_sync_service.clone();
-        let room_list_service = inner.room_list_service.clone();
         let state = inner.state.clone();
 
         async move {
@@ -168,14 +178,15 @@ impl SyncTaskSupervisor {
 
     async fn spawn_child_tasks(
         inner: &SyncServiceInner,
+        room_list_service: Arc<RoomListService>,
+        encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
         sender: Sender<TerminationReport>,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         // First, take care of the room list.
-        let room_list_task =
-            spawn(Self::room_list_sync_task(inner.room_list_service.clone(), sender.clone()));
+        let room_list_task = spawn(Self::room_list_sync_task(room_list_service, sender.clone()));
 
         // Then, take care of the encryption sync.
-        let sync_permit_guard = inner.encryption_sync_permit.clone().lock_owned().await;
+        let sync_permit_guard = encryption_sync_permit.clone().lock_owned().await;
         let encryption_sync_task = spawn(Self::encryption_sync_task(
             inner.encryption_sync_service.clone(),
             sender.clone(),
@@ -308,10 +319,8 @@ impl SyncTaskSupervisor {
 }
 
 struct SyncServiceInner {
-    room_list_service: Arc<RoomListService>,
     encryption_sync_service: Arc<EncryptionSyncService>,
     state: SharedObservable<State>,
-    encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
     /// Supervisor task ensuring proper termination.
     ///
     /// This task is waiting for a [`TerminationReport`] from any of the other
@@ -423,7 +432,14 @@ impl SyncService {
             State::Idle | State::Terminated | State::Error => {
                 trace!("starting sync service");
 
-                inner.supervisor = Some(SyncTaskSupervisor::new(&inner).await);
+                inner.supervisor = Some(
+                    SyncTaskSupervisor::new(
+                        &inner,
+                        self.room_list_service.clone(),
+                        self.encryption_sync_permit.clone(),
+                    )
+                    .await,
+                );
                 inner.state.set(State::Running);
             }
         }
@@ -557,15 +573,12 @@ impl SyncServiceBuilder {
 
         Ok(SyncService {
             state: state.clone(),
-            room_list_service: room_list_service.clone(),
-            encryption_sync_permit: encryption_sync_permit.clone(),
-
+            room_list_service,
+            encryption_sync_permit,
             inner: Arc::new(AsyncMutex::new(SyncServiceInner {
                 supervisor: None,
-                room_list_service,
                 encryption_sync_service: encryption_sync,
                 state,
-                encryption_sync_permit,
             })),
         })
     }
