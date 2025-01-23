@@ -66,10 +66,16 @@ pub enum State {
     Error,
 }
 
-/// A supervisor that starts two sync tasks, one for the room list and one for
-/// the end-to-end encryption support.
+/// A supervisor responsible for managing two sync tasks: one for handling the
+/// room list and another for supporting end-to-end encryption.
+///
+/// The two sync tasks are spawned as child tasks and are contained within t
+/// supervising task, which is stored in the [`SyncTaskSupervisor::task`] field.
+///
+/// The supervisor ensures the two child tasks are managed as a single unit,
+/// allowing for them to be shutdown in unison.
 struct SyncTaskSupervisor {
-    /// The task that supervises the two sync tasks.
+    /// The supervising task that manages and contains the two sync child tasks.
     task: JoinHandle<()>,
     /// [`TerminationReport`] sender for the [`SyncTaskSupervisor::shutdown()`]
     /// function.
