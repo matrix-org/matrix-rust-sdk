@@ -36,6 +36,7 @@ use ruma::{
     OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use tracing::warn;
+use unicode_segmentation::UnicodeSegmentation;
 
 mod content;
 mod local;
@@ -439,6 +440,19 @@ impl EventTimelineItem {
                 code: ShieldStateCode::SentInClear,
                 message: SENT_IN_CLEAR,
             }),
+        }
+    }
+
+    pub fn should_boost(&self) -> bool {
+        match self.content() {
+            TimelineItemContent::Message(msg) => match msg.msgtype() {
+                MessageType::Text(text) => {
+                    let graphmes = text.body.graphemes(true).collect::<Vec<&str>>();
+                    graphmes.iter().all(|g| emojis::get(g).is_some())
+                }
+                _ => false,
+            },
+            _ => false,
         }
     }
 
@@ -1058,6 +1072,45 @@ mod tests {
                 avatar_url: Some(owned_mxc_uri!("mxc://e.org/SEs"))
             }
         );
+    }
+
+    #[async_test]
+    async fn test_emoji_detection() {
+        let room_id = room_id!("!q:x.uk");
+        let user_id = user_id!("@t:o.uk");
+        let client = logged_in_client(None).await;
+
+        let mut event = message_event(room_id, user_id, "🤷‍♂️ No boost 🤷‍♂️", "", 0);
+        let mut timeline_item =
+            EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
+
+        assert!(!timeline_item.should_boost());
+
+        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "", 0);
+        timeline_item =
+            EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
+
+        assert!(timeline_item.should_boost());
+
+        event = message_event(room_id, user_id, "0", "", 0);
+        timeline_item =
+            EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
+
+        assert!(!timeline_item.should_boost());
+
+        event = message_event(room_id, user_id, "0*", "", 0);
+        timeline_item =
+            EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
+
+        assert!(!timeline_item.should_boost());
     }
 
     fn member_event(

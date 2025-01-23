@@ -51,6 +51,9 @@ tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization = { workspace = true }
 uniffi = { workspace = true, optional = true }
 
+emojis = "0.6.4"
+unicode-segmentation = "1.12.0"
+
 [dev-dependencies]
 anyhow = { workspace = true }
 assert-json-diff = { workspace = true }
