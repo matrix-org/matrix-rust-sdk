@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 
-use crate::timeline::PollState;
+use crate::timeline::{PollState, TimelineItemContent};
 
 #[derive(Clone, Debug)]
 pub(crate) enum Aggregation {
@@ -31,13 +31,30 @@ pub(crate) enum Aggregation {
     },
 }
 
+fn poll_state_from_item(
+    content: &mut TimelineItemContent,
+) -> Result<&mut PollState, AggregationError> {
+    match content {
+        TimelineItemContent::Poll(state) => Ok(state),
+        c => Err(AggregationError::InvalidType {
+            expected: "a poll".to_owned(),
+            actual: c.debug_string().to_owned(),
+        }),
+    }
+}
+
 impl Aggregation {
-    pub fn apply_poll(&self, poll_state: &mut PollState) -> Result<(), AggregationError> {
+    pub fn apply(&self, content: &mut TimelineItemContent) -> Result<(), AggregationError> {
         match self {
             Aggregation::PollResponse { sender, timestamp, answers } => {
-                poll_state.add_response(sender.clone(), *timestamp, answers.clone());
+                poll_state_from_item(content)?.add_response(
+                    sender.clone(),
+                    *timestamp,
+                    answers.clone(),
+                );
             }
             Aggregation::PollEnd { end_date } => {
+                let poll_state = poll_state_from_item(content)?;
                 if !poll_state.end(*end_date) {
                     return Err(AggregationError::PollAlreadyEnded);
                 }
@@ -61,18 +78,18 @@ impl Aggregations {
         self.stashed.entry(event_id).or_default().push(aggregation);
     }
 
-    pub fn apply_poll(
+    pub fn apply(
         &self,
         event_id: &EventId,
-        poll_state: &mut PollState,
-    ) -> Result<(), AggregationError> {
+        content: &mut TimelineItemContent,
+    ) -> Result<bool, AggregationError> {
         let Some(aggregations) = self.stashed.get(event_id) else {
-            return Ok(());
+            return Ok(false);
         };
         for a in aggregations {
-            a.apply_poll(poll_state)?;
+            a.apply(content)?;
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -80,4 +97,7 @@ impl Aggregations {
 pub(crate) enum AggregationError {
     #[error("trying to end a poll twice")]
     PollAlreadyEnded,
+
+    #[error("trying to apply an aggregation of one type to an invalid target: expected {expected}, actual {actual}")]
+    InvalidType { expected: String, actual: String },
 }
