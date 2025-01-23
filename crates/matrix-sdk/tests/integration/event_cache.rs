@@ -9,7 +9,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
-    deserialized_responses::SyncTimelineEvent,
+    deserialized_responses::TimelineEvent,
     event_cache::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, PaginationToken,
         RoomEventCacheUpdate, TimelineHasBeenResetWhilePaginating,
@@ -204,7 +204,7 @@ async fn test_ignored_unignored() {
 
 /// Small helper for backpagination tests, to wait for things to stabilize.
 async fn wait_for_initial_events(
-    events: Vec<SyncTimelineEvent>,
+    events: Vec<TimelineEvent>,
     room_stream: &mut broadcast::Receiver<RoomEventCacheUpdate>,
 ) {
     if events.is_empty() {

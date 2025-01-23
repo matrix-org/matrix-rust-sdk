@@ -14,8 +14,8 @@
 
 use assert_matches2::assert_let;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     encryption::CrossSigningResetAuthType,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::no_retry_test_client_with_server,
     SessionMeta,
 };
@@ -129,8 +129,8 @@ async fn test_reset_oidc() {
         registration::{ClientMetadata, VerifiedClientMetadata},
     };
     use matrix_sdk::{
+        authentication::oidc::{OidcSession, OidcSessionTokens, UserSession},
         encryption::CrossSigningResetAuthType,
-        oidc::{OidcSession, OidcSessionTokens, UserSession},
     };
     use similar_asserts::assert_eq;
     use url::Url;

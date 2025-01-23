@@ -33,8 +33,8 @@ use url::Url;
 pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
 
 #[cfg(doc)]
-use crate::oidc::Oidc;
-use crate::{oidc::CrossProcessRefreshLockError, HttpError};
+use crate::authentication::oidc::Oidc;
+use crate::{authentication::oidc::CrossProcessRefreshLockError, HttpError};
 
 mod login;
 mod messages;
@@ -113,7 +113,7 @@ pub enum DeviceAuhorizationOidcError {
     /// A generic OIDC error happened while we were attempting to register the
     /// device with the OIDC provider.
     #[error(transparent)]
-    Oidc(#[from] crate::oidc::OidcError),
+    Oidc(#[from] crate::authentication::oidc::OidcError),
 
     /// The issuer URL failed to be parsed.
     #[error(transparent)]

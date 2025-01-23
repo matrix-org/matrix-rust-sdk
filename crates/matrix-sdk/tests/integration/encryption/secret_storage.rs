@@ -2,8 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use assert_matches::assert_matches;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     encryption::secret_storage::SecretStorageError,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::no_retry_test_client_with_server,
 };
 use matrix_sdk_base::SessionMeta;

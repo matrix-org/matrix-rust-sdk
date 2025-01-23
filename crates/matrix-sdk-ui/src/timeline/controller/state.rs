@@ -22,9 +22,8 @@ use std::{
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::{
-    deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
+    deserialized_responses::TimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
 };
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
@@ -139,7 +138,7 @@ impl TimelineState {
     ) -> HandleManyEventsResult
     where
         Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        <Events as IntoIterator>::Item: Into<TimelineEvent>,
         RoomData: RoomDataProvider,
     {
         if events.len() == 0 {
@@ -157,7 +156,7 @@ impl TimelineState {
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs<RoomData>(
         &mut self,
-        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
         room_data: &RoomData,
         settings: &TimelineSettings,
@@ -280,7 +279,7 @@ impl TimelineState {
 
             let handle_one_res = txn
                 .handle_remote_event(
-                    event.into(),
+                    event,
                     TimelineItemPosition::UpdateAt { timeline_item_index: idx },
                     room_data_provider,
                     settings,
@@ -331,7 +330,7 @@ impl TimelineState {
     ) -> HandleManyEventsResult
     where
         Events: IntoIterator,
-        Events::Item: Into<SyncTimelineEvent>,
+        Events::Item: Into<TimelineEvent>,
         RoomData: RoomDataProvider,
     {
         let mut txn = self.transaction();
@@ -397,7 +396,7 @@ impl TimelineStateTransaction<'_> {
     ) -> HandleManyEventsResult
     where
         Events: IntoIterator,
-        Events::Item: Into<SyncTimelineEvent>,
+        Events::Item: Into<TimelineEvent>,
         RoomData: RoomDataProvider,
     {
         let mut total = HandleManyEventsResult::default();
@@ -439,7 +438,7 @@ impl TimelineStateTransaction<'_> {
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs<RoomData>(
         &mut self,
-        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
         room_data_provider: &RoomData,
         settings: &TimelineSettings,
@@ -559,13 +558,13 @@ impl TimelineStateTransaction<'_> {
     /// Returns the number of timeline updates that were made.
     async fn handle_remote_event<P: RoomDataProvider>(
         &mut self,
-        event: SyncTimelineEvent,
+        event: TimelineEvent,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> HandleEventResult {
-        let SyncTimelineEvent { push_actions, kind } = event;
+        let TimelineEvent { push_actions, kind } = event;
         let encryption_info = kind.encryption_info().cloned();
 
         let (raw, utd_info) = match kind {
@@ -758,7 +757,9 @@ impl TimelineStateTransaction<'_> {
             } else {
                 Default::default()
             },
-            is_highlighted: push_actions.iter().any(Action::is_highlight),
+            is_highlighted: push_actions
+                .as_ref()
+                .is_some_and(|actions| actions.iter().any(Action::is_highlight)),
             flow: Flow::Remote {
                 event_id: event_id.clone(),
                 raw_event: raw,

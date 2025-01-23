@@ -17,9 +17,9 @@ use crossterm::{
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use matrix_sdk::{
+    authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
-    matrix_auth::MatrixSession,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{MessageType, RoomMessageEventContent},
@@ -267,7 +267,7 @@ impl App {
 
                     // Save the timeline in the cache.
                     let sdk_timeline = ui_room.timeline().unwrap();
-                    let (items, stream) = sdk_timeline.subscribe().await;
+                    let (items, stream) = sdk_timeline.subscribe_batched().await;
                     let items = Arc::new(Mutex::new(items));
 
                     // Spawn a timeline task that will listen to all the timeline item changes.
@@ -275,9 +275,12 @@ impl App {
                     let timeline_task = spawn(async move {
                         pin_mut!(stream);
                         let items = i;
-                        while let Some(diff) = stream.next().await {
+                        while let Some(diffs) = stream.next().await {
                             let mut items = items.lock().unwrap();
-                            diff.apply(&mut items);
+
+                            for diff in diffs {
+                                diff.apply(&mut items);
+                            }
                         }
                     });
 

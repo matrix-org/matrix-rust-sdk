@@ -35,7 +35,7 @@ use tracing::trace;
 
 use super::super::Client;
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::OidcError;
+use crate::authentication::oidc::OidcError;
 use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},

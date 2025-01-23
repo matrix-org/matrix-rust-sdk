@@ -127,14 +127,17 @@ impl EventTimelineItem {
         Self { sender, sender_profile, timestamp, content, reactions, kind, is_room_encrypted }
     }
 
-    /// If the supplied low-level `SyncTimelineEvent` is suitable for use as the
-    /// `latest_event` in a message preview, wrap it as an `EventTimelineItem`.
+    /// If the supplied low-level [`TimelineEvent`] is suitable for use as the
+    /// `latest_event` in a message preview, wrap it as an
+    /// `EventTimelineItem`.
     ///
     /// **Note:** Timeline items created via this constructor do **not** produce
     /// the correct ShieldState when calling
     /// [`get_shield`][EventTimelineItem::get_shield]. This is because they are
     /// intended for display in the room list which a) is unlikely to show
     /// shields and b) would incur a significant performance overhead.
+    ///
+    /// [`TimelineEvent`]: matrix_sdk::deserialized_responses::TimelineEvent
     pub async fn from_latest_event(
         client: Client,
         room_id: &RoomId,
@@ -754,7 +757,7 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk::test_utils::logged_in_client;
     use matrix_sdk_base::{
-        deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, sliding_sync::http,
+        deserialized_responses::TimelineEvent, latest_event::LatestEvent, sliding_sync::http,
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
     use matrix_sdk_test::{
@@ -844,7 +847,7 @@ mod tests {
         client.process_sliding_sync_test_helper(&response).await.unwrap();
 
         // When we construct a timeline event from it
-        let event = SyncTimelineEvent::new(raw_event.cast());
+        let event = TimelineEvent::new(raw_event.cast());
         let timeline_item =
             EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
                 .await
@@ -891,7 +894,7 @@ mod tests {
             .event_id(original_event_id)
             .bundled_relations(relations)
             .server_ts(42)
-            .into_sync();
+            .into_event();
 
         let client = logged_in_client(None).await;
 
@@ -947,7 +950,7 @@ mod tests {
             .event_id(original_event_id)
             .bundled_relations(relations)
             .sender(user_id)
-            .into_sync();
+            .into_event();
 
         let client = logged_in_client(None).await;
 
@@ -1121,8 +1124,8 @@ mod tests {
         body: &str,
         formatted_body: &str,
         ts: u64,
-    ) -> SyncTimelineEvent {
-        SyncTimelineEvent::new(sync_timeline_event!({
+    ) -> TimelineEvent {
+        TimelineEvent::new(sync_timeline_event!({
             "event_id": "$eventid6",
             "sender": user_id,
             "origin_server_ts": ts,

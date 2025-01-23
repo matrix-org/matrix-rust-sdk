@@ -18,7 +18,7 @@ use anyhow::{Context as _, Result};
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
-use futures_util::{pin_mut, FutureExt, Stream, StreamExt};
+use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
     test_utils::logged_in_client_with_server, Client, SlidingSync, SlidingSyncList,
     SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
@@ -71,17 +71,17 @@ pub(crate) use timeline_event;
 
 macro_rules! assert_timeline_stream {
     // `--- date divider ---`
-    ( @_ [ $stream:ident ] [ --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $iterator:ident ] [ --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
-            [ $stream ]
+            [ $iterator ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::PushBack { value })) => {
+                        $iterator .next(),
+                        Some(VectorDiff::PushBack { value }) => {
                             assert_matches!(
                                 **value,
                                 TimelineItemKind::Virtual(
@@ -96,17 +96,17 @@ macro_rules! assert_timeline_stream {
     };
 
     // `append "$event_id"`
-    ( @_ [ $stream:ident ] [ append $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $iterator:ident ] [ append $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
-            [ $stream ]
+            [ $iterator ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::PushBack { value })) => {
+                        $iterator .next(),
+                        Some(VectorDiff::PushBack { value }) => {
                             assert_matches!(
                                 &**value,
                                 TimelineItemKind::Event(event_timeline_item) => {
@@ -121,17 +121,17 @@ macro_rules! assert_timeline_stream {
     };
 
     // `prepend --- date divider ---`
-    ( @_ [ $stream:ident ] [ prepend --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $iterator:ident ] [ prepend --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
-            [ $stream ]
+            [ $iterator ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::PushFront { value })) => {
+                        $iterator .next(),
+                        Some(VectorDiff::PushFront { value }) => {
                             assert_matches!(
                                 &**value,
                                 TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)) => {}
@@ -145,17 +145,17 @@ macro_rules! assert_timeline_stream {
 
 
     // `insert [$nth] "$event_id"`
-    ( @_ [ $stream:ident ] [ insert [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $iterator:ident ] [ insert [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
-            [ $stream ]
+            [ $iterator ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::Insert { index: $index, value })) => {
+                        $iterator .next(),
+                        Some(VectorDiff::Insert { index: $index, value }) => {
                             assert_matches!(
                                 &**value,
                                 TimelineItemKind::Event(event_timeline_item) => {
@@ -170,17 +170,17 @@ macro_rules! assert_timeline_stream {
     };
 
     // `update [$nth] "$event_id"`
-    ( @_ [ $stream:ident ] [ update [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $iterator:ident ] [ update [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
-            [ $stream ]
+            [ $iterator ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::Set { index: $index, value })) => {
+                        $iterator .next(),
+                        Some(VectorDiff::Set { index: $index, value }) => {
                             assert_matches!(
                                 &**value,
                                 TimelineItemKind::Event(event_timeline_item) => {
@@ -195,17 +195,17 @@ macro_rules! assert_timeline_stream {
     };
 
     // `remove [$nth]`
-    ( @_ [ $stream:ident ] [ remove [$index:literal] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+    ( @_ [ $iterator:ident ] [ remove [$index:literal] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
             @_
-            [ $stream ]
+            [ $iterator ]
             [ $( $rest )* ]
             [
                 $( $accumulator )*
                 {
                     assert_matches!(
-                        $stream.next().now_or_never(),
-                        Some(Some(VectorDiff::Remove { index: $index }))
+                        $iterator .next(),
+                        Some(VectorDiff::Remove { index: $index })
                     );
                 }
             ]
@@ -217,7 +217,13 @@ macro_rules! assert_timeline_stream {
     };
 
     ( [ $stream:ident ] $( $all:tt )* ) => {
-        assert_timeline_stream!( @_ [ $stream ] [ $( $all )* ] [] )
+        let mut timeline_updates = $stream
+            .next()
+            .await
+            .expect("Failed to poll the stream")
+            .into_iter();
+
+        assert_timeline_stream!( @_ [ timeline_updates ] [ $( $all )* ] [] )
     };
 }
 
@@ -273,7 +279,7 @@ async fn timeline_test_helper(
     client: &Client,
     sliding_sync: &SlidingSync,
     room_id: &RoomId,
-) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>)> {
+) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>)> {
     let sliding_sync_room = sliding_sync.get_room(room_id).await.unwrap();
 
     let room_id = sliding_sync_room.room_id();
@@ -283,7 +289,7 @@ async fn timeline_test_helper(
 
     let timeline = Timeline::builder(&sdk_room).track_read_marker_and_receipts().build().await?;
 
-    Ok(timeline.subscribe().await)
+    Ok(timeline.subscribe_batched().await)
 }
 
 struct SlidingSyncMatcher;
@@ -498,11 +504,12 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
             }
         };
 
-        assert_let!(
-            Some(Some(VectorDiff::Set { index: 2, value })) = timeline_stream.next().now_or_never()
-        );
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 1);
 
-        assert_let!(TimelineItemKind::Event(event_timeline_item) = &**value);
+        assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
+
+        assert_let!(TimelineItemKind::Event(event_timeline_item) = &***value);
         assert_eq!(event_timeline_item.event_id().unwrap().as_str(), "$x2:bar.org");
 
         let read_receipts = event_timeline_item.read_receipts();

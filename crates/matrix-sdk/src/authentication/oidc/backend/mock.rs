@@ -37,7 +37,7 @@ use mas_oidc_client::{
 use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
-use crate::oidc::{AuthorizationCode, OidcSessionTokens};
+use crate::authentication::oidc::{AuthorizationCode, OidcSessionTokens};
 
 pub(crate) const ISSUER_URL: &str = "https://oidc.example.com/issuer";
 pub(crate) const AUTHORIZATION_URL: &str = "https://oidc.example.com/authorization";

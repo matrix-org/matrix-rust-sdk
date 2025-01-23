@@ -233,4 +233,4 @@ is **not** supported using the default store.
 [`StoreConfig`]: crate::config::StoreConfig
 [`ClientBuilder`]: crate::ClientBuilder
 [`ClientBuilder::store_config`]: crate::ClientBuilder::store_config
-[`MatrixAuth::login_username()`]: crate::matrix_auth::MatrixAuth::login_username
+[`MatrixAuth::login_username()`]: crate::authentication::matrix::MatrixAuth::login_username

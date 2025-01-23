@@ -251,7 +251,7 @@ async fn test_no_read_marker_with_local_echo() {
                 .sender(user_id!("@a:b.c"))
                 .event_id(event_id)
                 .server_ts(MilliSecondsSinceUnixEpoch::now())
-                .into_sync()]
+                .into_event()]
             .into_iter(),
             RemoteEventOrigin::Sync,
         )

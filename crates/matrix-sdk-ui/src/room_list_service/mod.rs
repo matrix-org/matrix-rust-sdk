@@ -469,8 +469,8 @@ mod tests {
     use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
     use matrix_sdk::{
+        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        matrix_auth::{MatrixSession, MatrixSessionTokens},
         reqwest::Url,
         sliding_sync::Version as SlidingSyncVersion,
         Client, SlidingSyncMode,

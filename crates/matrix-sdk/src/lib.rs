@@ -45,11 +45,8 @@ mod error;
 pub mod event_cache;
 pub mod event_handler;
 mod http_client;
-pub mod matrix_auth;
 pub mod media;
 pub mod notification_settings;
-#[cfg(feature = "experimental-oidc")]
-pub mod oidc;
 pub mod pusher;
 pub mod room;
 pub mod room_directory_search;

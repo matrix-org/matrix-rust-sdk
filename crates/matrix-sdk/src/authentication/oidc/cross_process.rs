@@ -264,7 +264,7 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        oidc::{
+        authentication::oidc::{
             backend::mock::{MockImpl, ISSUER_URL},
             cross_process::SessionHash,
             tests,

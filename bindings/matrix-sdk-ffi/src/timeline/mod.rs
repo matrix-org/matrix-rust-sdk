@@ -79,6 +79,7 @@ use crate::{
     RUNTIME,
 };
 
+pub mod configuration;
 mod content;
 
 pub use content::MessageContent;
@@ -1320,22 +1321,5 @@ impl LazyTimelineItemProvider {
     /// remote echoes.
     fn get_send_handle(&self) -> Option<Arc<SendHandle>> {
         self.0.local_echo_send_handle().map(|handle| Arc::new(SendHandle::new(handle)))
-    }
-}
-
-/// Changes how date dividers get inserted, either in between each day or in
-/// between each month
-#[derive(Debug, Clone, uniffi::Enum)]
-pub enum DateDividerMode {
-    Daily,
-    Monthly,
-}
-
-impl From<DateDividerMode> for matrix_sdk_ui::timeline::DateDividerMode {
-    fn from(value: DateDividerMode) -> Self {
-        match value {
-            DateDividerMode::Daily => Self::Daily,
-            DateDividerMode::Monthly => Self::Monthly,
-        }
     }
 }

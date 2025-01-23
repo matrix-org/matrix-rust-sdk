@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use events::Gap;
 use matrix_sdk_base::{
-    deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
+    deserialized_responses::{AmbiguityChange, TimelineEvent},
     linked_chunk::ChunkContent,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
@@ -77,9 +77,7 @@ impl RoomEventCache {
 
     /// Subscribe to this room updates, after getting the initial list of
     /// events.
-    pub async fn subscribe(
-        &self,
-    ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
+    pub async fn subscribe(&self) -> Result<(Vec<TimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
         let state = self.inner.state.read().await;
         let events = state.events().events().map(|(_position, item)| item.clone()).collect();
 
@@ -93,7 +91,7 @@ impl RoomEventCache {
     }
 
     /// Try to find an event by id in this room.
-    pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
+    pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
         if let Some((room_id, event)) =
             self.inner.all_events.read().await.events.get(event_id).cloned()
         {
@@ -119,7 +117,7 @@ impl RoomEventCache {
         &self,
         event_id: &EventId,
         filter: Option<Vec<RelationType>>,
-    ) -> Option<(SyncTimelineEvent, Vec<SyncTimelineEvent>)> {
+    ) -> Option<(TimelineEvent, Vec<TimelineEvent>)> {
         let cache = self.inner.all_events.read().await;
         if let Some((_, event)) = cache.events.get(event_id) {
             let related_events = cache.collect_related_events(event_id, filter.as_deref());
@@ -155,7 +153,7 @@ impl RoomEventCache {
     // TODO: This doesn't insert the event into the linked chunk. In the future
     // there'll be no distinction between the linked chunk and the separate
     // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
-    pub(crate) async fn save_event(&self, event: SyncTimelineEvent) {
+    pub(crate) async fn save_event(&self, event: TimelineEvent) {
         if let Some(event_id) = event.event_id() {
             let mut cache = self.inner.all_events.write().await;
 
@@ -172,7 +170,7 @@ impl RoomEventCache {
     // TODO: This doesn't insert the event into the linked chunk. In the future
     // there'll be no distinction between the linked chunk and the separate
     // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
-    pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = SyncTimelineEvent>) {
+    pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = TimelineEvent>) {
         let mut cache = self.inner.all_events.write().await;
         for event in events {
             if let Some(event_id) = event.event_id() {
@@ -370,7 +368,7 @@ impl RoomEventCacheInner {
     /// storage, notifying observers.
     pub(super) async fn replace_all_events_by(
         &self,
-        sync_timeline_events: Vec<SyncTimelineEvent>,
+        sync_timeline_events: Vec<TimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
@@ -407,7 +405,7 @@ impl RoomEventCacheInner {
     async fn append_events_locked(
         &self,
         state: &mut RoomEventCacheState,
-        sync_timeline_events: Vec<SyncTimelineEvent>,
+        sync_timeline_events: Vec<TimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
@@ -506,7 +504,7 @@ impl RoomEventCacheInner {
 }
 
 /// Create a debug string for a [`ChunkContent`] for an event/gap pair.
-fn chunk_debug_string(content: &ChunkContent<SyncTimelineEvent, Gap>) -> String {
+fn chunk_debug_string(content: &ChunkContent<TimelineEvent, Gap>) -> String {
     match content {
         ChunkContent::Gap(Gap { prev_token }) => {
             format!("gap['{prev_token}']")
@@ -534,7 +532,7 @@ mod private {
 
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
-        deserialized_responses::{SyncTimelineEvent, TimelineEventKind},
+        deserialized_responses::{TimelineEvent, TimelineEventKind},
         event_cache::{
             store::{
                 EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockGuard,
@@ -650,7 +648,7 @@ mod private {
             let _ = closure();
         }
 
-        fn strip_relations_from_event(ev: &mut SyncTimelineEvent) {
+        fn strip_relations_from_event(ev: &mut TimelineEvent) {
             match &mut ev.kind {
                 TimelineEventKind::Decrypted(decrypted) => {
                     // Remove all information about encryption info for
@@ -669,7 +667,7 @@ mod private {
         }
 
         /// Strips the bundled relations from a collection of events.
-        fn strip_relations_from_events(items: &mut [SyncTimelineEvent]) {
+        fn strip_relations_from_events(items: &mut [TimelineEvent]) {
             for ev in items.iter_mut() {
                 Self::strip_relations_from_event(ev);
             }
@@ -755,7 +753,7 @@ mod private {
         pub async fn with_events_mut<O, F: FnOnce(&mut RoomEvents) -> O>(
             &mut self,
             func: F,
-        ) -> Result<(O, Vec<VectorDiff<SyncTimelineEvent>>), EventCacheError> {
+        ) -> Result<(O, Vec<VectorDiff<TimelineEvent>>), EventCacheError> {
             let output = func(&mut self.events);
             self.propagate_changes().await?;
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
@@ -807,8 +805,8 @@ mod private {
                 content: ChunkContent::Items(vec![
                     f.text_msg("hey")
                         .event_id(event_id!("$123456789101112131415617181920"))
-                        .into_sync(),
-                    f.text_msg("you").event_id(event_id!("$2")).into_sync(),
+                        .into_event(),
+                    f.text_msg("you").event_id(event_id!("$2")).into_event(),
                 ]),
                 identifier: CId::new(1),
                 previous: Some(CId::new(0)),
@@ -847,7 +845,7 @@ mod tests {
         store::StoreConfig,
         sync::{JoinedRoomUpdate, Timeline},
     };
-    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
     use ruma::{
         event_id,
@@ -1127,7 +1125,7 @@ mod tests {
         let timeline = Timeline {
             limited: true,
             prev_batch: Some("raclette".to_owned()),
-            events: vec![f.text_msg("hey yo").sender(*ALICE).into_sync()],
+            events: vec![f.text_msg("hey yo").sender(*ALICE).into_event()],
         };
 
         room_event_cache
@@ -1199,7 +1197,7 @@ mod tests {
         let mut relations = BundledMessageLikeRelations::new();
         relations.replace =
             Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
-        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_sync();
+        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_event();
 
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
 
@@ -1263,8 +1261,8 @@ mod tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_sync();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_sync();
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         event_cache_store
@@ -1374,8 +1372,8 @@ mod tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_sync();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_sync();
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         event_cache_store
@@ -1549,7 +1547,7 @@ mod tests {
                     timeline: Timeline {
                         limited: true,
                         prev_batch: Some("raclette".to_owned()),
-                        events: vec![f.text_msg("hey yo").into_sync()],
+                        events: vec![f.text_msg("hey yo").into_event()],
                     },
                     ..Default::default()
                 },
@@ -1585,7 +1583,7 @@ mod tests {
                     timeline: Timeline {
                         limited: false,
                         prev_batch: Some("fondue".to_owned()),
-                        events: vec![f.text_msg("sup").into_sync()],
+                        events: vec![f.text_msg("sup").into_event()],
                     },
                     ..Default::default()
                 },
@@ -1617,8 +1615,8 @@ mod tests {
 
     async fn assert_relations(
         room_id: &RoomId,
-        original_event: SyncTimelineEvent,
-        related_event: SyncTimelineEvent,
+        original_event: TimelineEvent,
+        related_event: TimelineEvent,
         event_factory: EventFactory,
     ) {
         let client = logged_in_client(None).await;

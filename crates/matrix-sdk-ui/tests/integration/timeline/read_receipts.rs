@@ -76,7 +76,7 @@ async fn test_read_receipts_updates() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
     let mut own_receipts_subscriber = timeline.subscribe_own_user_read_receipts_changed().await;
 
     assert!(items.is_empty());
@@ -132,8 +132,11 @@ async fn test_read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 5);
+
     // We don't list the read receipt of our own user on events.
-    assert_let!(Some(VectorDiff::PushBack { value: first_item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value: first_item } = &timeline_updates[0]);
     let first_event = first_item.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
 
@@ -144,25 +147,23 @@ async fn test_read_receipts_updates() {
     assert_pending!(own_receipts_subscriber);
 
     // Implicit read receipt of @alice:localhost.
-    assert_let!(Some(VectorDiff::PushBack { value: second_item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value: second_item } = &timeline_updates[1]);
     let second_event = second_item.as_event().unwrap();
     assert_eq!(second_event.read_receipts().len(), 1);
 
     // Read receipt of @alice:localhost is moved to third event.
-    assert_let!(
-        Some(VectorDiff::Set { index: 1, value: second_item }) = timeline_stream.next().await
-    );
+    assert_let!(VectorDiff::Set { index: 1, value: second_item } = &timeline_updates[2]);
     let second_event = second_item.as_event().unwrap();
     assert!(second_event.read_receipts().is_empty());
 
-    assert_let!(Some(VectorDiff::PushBack { value: third_item }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value: third_item } = &timeline_updates[3]);
     let third_event = third_item.as_event().unwrap();
     assert_eq!(third_event.read_receipts().len(), 1);
 
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
     assert_eq!(alice_receipt_event_id, third_event_id);
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[4]);
     assert!(date_divider.is_date_divider());
 
     // Read receipt on unknown event is ignored.
@@ -254,9 +255,10 @@ async fn test_read_receipts_updates() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(
-        Some(VectorDiff::Set { index: 3, value: third_item }) = timeline_stream.next().await
-    );
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 3, value: third_item } = &timeline_updates[0]);
     let third_event = third_item.as_event().unwrap();
     assert_eq!(third_event.read_receipts().len(), 2);
 
@@ -291,6 +293,7 @@ async fn test_read_receipts_updates() {
 
     assert_ready!(own_receipts_subscriber);
     assert_pending!(own_receipts_subscriber);
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -316,7 +319,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(filter_notice).build().await.unwrap();
-    let (items, mut timeline_stream) = timeline.subscribe().await;
+    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
 
     assert!(items.is_empty());
 
@@ -377,8 +380,11 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
     // We don't list the read receipt of our own user on events.
-    assert_let!(Some(VectorDiff::PushBack { value: item_a }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value: item_a } = &timeline_updates[0]);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
@@ -389,7 +395,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert_eq!(own_receipt_timeline_event, event_a_id);
 
     // Implicit read receipt of @bob:localhost.
-    assert_let!(Some(VectorDiff::Set { index: 0, value: item_a }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 0, value: item_a } = &timeline_updates[1]);
     let event_a = item_a.as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
 
@@ -402,7 +408,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert_eq!(bob_receipt_timeline_event, event_a.event_id().unwrap());
 
     // Implicit read receipt of @alice:localhost.
-    assert_let!(Some(VectorDiff::PushBack { value: item_c }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushBack { value: item_c } = &timeline_updates[2]);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 1);
 
@@ -412,7 +418,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         timeline.latest_user_read_receipt_timeline_event_id(*ALICE).await.unwrap();
     assert_eq!(alice_receipt_timeline_event, event_c_id);
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
     assert!(date_divider.is_date_divider());
 
     // Read receipt on filtered event.
@@ -463,11 +469,14 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item_a }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item_a } = &timeline_updates[0]);
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    assert_let!(Some(VectorDiff::Set { index: 2, value: item_c }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::Set { index: 2, value: item_c } = &timeline_updates[1]);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 2);
 
@@ -505,6 +514,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let own_receipt_timeline_event =
         timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await.unwrap();
     assert_eq!(own_receipt_timeline_event, event_c_id);
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -1196,7 +1206,7 @@ async fn test_latest_user_read_receipt() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (items, _) = timeline.subscribe().await;
+    let (items, _) = timeline.subscribe_batched().await;
 
     assert!(items.is_empty());
 

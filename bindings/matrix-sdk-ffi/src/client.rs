@@ -7,11 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
-    media::{
-        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
-        MediaThumbnailSettings,
-    },
-    oidc::{
+    authentication::oidc::{
         registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
         types::{
@@ -22,6 +18,10 @@ use matrix_sdk::{
             requests::Prompt as SdkOidcPrompt,
         },
         OidcAuthorizationData, OidcSession,
+    },
+    media::{
+        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
+        MediaThumbnailSettings,
     },
     reqwest::StatusCode,
     ruma::{
@@ -1535,10 +1535,13 @@ impl Session {
         match auth_api {
             // Build the session from the regular Matrix Auth Session.
             AuthApi::Matrix(a) => {
-                let matrix_sdk::matrix_auth::MatrixSession {
+                let matrix_sdk::authentication::matrix::MatrixSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens:
-                        matrix_sdk::matrix_auth::MatrixSessionTokens { access_token, refresh_token },
+                        matrix_sdk::authentication::matrix::MatrixSessionTokens {
+                            access_token,
+                            refresh_token,
+                        },
                 } = a.session().context("Missing session")?;
 
                 Ok(Session {
@@ -1553,10 +1556,10 @@ impl Session {
             }
             // Build the session from the OIDC UserSession.
             AuthApi::Oidc(api) => {
-                let matrix_sdk::oidc::UserSession {
+                let matrix_sdk::authentication::oidc::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens:
-                        matrix_sdk::oidc::OidcSessionTokens {
+                        matrix_sdk::authentication::oidc::OidcSessionTokens {
                             access_token,
                             refresh_token,
                             latest_id_token,
@@ -1617,12 +1620,12 @@ impl TryFrom<Session> for AuthSession {
                 .transpose()
                 .context("OIDC latest_id_token is invalid.")?;
 
-            let user_session = matrix_sdk::oidc::UserSession {
+            let user_session = matrix_sdk::authentication::oidc::UserSession {
                 meta: matrix_sdk::SessionMeta {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::oidc::OidcSessionTokens {
+                tokens: matrix_sdk::authentication::oidc::OidcSessionTokens {
                     access_token,
                     refresh_token,
                     latest_id_token,
@@ -1639,12 +1642,12 @@ impl TryFrom<Session> for AuthSession {
             Ok(AuthSession::Oidc(session.into()))
         } else {
             // Create a regular Matrix Session.
-            let session = matrix_sdk::matrix_auth::MatrixSession {
+            let session = matrix_sdk::authentication::matrix::MatrixSession {
                 meta: matrix_sdk::SessionMeta {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::matrix_auth::MatrixSessionTokens {
+                tokens: matrix_sdk::authentication::matrix::MatrixSessionTokens {
                     access_token,
                     refresh_token,
                 },

@@ -5,7 +5,7 @@ use std::{
 };
 
 use matrix_sdk::{
-    oidc::{
+    authentication::oidc::{
         registrations::OidcRegistrationsError,
         types::{
             iana::oauth::OAuthClientAuthenticationMethod,

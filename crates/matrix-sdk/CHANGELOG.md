@@ -28,6 +28,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
+  `TimelineEvent`, and its field `push_actions` has been made `Option`al (it is set to `None` when
+  we couldn't compute the push actions, because we lacked some information).
+  ([#4568](https://github.com/matrix-org/matrix-rust-sdk/pull/4568))
+
 - [**breaking**] Move the optional `RequestConfig` argument of the
   `Client::send()` method to the `with_request_config()` builder method. You
   should call `Client::send(request).with_request_config(request_config).await`
@@ -45,6 +50,12 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] `Recovery::are_we_the_last_man_standing()` has been renamed to `is_last_device()`.
   ([#4522](https://github.com/matrix-org/matrix-rust-sdk/pull/4522))
+
+- [**breaking**] The `matrix_auth` module is now at `authentication::matrix`.
+  ([#4575](https://github.com/matrix-org/matrix-rust-sdk/pull/4575))
+
+- [**breaking**] The `oidc` module is now at `authentication::oidc`.
+  ([#4575](https://github.com/matrix-org/matrix-rust-sdk/pull/4575))
 
 ## [0.9.0] - 2024-12-18
 

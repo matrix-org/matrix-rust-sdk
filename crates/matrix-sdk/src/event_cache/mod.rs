@@ -36,7 +36,7 @@ use std::{
 use eyeball::Subscriber;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    deserialized_responses::{AmbiguityChange, SyncTimelineEvent, TimelineEvent},
+    deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
     store_locks::LockStoreError,
     sync::RoomUpdates,
@@ -214,7 +214,7 @@ impl EventCache {
     /// Try to find an event by its ID in all the rooms.
     // Note: replace this with a select-by-id query when this is implemented in a
     // store.
-    pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
+    pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
         self.inner
             .all_events
             .read()
@@ -323,7 +323,7 @@ impl EventCache {
     pub async fn add_initial_events(
         &self,
         room_id: &RoomId,
-        events: Vec<SyncTimelineEvent>,
+        events: Vec<TimelineEvent>,
         prev_batch: Option<String>,
     ) -> Result<()> {
         // If the event cache's storage has been enabled, do nothing.
@@ -352,7 +352,7 @@ impl EventCache {
     }
 }
 
-type AllEventsMap = BTreeMap<OwnedEventId, (OwnedRoomId, SyncTimelineEvent)>;
+type AllEventsMap = BTreeMap<OwnedEventId, (OwnedRoomId, TimelineEvent)>;
 type RelationsMap = BTreeMap<OwnedEventId, BTreeMap<OwnedEventId, RelationType>>;
 
 /// Cache wrapper containing both copies of received events and lists of event
@@ -374,7 +374,7 @@ impl AllEventsCache {
 
     /// If the event is related to another one, its id is added to the relations
     /// map.
-    fn append_related_event(&mut self, event: &SyncTimelineEvent) {
+    fn append_related_event(&mut self, event: &TimelineEvent) {
         // Handle and cache events and relations.
         let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() else {
             return;
@@ -452,7 +452,7 @@ impl AllEventsCache {
         &self,
         event_id: &EventId,
         filter: Option<&[RelationType]>,
-    ) -> Vec<SyncTimelineEvent> {
+    ) -> Vec<TimelineEvent> {
         let mut results = Vec::new();
         self.collect_related_events_rec(event_id, filter, &mut results);
         results
@@ -462,7 +462,7 @@ impl AllEventsCache {
         &self,
         event_id: &EventId,
         filter: Option<&[RelationType]>,
-        results: &mut Vec<SyncTimelineEvent>,
+        results: &mut Vec<TimelineEvent>,
     ) {
         let Some(related_event_ids) = self.relations.get(event_id) else {
             return;
@@ -689,7 +689,7 @@ pub enum RoomEventCacheUpdate {
     /// The room has received updates for the timeline as _diffs_.
     UpdateTimelineEvents {
         /// Diffs to apply to the timeline.
-        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
 
         /// Where the diffs are coming from.
         origin: EventsOrigin,
