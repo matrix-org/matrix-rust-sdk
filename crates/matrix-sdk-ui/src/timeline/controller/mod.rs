@@ -86,11 +86,14 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
+mod aggregations;
 mod metadata;
 mod observable_items;
 mod read_receipts;
 mod state;
 mod state_transaction;
+
+pub(super) use aggregations::*;
 
 /// Data associated to the current timeline focus.
 #[derive(Debug)]

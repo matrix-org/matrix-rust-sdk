@@ -45,7 +45,6 @@ mod remote;
 pub(super) use self::{
     content::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
-        ResponseData,
     },
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},

@@ -53,8 +53,8 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     algorithms::rfind_event_by_id,
     controller::{
-        ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
-        TimelineMetadata, TimelineStateTransaction,
+        Aggregation, ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit,
+        PendingEditKind, TimelineMetadata, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -866,66 +866,73 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .or(pending_edit)
             .unzip();
 
-        let mut poll_state = PollState::new(c, edit_content);
+        let poll_state = PollState::new(c, edit_content);
+        let mut content = TimelineItemContent::Poll(poll_state);
 
         if let Some(event_id) = self.ctx.flow.event_id() {
             // Applying the cache to remote events only because local echoes
             // don't have an event ID that could be referenced by responses yet.
-            self.meta.pending_poll_events.apply_pending(event_id, &mut poll_state);
+            if let Err(err) = self.meta.aggregations.apply(event_id, &mut content) {
+                warn!("discarding poll aggregations: {err}");
+            }
         }
 
         let edit_json = edit_json.flatten();
 
-        self.add_item(TimelineItemContent::Poll(poll_state), edit_json);
+        self.add_item(content, edit_json);
     }
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &c.relates_to.event_id) else {
-            self.meta.pending_poll_events.add_response(
-                &c.relates_to.event_id,
-                &self.ctx.sender,
-                self.ctx.timestamp,
-                &c,
-            );
+        let start_event_id = c.relates_to.event_id;
+
+        let aggregation = Aggregation::PollResponse {
+            sender: self.ctx.sender.clone(),
+            timestamp: self.ctx.timestamp,
+            answers: c.poll_response.answers,
+        };
+        self.meta.aggregations.add(start_event_id.clone(), aggregation.clone());
+
+        let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
             return;
         };
 
-        let TimelineItemContent::Poll(poll_state) = item.content() else {
-            return;
-        };
-
-        let new_item = item.with_content(TimelineItemContent::Poll(poll_state.add_response(
-            &self.ctx.sender,
-            self.ctx.timestamp,
-            &c,
-        )));
-
-        trace!("Adding poll response.");
-        self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
-        self.result.items_updated += 1;
+        let mut new_content = item.content().clone();
+        match aggregation.apply(&mut new_content) {
+            Ok(()) => {
+                trace!("adding poll response.");
+                self.items.replace(
+                    item_pos,
+                    TimelineItem::new(item.with_content(new_content), item.internal_id.clone()),
+                );
+                self.result.items_updated += 1;
+            }
+            Err(err) => {
+                warn!("discarding poll response: {err}");
+            }
+        }
     }
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &c.relates_to.event_id) else {
-            self.meta.pending_poll_events.mark_as_ended(&c.relates_to.event_id, self.ctx.timestamp);
+        let start_event_id = c.relates_to.event_id;
+
+        let aggregation = Aggregation::PollEnd { end_date: self.ctx.timestamp };
+        self.meta.aggregations.add(start_event_id.clone(), aggregation.clone());
+
+        let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
             return;
         };
 
-        let TimelineItemContent::Poll(poll_state) = item.content() else {
-            return;
-        };
-
-        match poll_state.end(self.ctx.timestamp) {
-            Ok(poll_state) => {
-                let new_item = item.with_content(TimelineItemContent::Poll(poll_state));
-
+        let mut new_content = item.content().clone();
+        match aggregation.apply(&mut new_content) {
+            Ok(()) => {
                 trace!("Ending poll.");
+                let new_item = item.with_content(new_content);
                 self.items
                     .replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
                 self.result.items_updated += 1;
             }
-            Err(_) => {
-                info!("Got multiple poll end events, discarding");
+            Err(err) => {
+                warn!("discarding poll end: {err}");
             }
         }
     }

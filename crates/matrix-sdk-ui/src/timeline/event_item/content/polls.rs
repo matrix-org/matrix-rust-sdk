@@ -20,14 +20,13 @@ use ruma::{
     events::poll::{
         compile_unstable_poll_results,
         start::PollKind,
-        unstable_response::UnstablePollResponseEventContent,
         unstable_start::{
             NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
             UnstablePollStartContentBlock,
         },
         PollResponseData,
     },
-    MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId,
 };
 
 /// Holds the state of a poll.
@@ -89,30 +88,23 @@ impl PollState {
     }
 
     pub(crate) fn add_response(
-        &self,
-        sender: &UserId,
+        &mut self,
+        sender: OwnedUserId,
         timestamp: MilliSecondsSinceUnixEpoch,
-        content: &UnstablePollResponseEventContent,
-    ) -> Self {
-        let mut clone = self.clone();
-        clone.response_data.push(ResponseData {
-            sender: sender.to_owned(),
-            timestamp,
-            answers: content.poll_response.answers.clone(),
-        });
-        clone
+        answers: Vec<String>,
+    ) {
+        self.response_data.push(ResponseData { sender, timestamp, answers });
     }
 
     /// Marks the poll as ended.
     ///
-    /// If the poll has already ended, returns `Err(())`.
-    pub(crate) fn end(&self, timestamp: MilliSecondsSinceUnixEpoch) -> Result<Self, ()> {
+    /// Returns false if the poll was already ended, true otherwise.
+    pub(crate) fn end(&mut self, timestamp: MilliSecondsSinceUnixEpoch) -> bool {
         if self.end_event_timestamp.is_none() {
-            let mut clone = self.clone();
-            clone.end_event_timestamp = Some(timestamp);
-            Ok(clone)
+            self.end_event_timestamp = Some(timestamp);
+            true
         } else {
-            Err(())
+            false
         }
     }
 

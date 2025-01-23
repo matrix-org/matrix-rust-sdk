@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, future::Future, sync::Arc};
+use std::{future::Future, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
@@ -20,12 +20,8 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     events::{
-        poll::{
-            unstable_response::UnstablePollResponseEventContent,
-            unstable_start::NewUnstablePollStartEventContentWithoutRelation,
-        },
-        relation::Replacement,
-        room::message::RoomMessageEventContentWithoutRelation,
+        poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
+        relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
         AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
@@ -41,7 +37,7 @@ use super::{
             Flow, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
         },
-        event_item::{PollState, RemoteEventOrigin, ResponseData},
+        event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
         Profile, TimelineItem,
     },
@@ -286,58 +282,6 @@ impl TimelineState {
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
         TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus)
-    }
-}
-
-/// Cache holding poll response and end events handled before their poll start
-/// event has been handled.
-#[derive(Clone, Debug, Default)]
-pub(in crate::timeline) struct PendingPollEvents {
-    /// Responses to a poll (identified by the poll's start event id).
-    responses: HashMap<OwnedEventId, Vec<ResponseData>>,
-
-    /// Mapping of a poll (identified by its start event's id) to its end date.
-    end_dates: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
-}
-
-impl PendingPollEvents {
-    pub(crate) fn add_response(
-        &mut self,
-        start_event_id: &EventId,
-        sender: &UserId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-        content: &UnstablePollResponseEventContent,
-    ) {
-        self.responses.entry(start_event_id.to_owned()).or_default().push(ResponseData {
-            sender: sender.to_owned(),
-            timestamp,
-            answers: content.poll_response.answers.clone(),
-        });
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.end_dates.clear();
-        self.responses.clear();
-    }
-
-    /// Mark a poll as finished by inserting its poll date.
-    pub(crate) fn mark_as_ended(
-        &mut self,
-        start_event_id: &EventId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-    ) {
-        self.end_dates.insert(start_event_id.to_owned(), timestamp);
-    }
-
-    /// Dumps all response and end events present in the cache that belong to
-    /// the given start_event_id into the given poll_state.
-    pub(crate) fn apply_pending(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
-        if let Some(pending_responses) = self.responses.remove(start_event_id) {
-            poll_state.response_data.extend(pending_responses);
-        }
-        if let Some(pending_end) = self.end_dates.remove(start_event_id) {
-            poll_state.end_event_timestamp = Some(pending_end);
-        }
     }
 }
 

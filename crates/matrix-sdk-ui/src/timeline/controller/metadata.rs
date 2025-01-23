@@ -24,8 +24,7 @@ use super::{
         TimelineItemKind, TimelineUniqueId,
     },
     read_receipts::ReadReceipts,
-    state::PendingPollEvents,
-    AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
+    Aggregations, AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
 };
 use crate::unable_to_decrypt_hook::UtdHookManager;
 
@@ -75,8 +74,8 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// stashing pending reactions.
     pub reactions: Reactions,
 
-    /// Associated poll events received before their original poll start event.
-    pub pending_poll_events: PendingPollEvents,
+    /// Aggregation metadata and pending aggregations.
+    pub aggregations: Aggregations,
 
     /// Edit events received before the related event they're editing.
     pub pending_edits: RingBuffer<PendingEdit>,
@@ -116,7 +115,7 @@ impl TimelineMetadata {
             own_user_id,
             next_internal_id: Default::default(),
             reactions: Default::default(),
-            pending_poll_events: Default::default(),
+            aggregations: Default::default(),
             pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
@@ -134,7 +133,7 @@ impl TimelineMetadata {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
         self.reactions.clear();
-        self.pending_poll_events.clear();
+        self.aggregations.clear();
         self.pending_edits.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
