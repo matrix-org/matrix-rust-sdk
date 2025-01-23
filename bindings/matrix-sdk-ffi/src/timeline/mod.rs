@@ -1323,7 +1323,7 @@ impl LazyTimelineItemProvider {
         self.0.local_echo_send_handle().map(|handle| Arc::new(SendHandle::new(handle)))
     }
 
-    fn should_boost(&self) -> bool {
-        self.0.should_boost()
+    fn contains_only_emojis(&self) -> bool {
+        self.0.contains_only_emojis()
     }
 }

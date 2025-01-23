@@ -443,19 +443,6 @@ impl EventTimelineItem {
         }
     }
 
-    pub fn should_boost(&self) -> bool {
-        match self.content() {
-            TimelineItemContent::Message(msg) => match msg.msgtype() {
-                MessageType::Text(text) => {
-                    let graphmes = text.body.graphemes(true).collect::<Vec<&str>>();
-                    graphmes.iter().all(|g| emojis::get(g).is_some())
-                }
-                _ => false,
-            },
-            _ => false,
-        }
-    }
-
     /// Check whether this item can be replied to.
     pub fn can_be_replied_to(&self) -> bool {
         // This must be in sync with the early returns of `Timeline::send_reply`
@@ -617,6 +604,60 @@ impl EventTimelineItem {
     /// For local echoes, return the associated send handle.
     pub fn local_echo_send_handle(&self) -> Option<SendHandle> {
         as_variant!(self.handle(), TimelineItemHandle::Local(handle) => handle.clone())
+    }
+
+    /// Some clients may want to know if a particular text message or media
+    /// caption contains only emojis so that they can render them bigger for
+    /// added effect.
+    ///
+    /// This function provides that feature with the following
+    /// behavior/limitations:
+    /// - ignores leading and trailing white spaces
+    /// - fails texts bigger than 5 graphemes for performance reasons
+    /// - checks the body only for [`MessageType::Text`]
+    /// - only checks the caption for [`MessageType::Audio`],
+    ///   [`MessageType::File`], [`MessageType::Image`], and
+    ///   [`MessageType::Video`] if present
+    /// - all other message types will not match
+    ///
+    /// See `test_emoji_detection` for examples.
+    pub fn contains_only_emojis(&self) -> bool {
+        let body = match self.content() {
+            TimelineItemContent::Message(msg) => match msg.msgtype() {
+                MessageType::Text(text) => Some(text.body.as_str()),
+                MessageType::Audio(audio) => audio.caption(),
+                MessageType::File(file) => file.caption(),
+                MessageType::Image(image) => image.caption(),
+                MessageType::Video(video) => video.caption(),
+                _ => None,
+            },
+            TimelineItemContent::RedactedMessage
+            | TimelineItemContent::Sticker(_)
+            | TimelineItemContent::UnableToDecrypt(_)
+            | TimelineItemContent::MembershipChange(_)
+            | TimelineItemContent::ProfileChange(_)
+            | TimelineItemContent::OtherState(_)
+            | TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. }
+            | TimelineItemContent::Poll(_)
+            | TimelineItemContent::CallInvite
+            | TimelineItemContent::CallNotify => None,
+        };
+
+        if let Some(body) = body {
+            // Collect the graphemes after trimming white spaces.
+            let graphemes = body.trim().graphemes(true).collect::<Vec<&str>>();
+
+            // Limit the check to 5 graphemes for performance and security
+            // reasons
+            if graphemes.len() > 5 {
+                return false;
+            }
+
+            graphemes.iter().all(|g| emojis::get(g).is_some())
+        } else {
+            false
+        }
     }
 }
 
@@ -1086,31 +1127,34 @@ mod tests {
                 .await
                 .unwrap();
 
-        assert!(!timeline_item.should_boost());
+        assert!(!timeline_item.contains_only_emojis());
 
+        // Ignores leading and trailing white spaces
+        event = message_event(room_id, user_id, " 🚀 ", "", 0);
+        timeline_item =
+            EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
+
+        assert!(timeline_item.contains_only_emojis());
+
+        // Too many
         event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "", 0);
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
                 .unwrap();
 
-        assert!(timeline_item.should_boost());
+        assert!(!timeline_item.contains_only_emojis());
 
-        event = message_event(room_id, user_id, "0", "", 0);
+        // Works with combined emojis
+        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "", 0);
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
                 .unwrap();
 
-        assert!(!timeline_item.should_boost());
-
-        event = message_event(room_id, user_id, "0*", "", 0);
-        timeline_item =
-            EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
-                .await
-                .unwrap();
-
-        assert!(!timeline_item.should_boost());
+        assert!(timeline_item.contains_only_emojis());
     }
 
     fn member_event(
