@@ -216,7 +216,7 @@ impl BackupDownloadTask {
     ) {
         // Wait a bit, perhaps the room key will arrive in the meantime.
         #[cfg(not(test))]
-        tokio::time::sleep(Duration::from_millis(Self::DOWNLOAD_DELAY_MILLIS)).await;
+        crate::sleep::sleep(Duration::from_millis(Self::DOWNLOAD_DELAY_MILLIS)).await;
 
         // Now take the lock, and check that we still want to do a download. If we do,
         // keep hold of a strong reference to the `Client`.

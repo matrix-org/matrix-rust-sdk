@@ -25,6 +25,7 @@ use matrix_sdk::{
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
+    sleep::sleep,
     AuthSession, Client, ServerName, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
@@ -332,7 +333,7 @@ impl App {
         let message = self.last_status_message.clone();
         self.clear_status_message = Some(spawn(async move {
             // Clear the status message in 4 seconds.
-            tokio::time::sleep(Duration::from_secs(4)).await;
+            sleep(Duration::from_secs(4)).await;
 
             *message.lock().unwrap() = None;
         }));
