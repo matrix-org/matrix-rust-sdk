@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
     future::Future,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
@@ -28,12 +27,8 @@ use matrix_sdk::{
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     events::{
-        poll::{
-            unstable_response::UnstablePollResponseEventContent,
-            unstable_start::NewUnstablePollStartEventContentWithoutRelation,
-        },
-        relation::Replacement,
-        room::message::RoomMessageEventContentWithoutRelation,
+        poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
+        relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
         AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
     },
     push::Action,
@@ -44,6 +39,7 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
+    aggregations::Aggregations,
     observable_items::{
         AllRemoteEvents, ObservableItems, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
@@ -60,7 +56,7 @@ use crate::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
         },
-        event_item::{PollState, RemoteEventOrigin, ResponseData},
+        event_item::RemoteEventOrigin,
         item::TimelineUniqueId,
         reactions::{PendingReaction, Reactions},
         traits::RoomDataProvider,
@@ -969,58 +965,6 @@ impl TimelineStateTransaction<'_> {
     }
 }
 
-/// Cache holding poll response and end events handled before their poll start
-/// event has been handled.
-#[derive(Clone, Debug, Default)]
-pub(in crate::timeline) struct PendingPollEvents {
-    /// Responses to a poll (identified by the poll's start event id).
-    responses: HashMap<OwnedEventId, Vec<ResponseData>>,
-
-    /// Mapping of a poll (identified by its start event's id) to its end date.
-    end_dates: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
-}
-
-impl PendingPollEvents {
-    pub(crate) fn add_response(
-        &mut self,
-        start_event_id: &EventId,
-        sender: &UserId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-        content: &UnstablePollResponseEventContent,
-    ) {
-        self.responses.entry(start_event_id.to_owned()).or_default().push(ResponseData {
-            sender: sender.to_owned(),
-            timestamp,
-            answers: content.poll_response.answers.clone(),
-        });
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.end_dates.clear();
-        self.responses.clear();
-    }
-
-    /// Mark a poll as finished by inserting its poll date.
-    pub(crate) fn mark_as_ended(
-        &mut self,
-        start_event_id: &EventId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-    ) {
-        self.end_dates.insert(start_event_id.to_owned(), timestamp);
-    }
-
-    /// Dumps all response and end events present in the cache that belong to
-    /// the given start_event_id into the given poll_state.
-    pub(crate) fn apply_pending(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
-        if let Some(pending_responses) = self.responses.remove(start_event_id) {
-            poll_state.response_data.extend(pending_responses);
-        }
-        if let Some(pending_end) = self.end_dates.remove(start_event_id) {
-            poll_state.end_event_timestamp = Some(pending_end);
-        }
-    }
-}
-
 #[derive(Clone)]
 pub(in crate::timeline) enum PendingEditKind {
     RoomMessage(Replacement<RoomMessageEventContentWithoutRelation>),
@@ -1096,8 +1040,8 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// stashing pending reactions.
     pub reactions: Reactions,
 
-    /// Associated poll events received before their original poll start event.
-    pub pending_poll_events: PendingPollEvents,
+    /// Aggregation metadata and pending aggregations.
+    pub aggregations: Aggregations,
 
     /// Edit events received before the related event they're editing.
     pub pending_edits: RingBuffer<PendingEdit>,
@@ -1136,7 +1080,7 @@ impl TimelineMetadata {
             own_user_id,
             next_internal_id: Default::default(),
             reactions: Default::default(),
-            pending_poll_events: Default::default(),
+            aggregations: Default::default(),
             pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
@@ -1154,7 +1098,7 @@ impl TimelineMetadata {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
         self.reactions.clear();
-        self.pending_poll_events.clear();
+        self.aggregations.clear();
         self.pending_edits.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
