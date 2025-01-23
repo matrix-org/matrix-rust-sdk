@@ -73,7 +73,7 @@ struct SyncTaskSupervisor {
     task: JoinHandle<()>,
     /// [`TerminationReport`] sender for the [`SyncTaskSupervisor::shutdown()`]
     /// function.
-    abortion_sender: Sender<TerminationReport>,
+    termination_sender: Sender<TerminationReport>,
 }
 
 impl SyncTaskSupervisor {
@@ -99,7 +99,7 @@ impl SyncTaskSupervisor {
             receiver,
         ));
 
-        Self { task, abortion_sender: sender }
+        Self { task, termination_sender: sender }
     }
 
     /// The role of the supervisor task is to wait for a termination message
@@ -295,7 +295,7 @@ impl SyncTaskSupervisor {
 
     async fn shutdown(self) -> Result<(), Error> {
         match self
-            .abortion_sender
+            .termination_sender
             .send(TerminationReport {
                 is_error: false,
                 has_expired: false,
