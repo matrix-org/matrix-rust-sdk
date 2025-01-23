@@ -1001,13 +1001,16 @@ impl Room {
         self: Arc<Self>,
         listener: Box<dyn LiveLocationShareListener>,
     ) -> Arc<TaskHandle> {
-        let subscription = self.inner.observe_live_location_shares();
-        let stream = subscription.subscribe();
+        let room = self.inner.clone();
+
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            pin_mut!(stream);
-            while let Some(event) = stream.next().await {
+            let subscription = room.observe_live_location_shares();
+            let mut stream = subscription.subscribe();
+            let mut pinned_stream = pin!(stream);
+
+            while let Some(event) = pinned_stream.next().await {
                 let last_location = LocationContent {
-                    body: "".to_string(),
+                    body: "".to_owned(),
                     geo_uri: event.last_location.location.uri.clone().to_string(),
                     description: None,
                     zoom_level: None,
