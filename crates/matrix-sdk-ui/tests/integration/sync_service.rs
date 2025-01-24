@@ -77,13 +77,13 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     // After starting, the sync service is, well, running.
-    sync_service.start().await;
+    sync_service.start().await?;
     assert_next_matches!(state_stream, State::Running);
     assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Restarting while started doesn't change the current state.
-    sync_service.start().await;
+    sync_service.start().await?;
     assert_pending!(state_stream);
     assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
@@ -147,7 +147,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 
     // When restarting and waiting a bit, the server gets new requests, starting at
     // the same position than just before being stopped.
-    sync_service.start().await;
+    sync_service.start().await?;
     assert_next_matches!(state_stream, State::Running);
     assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
