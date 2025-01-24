@@ -25,17 +25,13 @@
 use std::sync::Arc;
 
 use eyeball::{SharedObservable, Subscriber};
-use futures_core::Future;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
     Client,
 };
 use thiserror::Error;
-use tokio::sync::{
-    mpsc::{Receiver, Sender},
-    Mutex as AsyncMutex, OwnedMutexGuard,
-};
+use tokio::sync::{mpsc::Sender, Mutex as AsyncMutex, OwnedMutexGuard};
 use tracing::{error, info, instrument, trace, warn, Instrument, Level};
 
 use crate::{
@@ -88,41 +84,38 @@ impl SyncTaskSupervisor {
         room_list_service: Arc<RoomListService>,
         encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
     ) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(16);
-        let (room_list_task, encryption_sync_task) = Self::spawn_child_tasks(
-            inner,
-            room_list_service.clone(),
-            encryption_sync_permit,
-            sender.clone(),
-        )
-        .await;
+        let (task, termination_sender) =
+            Self::spawn_supervisor_task(inner, room_list_service, encryption_sync_permit).await;
 
-        let task = spawn(Self::spawn_supervisor_task(
-            inner,
-            room_list_service,
-            room_list_task,
-            encryption_sync_task,
-            receiver,
-        ));
-
-        Self { task, termination_sender: sender }
+        Self { task, termination_sender }
     }
 
     /// The role of the supervisor task is to wait for a termination message
     /// ([`TerminationReport`]), sent either because we wanted to stop both
     /// syncs, or because one of the syncs failed (in which case we'll stop the
     /// other one too).
-    fn spawn_supervisor_task(
+    async fn spawn_supervisor_task(
         inner: &SyncServiceInner,
         room_list_service: Arc<RoomListService>,
-        room_list_task: JoinHandle<()>,
-        encryption_sync_task: JoinHandle<()>,
-        mut receiver: Receiver<TerminationReport>,
-    ) -> impl Future<Output = ()> {
+        encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    ) -> (JoinHandle<()>, Sender<TerminationReport>) {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(16);
+
         let encryption_sync = inner.encryption_sync_service.clone();
         let state = inner.state.clone();
+        let termination_sender = sender.clone();
 
-        async move {
+        let sync_permit_guard = encryption_sync_permit.clone().lock_owned().await;
+
+        let future = async move {
+            let (room_list_task, encryption_sync_task) = Self::spawn_child_tasks(
+                room_list_service.clone(),
+                encryption_sync.clone(),
+                sync_permit_guard,
+                sender.clone(),
+            )
+            .await;
+
             let report = if let Some(report) = receiver.recv().await {
                 report
             } else {
@@ -179,22 +172,25 @@ impl SyncTaskSupervisor {
                 state.set(State::Terminated);
             }
         }
-        .instrument(tracing::span!(Level::WARN, "supervisor task"))
+        .instrument(tracing::span!(Level::WARN, "supervisor task"));
+
+        let task = spawn(future);
+
+        (task, termination_sender)
     }
 
     async fn spawn_child_tasks(
-        inner: &SyncServiceInner,
         room_list_service: Arc<RoomListService>,
-        encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+        encryption_sync_service: Arc<EncryptionSyncService>,
+        sync_permit_guard: OwnedMutexGuard<EncryptionSyncPermit>,
         sender: Sender<TerminationReport>,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         // First, take care of the room list.
         let room_list_task = spawn(Self::room_list_sync_task(room_list_service, sender.clone()));
 
         // Then, take care of the encryption sync.
-        let sync_permit_guard = encryption_sync_permit.clone().lock_owned().await;
         let encryption_sync_task = spawn(Self::encryption_sync_task(
-            inner.encryption_sync_service.clone(),
+            encryption_sync_service,
             sender.clone(),
             sync_permit_guard,
         ));
