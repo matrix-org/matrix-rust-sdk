@@ -334,6 +334,34 @@ struct SyncServiceInner {
     supervisor: Option<SyncTaskSupervisor>,
 }
 
+impl SyncServiceInner {
+    async fn start(
+        &mut self,
+        room_list_service: Arc<RoomListService>,
+        encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    ) {
+        trace!("starting sync service");
+
+        self.supervisor =
+            Some(SyncTaskSupervisor::new(self, room_list_service, encryption_sync_permit).await);
+        self.state.set(State::Running);
+    }
+
+    async fn stop(&mut self) -> Result<(), Error> {
+        trace!("pausing sync service");
+
+        // Remove the supervisor from our state and request the tasks to be shutdown.
+        let supervisor = self.supervisor.take().ok_or_else(|| {
+            error!("The supervisor was not properly started up");
+            Error::InternalSupervisorError
+        })?;
+
+        supervisor.shutdown().await?;
+
+        Ok(())
+    }
+}
+
 /// A high level manager for your Matrix syncing needs.
 ///
 /// The [`SyncService`] is responsible for managing real-time synchronization
@@ -432,17 +460,9 @@ impl SyncService {
             // If we're already running, there's nothing to do.
             State::Running => (),
             State::Idle | State::Terminated | State::Error => {
-                trace!("starting sync service");
-
-                inner.supervisor = Some(
-                    SyncTaskSupervisor::new(
-                        &inner,
-                        self.room_list_service.clone(),
-                        self.encryption_sync_permit.clone(),
-                    )
-                    .await,
-                );
-                inner.state.set(State::Running);
+                inner
+                    .start(self.room_list_service.clone(), self.encryption_sync_permit.clone())
+                    .await
             }
         }
     }
@@ -464,19 +484,7 @@ impl SyncService {
             State::Running => (),
         }
 
-        trace!("pausing sync service");
-
-        // First, request to stop the two underlying syncs; we'll look at the results
-        // later, so that we're in a clean state independently of the request to stop.
-
-        // Remove the supervisor from our inner state and request the tasks to be
-        // shutdown.
-        let supervisor = inner.supervisor.take().ok_or_else(|| {
-            error!("The supervisor was not properly started up");
-            Error::InternalSupervisorError
-        })?;
-
-        supervisor.shutdown().await
+        inner.stop().await
     }
 
     /// Attempt to get a permit to use an `EncryptionSyncService` at a given
