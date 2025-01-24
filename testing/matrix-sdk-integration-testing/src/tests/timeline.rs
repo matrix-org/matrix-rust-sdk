@@ -564,7 +564,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
     // Sync once to get access to the room.
     let sync_service = SyncService::builder(bob.clone()).build().await.expect("Wat");
-    sync_service.start().await;
+    sync_service.start().await.expect("We should be able to start the sync service");
 
     let bob_rooms = sync_service
         .room_list_service()

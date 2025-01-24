@@ -1651,7 +1651,7 @@ impl Client {
     }
 
     /// Fetches server capabilities from network; no caching.
-    async fn fetch_server_capabilities(
+    pub async fn fetch_server_capabilities(
         &self,
     ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
         let resp = self
