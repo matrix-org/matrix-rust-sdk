@@ -24,6 +24,12 @@ All notable changes to this project will be documented in this file.
   implement `Into<PathBuf>` also implement `Into<AttachmentSource>`.
   ([#4451](https://github.com/matrix-org/matrix-rust-sdk/pull/4451))
 
+- [**breaking**] Add an "offline" mode to the `SyncService`. This allows the
+  `SyncService` to attempt to restart the sync automatically. It can be enabled
+  with the `SyncServiceBuilder::with_offline_mode` method. Due to this addition,
+  the `SyncService::start` method now returns a `Result` type.
+  ([#4592](https://github.com/matrix-org/matrix-rust-sdk/pull/4592))
+
 ### Refactor
 
 - [**breaking**] `Timeline::paginate_forwards` and `Timeline::paginate_backwards`

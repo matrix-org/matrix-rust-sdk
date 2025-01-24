@@ -38,6 +38,7 @@ pub enum SyncServiceState {
     Running,
     Terminated,
     Error,
+    Offline,
 }
 
 impl From<MatrixSyncServiceState> for SyncServiceState {
@@ -47,6 +48,7 @@ impl From<MatrixSyncServiceState> for SyncServiceState {
             MatrixSyncServiceState::Running => Self::Running,
             MatrixSyncServiceState::Terminated => Self::Terminated,
             MatrixSyncServiceState::Error => Self::Error,
+            MatrixSyncServiceState::Offline => Self::Offline,
         }
     }
 }
@@ -71,8 +73,8 @@ impl SyncService {
         })
     }
 
-    pub async fn start(&self) {
-        self.inner.start().await;
+    pub async fn start(&self) -> Result<(), ClientError> {
+        Ok(self.inner.start().await?)
     }
 
     pub async fn stop(&self) -> Result<(), ClientError> {
