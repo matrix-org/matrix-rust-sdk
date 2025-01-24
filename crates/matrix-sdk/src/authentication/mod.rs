@@ -14,8 +14,6 @@
 
 //! Types and functions related to authentication in Matrix.
 
-// TODO:(pixlwave) Move AuthenticationService from the FFI into this module.
-
 use std::sync::Arc;
 
 use as_variant::as_variant;
