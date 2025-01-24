@@ -193,6 +193,9 @@ simpler methods:
 - Enable HTTP/2 support in the HTTP client.
   ([#4566](https://github.com/matrix-org/matrix-rust-sdk/pull/4566))
 
+- Add support for creating custom conditional push rules in `NotificationSettings::create_custom_conditional_push_rule`.
+  (tbd)
+
 - The media contents stored in the media cache can now be controlled with a
   `MediaRetentionPolicy` and the new `Media` methods `media_retention_policy()`,
   `set_media_retention_policy()`, `clean_up_media_cache()`.
