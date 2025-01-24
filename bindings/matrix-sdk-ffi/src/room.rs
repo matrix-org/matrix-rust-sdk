@@ -28,7 +28,7 @@ use ruma::{
     EventId, Int, OwnedDeviceId, OwnedUserId, RoomAliasId, UserId,
 };
 use tokio::sync::RwLock;
-use tracing::error;
+use tracing::{error, warn};
 
 use super::RUNTIME;
 use crate::{
@@ -1016,9 +1016,11 @@ impl Room {
                     zoom_level: None,
                     asset: None,
                 };
-                let beacon_info = event
-                    .beacon_info
-                    .expect("Live location share is missing the associated beacon_info state");
+
+                let Some(beacon_info) = event.beacon_info else {
+                    warn!("Live location share is missing the associated beacon_info state, skipping event.");
+                    continue;
+                };
 
                 listener.call(vec![LiveLocationShare {
                     last_location: LastLocation {
