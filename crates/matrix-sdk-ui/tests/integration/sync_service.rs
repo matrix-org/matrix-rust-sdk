@@ -17,11 +17,14 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk::test_utils::logged_in_client_with_server;
+use matrix_sdk::{
+    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
+    timeout::timeout,
+};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
 use serde_json::json;
-use stream_assert::{assert_next_matches, assert_pending};
+use stream_assert::{assert_next_eq, assert_next_matches, assert_pending};
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
 use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher};
@@ -201,4 +204,124 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert_pending!(state_stream);
 
     Ok(())
+}
+
+#[async_test]
+async fn test_sync_service_offline_mode() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+    let mut states = sync_service.state();
+
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1..)
+        .mount(mock_server.server())
+        .await;
+
+    {
+        let _versions_guard = mock_server.mock_versions().error500().mount_as_scoped().await;
+
+        sync_service.start().await.expect("We should be able to start the sync service");
+        assert_next_eq!(states, State::Running);
+
+        let next_state = timeout(states.next(), Duration::from_millis(500))
+            .await
+            .expect("We should have changed states by now")
+            .unwrap();
+
+        assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
+    }
+
+    mock_server.mock_versions().ok().expect(1..).mount().await;
+
+    let next_state = timeout(states.next(), Duration::from_millis(500))
+        .await
+        .expect("We should changed the state")
+        .unwrap();
+
+    assert_eq!(next_state, State::Running, "We should have continued to sync");
+}
+
+#[async_test]
+async fn test_sync_service_offline_mode_stopping() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+    let mut states = sync_service.state();
+
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1..)
+        .mount(mock_server.server())
+        .await;
+    mock_server.mock_versions().error500().mount().await;
+
+    sync_service.start().await.expect("We should be able to start the sync service");
+    assert_next_eq!(states, State::Running);
+
+    let next_state = timeout(states.next(), Duration::from_millis(500))
+        .await
+        .expect("We should have changed states by now")
+        .unwrap();
+
+    assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
+
+    sync_service
+        .stop()
+        .await
+        .expect("We should be able to stop the sync service when it's in the offline mode");
+
+    let next_state = timeout(states.next(), Duration::from_millis(500))
+        .await
+        .expect("We should have changed the state by now")
+        .unwrap();
+
+    assert_eq!(next_state, State::Idle, "We should have entered the idle mode");
+}
+
+#[async_test]
+async fn test_sync_service_offline_mode_restarting() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+    let mut states = sync_service.state();
+
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(ResponseTemplate::new(404))
+        .mount(mock_server.server())
+        .await;
+    mock_server.mock_versions().error500().mount().await;
+
+    sync_service.start().await.expect("We should be able to start the sync service");
+    assert_next_eq!(states, State::Running);
+
+    let next_state = timeout(states.next(), Duration::from_millis(500))
+        .await
+        .expect("We should have changed states by now")
+        .unwrap();
+
+    assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
+
+    sync_service
+        .start()
+        .await
+        .expect("We should be able to restart the sync service when it's in the offline mode");
+
+    let next_state = timeout(states.next(), Duration::from_millis(500))
+        .await
+        .expect("We should have changed the state by now")
+        .unwrap();
+
+    assert_eq!(next_state, State::Running, "We should have entered the running mode");
+
+    let next_state = timeout(states.next(), Duration::from_millis(500))
+        .await
+        .expect("We should have changed the state by now")
+        .unwrap();
+
+    assert_eq!(next_state, State::Offline, "We should have entered the offline mode again");
 }
