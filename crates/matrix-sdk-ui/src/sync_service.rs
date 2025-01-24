@@ -463,24 +463,24 @@ impl SyncService {
         match inner.state.get() {
             State::Idle | State::Terminated | State::Error => {
                 // No need to stop if we were not running.
-                Ok(())
+                return Ok(());
             }
-            State::Running => {
-                trace!("pausing sync service");
-
-                // First, request to stop the two underlying syncs; we'll look at the results
-                // later, so that we're in a clean state independently of the request to stop.
-
-                // Remove the supervisor from our inner state and request the tasks to be
-                // shutdown.
-                let supervisor = inner.supervisor.take().ok_or_else(|| {
-                    error!("The supervisor was not properly started up");
-                    Error::InternalSupervisorError
-                })?;
-
-                supervisor.shutdown().await
-            }
+            State::Running => (),
         }
+
+        trace!("pausing sync service");
+
+        // First, request to stop the two underlying syncs; we'll look at the results
+        // later, so that we're in a clean state independently of the request to stop.
+
+        // Remove the supervisor from our inner state and request the tasks to be
+        // shutdown.
+        let supervisor = inner.supervisor.take().ok_or_else(|| {
+            error!("The supervisor was not properly started up");
+            Error::InternalSupervisorError
+        })?;
+
+        supervisor.shutdown().await
     }
 
     /// Attempt to get a permit to use an `EncryptionSyncService` at a given
