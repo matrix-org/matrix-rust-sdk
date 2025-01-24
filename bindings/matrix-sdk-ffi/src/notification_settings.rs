@@ -10,12 +10,326 @@ use matrix_sdk::{
     Client as MatrixClient,
 };
 use ruma::{
-    push::{PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind},
-    RoomId,
+    push::{
+        Action as SdkAction, ComparisonOperator as SdkComparisonOperator, PredefinedOverrideRuleId,
+        PredefinedUnderrideRuleId, PushCondition as SdkPushCondition, RoomMemberCountIs,
+        RuleKind as SdkRuleKind, ScalarJsonValue as SdkJsonValue, Tweak as SdkTweak,
+    },
+    Int, RoomId, UInt,
 };
 use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::error::NotificationSettingsError;
+
+#[derive(Clone, Default, uniffi::Enum)]
+pub enum ComparisonOperator {
+    /// Equals
+    #[default]
+    Eq,
+
+    /// Less than
+    Lt,
+
+    /// Greater than
+    Gt,
+
+    /// Greater or equal
+    Ge,
+
+    /// Less or equal
+    Le,
+}
+
+impl From<SdkComparisonOperator> for ComparisonOperator {
+    fn from(value: SdkComparisonOperator) -> Self {
+        match value {
+            SdkComparisonOperator::Eq => Self::Eq,
+            SdkComparisonOperator::Lt => Self::Lt,
+            SdkComparisonOperator::Gt => Self::Gt,
+            SdkComparisonOperator::Ge => Self::Ge,
+            SdkComparisonOperator::Le => Self::Le,
+        }
+    }
+}
+
+impl From<ComparisonOperator> for SdkComparisonOperator {
+    fn from(value: ComparisonOperator) -> Self {
+        match value {
+            ComparisonOperator::Eq => Self::Eq,
+            ComparisonOperator::Lt => Self::Lt,
+            ComparisonOperator::Gt => Self::Gt,
+            ComparisonOperator::Ge => Self::Ge,
+            ComparisonOperator::Le => Self::Le,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, uniffi::Enum)]
+pub enum JsonValue {
+    /// Represents a `null` value.
+    #[default]
+    Null,
+
+    /// Represents a boolean.
+    Bool(bool),
+
+    /// Represents an integer.
+    Integer(i64),
+
+    /// Represents a string.
+    String(String),
+}
+
+impl From<SdkJsonValue> for JsonValue {
+    fn from(value: SdkJsonValue) -> Self {
+        match value {
+            SdkJsonValue::Null => Self::Null,
+            SdkJsonValue::Bool(b) => Self::Bool(b),
+            SdkJsonValue::Integer(i) => Self::Integer(i.into()),
+            SdkJsonValue::String(s) => Self::String(s),
+        }
+    }
+}
+
+impl From<JsonValue> for SdkJsonValue {
+    fn from(value: JsonValue) -> Self {
+        match value {
+            JsonValue::Null => Self::Null,
+            JsonValue::Bool(b) => Self::Bool(b),
+            JsonValue::Integer(i) => Self::Integer(Int::new(i).unwrap_or_default()),
+            JsonValue::String(s) => Self::String(s),
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum PushCondition {
+    /// A glob pattern match on a field of the event.
+    EventMatch {
+        /// The [dot-separated path] of the property of the event to match.
+        ///
+        /// [dot-separated path]: https://spec.matrix.org/latest/appendices/#dot-separated-property-paths
+        key: String,
+
+        /// The glob-style pattern to match against.
+        ///
+        /// Patterns with no special glob characters should be treated as having
+        /// asterisks prepended and appended when testing the condition.
+        pattern: String,
+    },
+
+    /// Matches unencrypted messages where `content.body` contains the owner's
+    /// display name in that room.
+    ContainsDisplayName,
+
+    /// Matches the current number of members in the room.
+    RoomMemberCount { prefix: ComparisonOperator, count: u64 },
+
+    /// Takes into account the current power levels in the room, ensuring the
+    /// sender of the event has high enough power to trigger the
+    /// notification.
+    SenderNotificationPermission {
+        /// The field in the power level event the user needs a minimum power
+        /// level for.
+        ///
+        /// Fields must be specified under the `notifications` property in the
+        /// power level event's `content`.
+        key: String,
+    },
+
+    /// Exact value match on a property of the event.
+    EventPropertyIs {
+        /// The [dot-separated path] of the property of the event to match.
+        ///
+        /// [dot-separated path]: https://spec.matrix.org/latest/appendices/#dot-separated-property-paths
+        key: String,
+
+        /// The value to match against.
+        value: JsonValue,
+    },
+
+    /// Exact value match on a value in an array property of the event.
+    EventPropertyContains {
+        /// The [dot-separated path] of the property of the event to match.
+        ///
+        /// [dot-separated path]: https://spec.matrix.org/latest/appendices/#dot-separated-property-paths
+        key: String,
+
+        /// The value to match against.
+        value: JsonValue,
+    },
+}
+
+impl From<SdkPushCondition> for PushCondition {
+    fn from(value: SdkPushCondition) -> Self {
+        match value {
+            SdkPushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            SdkPushCondition::ContainsDisplayName => Self::ContainsDisplayName,
+            SdkPushCondition::RoomMemberCount { is } => {
+                Self::RoomMemberCount { prefix: is.prefix.into(), count: is.count.into() }
+            }
+            SdkPushCondition::SenderNotificationPermission { key } => {
+                Self::SenderNotificationPermission { key }
+            }
+            SdkPushCondition::EventPropertyIs { key, value } => {
+                Self::EventPropertyIs { key, value: value.into() }
+            }
+            SdkPushCondition::EventPropertyContains { key, value } => {
+                Self::EventPropertyContains { key, value: value.into() }
+            }
+            _ => todo!(),
+        }
+    }
+}
+
+impl From<PushCondition> for SdkPushCondition {
+    fn from(value: PushCondition) -> Self {
+        match value {
+            PushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            PushCondition::ContainsDisplayName => Self::ContainsDisplayName,
+            PushCondition::RoomMemberCount { prefix, count } => Self::RoomMemberCount {
+                is: RoomMemberCountIs {
+                    prefix: prefix.into(),
+                    count: UInt::new(count).unwrap_or_default(),
+                },
+            },
+            PushCondition::SenderNotificationPermission { key } => {
+                Self::SenderNotificationPermission { key }
+            }
+            PushCondition::EventPropertyIs { key, value } => {
+                Self::EventPropertyIs { key, value: value.into() }
+            }
+            PushCondition::EventPropertyContains { key, value } => {
+                Self::EventPropertyContains { key, value: value.into() }
+            }
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum RuleKind {
+    /// User-configured rules that override all other kinds.
+    Override,
+
+    /// Lowest priority user-defined rules.
+    Underride,
+
+    /// Sender-specific rules.
+    Sender,
+
+    /// Room-specific rules.
+    Room,
+
+    /// Content-specific rules.
+    Content,
+}
+
+impl From<SdkRuleKind> for RuleKind {
+    fn from(value: SdkRuleKind) -> Self {
+        match value {
+            SdkRuleKind::Override => Self::Override,
+            SdkRuleKind::Underride => Self::Underride,
+            SdkRuleKind::Sender => Self::Sender,
+            SdkRuleKind::Room => Self::Room,
+            SdkRuleKind::Content => Self::Content,
+            _ => todo!(),
+        }
+    }
+}
+
+impl From<RuleKind> for SdkRuleKind {
+    fn from(value: RuleKind) -> Self {
+        match value {
+            RuleKind::Override => Self::Override,
+            RuleKind::Underride => Self::Underride,
+            RuleKind::Sender => Self::Sender,
+            RuleKind::Room => Self::Room,
+            RuleKind::Content => Self::Content,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+/// Enum representing the push notification tweaks for a rule.
+pub enum Tweak {
+    /// A string representing the sound to be played when this notification
+    /// arrives.
+    ///
+    /// A value of "default" means to play a default sound. A device may choose
+    /// to alert the user by some other means if appropriate, eg. vibration.
+    Sound(String),
+
+    /// A boolean representing whether or not this message should be highlighted
+    /// in the UI.
+    Highlight(bool),
+
+    /// A custom tweak
+    Custom {
+        /// The name of the custom tweak (`set_tweak` field)
+        name: String,
+
+        /// The value of the custom tweak as an encoded JSON string
+        value: String,
+    },
+}
+
+impl From<SdkTweak> for Tweak {
+    fn from(value: SdkTweak) -> Self {
+        match value {
+            SdkTweak::Sound(sound) => Self::Sound(sound),
+            SdkTweak::Highlight(highlight) => Self::Highlight(highlight),
+            SdkTweak::Custom { name, value } => {
+                let json_string = serde_json::to_string(&value).unwrap();
+
+                return Self::Custom { name, value: json_string };
+            }
+            _ => todo!(),
+        }
+    }
+}
+
+impl From<Tweak> for SdkTweak {
+    fn from(value: Tweak) -> Self {
+        match value {
+            Tweak::Sound(sound) => Self::Sound(sound),
+            Tweak::Highlight(highlight) => Self::Highlight(highlight),
+            Tweak::Custom { name, value } => {
+                let json_value: serde_json::Value = serde_json::from_str(&value).unwrap();
+                let value = serde_json::from_value(json_value).unwrap();
+
+                return Self::Custom { name, value };
+            }
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+/// Enum representing the push notification actions for a rule.
+pub enum Action {
+    /// Causes matching events to generate a notification.
+    Notify,
+    /// Sets an entry in the 'tweaks' dictionary sent to the push gateway.
+    SetTweak(Tweak),
+}
+
+impl From<SdkAction> for Action {
+    fn from(value: SdkAction) -> Self {
+        match value {
+            SdkAction::Notify => Self::Notify,
+            SdkAction::SetTweak(tweak) => Self::SetTweak(tweak.into()),
+            _ => todo!(),
+        }
+    }
+}
+
+impl From<Action> for SdkAction {
+    fn from(value: Action) -> Self {
+        match value {
+            Action::Notify => Self::Notify,
+            Action::SetTweak(tweak) => Self::SetTweak(tweak.into()),
+        }
+    }
+}
 
 /// Enum representing the push notification modes for a room.
 #[derive(Clone, uniffi::Enum)]
@@ -267,7 +581,7 @@ impl NotificationSettings {
     pub async fn is_room_mention_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let enabled = notification_settings
-            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
+            .is_push_rule_enabled(SdkRuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
             .await?;
         Ok(enabled)
     }
@@ -280,7 +594,7 @@ impl NotificationSettings {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings
             .set_push_rule_enabled(
-                RuleKind::Override,
+                SdkRuleKind::Override,
                 PredefinedOverrideRuleId::IsRoomMention,
                 enabled,
             )
@@ -292,7 +606,7 @@ impl NotificationSettings {
     pub async fn is_user_mention_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let enabled = notification_settings
-            .is_push_rule_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
+            .is_push_rule_enabled(SdkRuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
             .await?;
         Ok(enabled)
     }
@@ -304,14 +618,14 @@ impl NotificationSettings {
         let notification_settings = self.sdk_notification_settings.read().await;
         // Check stable identifier
         if let Ok(enabled) = notification_settings
-            .is_push_rule_enabled(RuleKind::Override, ".m.rule.encrypted_event")
+            .is_push_rule_enabled(SdkRuleKind::Override, ".m.rule.encrypted_event")
             .await
         {
             enabled
         } else {
             // Check unstable identifier
             notification_settings
-                .is_push_rule_enabled(RuleKind::Override, ".org.matrix.msc4028.encrypted_event")
+                .is_push_rule_enabled(SdkRuleKind::Override, ".org.matrix.msc4028.encrypted_event")
                 .await
                 .unwrap_or(false)
         }
@@ -332,7 +646,7 @@ impl NotificationSettings {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings
             .set_push_rule_enabled(
-                RuleKind::Override,
+                SdkRuleKind::Override,
                 PredefinedOverrideRuleId::IsUserMention,
                 enabled,
             )
@@ -344,7 +658,7 @@ impl NotificationSettings {
     pub async fn is_call_enabled(&self) -> Result<bool, NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         let enabled = notification_settings
-            .is_push_rule_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Call)
+            .is_push_rule_enabled(SdkRuleKind::Underride, PredefinedUnderrideRuleId::Call)
             .await?;
         Ok(enabled)
     }
@@ -353,7 +667,7 @@ impl NotificationSettings {
     pub async fn set_call_enabled(&self, enabled: bool) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings
-            .set_push_rule_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::Call, enabled)
+            .set_push_rule_enabled(SdkRuleKind::Underride, PredefinedUnderrideRuleId::Call, enabled)
             .await?;
         Ok(())
     }
@@ -363,7 +677,7 @@ impl NotificationSettings {
         let notification_settings = self.sdk_notification_settings.read().await;
         let enabled = notification_settings
             .is_push_rule_enabled(
-                RuleKind::Override,
+                SdkRuleKind::Override,
                 PredefinedOverrideRuleId::InviteForMe.as_str(),
             )
             .await?;
@@ -378,9 +692,30 @@ impl NotificationSettings {
         let notification_settings = self.sdk_notification_settings.read().await;
         notification_settings
             .set_push_rule_enabled(
-                RuleKind::Override,
+                SdkRuleKind::Override,
                 PredefinedOverrideRuleId::InviteForMe.as_str(),
                 enabled,
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_custom_push_rule(
+        &self,
+        rule_id: String,
+        rule_kind: RuleKind,
+        actions: Vec<Action>,
+        conditions: Vec<PushCondition>,
+    ) -> Result<(), NotificationSettingsError> {
+        let notification_settings = self.sdk_notification_settings.read().await;
+        let actions = actions.into_iter().map(|action| action.into()).collect();
+
+        notification_settings
+            .create_custom_conditional_push_rule(
+                rule_id,
+                rule_kind.into(),
+                actions,
+                conditions.into_iter().map(|condition| condition.into()).collect(),
             )
             .await?;
         Ok(())

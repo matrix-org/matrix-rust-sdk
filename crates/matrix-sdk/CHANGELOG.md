@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 - Enable HTTP/2 support in the HTTP client.
   ([#4566](https://github.com/matrix-org/matrix-rust-sdk/pull/4566))
 
+- Add support for creating custom conditional push rules in `NotificationSettings::create_custom_conditional_push_rule`.
+  (tbd)
+
 ### Refactor
 
 - [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type

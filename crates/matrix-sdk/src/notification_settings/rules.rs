@@ -269,6 +269,9 @@ impl Rules {
                 Command::SetPushRuleActions { kind, rule_id, actions } => {
                     _ = self.ruleset.set_actions(kind, rule_id, actions);
                 }
+                Command::SetCustomPushRule { rule } => {
+                    _ = self.ruleset.insert(rule, None, None);
+                }
             }
         }
     }
