@@ -177,7 +177,7 @@ impl RoomList {
                         Box::new(new_sorter_recency()),
                         Box::new(new_sorter_name())
                     ]))
-                    .dynamic_limit_with_initial_value(page_size, limit_stream.clone());
+                    .dynamic_head_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
                 yield stream::once(ready(vec![VectorDiff::Reset { values }]))
