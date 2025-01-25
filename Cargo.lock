@@ -1684,9 +1684,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1c02432230060cae0621e15803e073976d22974e0f013c9cb28a4ea1b484629"
+checksum = "ad276eb017655257443d34f27455f60e8b02b839c6ebcaa8d6f06cc498784e8f"
 dependencies = [
  "futures-core",
  "imbl",
@@ -1696,9 +1696,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im-util"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63a70e454238b5f66a0a0544c3e6a38be765cb01f34da9b94a2f3ecd8777cf8"
+checksum = "eac7f06ce388e4f64876ad3836b275d0972ab64ae8bd8456862d5ebdb7bec4f5"
 dependencies = [
  "arrayvec",
  "eyeball-im",
@@ -2476,9 +2476,9 @@ dependencies = [
 
 [[package]]
 name = "imbl"
-version = "3.0.0"
+version = "4.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc3be8d8cd36f33a46b1849f31f837c44d9fa87223baee3b4bd96b8f11df81eb"
+checksum = "5ae128b3bc67ed43ec0a7bb1c337a9f026717628b3c4033f07ded1da3e854951"
 dependencies = [
  "bitmaps",
  "imbl-sized-chunks",
@@ -2490,9 +2490,9 @@ dependencies = [
 
 [[package]]
 name = "imbl-sized-chunks"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "144006fb58ed787dcae3f54575ff4349755b00ccc99f4b4873860b654be1ed63"
+checksum = "8f4241005618a62f8d57b2febd02510fb96e0137304728543dfc5fd6f052c22d"
 dependencies = [
  "bitmaps",
 ]
@@ -4376,7 +4376,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn",
