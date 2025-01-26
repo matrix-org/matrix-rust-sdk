@@ -479,28 +479,54 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
     let mut unsigned_devices_of_verified_users: Option<Vec<OwnedDeviceId>> = None;
 
     for d in user_devices.into_values() {
-        if d.is_blacklisted() {
-            recipient_devices.denied_devices_with_code.push((d, WithheldCode::Blacklisted));
-        } else if d.local_trust_state() == LocalTrust::Ignored {
-            // Ignore the trust state of that device and share
-            recipient_devices.allowed_devices.push(d);
-        } else if is_unsigned_device_of_verified_user(
+        match handle_device_for_user_for_error_on_verified_user_problem_strategy(
+            &d,
             own_identity.as_ref(),
             device_owner_identity.as_ref(),
-            &d,
         ) {
-            unsigned_devices_of_verified_users
-                .get_or_insert_with(Vec::default)
-                .push(d.device_id().to_owned())
-        } else {
-            recipient_devices.allowed_devices.push(d);
+            ErrorOnVerifiedUserProblemDeviceDecision::Ok => {
+                recipient_devices.allowed_devices.push(d)
+            }
+            ErrorOnVerifiedUserProblemDeviceDecision::Withhold(code) => {
+                recipient_devices.denied_devices_with_code.push((d, code))
+            }
+            ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified => {
+                unsigned_devices_of_verified_users
+                    .get_or_insert_with(Vec::default)
+                    .push(d.device_id().to_owned())
+            }
         }
     }
 
     if let Some(devices) = unsigned_devices_of_verified_users {
-        DeviceBasedRecipientDevices::UnsignedDevicesOfVerifiedUser(devices)
+        ErrorOnVerifiedUserProblemResult::UnsignedDevicesOfVerifiedUser(devices)
     } else {
-        DeviceBasedRecipientDevices::Devices(recipient_devices)
+        ErrorOnVerifiedUserProblemResult::Devices(recipient_devices)
+    }
+}
+
+/// Result type for
+/// [`handle_device_for_user_for_error_on_verified_user_problem_strategy`].
+enum ErrorOnVerifiedUserProblemDeviceDecision {
+    Ok,
+    Withhold(WithheldCode),
+    UnsignedOfVerified,
+}
+
+fn handle_device_for_user_for_error_on_verified_user_problem_strategy(
+    device: &DeviceData,
+    own_identity: Option<&OwnUserIdentityData>,
+    device_owner_identity: Option<&UserIdentityData>,
+) -> ErrorOnVerifiedUserProblemDeviceDecision {
+    if device.is_blacklisted() {
+        ErrorOnVerifiedUserProblemDeviceDecision::Withhold(WithheldCode::Blacklisted)
+    } else if device.local_trust_state() == LocalTrust::Ignored {
+        // Ignore the trust state of that device and share
+        ErrorOnVerifiedUserProblemDeviceDecision::Ok
+    } else if is_unsigned_device_of_verified_user(own_identity, device_owner_identity, device) {
+        ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified
+    } else {
+        ErrorOnVerifiedUserProblemDeviceDecision::Ok
     }
 }
 
