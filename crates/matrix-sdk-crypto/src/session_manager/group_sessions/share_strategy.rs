@@ -353,8 +353,10 @@ fn is_session_overshared_for_user(
     should_rotate
 }
 
-/// Result type for [`split_devices_for_user_for_identity_based_strategy`] and
-/// [`split_devices_for_user`].
+/// Result type for [`split_devices_for_user_for_all_devices_strategy`],
+/// [`split_devices_for_user_for_error_on_verified_user_problem_strategy`],
+/// [`split_devices_for_user_for_identity_based_strategy`],
+/// [`split_devices_for_user_for_only_trusted_devices`].
 ///
 /// A partitioning of the devices for a given user.
 #[derive(Default)]
@@ -399,6 +401,60 @@ fn split_devices_for_user(
     only_allow_trusted_devices: bool,
     error_on_verified_user_problem: bool,
 ) -> DeviceBasedRecipientDevices {
+    if only_allow_trusted_devices {
+        let recipient_devices = split_devices_for_user_for_only_trusted_devices(
+            user_devices,
+            own_identity,
+            device_owner_identity,
+        );
+        DeviceBasedRecipientDevices::Devices(recipient_devices)
+    } else if error_on_verified_user_problem {
+        split_devices_for_user_for_error_on_verified_user_problem_strategy(
+            user_devices,
+            own_identity,
+            device_owner_identity,
+        )
+    } else {
+        let recipient_devices = split_devices_for_user_for_all_devices_strategy(user_devices);
+        DeviceBasedRecipientDevices::Devices(recipient_devices)
+    }
+}
+
+/// Partition the list of a user's devices according to whether they should
+/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`] with
+/// neither `error_on_verified_user_problem` nor `only_allow_trusted_devices`.
+fn split_devices_for_user_for_all_devices_strategy(
+    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+) -> RecipientDevicesForUser {
+    let (left, right) = user_devices.into_values().partition_map(|d| {
+        if d.is_blacklisted() {
+            Either::Right((d, WithheldCode::Blacklisted))
+        } else {
+            Either::Left(d)
+        }
+    });
+
+    RecipientDevicesForUser { allowed_devices: left, denied_devices_with_code: right }
+}
+
+/// Partition the list of a user's devices according to whether they should
+/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`] with
+/// `error_on_verified_user_problem` (but not `only_allow_trusted_devices`)
+///
+/// This function returns one of two values:
+///
+/// * A list of the devices that should cause the transmission to fail due to
+///   being unsigned. In this case, we don't bother to return the rest of the
+///   devices, because we assume transmission will fail.
+///
+/// * Otherwise, returns a [`RecipientDevicesForUser`] which lists, separately,
+///   the devices that should receive the room key, and those that should
+///   receive a withheld code.
+fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
+    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> DeviceBasedRecipientDevices {
     let mut recipient_devices = RecipientDevicesForUser::default();
 
     // We construct unsigned_devices_of_verified_users lazily, because chances are
@@ -411,16 +467,11 @@ fn split_devices_for_user(
         } else if d.local_trust_state() == LocalTrust::Ignored {
             // Ignore the trust state of that device and share
             recipient_devices.allowed_devices.push(d);
-        } else if only_allow_trusted_devices && !d.is_verified(own_identity, device_owner_identity)
-        {
-            recipient_devices.denied_devices_with_code.push((d, WithheldCode::Unverified));
-        } else if error_on_verified_user_problem
-            && is_unsigned_device_of_verified_user(
-                own_identity.as_ref(),
-                device_owner_identity.as_ref(),
-                &d,
-            )
-        {
+        } else if is_unsigned_device_of_verified_user(
+            own_identity.as_ref(),
+            device_owner_identity.as_ref(),
+            &d,
+        ) {
             unsigned_devices_of_verified_users
                 .get_or_insert_with(Vec::default)
                 .push(d.device_id().to_owned())
@@ -470,6 +521,28 @@ fn split_devices_for_user_for_identity_based_strategy(
             }
         }
     }
+}
+
+/// Partition the list of a user's devices according to whether they should
+/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`] with
+/// `only_allow trusted_devices`.
+fn split_devices_for_user_for_only_trusted_devices(
+    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> RecipientDevicesForUser {
+    let (left, right) = user_devices.into_values().partition_map(|d| {
+        match (
+            d.local_trust_state(),
+            d.is_cross_signing_trusted(own_identity, device_owner_identity),
+        ) {
+            (LocalTrust::BlackListed, _) => Either::Right((d, WithheldCode::Blacklisted)),
+            (LocalTrust::Ignored | LocalTrust::Verified, _) => Either::Left(d),
+            (LocalTrust::Unset, false) => Either::Right((d, WithheldCode::Unverified)),
+            (LocalTrust::Unset, true) => Either::Left(d),
+        }
+    });
+    RecipientDevicesForUser { allowed_devices: left, denied_devices_with_code: right }
 }
 
 fn is_unsigned_device_of_verified_user(
