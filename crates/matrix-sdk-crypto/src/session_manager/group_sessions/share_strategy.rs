@@ -35,40 +35,43 @@ use crate::{Device, UserIdentity};
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[serde(from = "CollectStrategyDeserializationHelper")]
 pub enum CollectStrategy {
-    /// Device based sharing strategy.
-    DeviceBasedStrategy {
-        /// If `true`, devices that are not trusted will be excluded from the
-        /// conversation. A device is trusted if any of the following is true:
-        ///     - It was manually marked as trusted.
-        ///     - It was marked as verified via interactive verification.
-        ///     - It is signed by its owner identity, and this identity has been
-        ///       trusted via interactive verification.
-        ///     - It is the current own device of the user.
-        only_allow_trusted_devices: bool,
+    /// Share with all (unblacklisted) devices.
+    #[default]
+    AllDevices,
 
-        /// If `true`, and a verified user has an unsigned device, key sharing
-        /// will fail with a
-        /// [`SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`].
-        ///
-        /// If `true`, and a verified user has replaced their identity, key
-        /// sharing will fail with a
-        /// [`SessionRecipientCollectionError::VerifiedUserChangedIdentity`].
-        ///
-        /// Otherwise, keys are shared with unsigned devices as normal.
-        ///
-        /// Once the problematic devices are blacklisted or whitelisted the
-        /// caller can retry to share a second time.
-        #[serde(default)]
-        error_on_verified_user_problem: bool,
-    },
+    /// Share with all devices, except errors for *verified* users cause sharing
+    /// to fail with an error.
+    ///
+    /// In this strategy, if a verified user has an unsigned device,
+    /// key sharing will fail with a
+    /// [`SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`].
+    /// If a verified user has replaced their identity, key
+    /// sharing will fail with a
+    /// [`SessionRecipientCollectionError::VerifiedUserChangedIdentity`].
+    ///
+    /// Otherwise, keys are shared with unsigned devices as normal.
+    ///
+    /// Once the problematic devices are blacklisted or whitelisted the
+    /// caller can retry to share a second time.
+    ErrorOnVerifiedUserProblem,
 
     /// Share based on identity. Only distribute to devices signed by their
     /// owner. If a user has no published identity he will not receive
     /// any room keys.
     IdentityBasedStrategy,
+
+    /// Only share keys with devices that we "trust". A device is trusted if any
+    /// of the following is true:
+    ///     - It was manually marked as trusted.
+    ///     - It was marked as verified via interactive verification.
+    ///     - It is signed by its owner identity, and this identity has been
+    ///       trusted via interactive verification.
+    ///     - It is the current own device of the user.
+    OnlyTrustedDevices,
 }
 
 impl CollectStrategy {
@@ -78,11 +81,47 @@ impl CollectStrategy {
     }
 }
 
-impl Default for CollectStrategy {
-    fn default() -> Self {
-        CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices: false,
-            error_on_verified_user_problem: false,
+/// Deserialization helper for [`CollectStrategy`].
+#[derive(Deserialize)]
+enum CollectStrategyDeserializationHelper {
+    /// `AllDevices`, `ErrorOnVerifiedUserProblem` and `OnlyTrustedDevices` used
+    /// to be implemented as a single strategy with flags.
+    DeviceBasedStrategy {
+        #[serde(default)]
+        error_on_verified_user_problem: bool,
+
+        #[serde(default)]
+        only_allow_trusted_devices: bool,
+    },
+
+    AllDevices,
+    ErrorOnVerifiedUserProblem,
+    IdentityBasedStrategy,
+    OnlyTrustedDevices,
+}
+
+impl From<CollectStrategyDeserializationHelper> for CollectStrategy {
+    fn from(value: CollectStrategyDeserializationHelper) -> Self {
+        use CollectStrategyDeserializationHelper::*;
+
+        match value {
+            DeviceBasedStrategy {
+                only_allow_trusted_devices: true,
+                error_on_verified_user_problem: _,
+            } => CollectStrategy::OnlyTrustedDevices,
+            DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: true,
+            } => CollectStrategy::ErrorOnVerifiedUserProblem,
+            DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: false,
+            } => CollectStrategy::AllDevices,
+
+            AllDevices => CollectStrategy::AllDevices,
+            ErrorOnVerifiedUserProblem => CollectStrategy::ErrorOnVerifiedUserProblem,
+            IdentityBasedStrategy => CollectStrategy::IdentityBasedStrategy,
+            OnlyTrustedDevices => CollectStrategy::OnlyTrustedDevices,
         }
     }
 }
@@ -149,51 +188,56 @@ pub(crate) async fn collect_session_recipients(
 
     // Get the recipient and withheld devices, based on the collection strategy.
     match settings.sharing_strategy {
-        CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices,
-            error_on_verified_user_problem,
-        } => {
+        CollectStrategy::AllDevices => {
+            for user_id in users {
+                trace!(
+                    "CollectStrategy::AllDevices: Considering recipient devices for user {}",
+                    user_id
+                );
+                let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+
+                let recipient_devices =
+                    split_devices_for_user_for_all_devices_strategy(user_devices);
+                update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
+            }
+        }
+        CollectStrategy::ErrorOnVerifiedUserProblem => {
             let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
                 Default::default();
 
             for user_id in users {
-                trace!("Considering recipient devices for user {}", user_id);
+                trace!("CollectStrategy::ErrorOnVerifiedUserProblem: Considering recipient devices for user {}", user_id);
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
-                // We only need the user identity if `only_allow_trusted_devices` or
-                // `error_on_verified_user_problem` is set.
-                let device_owner_identity =
-                    if only_allow_trusted_devices || error_on_verified_user_problem {
-                        store.get_user_identity(user_id).await?
-                    } else {
-                        None
-                    };
+                let device_owner_identity = store.get_user_identity(user_id).await?;
 
-                if error_on_verified_user_problem
-                    && has_identity_verification_violation(
-                        own_identity.as_ref(),
-                        device_owner_identity.as_ref(),
-                    )
-                {
+                if has_identity_verification_violation(
+                    own_identity.as_ref(),
+                    device_owner_identity.as_ref(),
+                ) {
                     verified_users_with_new_identities.push(user_id.to_owned());
                     // No point considering the individual devices of this user.
                     continue;
                 }
 
-                let recipient_devices = split_devices_for_user(
-                    user_devices,
-                    &own_identity,
-                    &device_owner_identity,
-                    only_allow_trusted_devices,
-                    error_on_verified_user_problem,
-                );
+                let recipient_devices =
+                    split_devices_for_user_for_error_on_verified_user_problem_strategy(
+                        user_devices,
+                        &own_identity,
+                        &device_owner_identity,
+                    );
 
                 match recipient_devices {
-                    DeviceBasedRecipientDevices::UnsignedDevicesOfVerifiedUser(devices) => {
+                    ErrorOnVerifiedUserProblemResult::UnsignedDevicesOfVerifiedUser(devices) => {
                         unsigned_devices_of_verified_users.insert(user_id.to_owned(), devices);
                     }
-                    DeviceBasedRecipientDevices::Devices(recipient_devices) => {
-                        result.update_for_user(outbound, user_id, recipient_devices);
+                    ErrorOnVerifiedUserProblemResult::Devices(recipient_devices) => {
+                        update_recipients_for_user(
+                            &mut result,
+                            outbound,
+                            user_id,
+                            recipient_devices,
+                        );
                     }
                 }
             }
@@ -227,7 +271,7 @@ pub(crate) async fn collect_session_recipients(
             }
 
             for user_id in users {
-                trace!("Considering recipient devices for user {}", user_id);
+                trace!("CollectStrategy::IdentityBasedStrategy: Considering recipient devices for user {}", user_id);
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
                 let device_owner_identity = store.get_user_identity(user_id).await?;
@@ -243,6 +287,22 @@ pub(crate) async fn collect_session_recipients(
 
                 let recipient_devices = split_devices_for_user_for_identity_based_strategy(
                     user_devices,
+                    &device_owner_identity,
+                );
+
+                update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
+            }
+        }
+
+        CollectStrategy::OnlyTrustedDevices => {
+            for user_id in users {
+                trace!("CollectStrategy::OnlyTrustedDevices: Considering recipient devices for user {}", user_id);
+                let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+                let device_owner_identity = store.get_user_identity(user_id).await?;
+
+                let recipient_devices = split_devices_for_user_for_only_trusted_devices(
+                    user_devices,
+                    &own_identity,
                     &device_owner_identity,
                 );
 
@@ -367,8 +427,9 @@ struct RecipientDevicesForUser {
     denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
 }
 
-/// Result type for [`split_devices_for_user`].
-enum DeviceBasedRecipientDevices {
+/// Result type for
+/// [`split_devices_for_user_for_error_on_verified_user_problem_strategy`].
+enum ErrorOnVerifiedUserProblemResult {
     /// We found devices that should cause the transmission to fail, due to
     /// being an unsigned device belonging to a verified user. Only
     /// populated when `error_on_verified_user_problem` is set.
@@ -379,50 +440,7 @@ enum DeviceBasedRecipientDevices {
 }
 
 /// Partition the list of a user's devices according to whether they should
-/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`].
-///
-/// This function returns one of two values:
-///
-/// * If `error_on_verified_user_problem` is set, returns a list the devices
-///   that should cause the transmission to fail due to being unsigned. In this
-///   case, we don't bother to return the rest of the devices, because we assume
-///   transmission will fail.
-///
-///   (If error_on_verified_user_problem` is unset, these devices are otherwise
-///   partitioned into `allowed_devices`.)
-///
-/// * Otherwise, returns a [`RecipientDevicesForUser`] which lists, separately,
-///   the devices that should receive the room key, and those that should
-///   receive a withheld code.
-fn split_devices_for_user(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
-    own_identity: &Option<OwnUserIdentityData>,
-    device_owner_identity: &Option<UserIdentityData>,
-    only_allow_trusted_devices: bool,
-    error_on_verified_user_problem: bool,
-) -> DeviceBasedRecipientDevices {
-    if only_allow_trusted_devices {
-        let recipient_devices = split_devices_for_user_for_only_trusted_devices(
-            user_devices,
-            own_identity,
-            device_owner_identity,
-        );
-        DeviceBasedRecipientDevices::Devices(recipient_devices)
-    } else if error_on_verified_user_problem {
-        split_devices_for_user_for_error_on_verified_user_problem_strategy(
-            user_devices,
-            own_identity,
-            device_owner_identity,
-        )
-    } else {
-        let recipient_devices = split_devices_for_user_for_all_devices_strategy(user_devices);
-        DeviceBasedRecipientDevices::Devices(recipient_devices)
-    }
-}
-
-/// Partition the list of a user's devices according to whether they should
-/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`] with
-/// neither `error_on_verified_user_problem` nor `only_allow_trusted_devices`.
+/// receive the key, for [`CollectStrategy::AllDevices`].
 fn split_devices_for_user_for_all_devices_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
 ) -> RecipientDevicesForUser {
@@ -438,8 +456,7 @@ fn split_devices_for_user_for_all_devices_strategy(
 }
 
 /// Partition the list of a user's devices according to whether they should
-/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`] with
-/// `error_on_verified_user_problem` (but not `only_allow_trusted_devices`)
+/// receive the key, for [`CollectStrategy::ErrorOnVerifiedUserProblem`].
 ///
 /// This function returns one of two values:
 ///
@@ -454,7 +471,7 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
-) -> DeviceBasedRecipientDevices {
+) -> ErrorOnVerifiedUserProblemResult {
     let mut recipient_devices = RecipientDevicesForUser::default();
 
     // We construct unsigned_devices_of_verified_users lazily, because chances are
@@ -524,8 +541,7 @@ fn split_devices_for_user_for_identity_based_strategy(
 }
 
 /// Partition the list of a user's devices according to whether they should
-/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`] with
-/// `only_allow trusted_devices`.
+/// receive the key, for [`CollectStrategy::OnlyTrustedDevices`].
 fn split_devices_for_user_for_only_trusted_devices(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
@@ -653,20 +669,65 @@ mod tests {
         machine
     }
 
-    /// Assert that [`CollectStrategy::DeviceBasedStrategy`] retains the same
+    /// Assert that [`CollectStrategy::AllDevices`] retains the same
     /// serialization format.
     #[test]
     fn test_serialize_device_based_strategy() {
-        let encryption_settings = device_based_strategy_settings();
+        let encryption_settings = all_devices_strategy_settings();
         let serialized = serde_json::to_string(&encryption_settings).unwrap();
         assert_snapshot!(serialized);
+    }
+
+    /// [`CollectStrategy::AllDevices`] used to be known as
+    /// `DeviceBasedStrategy`. Check we can still deserialize the old
+    /// representation.
+    #[test]
+    fn test_deserialize_old_device_based_strategy() {
+        let settings: EncryptionSettings = serde_json::from_value(json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "rotation_period":{"secs":604800,"nanos":0},
+            "rotation_period_msgs":100,
+            "history_visibility":"shared",
+            "sharing_strategy":{"DeviceBasedStrategy":{"only_allow_trusted_devices":false,"error_on_verified_user_problem":false}},
+        })).unwrap();
+        assert_matches!(settings.sharing_strategy, CollectStrategy::AllDevices);
+    }
+
+    /// [`CollectStrategy::ErrorOnVerifiedUserProblem`] used to be represented
+    /// as a variant on the former `DeviceBasedStrategy`. Check we can still
+    /// deserialize the old representation.
+    #[test]
+    fn test_deserialize_old_error_on_verified_user_problem() {
+        let settings: EncryptionSettings = serde_json::from_value(json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "rotation_period":{"secs":604800,"nanos":0},
+            "rotation_period_msgs":100,
+            "history_visibility":"shared",
+            "sharing_strategy":{"DeviceBasedStrategy":{"only_allow_trusted_devices":false,"error_on_verified_user_problem":true}},
+        })).unwrap();
+        assert_matches!(settings.sharing_strategy, CollectStrategy::ErrorOnVerifiedUserProblem);
+    }
+
+    /// [`CollectStrategy::OnlyTrustedDevices`] used to be represented as a
+    /// variant on the former `DeviceBasedStrategy`. Check we can still
+    /// deserialize the old representation.
+    #[test]
+    fn test_deserialize_old_only_trusted_devices_strategy() {
+        let settings: EncryptionSettings = serde_json::from_value(json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "rotation_period":{"secs":604800,"nanos":0},
+            "rotation_period_msgs":100,
+            "history_visibility":"shared",
+            "sharing_strategy":{"DeviceBasedStrategy":{"only_allow_trusted_devices":true,"error_on_verified_user_problem":false}},
+        })).unwrap();
+        assert_matches!(settings.sharing_strategy, CollectStrategy::OnlyTrustedDevices);
     }
 
     #[async_test]
     async fn test_share_with_per_device_strategy_to_all() {
         let machine = set_up_test_machine().await;
 
-        let encryption_settings = device_based_strategy_settings();
+        let encryption_settings = all_devices_strategy_settings();
 
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
@@ -700,33 +761,11 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_share_with_per_device_strategy_only_trusted() {
-        test_share_only_trusted_helper(false).await;
-    }
-
-    /// Variation of [`test_share_with_per_device_strategy_only_trusted`] to
-    /// test the interaction between
-    /// [`only_allow_trusted_devices`](`CollectStrategy::DeviceBasedStrategy::only_allow_trusted_devices`) and
-    /// [`error_on_verified_user_problem`](`CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem`).
-    ///
-    /// (Given that untrusted devices are ignored, we do not expect
-    /// [`collect_session_recipients`] to return an error, despite the presence
-    /// of unsigned devices.)
-    #[async_test]
-    async fn test_share_with_per_device_strategy_only_trusted_error_on_unsigned_of_verified() {
-        test_share_only_trusted_helper(true).await;
-    }
-
-    /// Common helper for [`test_share_with_per_device_strategy_only_trusted`]
-    /// and [`test_share_with_per_device_strategy_only_trusted_error_on_unsigned_of_verified`].
-    async fn test_share_only_trusted_helper(error_on_verified_user_problem: bool) {
+    async fn test_share_with_only_trusted_strategy() {
         let machine = set_up_test_machine().await;
 
         let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: true,
-                error_on_verified_user_problem,
-            },
+            sharing_strategy: CollectStrategy::OnlyTrustedDevices,
             ..Default::default()
         };
 
@@ -1458,10 +1497,7 @@ mod tests {
     async fn test_should_rotate_based_on_visibility() {
         let machine = set_up_test_machine().await;
 
-        let strategy = CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices: false,
-            error_on_verified_user_problem: false,
-        };
+        let strategy = CollectStrategy::AllDevices;
 
         let encryption_settings = EncryptionSettings {
             sharing_strategy: strategy.clone(),
@@ -1507,7 +1543,7 @@ mod tests {
         let machine = set_up_test_machine().await;
 
         let fake_room_id = room_id!("!roomid:localhost");
-        let encryption_settings = device_based_strategy_settings();
+        let encryption_settings = all_devices_strategy_settings();
 
         let requests = machine
             .share_room_key(
@@ -1599,25 +1635,16 @@ mod tests {
         machine
     }
 
-    /// [`EncryptionSettings`] with [`CollectStrategy::DeviceBasedStrategy`]
-    /// (with default settings)
-    fn device_based_strategy_settings() -> EncryptionSettings {
-        EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: false,
-            },
-            ..Default::default()
-        }
+    /// [`EncryptionSettings`] with [`CollectStrategy::AllDevices`]
+    fn all_devices_strategy_settings() -> EncryptionSettings {
+        EncryptionSettings { sharing_strategy: CollectStrategy::AllDevices, ..Default::default() }
     }
 
-    /// [`EncryptionSettings`] with `error_on_verified_user_problem` set
+    /// [`EncryptionSettings`] with
+    /// [`CollectStrategy::ErrorOnVerifiedUserProblem`]
     fn error_on_verification_problem_encryption_settings() -> EncryptionSettings {
         EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: true,
-            },
+            sharing_strategy: CollectStrategy::ErrorOnVerifiedUserProblem,
             ..Default::default()
         }
     }
