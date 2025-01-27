@@ -656,7 +656,9 @@ impl EventTimelineItem {
             let graphemes = body.trim().graphemes(true).collect::<Vec<&str>>();
 
             // Limit the check to 5 graphemes for performance and security
-            // reasons
+            // reasons. This will probably be used for every new message so we
+            // want it to be fast and we don't want to allow a DoS attack by
+            // sending a huge message.
             if graphemes.len() > 5 {
                 return false;
             }
