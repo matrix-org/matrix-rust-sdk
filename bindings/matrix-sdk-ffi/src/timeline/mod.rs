@@ -1322,4 +1322,8 @@ impl LazyTimelineItemProvider {
     fn get_send_handle(&self) -> Option<Arc<SendHandle>> {
         self.0.local_echo_send_handle().map(|handle| Arc::new(SendHandle::new(handle)))
     }
+
+    fn contains_only_emojis(&self) -> bool {
+        self.0.contains_only_emojis()
+    }
 }
