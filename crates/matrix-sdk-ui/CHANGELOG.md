@@ -24,6 +24,13 @@ All notable changes to this project will be documented in this file.
   implement `Into<PathBuf>` also implement `Into<AttachmentSource>`.
   ([#4451](https://github.com/matrix-org/matrix-rust-sdk/pull/4451))
 
+### Refactor
+
+- [**breaking**] `Timeline::paginate_forwards` and `Timeline::paginate_backwards`
+  are unified to work on a live or focused timeline.
+  `Timeline::live_paginate_*` and `Timeline::focused_paginate_*` have been
+  removed ([#4584](https://github.com/matrix-org/matrix-rust-sdk/pull/4584)).
+
 ## [0.9.0] - 2024-12-18
 
 ### Bug Fixes
@@ -62,7 +69,6 @@ All notable changes to this project will be documented in this file.
 
 - `EncryptionSyncService` and `Notification` are using
   `Client::cross_process_store_locks_holder_name`.
-
 
 ### Refactor
 
