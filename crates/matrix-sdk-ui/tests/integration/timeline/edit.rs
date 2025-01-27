@@ -907,7 +907,7 @@ impl PendingEditHelper {
             .mount()
             .await;
 
-        self.timeline.live_paginate_backwards(batch_size).await.unwrap();
+        self.timeline.paginate_backwards(batch_size).await.unwrap();
     }
 }
 

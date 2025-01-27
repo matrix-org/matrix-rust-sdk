@@ -121,7 +121,7 @@ async fn test_new_focused() {
     )
     .await;
 
-    let hit_start = timeline.focused_paginate_backwards(20).await.unwrap();
+    let hit_start = timeline.paginate_backwards(20).await.unwrap();
     assert!(hit_start);
 
     server.reset().await;
@@ -161,7 +161,7 @@ async fn test_new_focused() {
     )
     .await;
 
-    let hit_start = timeline.focused_paginate_forwards(20).await.unwrap();
+    let hit_start = timeline.paginate_forwards(20).await.unwrap();
     assert!(!hit_start); // because we gave it another next2 token.
 
     server.reset().await;
