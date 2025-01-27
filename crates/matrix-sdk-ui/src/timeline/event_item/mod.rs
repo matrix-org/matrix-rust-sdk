@@ -620,7 +620,14 @@ impl EventTimelineItem {
     ///   [`MessageType::Video`] if present
     /// - all other message types will not match
     ///
-    /// See `test_emoji_detection` for examples.
+    /// # Examples
+    /// # fn render_timeline_item(timeline_item: TimelineItem) {
+    /// if timeline_item.contains_only_emojis() {
+    ///     // e.g. increase the font size
+    /// }
+    /// # }
+    ///
+    /// See `test_emoji_detection` for more examples.
     pub fn contains_only_emojis(&self) -> bool {
         let body = match self.content() {
             TimelineItemContent::Message(msg) => match msg.msgtype() {
