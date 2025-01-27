@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `CollectStrategy::DeviceBasedStrategy` is now split into three
+  separate strategies (`AllDevices`, `ErrorOnVerifiedUserProblem`,
+  `OnlyTrustedDevices`), to make the behaviour clearer.
+  ([#4581](https://github.com/matrix-org/matrix-rust-sdk/pull/4581))
+
 - Accept stable identifier `sender_device_keys` for MSC4147 (Including device
   keys with Olm-encrypted events).
   ([#4420](https://github.com/matrix-org/matrix-rust-sdk/pull/4420))
