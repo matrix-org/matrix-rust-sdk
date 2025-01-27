@@ -47,7 +47,7 @@ async fn test_abort_before_being_sent() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let timeline = room.timeline().await.unwrap();
-    let (initial_items, mut stream) = timeline.subscribe_batched().await;
+    let (initial_items, mut stream) = timeline.subscribe().await;
 
     assert!(initial_items.is_empty());
 
@@ -202,7 +202,7 @@ async fn test_redact_failed() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (initial_items, mut stream) = timeline.subscribe_batched().await;
+    let (initial_items, mut stream) = timeline.subscribe().await;
 
     assert!(initial_items.is_empty());
 
@@ -288,7 +288,7 @@ async fn test_local_reaction_to_local_echo() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (initial_items, mut stream) = timeline.subscribe_batched().await;
+    let (initial_items, mut stream) = timeline.subscribe().await;
 
     assert!(initial_items.is_empty());
 

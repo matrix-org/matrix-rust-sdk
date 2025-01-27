@@ -267,7 +267,7 @@ impl App {
 
                     // Save the timeline in the cache.
                     let sdk_timeline = ui_room.timeline().unwrap();
-                    let (items, stream) = sdk_timeline.subscribe_batched().await;
+                    let (items, stream) = sdk_timeline.subscribe().await;
                     let items = Arc::new(Mutex::new(items));
 
                     // Spawn a timeline task that will listen to all the timeline item changes.

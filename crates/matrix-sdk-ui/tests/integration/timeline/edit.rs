@@ -86,7 +86,7 @@ async fn test_edit() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let event_id = event_id!("$msda7m:localhost");
     sync_builder.add_joined_room(
@@ -187,7 +187,7 @@ async fn test_edit_local_echo() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let mounted_send =
         server.mock_room_send().error_too_large().mock_once().mount_as_scoped().await;
@@ -758,7 +758,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
@@ -916,7 +916,7 @@ async fn test_pending_edit() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // When I receive an edit event for an event I don't know about…
     let original_event_id = event_id!("$original");
@@ -969,7 +969,7 @@ async fn test_pending_edit_overrides() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // When I receive multiple edit events for an event I don't know about…
     let original_event_id = event_id!("$original");
@@ -1024,7 +1024,7 @@ async fn test_pending_edit_from_backpagination() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // When I receive an edit from a back-pagination for an event I don't know
     // about…
@@ -1090,7 +1090,7 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     )
     .await;
 
-    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // And then I receive an edit from a back-pagination for the same event…
     let edit_event_id2 = event_id!("$edit2");
@@ -1139,7 +1139,7 @@ async fn test_pending_poll_edit() {
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // When I receive an edit event for an event I don't know about…
     let original_event_id = event_id!("$original");

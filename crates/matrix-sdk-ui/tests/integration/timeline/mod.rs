@@ -79,7 +79,7 @@ async fn test_reaction() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -190,7 +190,7 @@ async fn test_redacted_message() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -248,7 +248,7 @@ async fn test_redact_message() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let factory = EventFactory::new();
     factory.set_next_ts(MilliSecondsSinceUnixEpoch::now().get().into());
@@ -327,7 +327,7 @@ async fn test_redact_local_sent_message() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // Mock event sending.
     server.mock_room_send().ok(event_id!("$wWgymRfo7ri1uQx0NXO40vLJ")).mock_once().mount().await;
@@ -420,7 +420,7 @@ async fn test_read_marker() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
@@ -510,7 +510,7 @@ async fn test_sync_highlighted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
@@ -762,7 +762,7 @@ async fn test_timeline_without_encryption_info() {
     // Previously this would have panicked.
     let timeline = room.timeline().await.unwrap();
 
-    let (items, _) = timeline.subscribe_batched().await;
+    let (items, _) = timeline.subscribe().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].as_virtual().is_some());
     // No encryption, no shields
@@ -794,7 +794,7 @@ async fn test_timeline_without_encryption_can_update() {
     // encryption changes
     let timeline = Timeline::builder(&room).build().await.unwrap();
 
-    let (items, mut stream) = timeline.subscribe_batched().await;
+    let (items, mut stream) = timeline.subscribe().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].as_virtual().is_some());
     // No encryption, no shields

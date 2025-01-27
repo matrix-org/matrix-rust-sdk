@@ -86,7 +86,7 @@ async fn test_new_focused() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 5 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
@@ -229,7 +229,7 @@ async fn test_focused_timeline_reacts() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
@@ -314,7 +314,7 @@ async fn test_focused_timeline_local_echoes() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
@@ -393,7 +393,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());

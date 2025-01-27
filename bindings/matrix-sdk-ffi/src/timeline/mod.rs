@@ -212,7 +212,7 @@ pub struct UploadParameters {
 #[matrix_sdk_ffi_macros::export]
 impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
-        let (timeline_items, timeline_stream) = self.inner.subscribe_batched().await;
+        let (timeline_items, timeline_stream) = self.inner.subscribe().await;
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(timeline_stream);

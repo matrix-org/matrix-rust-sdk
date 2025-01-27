@@ -289,7 +289,7 @@ async fn timeline_test_helper(
 
     let timeline = Timeline::builder(&sdk_room).track_read_marker_and_receipts().build().await?;
 
-    Ok(timeline.subscribe_batched().await)
+    Ok(timeline.subscribe().await)
 }
 
 struct SlidingSyncMatcher;
