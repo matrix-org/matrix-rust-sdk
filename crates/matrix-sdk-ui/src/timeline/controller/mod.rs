@@ -500,7 +500,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
         let state = self.state.read().await;
-        (state.items.clone_items(), state.items.subscribe().into_batched_stream())
+        state.items.subscribe().into_values_and_batched_stream()
     }
 
     pub(super) async fn subscribe_filter_map<U, F>(
