@@ -177,7 +177,7 @@ impl From<SdkPushCondition> for PushCondition {
             SdkPushCondition::EventPropertyContains { key, value } => {
                 Self::EventPropertyContains { key, value: value.into() }
             }
-            _ => todo!(),
+            _ => Self::from(value),
         }
     }
 }
@@ -222,6 +222,8 @@ pub enum RuleKind {
 
     /// Content-specific rules.
     Content,
+
+    Custom(String),
 }
 
 impl From<SdkRuleKind> for RuleKind {
@@ -232,7 +234,8 @@ impl From<SdkRuleKind> for RuleKind {
             SdkRuleKind::Sender => Self::Sender,
             SdkRuleKind::Room => Self::Room,
             SdkRuleKind::Content => Self::Content,
-            _ => todo!(),
+            SdkRuleKind::_Custom(_) => Self::Custom(value.as_str().to_owned()),
+            _ => Self::Custom(value.to_string()),
         }
     }
 }
@@ -245,6 +248,7 @@ impl From<RuleKind> for SdkRuleKind {
             RuleKind::Sender => Self::Sender,
             RuleKind::Room => Self::Room,
             RuleKind::Content => Self::Content,
+            RuleKind::Custom(kind) => SdkRuleKind::from(kind),
         }
     }
 }
@@ -281,9 +285,9 @@ impl From<SdkTweak> for Tweak {
             SdkTweak::Custom { name, value } => {
                 let json_string = serde_json::to_string(&value).unwrap();
 
-                return Self::Custom { name, value: json_string };
+                Self::Custom { name, value: json_string }
             }
-            _ => todo!(),
+            _ => Tweak::from(value),
         }
     }
 }
@@ -297,7 +301,7 @@ impl From<Tweak> for SdkTweak {
                 let json_value: serde_json::Value = serde_json::from_str(&value).unwrap();
                 let value = serde_json::from_value(json_value).unwrap();
 
-                return Self::Custom { name, value };
+                Self::Custom { name, value }
             }
         }
     }
@@ -317,7 +321,7 @@ impl From<SdkAction> for Action {
         match value {
             SdkAction::Notify => Self::Notify,
             SdkAction::SetTweak(tweak) => Self::SetTweak(tweak.into()),
-            _ => todo!(),
+            _ => Self::from(value),
         }
     }
 }

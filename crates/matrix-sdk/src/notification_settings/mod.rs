@@ -274,7 +274,7 @@ impl NotificationSettings {
     /// * `actions` - The actions to set for the push rule.
     /// * `conditions` - The conditions for the push rule.
     ///
-    /// See more in the matrix spec: https://spec.matrix.org/latest/client-server-api/#push-rules
+    /// See more in the matrix spec: <https://spec.matrix.org/latest/client-server-api/#push-rules>
     pub async fn create_custom_conditional_push_rule(
         &self,
         rule_id: String,
@@ -288,7 +288,7 @@ impl NotificationSettings {
         let new_push_rule = match rule_kind {
             RuleKind::Override => NewPushRule::Override(new_conditional_rule),
             RuleKind::Underride => NewPushRule::Underride(new_conditional_rule),
-            _ => todo!(),
+            _ => return Err(NotificationSettingsError::InvalidParameter("rule_kind".to_owned())),
         };
 
         let rules = self.rules.read().await.clone();
