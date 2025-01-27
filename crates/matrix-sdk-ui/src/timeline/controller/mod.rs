@@ -484,7 +484,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         Vector<Arc<TimelineItem>>,
         impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
     ) {
-        trace!("Creating timeline items signal");
         let state = self.state.read().await;
         (state.items.clone_items(), state.items.subscribe().into_stream())
     }
@@ -492,7 +491,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) async fn subscribe_batched(
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
-        trace!("Creating timeline items signal");
         let state = self.state.read().await;
         (state.items.clone_items(), state.items.subscribe().into_batched_stream())
     }
@@ -505,7 +503,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         U: Clone,
         F: Fn(Arc<TimelineItem>) -> Option<U>,
     {
-        trace!("Creating timeline items signal");
         self.state.read().await.items.subscribe().filter_map(f)
     }
 
