@@ -893,7 +893,7 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
 
     // Join the room from Bob's client.
     let bob_timeline = bob_room.timeline().await.unwrap();
-    let (_, timeline_stream) = bob_timeline.subscribe_batched().await;
+    let (_, timeline_stream) = bob_timeline.subscribe().await;
     pin_mut!(timeline_stream);
 
     info!("Bob joins the room.");

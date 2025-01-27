@@ -91,7 +91,7 @@ async fn test_toggling_reaction() -> Result<()> {
     // waiting for it.
 
     let timeline = room.timeline().await.unwrap();
-    let (mut items, mut stream) = timeline.subscribe_batched().await;
+    let (mut items, mut stream) = timeline.subscribe().await;
 
     let event_id_task: JoinHandle<Result<_>> = spawn(async move {
         let find_event_id = |items: &Vector<Arc<TimelineItem>>| {
@@ -146,7 +146,7 @@ async fn test_toggling_reaction() -> Result<()> {
     // Give a bit of time for the timeline to process all sync updates.
     sleep(Duration::from_secs(1)).await;
 
-    let (mut items, mut stream) = timeline.subscribe_batched().await;
+    let (mut items, mut stream) = timeline.subscribe().await;
 
     // Skip all stream updates that have happened so far.
     debug!("Skipping all other stream updates…");

@@ -198,7 +198,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
                 .await
                 .expect("Could not create timeline");
 
-            let (items, _) = timeline.subscribe_batched().await;
+            let (items, _) = timeline.subscribe().await;
             assert_eq!(items.len(), PINNED_EVENTS_COUNT + 1);
             timeline.clear().await;
         });

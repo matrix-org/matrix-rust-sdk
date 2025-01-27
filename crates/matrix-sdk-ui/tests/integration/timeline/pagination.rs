@@ -63,7 +63,7 @@ async fn test_back_pagination() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     Mock::given(method("GET"))
@@ -178,7 +178,7 @@ async fn test_back_pagination_highlighted() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let response_json = json!({
         "chunk": [
@@ -579,7 +579,7 @@ async fn test_empty_chunk() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     // It should try to do another request after the empty chunk.
@@ -681,7 +681,7 @@ async fn test_until_num_items_with_empty_chunk() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     Mock::given(method("GET"))

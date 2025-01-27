@@ -65,7 +65,7 @@ async fn test_echo() {
             .await
             .unwrap(),
     );
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let event_id = event_id!("$ev");
 
@@ -238,7 +238,7 @@ async fn test_dedup_by_event_id_late() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let event_id = event_id!("$wWgymRfo7ri1uQx0NXO40vLJ");
 

@@ -50,7 +50,7 @@ async fn test_in_reply_to_details() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // The event doesn't exist.
     assert_matches!(

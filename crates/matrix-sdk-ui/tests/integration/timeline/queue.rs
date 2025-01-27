@@ -329,7 +329,7 @@ async fn test_clear_with_echoes() {
 
     // Send a message without mocking the server response.
     {
-        let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+        let (_, mut timeline_stream) = timeline.subscribe().await;
 
         timeline.send(RoomMessageEventContent::text_plain("Send failure").into()).await.unwrap();
 
@@ -408,7 +408,7 @@ async fn test_no_duplicate_date_divider() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // Response for first message takes 200ms to respond.
     Mock::given(method("PUT"))
