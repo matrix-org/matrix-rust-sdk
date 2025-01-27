@@ -267,16 +267,16 @@ impl Timeline {
 
     /// Paginate backwards, whether we are in focused mode or in live mode.
     ///
-    /// Returns whether we hit the end of the timeline or not.
+    /// Returns whether we hit the start of the timeline or not.
     pub async fn paginate_backwards(&self, num_events: u16) -> Result<bool, ClientError> {
         Ok(self.inner.paginate_backwards(num_events).await?)
     }
 
-    /// Paginate forwards, when in focused mode.
+    /// Paginate forwards, whether we are in focused mode or in live mode.
     ///
     /// Returns whether we hit the end of the timeline or not.
-    pub async fn focused_paginate_forwards(&self, num_events: u16) -> Result<bool, ClientError> {
-        Ok(self.inner.focused_paginate_forwards(num_events).await?)
+    pub async fn paginate_forwards(&self, num_events: u16) -> Result<bool, ClientError> {
+        Ok(self.inner.paginate_forwards(num_events).await?)
     }
 
     pub async fn send_read_receipt(
