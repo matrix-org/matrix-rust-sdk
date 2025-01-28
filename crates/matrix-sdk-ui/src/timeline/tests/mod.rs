@@ -24,6 +24,7 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use imbl::vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
@@ -56,11 +57,8 @@ use ruma::{
 use tokio::sync::RwLock;
 
 use super::{
-    algorithms::rfind_event_by_item_id,
-    controller::{TimelineNewItemPosition, TimelineSettings},
-    event_handler::TimelineEventKind,
-    event_item::RemoteEventOrigin,
-    traits::RoomDataProvider,
+    algorithms::rfind_event_by_item_id, controller::TimelineSettings,
+    event_handler::TimelineEventKind, event_item::RemoteEventOrigin, traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineController, TimelineEventItemId, TimelineFocus,
     TimelineItem,
 };
@@ -174,11 +172,10 @@ impl TestTimeline {
     }
 
     async fn handle_live_event(&self, event: impl Into<TimelineEvent>) {
-        let event = event.into();
         self.controller
-            .add_events_at(
-                [event].into_iter(),
-                TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+            .handle_remote_events_with_diffs(
+                vec![VectorDiff::Append { values: vector![event.into()] }],
+                RemoteEventOrigin::Sync,
             )
             .await;
     }
@@ -198,9 +195,9 @@ impl TestTimeline {
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
         self.controller
-            .add_events_at(
-                [timeline_event].into_iter(),
-                TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+            .handle_remote_events_with_diffs(
+                vec![VectorDiff::PushFront { value: timeline_event }],
+                RemoteEventOrigin::Pagination,
             )
             .await;
     }
