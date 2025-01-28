@@ -1577,18 +1577,6 @@ impl TimelineController {
     }
 }
 
-#[derive(Debug, Default)]
-pub(super) struct HandleManyEventsResult {
-    /// The number of items that were added to the timeline.
-    ///
-    /// Note one can't assume anything about the position at which those were
-    /// added.
-    pub items_added: u64,
-
-    /// The number of items that were updated in the timeline.
-    pub items_updated: u64,
-}
-
 async fn fetch_replied_to_event(
     mut state: RwLockWriteGuard<'_, TimelineState>,
     index: usize,
