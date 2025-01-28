@@ -16,6 +16,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
+use imbl::vector;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
     async_test, event_factory::PreviousMembership, sync_timeline_event, ALICE, BOB, CAROL,
@@ -36,7 +37,7 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::{TimelineNewItemPosition, TimelineSettings},
+    controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
@@ -50,9 +51,14 @@ async fn test_initial_events() {
     let f = &timeline.factory;
     timeline
         .controller
-        .add_events_at(
-            [f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append {
+                values: vector![
+                    f.text_msg("A").sender(*ALICE).into_event(),
+                    f.text_msg("B").sender(*BOB).into_event()
+                ],
+            }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
@@ -93,9 +99,9 @@ async fn test_replace_with_initial_events_and_read_marker() {
 
     timeline
         .controller
-        .add_events_at(
-            [ev].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: vector![ev] }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
@@ -282,9 +288,9 @@ async fn test_internal_id_prefix() {
 
     timeline
         .controller
-        .add_events_at(
-            [ev_a, ev_b, ev_c].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: vector![ev_a, ev_b, ev_c] }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
@@ -449,9 +455,9 @@ async fn test_replace_with_initial_events_when_batched() {
 
     timeline
         .controller
-        .add_events_at(
-            [ev].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: vector![ev] }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 

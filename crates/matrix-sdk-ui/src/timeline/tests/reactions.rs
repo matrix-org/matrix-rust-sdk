@@ -18,6 +18,7 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
+use imbl::vector;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_timeline_event, ALICE, BOB};
 use ruma::{
@@ -28,8 +29,8 @@ use stream_assert::assert_next_matches;
 use tokio::time::timeout;
 
 use crate::timeline::{
-    controller::TimelineNewItemPosition, event_item::RemoteEventOrigin, tests::TestTimeline,
-    ReactionStatus, TimelineEventItemId, TimelineItem,
+    event_item::RemoteEventOrigin, tests::TestTimeline, ReactionStatus, TimelineEventItemId,
+    TimelineItem,
 };
 
 const REACTION_KEY: &str = "👍";
@@ -193,17 +194,18 @@ async fn test_initial_reaction_timestamp_is_stored() {
 
     timeline
         .controller
-        .add_events_at(
-            [
-                // Reaction comes first.
-                f.reaction(&message_event_id, REACTION_KEY)
-                    .server_ts(reaction_timestamp)
-                    .into_event(),
-                // Event comes next.
-                f.text_msg("A").event_id(&message_event_id).into_event(),
-            ]
-            .into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append {
+                values: vector![
+                    // Reaction comes first.
+                    f.reaction(&message_event_id, REACTION_KEY)
+                        .server_ts(reaction_timestamp)
+                        .into_event(),
+                    // Event comes next.
+                    f.text_msg("A").event_id(&message_event_id).into_event(),
+                ],
+            }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
