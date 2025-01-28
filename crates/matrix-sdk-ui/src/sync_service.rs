@@ -69,7 +69,7 @@ pub enum State {
 /// A supervisor responsible for managing two sync tasks: one for handling the
 /// room list and another for supporting end-to-end encryption.
 ///
-/// The two sync tasks are spawned as child tasks and are contained within t
+/// The two sync tasks are spawned as child tasks and are contained within the
 /// supervising task, which is stored in the [`SyncTaskSupervisor::task`] field.
 ///
 /// The supervisor ensures the two child tasks are managed as a single unit,
