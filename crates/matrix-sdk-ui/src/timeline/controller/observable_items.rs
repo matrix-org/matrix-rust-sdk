@@ -26,7 +26,7 @@ use eyeball_im::{
 use imbl::Vector;
 use ruma::EventId;
 
-use super::{state::EventMeta, TimelineItem};
+use super::{metadata::EventMeta, TimelineItem};
 
 /// An `ObservableItems` is a type similar to
 /// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
