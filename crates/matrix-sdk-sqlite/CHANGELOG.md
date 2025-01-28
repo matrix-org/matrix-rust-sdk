@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] `SqliteEventCacheStore` implements the new APIs of
+  `EventCacheStore` for `MediaRetentionPolicy`. See the changelog of
+  `matrix-sdk-base` for more details.
+  ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
+
 ## [0.9.0] - 2024-12-18
 
 ### Features

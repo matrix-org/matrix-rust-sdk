@@ -32,7 +32,7 @@ use ruma::{
     push::Action, room_id, uint, RoomId,
 };
 
-use super::DynEventCacheStore;
+use super::{media::IgnoreMediaRetentionPolicy, DynEventCacheStore};
 use crate::{
     event_cache::{Event, Gap},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
@@ -168,7 +168,9 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add the media.
-        self.add_media_content(&request_file, content.clone()).await.expect("adding media failed");
+        self.add_media_content(&request_file, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
 
         // Media is present in the cache.
         assert_eq!(
@@ -196,7 +198,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add the media again.
-        self.add_media_content(&request_file, content.clone())
+        self.add_media_content(&request_file, content.clone(), IgnoreMediaRetentionPolicy::No)
             .await
             .expect("adding media again failed");
 
@@ -207,9 +209,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add the thumbnail media.
-        self.add_media_content(&request_thumbnail, thumbnail_content.clone())
-            .await
-            .expect("adding thumbnail failed");
+        self.add_media_content(
+            &request_thumbnail,
+            thumbnail_content.clone(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding thumbnail failed");
 
         // Media's thumbnail is present.
         assert_eq!(
@@ -225,9 +231,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add another media with a different URI.
-        self.add_media_content(&request_other_file, other_content.clone())
-            .await
-            .expect("adding other media failed");
+        self.add_media_content(
+            &request_other_file,
+            other_content.clone(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding other media failed");
 
         // Other file is present.
         assert_eq!(
@@ -279,7 +289,9 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert!(self.get_media_content(&req).await.unwrap().is_none(), "unexpected media found");
 
         // Add the media.
-        self.add_media_content(&req, content.clone()).await.expect("adding media failed");
+        self.add_media_content(&req, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
 
         // Sanity-check: media is found after adding it.
         assert_eq!(self.get_media_content(&req).await.unwrap().unwrap(), b"hello");

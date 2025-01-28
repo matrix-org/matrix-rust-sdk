@@ -26,6 +26,11 @@ All notable changes to this project will be documented in this file.
 - Enable HTTP/2 support in the HTTP client.
   ([#4566](https://github.com/matrix-org/matrix-rust-sdk/pull/4566))
 
+- The media contents stored in the media cache can now be controlled with a
+  `MediaRetentionPolicy` and the new `Media` methods `media_retention_policy()`,
+  `set_media_retention_policy()`, `clean_up_media_cache()`.
+  ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
+
 ### Refactor
 
 - [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
