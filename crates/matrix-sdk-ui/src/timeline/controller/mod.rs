@@ -61,10 +61,8 @@ pub(super) use self::{
         AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
     },
-    state::{
-        FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineState,
-        TimelineStateTransaction,
-    },
+    state::{FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineState},
+    state_transaction::TimelineStateTransaction,
 };
 use super::{
     algorithms::{rfind_event_by_id, rfind_event_item},
@@ -91,6 +89,7 @@ use crate::{
 mod observable_items;
 mod read_receipts;
 mod state;
+mod state_transaction;
 
 /// Data associated to the current timeline focus.
 #[derive(Debug)]
