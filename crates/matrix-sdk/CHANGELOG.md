@@ -27,7 +27,7 @@ All notable changes to this project will be documented in this file.
   ([#4566](https://github.com/matrix-org/matrix-rust-sdk/pull/4566))
 
 - Add support for creating custom conditional push rules in `NotificationSettings::create_custom_conditional_push_rule`.
-  (tbd)
+  ([#4587](https://github.com/matrix-org/matrix-rust-sdk/pull/4587))
 
 ### Refactor
 
