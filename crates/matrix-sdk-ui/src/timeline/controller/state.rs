@@ -49,7 +49,7 @@ use super::{
         ObservableItemsTransactionEntry,
     },
     read_receipts::ReadReceipts,
-    DateDividerMode, HandleManyEventsResult, RelativePosition, TimelineFocusKind, TimelineSettings,
+    DateDividerMode, RelativePosition, TimelineFocusKind, TimelineSettings,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
