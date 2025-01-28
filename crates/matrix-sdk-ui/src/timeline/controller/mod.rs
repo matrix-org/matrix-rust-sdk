@@ -653,30 +653,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         Ok(false)
     }
 
-    /// Handle a list of events at the given end of the timeline.
-    ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
-    ///
-    /// Returns the number of timeline updates that were made.
-    pub(super) async fn add_events_at<Events>(
-        &self,
-        events: Events,
-        position: TimelineNewItemPosition,
-    ) -> HandleManyEventsResult
-    where
-        Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<TimelineEvent>,
-    {
-        if events.len() == 0 {
-            return Default::default();
-        }
-
-        let mut state = self.state.write().await;
-        state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
-    }
-
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs(
         &self,
