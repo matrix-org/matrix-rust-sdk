@@ -62,8 +62,8 @@ pub(super) use self::{
         ObservableItemsTransactionEntry,
     },
     state::{
-        FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineNewItemPosition,
-        TimelineState, TimelineStateTransaction,
+        FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineState,
+        TimelineStateTransaction,
     },
 };
 use super::{
