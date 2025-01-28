@@ -324,20 +324,24 @@ impl TimelineState {
     pub(super) async fn replace_with_remote_events<Events, RoomData>(
         &mut self,
         events: Events,
-        position: TimelineNewItemPosition,
+        origin: RemoteEventOrigin,
         room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult
-    where
+    ) where
         Events: IntoIterator,
         Events::Item: Into<TimelineEvent>,
         RoomData: RoomDataProvider,
     {
         let mut txn = self.transaction();
         txn.clear();
-        let result = txn.add_remote_events_at(events, position, room_data_provider, settings).await;
+        txn.handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: events.into_iter().map(Into::into).collect() }],
+            origin,
+            room_data_provider,
+            settings,
+        )
+        .await;
         txn.commit();
-        result
     }
 
     pub(super) fn update_all_events_is_room_encrypted(&mut self) {
