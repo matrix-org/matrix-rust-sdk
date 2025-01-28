@@ -1,0 +1,77 @@
+---
+source: crates/matrix-sdk-crypto/src/session_manager/group_sessions/share_strategy.rs
+expression: ruma_response_to_json(keys_query.clone())
+---
+{
+  "device_keys": {
+    "@bob:localhost": {
+      "DEHYDRATED_DEVICE": {
+        "algorithms": [
+          "m.olm.v1.curve25519-aes-sha2",
+          "m.megolm.v1.aes-sha2"
+        ],
+        "dehydrated": true,
+        "device_id": "DEHYDRATED_DEVICE",
+        "keys": {
+          "curve25519:DEHYDRATED_DEVICE": "Y3VydmVwdWJjdXJ2ZXB1YmN1cnZlcHViY3VydmVwdWI",
+          "ed25519:DEHYDRATED_DEVICE": "aXceGe19ufgBArmAjKeIPEEk0eaA4c3yIB6WjkjvYNE"
+        },
+        "signatures": {
+          "@bob:localhost": {
+            "ed25519:DEHYDRATED_DEVICE": "7diDwtxcBHi6gu3fxy3Yau0vtUrvW9r5gBPUQO6qmuOSGfZCJkqhATmruPd7bCu1N5xRCZOd4bEhM/j/yY1vBQ",
+            "ed25519:hpK1owolWNIVv/CIximGep0a1dYwHWyhkdJ/t6flFeU": "lU1441xv6W4WY1d7trmRbdagAcoWwBrwR8D8Lr4VrWn8V0mlL8qSf/zJQ+nh12WcD3NRTEZ6H7rm6ncaBxbKDQ"
+          }
+        },
+        "user_id": "@bob:localhost"
+      }
+    }
+  },
+  "master_keys": {
+    "@bob:localhost": {
+      "keys": {
+        "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0"
+      },
+      "signatures": {
+        "@bob:localhost": {
+          "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "MalGqUfgScuZcEzFyBaJV0nXP6cBGaDz6LZtwrWmvAtfn3uDVatym+CX+YkKZmflog7XJogdeYtHuyn733tWBA"
+        }
+      },
+      "usage": [
+        "master"
+      ],
+      "user_id": "@bob:localhost"
+    }
+  },
+  "self_signing_keys": {
+    "@bob:localhost": {
+      "keys": {
+        "ed25519:hpK1owolWNIVv/CIximGep0a1dYwHWyhkdJ/t6flFeU": "hpK1owolWNIVv/CIximGep0a1dYwHWyhkdJ/t6flFeU"
+      },
+      "signatures": {
+        "@bob:localhost": {
+          "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "h1sADa7kifsHyzGc0ZTGckzjEE15s2YVR9Tz6pdyOWoHJUUcOjBDz6aGNbDarcs/OY49rF3nNXUMsRXEW6ZCBA"
+        }
+      },
+      "usage": [
+        "self_signing"
+      ],
+      "user_id": "@bob:localhost"
+    }
+  },
+  "user_signing_keys": {
+    "@bob:localhost": {
+      "keys": {
+        "ed25519:AXFeCsS+P7TpZOkiYvzjMvO1+K6q3Ljf5CHRY3e19MM": "AXFeCsS+P7TpZOkiYvzjMvO1+K6q3Ljf5CHRY3e19MM"
+      },
+      "signatures": {
+        "@bob:localhost": {
+          "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "gIfvMruwAbB7l7893w6bR/2dqTGTFM4qfSYWZWJ/i981zZYfTQv+8h91URCMhviKXQlelnVnMRrP6osssS8NAA"
+        }
+      },
+      "usage": [
+        "user_signing"
+      ],
+      "user_id": "@bob:localhost"
+    }
+  }
+}
