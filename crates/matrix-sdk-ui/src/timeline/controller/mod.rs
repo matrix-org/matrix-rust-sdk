@@ -57,11 +57,12 @@ use tracing::{
 #[cfg(test)]
 pub(super) use self::observable_items::ObservableItems;
 pub(super) use self::{
+    metadata::{RelativePosition, TimelineMetadata},
     observable_items::{
         AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
     },
-    state::{FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineState},
+    state::{FullEventMeta, PendingEdit, PendingEditKind, TimelineState},
     state_transaction::TimelineStateTransaction,
 };
 use super::{
@@ -86,6 +87,7 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
+mod metadata;
 mod observable_items;
 mod read_receipts;
 mod state;
@@ -378,7 +380,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         while let Some(info) = room_info.next().await {
             let changed = {
                 let state = self.state.read().await;
-                let mut old_is_room_encrypted = state.meta.is_room_encrypted.write().unwrap();
+                let mut old_is_room_encrypted = state.meta.is_room_encrypted.write();
                 let is_encrypted_now = info.is_encrypted();
 
                 if *old_is_room_encrypted != Some(is_encrypted_now) {
@@ -1619,15 +1621,4 @@ async fn fetch_replied_to_event(
         Err(e) => TimelineDetails::Error(Arc::new(e)),
     };
     Ok(res)
-}
-
-/// Result of comparing events position in the timeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::timeline) enum RelativePosition {
-    /// Event B is after (more recent than) event A.
-    After,
-    /// They are the same event.
-    Same,
-    /// Event B is before (older than) event A.
-    Before,
 }

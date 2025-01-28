@@ -1077,11 +1077,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        let is_room_encrypted = if let Ok(is_room_encrypted) = self.meta.is_room_encrypted.read() {
-            is_room_encrypted.unwrap_or_default()
-        } else {
-            false
-        };
+        let is_room_encrypted = self.meta.is_room_encrypted.read().unwrap_or_default();
 
         let mut item = EventTimelineItem::new(
             sender,
