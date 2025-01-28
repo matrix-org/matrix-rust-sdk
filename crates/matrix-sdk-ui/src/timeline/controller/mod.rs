@@ -23,7 +23,10 @@ use imbl::Vector;
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
     deserialized_responses::{TimelineEvent, TimelineEventKind as SdkTimelineEventKind},
-    event_cache::{paginator::Paginator, RoomEventCache},
+    event_cache::{
+        paginator::{PaginationResult, Paginator},
+        RoomEventCache,
+    },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
@@ -59,8 +62,8 @@ pub(super) use self::{
         ObservableItemsTransactionEntry,
     },
     state::{
-        FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineNewItemPosition,
-        TimelineState, TimelineStateTransaction,
+        FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineState,
+        TimelineStateTransaction,
     },
 };
 use super::{
@@ -414,7 +417,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         num_events: u16,
     ) -> Result<bool, PaginationError> {
-        let pagination = match &*self.focus.read().await {
+        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
                 return Err(PaginationError::NotEventFocusMode)
             }
@@ -424,13 +427,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(
-            pagination.events.into_iter(),
-            TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+        // Events are in reverse topological order.
+        // We can push front each event individually.
+        self.handle_remote_events_with_diffs(
+            events.into_iter().map(|event| VectorDiff::PushFront { value: event }).collect(),
+            RemoteEventOrigin::Pagination,
         )
         .await;
 
-        Ok(pagination.hit_end_of_timeline)
+        Ok(hit_end_of_timeline)
     }
 
     /// Run a forward pagination (in focused mode) and append the results to
@@ -441,7 +446,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         num_events: u16,
     ) -> Result<bool, PaginationError> {
-        let pagination = match &*self.focus.read().await {
+        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
                 return Err(PaginationError::NotEventFocusMode)
             }
@@ -451,13 +456,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(
-            pagination.events.into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Pagination },
+        // Events are in topological order.
+        // We can append all events with no transformation.
+        self.handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: events.into() }],
+            RemoteEventOrigin::Pagination,
         )
         .await;
 
-        Ok(pagination.hit_end_of_timeline)
+        Ok(hit_end_of_timeline)
     }
 
     /// Is this timeline receiving events from sync (aka has a live focus)?
@@ -646,30 +653,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         Ok(false)
     }
 
-    /// Handle a list of events at the given end of the timeline.
-    ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
-    ///
-    /// Returns the number of timeline updates that were made.
-    pub(super) async fn add_events_at<Events>(
-        &self,
-        events: Events,
-        position: TimelineNewItemPosition,
-    ) -> HandleManyEventsResult
-    where
-        Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<TimelineEvent>,
-    {
-        if events.len() == 0 {
-            return Default::default();
-        }
-
-        let mut state = self.state.write().await;
-        state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
-    }
-
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs(
         &self,
@@ -729,7 +712,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             state
                 .replace_with_remote_events(
                     events,
-                    TimelineNewItemPosition::End { origin },
+                    origin,
                     &self.room_data_provider,
                     &self.settings,
                 )
@@ -1592,18 +1575,6 @@ impl TimelineController {
         let state = self.state.read().await;
         state.items.all_remote_events().last().map(|event_meta| &event_meta.event_id).cloned()
     }
-}
-
-#[derive(Debug, Default)]
-pub(super) struct HandleManyEventsResult {
-    /// The number of items that were added to the timeline.
-    ///
-    /// Note one can't assume anything about the position at which those were
-    /// added.
-    pub items_added: u64,
-
-    /// The number of items that were updated in the timeline.
-    pub items_updated: u64,
 }
 
 async fn fetch_replied_to_event(

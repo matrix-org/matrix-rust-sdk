@@ -49,7 +49,7 @@ use super::{
         ObservableItemsTransactionEntry,
     },
     read_receipts::ReadReceipts,
-    DateDividerMode, HandleManyEventsResult, RelativePosition, TimelineFocusKind, TimelineSettings,
+    DateDividerMode, RelativePosition, TimelineFocusKind, TimelineSettings,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -68,29 +68,6 @@ use crate::{
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
-
-/// This is a simplification of [`TimelineItemPosition`] which doesn't contain
-/// the [`TimelineItemPosition::UpdateDecrypted`] variant, because it is used
-/// only for **new** items.
-#[derive(Debug)]
-pub(crate) enum TimelineNewItemPosition {
-    /// One or more items are prepended to the timeline (i.e. they're the
-    /// oldest).
-    Start { origin: RemoteEventOrigin },
-
-    /// One or more items are appended to the timeline (i.e. they're the most
-    /// recent).
-    End { origin: RemoteEventOrigin },
-}
-
-impl From<TimelineNewItemPosition> for TimelineItemPosition {
-    fn from(value: TimelineNewItemPosition) -> Self {
-        match value {
-            TimelineNewItemPosition::Start { origin } => Self::Start { origin },
-            TimelineNewItemPosition::End { origin } => Self::End { origin },
-        }
-    }
-}
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineState {
@@ -121,36 +98,6 @@ impl TimelineState {
             ),
             timeline_focus,
         }
-    }
-
-    /// Add the given remote events at the given end of the timeline.
-    ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
-    #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<Events, RoomData>(
-        &mut self,
-        events: Events,
-        position: TimelineNewItemPosition,
-        room_data_provider: &RoomData,
-        settings: &TimelineSettings,
-    ) -> HandleManyEventsResult
-    where
-        Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<TimelineEvent>,
-        RoomData: RoomDataProvider,
-    {
-        if events.len() == 0 {
-            return Default::default();
-        }
-
-        let mut txn = self.transaction();
-        let handle_many_res =
-            txn.add_remote_events_at(events, position, room_data_provider, settings).await;
-        txn.commit();
-
-        handle_many_res
     }
 
     /// Handle updates on events as [`VectorDiff`]s.
@@ -324,20 +271,24 @@ impl TimelineState {
     pub(super) async fn replace_with_remote_events<Events, RoomData>(
         &mut self,
         events: Events,
-        position: TimelineNewItemPosition,
+        origin: RemoteEventOrigin,
         room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult
-    where
+    ) where
         Events: IntoIterator,
         Events::Item: Into<TimelineEvent>,
         RoomData: RoomDataProvider,
     {
         let mut txn = self.transaction();
         txn.clear();
-        let result = txn.add_remote_events_at(events, position, room_data_provider, settings).await;
+        txn.handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: events.into_iter().map(Into::into).collect() }],
+            origin,
+            room_data_provider,
+            settings,
+        )
+        .await;
         txn.commit();
-        result
     }
 
     pub(super) fn update_all_events_is_room_encrypted(&mut self) {
@@ -381,60 +332,6 @@ pub(in crate::timeline) struct TimelineStateTransaction<'a> {
 }
 
 impl TimelineStateTransaction<'_> {
-    /// Add the given remote events at the given end of the timeline.
-    ///
-    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
-    /// is the most recent.
-    #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<Events, RoomData>(
-        &mut self,
-        events: Events,
-        position: TimelineNewItemPosition,
-        room_data_provider: &RoomData,
-        settings: &TimelineSettings,
-    ) -> HandleManyEventsResult
-    where
-        Events: IntoIterator,
-        Events::Item: Into<TimelineEvent>,
-        RoomData: RoomDataProvider,
-    {
-        let mut total = HandleManyEventsResult::default();
-
-        let position = position.into();
-
-        let mut date_divider_adjuster =
-            DateDividerAdjuster::new(settings.date_divider_mode.clone());
-
-        // Implementation note: when `position` is `TimelineEnd::Front`, events are in
-        // the reverse topological order. Prepending them one by one in the order they
-        // appear in the vector will thus result in the correct order.
-        //
-        // For instance, if the new events are : [C, B, A], where C is the most recent
-        // and A is the oldest: we prepend C, then prepend B, then prepend A,
-        // resulting in [A, B, C, (previous events)], which is what we want.
-
-        for event in events {
-            let handle_one_res = self
-                .handle_remote_event(
-                    event.into(),
-                    position,
-                    room_data_provider,
-                    settings,
-                    &mut date_divider_adjuster,
-                )
-                .await;
-
-            total.items_added += handle_one_res.item_added as u64;
-            total.items_updated += handle_one_res.items_updated as u64;
-        }
-
-        self.adjust_date_dividers(date_divider_adjuster);
-
-        self.check_no_unused_unique_ids();
-        total
-    }
-
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs<RoomData>(
         &mut self,
