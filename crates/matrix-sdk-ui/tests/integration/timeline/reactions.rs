@@ -17,21 +17,13 @@ use std::{sync::Mutex, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt as _, StreamExt as _};
-use matrix_sdk::test_utils::{logged_in_client_with_server, mocks::MatrixMockServer};
-use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
-    SyncResponseBuilder, ALICE,
-};
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
 use matrix_sdk_ui::timeline::{ReactionStatus, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use serde_json::json;
 use stream_assert::assert_pending;
-use wiremock::{
-    matchers::{header, method, path_regex},
-    Mock, ResponseTemplate,
-};
-
-use crate::mock_sync;
+use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_abort_before_being_sent() {
@@ -186,21 +178,15 @@ async fn test_redact_failed() {
     // This test checks that if a reaction redaction failed, then we re-insert the
     // reaction after displaying it was removed.
 
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let user_id = client.user_id().unwrap();
 
-    // Make the test aware of the room.
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (initial_items, mut stream) = timeline.subscribe().await;
 
@@ -209,15 +195,14 @@ async fn test_redact_failed() {
     let f = EventFactory::new();
 
     let event_id = event_id!("$1");
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id))
-            .add_timeline_event(f.reaction(event_id, "😆").sender(user_id)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id))
+                .add_timeline_event(f.reaction(event_id, "😆").sender(user_id)),
+        )
+        .await;
 
     assert_let!(Some(timeline_updates) = stream.next().await);
     assert_eq!(timeline_updates.len(), 3);
@@ -239,15 +224,7 @@ async fn test_redact_failed() {
     assert!(date_divider.is_date_divider());
 
     // Now, redact the annotation we previously added.
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(500))
-        .expect(1)
-        .named("redact")
-        .mount(&server)
-        .await;
+    server.mock_room_redact().error500().named("redact").mock_once().mount().await;
 
     // We toggle the reaction, which fails with an error.
     timeline.toggle_reaction(&item_id, "😆").await.unwrap_err();
@@ -272,21 +249,15 @@ async fn test_local_reaction_to_local_echo() {
     // This test checks that if a reaction redaction failed, then we re-insert the
     // reaction after displaying it was removed.
 
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let user_id = client.user_id().unwrap();
 
-    // Make the test aware of the room.
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (initial_items, mut stream) = timeline.subscribe().await;
 
@@ -295,9 +266,9 @@ async fn test_local_reaction_to_local_echo() {
     // Add a duration to the response, so we can check other things in the
     // meanwhile.
     let next_event_id = Mutex::new(0);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+
+    server
+        .mock_room_send()
         .respond_with(move |_req: &wiremock::Request| {
             let mut next_event_id = next_event_id.lock().unwrap();
             let event_id = *next_event_id;
@@ -312,7 +283,7 @@ async fn test_local_reaction_to_local_echo() {
 
             tmp
         })
-        .mount(&server)
+        .mount()
         .await;
 
     // Send a local event.

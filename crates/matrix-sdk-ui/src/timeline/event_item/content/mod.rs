@@ -69,11 +69,8 @@ mod polls;
 
 pub use pinned_events::RoomPinnedEventsChange;
 
-pub(in crate::timeline) use self::{
-    message::{
-        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
-    },
-    polls::ResponseData,
+pub(in crate::timeline) use self::message::{
+    extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
 };
 pub use self::{
     message::{InReplyToDetails, Message, RepliedToEvent},
