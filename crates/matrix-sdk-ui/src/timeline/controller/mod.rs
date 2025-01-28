@@ -712,7 +712,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             state
                 .replace_with_remote_events(
                     events,
-                    TimelineNewItemPosition::End { origin },
+                    origin,
                     &self.room_data_provider,
                     &self.settings,
                 )
