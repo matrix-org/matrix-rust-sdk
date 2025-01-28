@@ -23,7 +23,10 @@ use imbl::Vector;
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
     deserialized_responses::{TimelineEvent, TimelineEventKind as SdkTimelineEventKind},
-    event_cache::{paginator::Paginator, RoomEventCache},
+    event_cache::{
+        paginator::{PaginationResult, Paginator},
+        RoomEventCache,
+    },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
@@ -414,7 +417,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         num_events: u16,
     ) -> Result<bool, PaginationError> {
-        let pagination = match &*self.focus.read().await {
+        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
                 return Err(PaginationError::NotEventFocusMode)
             }
@@ -424,13 +427,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(
-            pagination.events.into_iter(),
-            TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+        // Events are in reverse topological order.
+        // We can push front each event individually.
+        self.handle_remote_events_with_diffs(
+            events.into_iter().map(|event| VectorDiff::PushFront { value: event }).collect(),
+            RemoteEventOrigin::Pagination,
         )
         .await;
 
-        Ok(pagination.hit_end_of_timeline)
+        Ok(hit_end_of_timeline)
     }
 
     /// Run a forward pagination (in focused mode) and append the results to
@@ -441,7 +446,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         num_events: u16,
     ) -> Result<bool, PaginationError> {
-        let pagination = match &*self.focus.read().await {
+        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
                 return Err(PaginationError::NotEventFocusMode)
             }
@@ -451,13 +456,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(
-            pagination.events.into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Pagination },
+        // Events are in topological order.
+        // We can append all events with no transformation.
+        self.handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: events.into() }],
+            RemoteEventOrigin::Pagination,
         )
         .await;
 
-        Ok(pagination.hit_end_of_timeline)
+        Ok(hit_end_of_timeline)
     }
 
     /// Is this timeline receiving events from sync (aka has a live focus)?
