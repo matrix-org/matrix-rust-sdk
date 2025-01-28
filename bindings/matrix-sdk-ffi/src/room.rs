@@ -428,6 +428,12 @@ impl Room {
         Ok(())
     }
 
+    /// Removes the topic from the room if one is set.
+    pub async fn remove_topic(&self) -> Result<(), ClientError> {
+        self.inner.remove_room_topic().await?;
+        Ok(())
+    }
+
     /// Upload and set the room's avatar.
     ///
     /// This will upload the data produced by the reader to the homeserver's

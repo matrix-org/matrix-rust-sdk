@@ -2270,6 +2270,19 @@ impl Room {
         self.send_state_event(RoomTopicEventContent::new(topic.into())).await
     }
 
+    /// Removes the topic from this room if one is set.
+    pub async fn remove_room_topic(&self) -> Result<()> {
+        let event = self
+            .get_state_event_static::<RoomTopicEventContent>()
+            .await?
+            .ok_or(Error::InsufficientData)?
+            .deserialize()?;
+        let event_id = event.event_id().ok_or(Error::InsufficientData)?;
+
+        self.redact(event_id, None, None).await.map_err(Error::Http)?;
+        Ok(())
+    }
+
     /// Sets the new avatar url for this room.
     ///
     /// # Arguments
