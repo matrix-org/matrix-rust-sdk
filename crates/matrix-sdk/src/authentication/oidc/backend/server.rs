@@ -42,7 +42,7 @@ use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
 use crate::{
-    oidc::{rng, AuthorizationCode, OidcSessionTokens},
+    authentication::oidc::{rng, AuthorizationCode, OidcSessionTokens},
     Client,
 };
 

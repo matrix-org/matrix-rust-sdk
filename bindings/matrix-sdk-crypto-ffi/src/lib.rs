@@ -680,15 +680,20 @@ pub struct EncryptionSettings {
 
 impl From<EncryptionSettings> for RustEncryptionSettings {
     fn from(v: EncryptionSettings) -> Self {
+        let sharing_strategy = if v.only_allow_trusted_devices {
+            CollectStrategy::OnlyTrustedDevices
+        } else if v.error_on_verified_user_problem {
+            CollectStrategy::ErrorOnVerifiedUserProblem
+        } else {
+            CollectStrategy::AllDevices
+        };
+
         RustEncryptionSettings {
             algorithm: v.algorithm.into(),
             rotation_period: Duration::from_secs(v.rotation_period),
             rotation_period_msgs: v.rotation_period_msgs,
             history_visibility: v.history_visibility.into(),
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: v.only_allow_trusted_devices,
-                error_on_verified_user_problem: v.error_on_verified_user_problem,
-            },
+            sharing_strategy,
         }
     }
 }

@@ -19,8 +19,8 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    assert_next_matches_with_timeout, config::SyncSettings, executor::spawn,
-    ruma::MilliSecondsSinceUnixEpoch, test_utils::logged_in_client_with_server,
+    config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch,
+    test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
@@ -33,7 +33,7 @@ use ruma::{
     room_id, uint, user_id,
 };
 use serde_json::json;
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 use tokio::task::yield_now;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -83,7 +83,10 @@ async fn test_echo() {
         timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await
     });
 
-    assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value: local_echo } = &timeline_updates[0]);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
     assert_let!(TimelineItemContent::Message(msg) = item.content());
@@ -92,15 +95,16 @@ async fn test_echo() {
     assert!(item.event_id().is_none());
     let txn_id = item.transaction_id().unwrap();
 
-    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     // Wait for the sending to finish and assert everything was successful
     send_hdl.await.unwrap().unwrap();
 
-    assert_let!(
-        Some(VectorDiff::Set { index: 1, value: sent_confirmation }) = timeline_stream.next().await
-    );
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: sent_confirmation } = &timeline_updates[0]);
     let item = sent_confirmation.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
     assert_eq!(item.event_id(), Some(event_id));
@@ -120,19 +124,24 @@ async fn test_echo() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 4);
+
     // Local echo is replaced with the remote echo.
-    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 1 });
-    let remote_echo =
-        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
+    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[0]);
+
+    assert_let!(VectorDiff::PushFront { value: remote_echo } = &timeline_updates[1]);
     let item = remote_echo.as_event().unwrap();
     assert!(item.is_own());
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
 
     // The date divider is also replaced.
-    let date_divider =
-        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
     assert!(date_divider.is_date_divider());
-    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
+
+    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[3]);
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -251,14 +260,16 @@ async fn test_dedup_by_event_id_late() {
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Timeline: [local echo]
-    let local_echo =
-        assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_let!(VectorDiff::PushBack { value: local_echo } = &timeline_updates[0]);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
     // Timeline: [date-divider, local echo]
-    let date_divider = assert_next_matches_with_timeout!( timeline_stream, VectorDiff::PushFront { value } => value);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
     let f = EventFactory::new();
@@ -275,21 +286,29 @@ async fn test_dedup_by_event_id_late() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // Timeline: [remote-echo, date-divider, local echo]
-    let remote_echo =
-        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
+    assert_let!(VectorDiff::PushFront { value: remote_echo } = &timeline_updates[0]);
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
 
     // Timeline: [date-divider, remote-echo, date-divider, local echo]
-    let date_divider = assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => value);
+    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
+
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
 
     // Local echo and its date divider are removed.
     // Timeline: [date-divider, remote-echo, date-divider]
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 3 }));
+    assert_let!(VectorDiff::Remove { index: 3 } = &timeline_updates[0]);
+
     // Timeline: [date-divider, remote-echo]
-    assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
+    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[1]);
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]

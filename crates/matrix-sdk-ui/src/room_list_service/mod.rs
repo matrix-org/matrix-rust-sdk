@@ -63,8 +63,8 @@ use async_stream::stream;
 use eyeball::Subscriber;
 use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
-    event_cache::EventCacheError, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
-    SlidingSyncMode,
+    event_cache::EventCacheError, timeout::timeout, Client, Error as SlidingSyncError, SlidingSync,
+    SlidingSyncList, SlidingSyncMode,
 };
 use matrix_sdk_base::sliding_sync::http;
 pub use room::*;
@@ -72,7 +72,6 @@ pub use room_list::*;
 use ruma::{assign, directory::RoomTypeFilter, events::StateEventType, OwnedRoomId, RoomId, UInt};
 pub use state::*;
 use thiserror::Error;
-use tokio::time::timeout;
 use tracing::debug;
 
 use crate::timeline;
@@ -328,7 +327,7 @@ impl RoomListService {
                 };
 
                 // `state.next().await` has a maximum of `yield_delay` time to execute…
-                let next_state = match timeout(yield_delay, state.next()).await {
+                let next_state = match timeout(state.next(), yield_delay).await {
                     // A new state has been received before `yield_delay` time. The new
                     // `sync_indicator` value won't be yielded.
                     Ok(next_state) => next_state,
@@ -470,8 +469,8 @@ mod tests {
     use assert_matches::assert_matches;
     use futures_util::{pin_mut, StreamExt};
     use matrix_sdk::{
+        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        matrix_auth::{MatrixSession, MatrixSessionTokens},
         reqwest::Url,
         sliding_sync::Version as SlidingSyncVersion,
         Client, SlidingSyncMode,

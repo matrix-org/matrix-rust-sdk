@@ -4,14 +4,13 @@ use anyhow::{Context, Result};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     crypto::LocalTrust,
-    event_cache::paginator::PaginatorError,
     room::{
         edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
     },
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{default_event_filter, PaginationError, RoomExt, TimelineFocus};
+use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -29,19 +28,23 @@ use ruma::{
     EventId, Int, OwnedDeviceId, OwnedUserId, RoomAliasId, UserId,
 };
 use tokio::sync::RwLock;
-use tracing::error;
+use tracing::{error, warn};
 
 use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
-    event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
+    event::{MessageLikeEventType, StateEventType},
     identity_status_change::IdentityStatusChange,
+    live_location_share::{LastLocation, LiveLocationShare},
     room_info::RoomInfo,
     room_member::RoomMember,
-    ruma::{ImageInfo, Mentions, NotifyType},
-    timeline::{DateDividerMode, FocusEventError, ReceiptType, SendHandle, Timeline},
+    ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
+    timeline::{
+        configuration::{AllowedMessageTypes, TimelineConfiguration},
+        ReceiptType, SendHandle, Timeline,
+    },
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -87,10 +90,6 @@ impl Room {
 
 #[matrix_sdk_ffi_macros::export]
 impl Room {
-    pub fn id(&self) -> String {
-        self.inner.room_id().to_string()
-    }
-
     /// Returns the room's name from the state event if available, otherwise
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
@@ -200,113 +199,42 @@ impl Room {
         }
     }
 
-    /// Returns a timeline focused on the given event.
-    ///
-    /// Note: this timeline is independent from that returned with
-    /// [`Self::timeline`], and as such it is not cached.
-    pub async fn timeline_focused_on_event(
+    /// Build a new timeline instance with the given configuration.
+    pub async fn timeline_with_configuration(
         &self,
-        event_id: String,
-        num_context_events: u16,
-        internal_id_prefix: Option<String>,
-    ) -> Result<Arc<Timeline>, FocusEventError> {
-        let parsed_event_id = EventId::parse(&event_id).map_err(|err| {
-            FocusEventError::InvalidEventId { event_id: event_id.clone(), err: err.to_string() }
-        })?;
-
-        let room = &self.inner;
-
-        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(room);
-
-        if let Some(internal_id_prefix) = internal_id_prefix {
-            builder = builder.with_internal_id_prefix(internal_id_prefix);
-        }
-
-        let timeline = match builder
-            .with_focus(TimelineFocus::Event { target: parsed_event_id, num_context_events })
-            .build()
-            .await
-        {
-            Ok(t) => t,
-            Err(err) => {
-                if let matrix_sdk_ui::timeline::Error::PaginationError(
-                    PaginationError::Paginator(PaginatorError::EventNotFound(..)),
-                ) = err
-                {
-                    return Err(FocusEventError::EventNotFound { event_id: event_id.to_string() });
-                }
-                return Err(FocusEventError::Other { msg: err.to_string() });
-            }
-        };
-
-        Ok(Timeline::new(timeline))
-    }
-
-    pub async fn pinned_events_timeline(
-        &self,
-        internal_id_prefix: Option<String>,
-        max_events_to_load: u16,
-        max_concurrent_requests: u16,
-    ) -> Result<Arc<Timeline>, ClientError> {
-        let room = &self.inner;
-
-        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(room);
-
-        if let Some(internal_id_prefix) = internal_id_prefix {
-            builder = builder.with_internal_id_prefix(internal_id_prefix);
-        }
-
-        let timeline = builder
-            .with_focus(TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests })
-            .build()
-            .await?;
-
-        Ok(Timeline::new(timeline))
-    }
-
-    /// A timeline instance that can be configured to only include RoomMessage
-    /// type events and filter those further based on their message type.
-    ///
-    /// Virtual timeline items will still be provided and the
-    /// `default_event_filter` will be applied before everything else.
-    ///
-    /// # Arguments
-    ///
-    /// * `internal_id_prefix` - An optional String that will be prepended to
-    ///   all the timeline item's internal IDs, making it possible to
-    ///   distinguish different timeline instances from each other.
-    ///
-    /// * `allowed_message_types` - A list of `RoomMessageEventMessageType` that
-    ///   will be allowed to appear in the timeline
-    pub async fn message_filtered_timeline(
-        &self,
-        internal_id_prefix: Option<String>,
-        allowed_message_types: Vec<RoomMessageEventMessageType>,
-        date_divider_mode: DateDividerMode,
+        configuration: TimelineConfiguration,
     ) -> Result<Arc<Timeline>, ClientError> {
         let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
 
-        if let Some(internal_id_prefix) = internal_id_prefix {
+        builder = builder.with_focus(configuration.focus.try_into()?);
+
+        if let AllowedMessageTypes::Only { types } = configuration.allowed_message_types {
+            builder = builder.event_filter(move |event, room_version_id| {
+                default_event_filter(event, room_version_id)
+                    && match event {
+                        AnySyncTimelineEvent::MessageLike(msg) => match msg.original_content() {
+                            Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
+                                types.contains(&content.msgtype.into())
+                            }
+                            _ => false,
+                        },
+                        _ => false,
+                    }
+            });
+        }
+
+        if let Some(internal_id_prefix) = configuration.internal_id_prefix {
             builder = builder.with_internal_id_prefix(internal_id_prefix);
         }
 
-        builder = builder.with_date_divider_mode(date_divider_mode.into());
-
-        builder = builder.event_filter(move |event, room_version_id| {
-            default_event_filter(event, room_version_id)
-                && match event {
-                    AnySyncTimelineEvent::MessageLike(msg) => match msg.original_content() {
-                        Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
-                            allowed_message_types.contains(&content.msgtype.into())
-                        }
-                        _ => false,
-                    },
-                    _ => false,
-                }
-        });
+        builder = builder.with_date_divider_mode(configuration.date_divider_mode.into());
 
         let timeline = builder.build().await?;
         Ok(Timeline::new(timeline))
+    }
+
+    pub fn id(&self) -> String {
+        self.inner.room_id().to_string()
     }
 
     pub fn is_encrypted(&self) -> Result<bool, ClientError> {
@@ -1042,6 +970,75 @@ impl Room {
         let visibility = self.inner.privacy_settings().get_room_visibility().await?;
         Ok(visibility.into())
     }
+
+    /// Start the current users live location share in the room.
+    pub async fn start_live_location_share(&self, duration_millis: u64) -> Result<(), ClientError> {
+        self.inner.start_live_location_share(duration_millis, None).await?;
+        Ok(())
+    }
+
+    /// Stop the current users live location share in the room.
+    pub async fn stop_live_location_share(&self) -> Result<(), ClientError> {
+        self.inner.stop_live_location_share().await.expect("Unable to stop live location share");
+        Ok(())
+    }
+
+    /// Send the current users live location beacon in the room.
+    pub async fn send_live_location(&self, geo_uri: String) -> Result<(), ClientError> {
+        self.inner
+            .send_location_beacon(geo_uri)
+            .await
+            .expect("Unable to send live location beacon");
+        Ok(())
+    }
+
+    /// Subscribes to live location shares in this room, using a `listener` to
+    /// be notified of the changes.
+    ///
+    /// The current live location shares will be emitted immediately when
+    /// subscribing, along with a [`TaskHandle`] to cancel the subscription.
+    pub fn subscribe_to_live_location_shares(
+        self: Arc<Self>,
+        listener: Box<dyn LiveLocationShareListener>,
+    ) -> Arc<TaskHandle> {
+        let room = self.inner.clone();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let subscription = room.observe_live_location_shares();
+            let mut stream = subscription.subscribe();
+            let mut pinned_stream = pin!(stream);
+
+            while let Some(event) = pinned_stream.next().await {
+                let last_location = LocationContent {
+                    body: "".to_owned(),
+                    geo_uri: event.last_location.location.uri.clone().to_string(),
+                    description: None,
+                    zoom_level: None,
+                    asset: None,
+                };
+
+                let Some(beacon_info) = event.beacon_info else {
+                    warn!("Live location share is missing the associated beacon_info state, skipping event.");
+                    continue;
+                };
+
+                listener.call(vec![LiveLocationShare {
+                    last_location: LastLocation {
+                        location: last_location,
+                        ts: event.last_location.ts.0.into(),
+                    },
+                    is_live: beacon_info.is_live(),
+                    user_id: event.user_id.to_string(),
+                }])
+            }
+        })))
+    }
+}
+
+/// A listener for receiving new live location shares in a room.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait LiveLocationShareListener: Sync + Send {
+    fn call(&self, live_location_shares: Vec<LiveLocationShare>);
 }
 
 impl From<matrix_sdk::room::knock_requests::KnockRequest> for KnockRequest {

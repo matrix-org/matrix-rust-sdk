@@ -34,7 +34,7 @@ use ruma::{
 use serde_json::json;
 
 use crate::{
-    store::Changes,
+    store::{Changes, MemoryStore},
     types::{events::ToDeviceEvent, requests::AnyOutgoingRequest},
     CrossSigningBootstrapRequests, DeviceData, OlmMachine,
 };
@@ -102,6 +102,23 @@ pub async fn get_machine_after_query_test_helper() -> (OlmMachine, OneTimeKeys) 
     (machine, otk)
 }
 
+pub async fn get_machine_pair_using_store(
+    alice: &UserId,
+    bob: &UserId,
+    use_fallback_key: bool,
+    alice_store: MemoryStore,
+    alice_device_id: &DeviceId,
+) -> (OlmMachine, OlmMachine, OneTimeKeys) {
+    let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
+
+    let alice = OlmMachine::with_store(alice, alice_device_id, alice_store, None)
+        .await
+        .expect("Failed to create OlmMachine from supplied store");
+
+    store_each_others_device_data(&alice, &bob).await;
+    (alice, bob, otk)
+}
+
 pub async fn get_machine_pair(
     alice: &UserId,
     bob: &UserId,
@@ -112,12 +129,34 @@ pub async fn get_machine_pair(
     let alice_device = alice_device_id();
     let alice = OlmMachine::new(alice, alice_device).await;
 
-    let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
-    let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
+    store_each_others_device_data(&alice, &bob).await;
+    (alice, bob, otk)
+}
+
+/// Store alice's device data in bob's store and vice versa
+async fn store_each_others_device_data(alice: &OlmMachine, bob: &OlmMachine) {
+    let alice_device = DeviceData::from_machine_test_helper(alice).await.unwrap();
+    let bob_device = DeviceData::from_machine_test_helper(bob).await.unwrap();
     alice.store().save_device_data(&[bob_device]).await.unwrap();
     bob.store().save_device_data(&[alice_device]).await.unwrap();
+}
 
-    (alice, bob, otk)
+/// Return a pair of [`OlmMachine`]s, with an olm session created on Alice's
+/// side, but with no message yet sent.
+///
+/// Create Alice's `OlmMachine` using the [`MemoryStore`] provided
+pub async fn get_machine_pair_with_session_using_store(
+    alice: &UserId,
+    bob: &UserId,
+    use_fallback_key: bool,
+    alice_store: MemoryStore,
+    alice_device_id: &DeviceId,
+) -> (OlmMachine, OlmMachine) {
+    let (alice, bob, one_time_keys) =
+        get_machine_pair_using_store(alice, bob, use_fallback_key, alice_store, alice_device_id)
+            .await;
+
+    build_session_for_pair(alice, bob, one_time_keys).await
 }
 
 /// Return a pair of [`OlmMachine`]s, with an olm session created on Alice's
@@ -127,8 +166,20 @@ pub async fn get_machine_pair_with_session(
     bob: &UserId,
     use_fallback_key: bool,
 ) -> (OlmMachine, OlmMachine) {
-    let (alice, bob, mut one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
+    let (alice, bob, one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
 
+    build_session_for_pair(alice, bob, one_time_keys).await
+}
+
+/// Create a session for the two supplied Olm machines to communicate.
+async fn build_session_for_pair(
+    alice: OlmMachine,
+    bob: OlmMachine,
+    mut one_time_keys: BTreeMap<
+        ruma::OwnedKeyId<ruma::OneTimeKeyAlgorithm, ruma::OneTimeKeyName>,
+        Raw<OneTimeKey>,
+    >,
+) -> (OlmMachine, OlmMachine) {
     let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
 
     let one_time_keys = BTreeMap::from([(

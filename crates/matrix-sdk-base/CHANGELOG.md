@@ -30,6 +30,11 @@ All notable changes to this project will be documented in this file.
   cached value from the previous successful computation. If you need a sync
   variant, consider using `Room::cached_display_name()`.
   ([#4470](https://github.com/matrix-org/matrix-rust-sdk/pull/4470))
+- [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent`
+  have been fused into a single type `TimelineEvent`, and its field
+  `push_actions` has been made `Option`al (it is set to `None` when we couldn't
+  compute the push actions, because we lacked some information).
+  ([#4568](https://github.com/matrix-org/matrix-rust-sdk/pull/4568))
 
 ## [0.9.0] - 2024-12-18
 

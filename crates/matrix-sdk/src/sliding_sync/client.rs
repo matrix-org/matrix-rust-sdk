@@ -257,7 +257,7 @@ impl PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'_> {
     fn for_room(
         &self,
         room_id: &ruma::RoomId,
-    ) -> Vector<matrix_sdk_common::deserialized_responses::SyncTimelineEvent> {
+    ) -> Vector<matrix_sdk_common::deserialized_responses::TimelineEvent> {
         self.0.get(room_id).map(|room| room.timeline_queue()).unwrap_or_default()
     }
 }
@@ -380,8 +380,8 @@ mod tests {
 
     use super::{discover_homeserver, get_supported_versions, Version, VersionBuilder};
     use crate::{
+        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         error::Result,
-        matrix_auth::{MatrixSession, MatrixSessionTokens},
         sliding_sync::{http, VersionBuilderError},
         test_utils::logged_in_client_with_server,
         Client, SlidingSyncList, SlidingSyncMode,

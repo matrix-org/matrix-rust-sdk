@@ -38,7 +38,7 @@ use matrix_sdk_base::crypto::{DecryptionSettings, RoomEventDecryptionResult};
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 use matrix_sdk_base::{
     deserialized_responses::{
-        RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
+        RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::MediaThumbnailSettings,
@@ -49,7 +49,7 @@ use matrix_sdk_base::{
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_common::BoxFuture;
 use matrix_sdk_common::{
-    deserialized_responses::SyncTimelineEvent,
+    deserialized_responses::TimelineEvent,
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
@@ -327,7 +327,11 @@ impl Room {
             start: http_response.start,
             end: http_response.end,
             #[cfg(not(feature = "e2e-encryption"))]
-            chunk: http_response.chunk.into_iter().map(TimelineEvent::new).collect(),
+            chunk: http_response
+                .chunk
+                .into_iter()
+                .map(|raw| TimelineEvent::new(raw.cast()))
+                .collect(),
             #[cfg(feature = "e2e-encryption")]
             chunk: Vec::with_capacity(http_response.chunk.len()),
             state: http_response.state,
@@ -342,10 +346,10 @@ impl Room {
                 if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
                     event
                 } else {
-                    TimelineEvent::new(event)
+                    TimelineEvent::new(event.cast())
                 }
             } else {
-                TimelineEvent::new(event)
+                TimelineEvent::new(event.cast())
             };
             response.chunk.push(decrypted_event);
         }
@@ -459,7 +463,7 @@ impl Room {
             }
         }
 
-        let mut event = TimelineEvent::new(event);
+        let mut event = TimelineEvent::new(event.cast());
         event.push_actions = self.event_push_actions(event.raw()).await?;
 
         Ok(event)
@@ -482,7 +486,7 @@ impl Room {
 
         // Save the event into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
-            cache.save_event(event.clone().into()).await;
+            cache.save_event(event.clone()).await;
         }
 
         Ok(event)
@@ -526,17 +530,17 @@ impl Room {
 
         // Save the loaded events into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
-            let mut events_to_save: Vec<SyncTimelineEvent> = Vec::new();
+            let mut events_to_save: Vec<TimelineEvent> = Vec::new();
             if let Some(event) = &target_event {
-                events_to_save.push(event.clone().into());
+                events_to_save.push(event.clone());
             }
 
             for event in &events_before {
-                events_to_save.push(event.clone().into());
+                events_to_save.push(event.clone());
             }
 
             for event in &events_after {
-                events_to_save.push(event.clone().into());
+                events_to_save.push(event.clone());
             }
 
             cache.save_events(events_to_save).await;
@@ -3709,8 +3713,8 @@ mod tests {
 
     use super::ReportedContentScore;
     use crate::{
+        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        matrix_auth::{MatrixSession, MatrixSessionTokens},
         test_utils::{logged_in_client, mocks::MatrixMockServer},
         Client,
     };

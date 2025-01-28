@@ -18,6 +18,7 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
     crypto::{
         olm::{InboundGroupSession, SenderData, SessionCreationError},
@@ -29,7 +30,6 @@ use matrix_sdk::{
         secret_storage::SecretStore,
         BackupDownloadStrategy, EncryptionSettings,
     },
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::{no_retry_test_client_with_server, test_client_builder_with_server},
     Client,
 };

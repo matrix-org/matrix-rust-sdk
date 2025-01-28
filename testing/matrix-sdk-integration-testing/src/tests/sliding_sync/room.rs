@@ -908,31 +908,33 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
     bob_timeline.paginate_backwards(3).await.unwrap();
 
     // Look for the sent message, which should not be an UTD event.
-    while let Ok(Some(diff)) = timeout(Duration::from_secs(3), timeline_stream.next()).await {
-        trace!(?diff, "Received diff from Bob's room");
+    while let Ok(Some(diffs)) = timeout(Duration::from_secs(3), timeline_stream.next()).await {
+        trace!(?diffs, "Received diffs from Bob's room");
 
-        match diff {
-            VectorDiff::PushFront { value: event }
-            | VectorDiff::PushBack { value: event }
-            | VectorDiff::Insert { value: event, .. }
-            | VectorDiff::Set { value: event, .. } => {
-                let Some(event) = event.as_event() else {
-                    continue;
-                };
+        for diff in diffs {
+            match diff {
+                VectorDiff::PushFront { value: event }
+                | VectorDiff::PushBack { value: event }
+                | VectorDiff::Insert { value: event, .. }
+                | VectorDiff::Set { value: event, .. } => {
+                    let Some(event) = event.as_event() else {
+                        continue;
+                    };
 
-                let content = event.content();
+                    let content = event.content();
 
-                if content.as_unable_to_decrypt().is_some() {
-                    info!("Observed UTD for {}", event.event_id().unwrap());
+                    if content.as_unable_to_decrypt().is_some() {
+                        info!("Observed UTD for {}", event.event_id().unwrap());
+                    }
+
+                    if let Some(message) = content.as_message() {
+                        assert_eq!(message.body(), "hello world");
+                        return;
+                    }
                 }
 
-                if let Some(message) = content.as_message() {
-                    assert_eq!(message.body(), "hello world");
-                    return;
-                }
+                _ => {}
             }
-
-            _ => {}
         }
     }
 

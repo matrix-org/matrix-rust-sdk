@@ -28,14 +28,14 @@ use tokio::sync::{broadcast, Mutex, OnceCell};
 use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
+#[cfg(feature = "experimental-oidc")]
+use crate::authentication::oidc::OidcCtx;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
-#[cfg(feature = "experimental-oidc")]
-use crate::oidc::OidcCtx;
 use crate::{
     authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
     error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData,

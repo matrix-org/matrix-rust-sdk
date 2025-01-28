@@ -266,24 +266,13 @@ impl Timeline {
         }
     }
 
-    /// Get the current timeline items, and a stream of changes.
+    /// Get the current timeline items, along with a stream of updates of
+    /// timeline items.
     ///
-    /// You can poll this stream to receive updates. See
-    /// [`futures_util::StreamExt`] for a high-level API on top of [`Stream`].
+    /// The stream produces `Vec<VectorDiff<_>>`, which means multiple updates
+    /// at once. There are no delays, it consumes as many updates as possible
+    /// and batches them.
     pub async fn subscribe(
-        &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>>) {
-        let (items, stream) = self.controller.subscribe().await;
-        let stream = TimelineStream::new(stream, self.drop_handle.clone());
-        (items, stream)
-    }
-
-    /// Get the current timeline items, and a batched stream of changes.
-    ///
-    /// In contrast to [`subscribe`](Self::subscribe), this stream can yield
-    /// multiple diffs at once. The batching is done such that no arbitrary
-    /// delays are added.
-    pub async fn subscribe_batched(
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
         let (items, stream) = self.controller.subscribe_batched().await;

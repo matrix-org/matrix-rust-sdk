@@ -374,9 +374,7 @@ pub enum SetRoomSettingsError {
 pub enum SessionRecipientCollectionError {
     /// One or more verified users has one or more unsigned devices.
     ///
-    /// Happens only with [`CollectStrategy::DeviceBasedStrategy`] when
-    /// [`error_on_verified_user_problem`](`CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem`)
-    /// is true.
+    /// Happens only with [`CollectStrategy::ErrorOnVerifiedUserProblem`].
     ///
     /// In order to resolve this, the caller can set the trust level of the
     /// affected devices to [`LocalTrust::Ignored`] or
@@ -388,9 +386,8 @@ pub enum SessionRecipientCollectionError {
     /// One or more users was previously verified, but they have changed their
     /// identity.
     ///
-    /// Happens only with [`CollectStrategy::DeviceBasedStrategy`] when
-    /// [`error_on_verified_user_problem`](`CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem`)
-    /// is true, or with [`CollectStrategy::IdentityBasedStrategy`].
+    /// Happens only with [`CollectStrategy::ErrorOnVerifiedUserProblem`] or
+    /// [`CollectStrategy::IdentityBasedStrategy`].
     ///
     /// In order to resolve this, the user can:
     ///

@@ -55,12 +55,9 @@ use crate::helpers::TestClientBuilder;
 ///
 /// A macro to help lowering compile times and getting better error locations.
 macro_rules! assert_event_is_updated {
-    ($stream:expr, $event_id:expr, $index:expr) => {{
-        assert_let!(
-            Ok(Some(VectorDiff::Set { index: i, value: event })) =
-                timeout(Duration::from_secs(1), $stream.next()).await
-        );
-        assert_eq!(i, $index, "unexpected position for event update, value = {event:?}");
+    ($diff:expr, $event_id:expr, $index:expr) => {{
+        assert_let!(VectorDiff::Set { index: i, value: event } = &$diff);
+        assert_eq!(*i, $index, "unexpected position for event update, value = {event:?}");
 
         let event = event.as_event().unwrap();
         assert_eq!(event.event_id().unwrap(), $event_id);
@@ -114,9 +111,13 @@ async fn test_toggling_reaction() -> Result<()> {
 
         warn!(?items, "Waiting for updates…");
 
-        while let Some(diff) = stream.next().await {
-            warn!(?diff, "received a diff");
-            diff.apply(&mut items);
+        while let Some(diffs) = stream.next().await {
+            warn!(?diffs, "received diffs");
+
+            for diff in diffs {
+                diff.apply(&mut items);
+            }
+
             if let Some(event_id) = find_event_id(&items) {
                 return Ok(event_id);
             }
@@ -149,8 +150,10 @@ async fn test_toggling_reaction() -> Result<()> {
 
     // Skip all stream updates that have happened so far.
     debug!("Skipping all other stream updates…");
-    while let Some(Some(diff)) = stream.next().now_or_never() {
-        diff.apply(&mut items);
+    while let Some(Some(diffs)) = stream.next().now_or_never() {
+        for diff in diffs {
+            diff.apply(&mut items);
+        }
     }
 
     let (message_position, item_id) = items
@@ -171,9 +174,14 @@ async fn test_toggling_reaction() -> Result<()> {
         // Add the reaction.
         timeline.toggle_reaction(&item_id, &reaction_key).await.expect("toggling reaction");
 
+        sleep(Duration::from_secs(1)).await;
+
+        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
+
         // Local echo is added.
         {
-            let event = assert_event_is_updated!(stream, event_id, message_position);
+            let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
             let reactions = event.reactions().get(&reaction_key).unwrap();
             let reaction = reactions.get(&user_id).unwrap();
             assert_matches!(reaction.status, ReactionStatus::LocalToRemote(..));
@@ -181,7 +189,7 @@ async fn test_toggling_reaction() -> Result<()> {
 
         // Remote echo is added.
         {
-            let event = assert_event_is_updated!(stream, event_id, message_position);
+            let event = assert_event_is_updated!(timeline_updates[1], event_id, message_position);
 
             let reactions = event.reactions().get(&reaction_key).unwrap();
             assert_eq!(reactions.keys().count(), 1);
@@ -202,11 +210,16 @@ async fn test_toggling_reaction() -> Result<()> {
             .await
             .expect("toggling reaction the second time");
 
+        sleep(Duration::from_secs(1)).await;
+
+        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_eq!(timeline_updates.len(), 1);
+
         // The reaction is removed.
-        let event = assert_event_is_updated!(stream, event_id, message_position);
+        let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
         assert!(event.reactions().is_empty());
 
-        assert!(stream.next().now_or_never().is_none());
+        assert_pending!(stream);
     }
 
     Ok(())

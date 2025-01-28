@@ -20,14 +20,14 @@ use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
 #[cfg(test)]
-use matrix_sdk::crypto::OlmMachine;
+use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
-    deserialized_responses::{SyncTimelineEvent, TimelineEventKind as SdkTimelineEventKind},
+    deserialized_responses::{TimelineEvent, TimelineEventKind as SdkTimelineEventKind},
     event_cache::{paginator::Paginator, RoomEventCache},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
-    Result, Room, SendOutsideWasm,
+    Result, Room,
 };
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
@@ -396,7 +396,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     pub(crate) async fn reload_pinned_events(
         &self,
-    ) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
+    ) -> Result<Vec<TimelineEvent>, PinnedEventsLoaderError> {
         let focus_guard = self.focus.read().await;
 
         if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
@@ -477,13 +477,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.state.read().await.items.clone_items()
     }
 
+    #[cfg(test)]
     pub(super) async fn subscribe(
         &self,
     ) -> (
         Vector<Arc<TimelineItem>>,
         impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
     ) {
-        trace!("Creating timeline items signal");
         let state = self.state.read().await;
         (state.items.clone_items(), state.items.subscribe().into_stream())
     }
@@ -491,7 +491,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) async fn subscribe_batched(
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
-        trace!("Creating timeline items signal");
         let state = self.state.read().await;
         (state.items.clone_items(), state.items.subscribe().into_batched_stream())
     }
@@ -504,7 +503,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         U: Clone,
         F: Fn(Arc<TimelineItem>) -> Option<U>,
     {
-        trace!("Creating timeline items signal");
         self.state.read().await.items.subscribe().filter_map(f)
     }
 
@@ -662,7 +660,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) -> HandleManyEventsResult
     where
         Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        <Events as IntoIterator>::Item: Into<TimelineEvent>,
     {
         if events.len() == 0 {
             return Default::default();
@@ -675,7 +673,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs(
         &self,
-        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
     ) {
         if diffs.is_empty() {
@@ -710,7 +708,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         origin: RemoteEventOrigin,
     ) where
         Events: IntoIterator + ExactSizeIterator,
-        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        <Events as IntoIterator>::Item: Into<TimelineEvent>,
     {
         let mut state = self.state.write().await;
 

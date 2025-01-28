@@ -75,8 +75,8 @@ async fn main() -> Result<()> {
 
     println!("Initial timeline items: {timeline_items:#?}");
     tokio::spawn(async move {
-        while let Some(diff) = timeline_stream.next().await {
-            println!("Received a timeline diff: {diff:#?}");
+        while let Some(diffs) = timeline_stream.next().await {
+            println!("Received timeline diffs: {diffs:#?}");
         }
     });
 

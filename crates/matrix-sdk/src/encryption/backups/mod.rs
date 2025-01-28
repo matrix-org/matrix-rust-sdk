@@ -692,12 +692,9 @@ impl Backups {
                     .upload_progress
                     .set(UploadState::Uploading(new_counts));
 
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let delay =
-                        self.client.inner.e2ee.backup_state.upload_delay.read().unwrap().to_owned();
-                    tokio::time::sleep(delay).await;
-                }
+                let delay =
+                    self.client.inner.e2ee.backup_state.upload_delay.read().unwrap().to_owned();
+                crate::sleep::sleep(delay).await;
 
                 Ok(())
             }

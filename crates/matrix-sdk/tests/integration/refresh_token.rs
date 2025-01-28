@@ -7,9 +7,9 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
     executor::spawn,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     test_utils::{
         logged_in_client_with_server, no_retry_test_client_with_server,
         test_client_builder_with_server,

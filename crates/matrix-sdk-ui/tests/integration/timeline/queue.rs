@@ -335,9 +335,14 @@ async fn test_clear_with_echoes() {
 
         // Wait for the first message to fail. Don't use time, but listen for the first
         // timeline item diff to get back signalling the error.
-        let _date_divider = timeline_stream.next().await;
-        let _local_echo = timeline_stream.next().await;
-        let _local_echo_replaced_with_failure = timeline_stream.next().await;
+
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        // 2 updates: date divider and local echo.
+        assert_eq!(timeline_updates.len(), 2);
+
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        // 1 updates: local echo replaced with failure.
+        assert_eq!(timeline_updates.len(), 1);
     }
 
     // Next message will take "forever" to send.
@@ -440,35 +445,36 @@ async fn test_no_duplicate_date_divider() {
     // Let the send queue handle the event.
     yield_now().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 3);
+
     // Local echoes are available as soon as `timeline.send` returns.
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().content().as_message().unwrap().body(), "First!");
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    assert_eq!(value.as_event().unwrap().content().as_message().unwrap().body(), "First!");
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
 
-    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().content().as_message().unwrap().body(), "Second.");
-    });
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
+    assert_eq!(value.as_event().unwrap().content().as_message().unwrap().body(), "Second.");
 
     // Wait 200ms for the first msg, 100ms for the second, 200ms for overhead.
     sleep(Duration::from_millis(500)).await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 2);
+
     // The first item should be updated first.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
-        let value = value.as_event().unwrap();
-        assert_eq!(value.content().as_message().unwrap().body(), "First!");
-        assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
-    });
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let value = value.as_event().unwrap();
+    assert_eq!(value.content().as_message().unwrap().body(), "First!");
+    assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
 
     // Then the second one.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
-        let value = value.as_event().unwrap();
-        assert_eq!(value.content().as_message().unwrap().body(), "Second.");
-        assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
-    });
+    assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[1]);
+    let value = value.as_event().unwrap();
+    assert_eq!(value.content().as_message().unwrap().body(), "Second.");
+    assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
 
     assert_pending!(timeline_stream);
 
@@ -496,31 +502,32 @@ async fn test_no_duplicate_date_divider() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 6);
+
     // The first message is removed -> [DD Second]
-    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 1 });
+    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[0]);
 
     // The first message is reinserted -> [First DD Second]
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        let value = value.as_event().unwrap();
-        assert_eq!(value.content().as_message().unwrap().body(), "First!");
-        assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    let value = value.as_event().unwrap();
+    assert_eq!(value.content().as_message().unwrap().body(), "First!");
+    assert_eq!(value.event_id().unwrap(), "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP");
 
     // The second message is replaced -> [First Second DD]
-    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
-    assert_next_matches!(timeline_stream, VectorDiff::Insert { index: 1, value } => {
-        let value = value.as_event().unwrap();
-        assert_eq!(value.content().as_message().unwrap().body(), "Second.");
-        assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
-    });
+    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[2]);
+
+    assert_let!(VectorDiff::Insert { index: 1, value } = &timeline_updates[3]);
+    let value = value.as_event().unwrap();
+    assert_eq!(value.content().as_message().unwrap().body(), "Second.");
+    assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
 
     // A new date divider is inserted -> [DD First Second DD]
-    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_date_divider());
-    });
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
 
     // The useless date divider is removed. -> [DD First Second]
-    assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 3 });
+    assert_let!(VectorDiff::Remove { index: 3 } = &timeline_updates[5]);
 
     assert_pending!(timeline_stream);
 }

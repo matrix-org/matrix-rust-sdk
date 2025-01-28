@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use matrix_sdk::{
+    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     encryption::secret_storage::SecretStore,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
     ruma::{events::secret::request::SecretName, OwnedDeviceId, OwnedUserId},
     AuthSession, Client, SessionMeta,
 };

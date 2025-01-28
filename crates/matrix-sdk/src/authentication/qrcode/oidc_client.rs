@@ -32,7 +32,7 @@ use openidconnect::{
 use vodozemac::Curve25519PublicKey;
 
 use super::DeviceAuhorizationOidcError;
-use crate::{http_client::HttpClient, oidc::OidcSessionTokens};
+use crate::{authentication::oidc::OidcSessionTokens, http_client::HttpClient};
 
 // Obtain the device_authorization_url from the OIDC metadata provider.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

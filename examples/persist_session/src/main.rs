@@ -4,8 +4,8 @@ use std::{
 };
 
 use matrix_sdk::{
+    authentication::matrix::MatrixSession,
     config::SyncSettings,
-    matrix_auth::MatrixSession,
     ruma::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},

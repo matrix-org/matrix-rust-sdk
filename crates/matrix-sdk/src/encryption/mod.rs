@@ -1778,9 +1778,9 @@ mod tests {
 
     use crate::{
         assert_next_matches_with_timeout,
+        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
         encryption::VerificationState,
-        matrix_auth::{MatrixSession, MatrixSessionTokens},
         test_utils::{logged_in_client, no_retry_test_client, set_client_session},
         Client,
     };

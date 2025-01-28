@@ -74,9 +74,11 @@ use url::Url;
 
 use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
-use crate::oidc::Oidc;
+use crate::authentication::oidc::Oidc;
 use crate::{
-    authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
+    authentication::{
+        matrix::MatrixAuth, AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,
+    },
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
     error::{HttpError, HttpResult},
@@ -86,7 +88,6 @@ use crate::{
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
     http_client::HttpClient,
-    matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
     send_queue::SendQueueData,
