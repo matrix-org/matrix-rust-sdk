@@ -69,29 +69,6 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
-/// This is a simplification of [`TimelineItemPosition`] which doesn't contain
-/// the [`TimelineItemPosition::UpdateDecrypted`] variant, because it is used
-/// only for **new** items.
-#[derive(Debug)]
-pub(crate) enum TimelineNewItemPosition {
-    /// One or more items are prepended to the timeline (i.e. they're the
-    /// oldest).
-    Start { origin: RemoteEventOrigin },
-
-    /// One or more items are appended to the timeline (i.e. they're the most
-    /// recent).
-    End { origin: RemoteEventOrigin },
-}
-
-impl From<TimelineNewItemPosition> for TimelineItemPosition {
-    fn from(value: TimelineNewItemPosition) -> Self {
-        match value {
-            TimelineNewItemPosition::Start { origin } => Self::Start { origin },
-            TimelineNewItemPosition::End { origin } => Self::End { origin },
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineState {
     pub items: ObservableItems,
