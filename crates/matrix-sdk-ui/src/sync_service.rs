@@ -20,7 +20,9 @@
 //!
 //! The sync service will signal errors via its [`state`](SyncService::state)
 //! that the user MUST observe. Whenever an error/termination is observed, the
-//! user MUST call [`SyncService::start()`] again to restart the room list sync.
+//! user should call [`SyncService::start()`] again to restart the room list
+//! sync, if that is not desirable, the offline support for the [`SyncService`]
+//! may be enabled using the [`SyncServiceBuilder::with_offline_mode`] setting.
 
 use std::{sync::Arc, time::Duration};
 
@@ -53,9 +55,6 @@ use crate::{
 /// terminal state [`State::Terminated`] (if it gracefully exited) or
 /// [`State::Error`] (in case any of the underlying syncs ran into an error).
 ///
-/// It is the responsibility of the caller to restart the application using the
-/// [`SyncService::start`] method, in case it terminated, gracefully or not.
-///
 /// This can be observed with [`SyncService::state`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
@@ -67,6 +66,23 @@ pub enum State {
     Terminated,
     /// Any of the underlying syncs has ran into an error.
     Error,
+    /// The service has entered offline mode. This state will only be entered if
+    /// the [`SyncService`] has been built with the
+    /// [`SyncServiceBuilder::with_offline_mode`] setting.
+    ///
+    /// The [`SyncService`] will enter the offline mode if syncing with the
+    /// server fails, it will then periodically check if the server is
+    /// available using the `/_matrix/client/versions` endpoint.
+    ///
+    /// Once the [`SyncService`] receives a 200 response from the
+    /// `/_matrix/client/versions` endpoint, it will go back into the
+    /// [`State::Running`] mode and attempt to sync again.
+    ///
+    /// Calling [`SyncService::start()`] while in this state will abort the
+    /// `/_matrix/client/versions` checks and attempt to sync immediately.
+    ///
+    /// Calling [`SyncService::stop()`] will abort the offline mode and the
+    /// [`SyncService`] will go into the [`State::Idle`] mode.
     Offline,
 }
 
@@ -112,6 +128,22 @@ impl SyncTaskSupervisor {
         Self { task, termination_sender }
     }
 
+    /// Check if a homeserver is reachable.
+    ///
+    /// This function handles the offline mode by waiting for either a
+    /// termination report or a successful `/_matrix/client/versions` response.
+    ///
+    /// This function waits for two conditions:
+    ///
+    /// 1. Waiting for a termination report: This ensures that the user can exit
+    ///    offline mode and attempt to restart the [`SyncService`] manually.
+    ///
+    /// 2. Waiting to come back online: This continuously checks server
+    ///    availability.
+    ///
+    /// If the `/_matrix/client/versions` request succeeds, the function exits
+    /// without a termination report. If we receive a [`TerminationReport`] from
+    /// the user, we exit immediately and return the termination report.
     async fn offline_check(
         client: &Client,
         receiver: &mut Receiver<TerminationReport>,
@@ -443,6 +475,9 @@ impl SyncTaskSupervisor {
 
 struct SyncServiceInner {
     encryption_sync_service: Arc<EncryptionSyncService>,
+    /// Is the offline mode for the [`SyncService`] enabled?
+    ///
+    /// The offline mode is described in the [`State::Offline`] enum variant.
     with_offline_mode: bool,
     state: SharedObservable<State>,
     /// Supervisor task ensuring proper termination.
@@ -587,6 +622,8 @@ impl SyncService {
     ///
     /// This can be called multiple times safely:
     /// - if the stream is still properly running, it won't be restarted.
+    /// - if the [`SyncService`] is in the offline mode we will exit the offline
+    ///   mode and immediately attempt to sync again.
     /// - if the stream has been aborted before, it will be properly cleaned up
     ///   and restarted.
     pub async fn start(&self) -> Result<(), Error> {
@@ -685,6 +722,8 @@ pub struct SyncServiceBuilder {
     with_cross_process_lock: bool,
 
     /// Is the offline mode for the [`SyncService`] enabled?
+    ///
+    /// The offline mode is described in the [`State::Offline`] enum variant.
     with_offline_mode: bool,
 }
 
@@ -751,7 +790,7 @@ impl SyncServiceBuilder {
     }
 }
 
-/// Errors for the `SyncService` API.
+/// Errors for the [`SyncService`] API.
 #[derive(Debug, Error)]
 pub enum Error {
     /// An error received from the `RoomListService` API.
