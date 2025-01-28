@@ -912,6 +912,12 @@ impl MatrixMockServer {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/ban"));
         MockEndpoint { mock, server: &self.server, endpoint: BanUserEndpoint }
     }
+
+    /// Creates a prebuilt mock for the `/_matrix/client/versions` endpoint.
+    pub fn mock_versions(&self) -> MockEndpoint<'_, VersionsEndpoint> {
+        let mock = Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/versions"));
+        MockEndpoint { mock, server: &self.server, endpoint: VersionsEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2234,6 +2240,43 @@ impl<'a> MockEndpoint<'a, BanUserEndpoint> {
     /// Returns a successful ban user request.
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `GET /versions` request.
+pub struct VersionsEndpoint;
+
+impl<'a> MockEndpoint<'a, VersionsEndpoint> {
+    /// Returns a successful `/_matrix/client/versions` request.
+    ///
+    /// The response will return some commonly supported versions.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "unstable_features": {
+            },
+            "versions": [
+                "r0.0.1",
+                "r0.2.0",
+                "r0.3.0",
+                "r0.4.0",
+                "r0.5.0",
+                "r0.6.0",
+                "r0.6.1",
+                "v1.1",
+                "v1.2",
+                "v1.3",
+                "v1.4",
+                "v1.5",
+                "v1.6",
+                "v1.7",
+                "v1.8",
+                "v1.9",
+                "v1.10",
+                "v1.11"
+            ]
+        })));
+
         MatrixMock { server: self.server, mock }
     }
 }

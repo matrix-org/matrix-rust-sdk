@@ -309,7 +309,7 @@ impl ClientWrapper {
         F: Fn() -> R,
         R: Future<Output = Option<S>>,
     {
-        self.sync_service.start().await;
+        self.sync_service.start().await.expect("We should be able to start the sync service");
 
         // Repeatedly call f until it returns Some
         let end_time = Instant::now() + timeout();
