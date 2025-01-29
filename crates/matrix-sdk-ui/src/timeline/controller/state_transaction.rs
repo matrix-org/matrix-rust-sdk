@@ -29,7 +29,8 @@ use super::{
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
-    ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata, TimelineSettings,
+    ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
+    TimelineSettings,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -38,19 +39,41 @@ pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// until committed.
     pub items: ObservableItemsTransaction<'a>,
 
+    /// Number of items when the transaction has been created/has started.
+    number_of_items_when_transaction_started: usize,
+
     /// A clone of the previous meta, that we're operating on during the
     /// transaction, and that will be committed to the previous meta location in
     /// [`Self::commit`].
     pub meta: TimelineMetadata,
 
     /// Pointer to the previous meta, only used during [`Self::commit`].
-    pub(super) previous_meta: &'a mut TimelineMetadata,
+    previous_meta: &'a mut TimelineMetadata,
 
     /// The kind of focus of this timeline.
     pub(super) timeline_focus: TimelineFocusKind,
 }
 
-impl TimelineStateTransaction<'_> {
+impl<'a> TimelineStateTransaction<'a> {
+    /// Create a new [`TimelineStateTransaction`].
+    pub(super) fn new(
+        items: &'a mut ObservableItems,
+        meta: &'a mut TimelineMetadata,
+        timeline_focus: TimelineFocusKind,
+    ) -> Self {
+        let previous_meta = meta;
+        let meta = previous_meta.clone();
+        let items = items.transaction();
+
+        Self {
+            number_of_items_when_transaction_started: items.len(),
+            items,
+            previous_meta,
+            meta,
+            timeline_focus,
+        }
+    }
+
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs<RoomData>(
         &mut self,
@@ -467,12 +490,22 @@ impl TimelineStateTransaction<'_> {
     }
 
     pub(super) fn commit(self) {
-        let Self { items, previous_meta, meta, .. } = self;
+        // Update the `subscriber_skip_count` value.
+        let previous_number_of_items = self.number_of_items_when_transaction_started;
+        let next_number_of_items = self.items.len();
+
+        if previous_number_of_items != next_number_of_items {
+            let count = self
+                .meta
+                .subscriber_skip_count
+                .compute_next(previous_number_of_items, next_number_of_items);
+            self.meta.subscriber_skip_count.update(count, &self.timeline_focus);
+        }
 
         // Replace the pointer to the previous meta with the new one.
-        *previous_meta = meta;
+        *self.previous_meta = self.meta;
 
-        items.commit();
+        self.items.commit();
     }
 
     /// Add or update a remote  event in the
