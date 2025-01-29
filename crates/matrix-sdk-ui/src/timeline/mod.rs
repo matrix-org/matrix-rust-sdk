@@ -52,7 +52,7 @@ use ruma::{
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
-use subscriber::TimelineStream;
+use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
@@ -277,7 +277,7 @@ impl Timeline {
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
         let (items, stream) = self.controller.subscribe_batched().await;
-        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        let stream = TimelineWithDropHandle::new(stream, self.drop_handle.clone());
         (items, stream)
     }
 
@@ -811,7 +811,7 @@ impl Timeline {
         f: impl Fn(Arc<TimelineItem>) -> Option<U>,
     ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>) {
         let (items, stream) = self.controller.subscribe_filter_map(f).await;
-        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        let stream = TimelineWithDropHandle::new(stream, self.drop_handle.clone());
         (items, stream)
     }
 }
