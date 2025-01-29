@@ -630,7 +630,14 @@ impl Oidc {
         action: Option<AccountManagementActionFull>,
     ) -> Result<Option<Url>, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
+        self.management_url_from_provider_metadata(provider_metadata, action)
+    }
 
+    fn management_url_from_provider_metadata(
+        &self,
+        provider_metadata: VerifiedProviderMetadata,
+        action: Option<AccountManagementActionFull>,
+    ) -> Result<Option<Url>, OidcError> {
         let Some(base_url) = provider_metadata.account_management_uri.clone() else {
             return Ok(None);
         };
@@ -641,6 +648,43 @@ impl Oidc {
         let url = build_account_management_url(base_url, action, id_token_hint)?;
 
         Ok(Some(url))
+    }
+
+    /// Get the account management URL where the user can manage their
+    /// identity-related settings.
+    ///
+    /// # Arguments
+    ///
+    /// * `action` - An optional action that wants to be performed by the user
+    ///   when they open the URL. The list of supported actions by the account
+    ///   management URL can be found in the [`VerifiedProviderMetadata`], or
+    ///   directly with [`Oidc::account_management_actions_supported()`].
+    ///
+    /// Returns `Ok(None)` if the URL was not found. Returns an error if the
+    /// request to get the provider metadata fails or the URL could not be
+    /// parsed.
+    ///
+    /// This method will cache the URL for a while, if the cache is not
+    /// populated it will internally call
+    /// [`Oidc::fetch_account_management_url()`] and cache the resulting URL
+    /// before returning it.
+    pub async fn account_management_url(
+        &self,
+        action: Option<AccountManagementActionFull>,
+    ) -> Result<Option<Url>, OidcError> {
+        const CACHE_KEY: &str = "PROVIDER_METADATA";
+
+        let mut cache = self.client.inner.caches.provider_metadata.lock().await;
+
+        let metadata = if let Some(metadata) = cache.get("PROVIDER_METADATA") {
+            metadata
+        } else {
+            let provider_metadata = self.provider_metadata().await?;
+            cache.insert(CACHE_KEY.to_owned(), provider_metadata.clone());
+            provider_metadata
+        };
+
+        self.management_url_from_provider_metadata(metadata, action)
     }
 
     /// Fetch the OpenID Connect metadata of the given issuer.

@@ -67,6 +67,8 @@ pub(crate) struct MockImpl {
     /// Must be an HTTPS URL.
     registration_endpoint: Option<Url>,
 
+    account_management_uri: Option<String>,
+
     /// The next session tokens that will be returned by a login or refresh.
     next_session_tokens: Option<OidcSessionTokens>,
 
@@ -94,6 +96,7 @@ impl MockImpl {
             registration_endpoint: Some(Url::parse(REGISTRATION_URL).unwrap()),
             next_session_tokens: None,
             expected_refresh_token: None,
+            account_management_uri: None,
             num_refreshes: Default::default(),
             revoked_tokens: Default::default(),
             is_insecure: false,
@@ -117,6 +120,11 @@ impl MockImpl {
 
     pub fn registration_endpoint(mut self, registration_endpoint: Option<Url>) -> Self {
         self.registration_endpoint = registration_endpoint;
+        self
+    }
+
+    pub fn account_management_uri(mut self, uri: String) -> Self {
+        self.account_management_uri = Some(uri);
         self
     }
 }
@@ -147,6 +155,10 @@ impl OidcBackend for MockImpl {
             response_types_supported: Some(vec![]),
             subject_types_supported: Some(vec![]),
             id_token_signing_alg_values_supported: Some(vec![]),
+            account_management_uri: self
+                .account_management_uri
+                .as_ref()
+                .map(|uri| Url::parse(uri).unwrap()),
             ..Default::default()
         }
         .validate(issuer)

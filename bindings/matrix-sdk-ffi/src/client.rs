@@ -626,7 +626,7 @@ impl Client {
             return Ok(None);
         }
 
-        match self.inner.oidc().fetch_account_management_url(action.map(Into::into)).await {
+        match self.inner.oidc().account_management_url(action.map(Into::into)).await {
             Ok(url) => Ok(url.map(|u| u.to_string())),
             Err(e) => {
                 tracing::error!("Failed retrieving account management URL: {e}");

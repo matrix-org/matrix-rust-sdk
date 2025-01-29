@@ -12,14 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-oidc")]
+use mas_oidc_client::types::oidc::VerifiedProviderMetadata;
+#[cfg(feature = "experimental-oidc")]
+use matrix_sdk_base::ttl_cache::TtlCache;
 use tokio::sync::RwLock;
 
 use super::ClientServerCapabilities;
 
 /// A collection of in-memory data that the `Client` might want to cache to
 /// avoid hitting the homeserver every time users request the data.
-pub(super) struct ClientCaches {
+pub(crate) struct ClientCaches {
     /// Server capabilities, either prefilled during building or fetched from
     /// the server.
     pub(super) server_capabilities: RwLock<ClientServerCapabilities>,
+    #[cfg(feature = "experimental-oidc")]
+    pub(crate) provider_metadata: tokio::sync::Mutex<TtlCache<String, VerifiedProviderMetadata>>,
 }
