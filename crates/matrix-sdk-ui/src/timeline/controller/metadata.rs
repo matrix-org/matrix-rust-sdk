@@ -339,11 +339,11 @@ pub(in crate::timeline) struct EventMeta {
     /// +-------+-------------------+----------------------+
     /// | 0     | content of `$ev0` |                      |
     /// | 1     | content of `$ev2` | reaction with `$ev4` |
-    /// | 2     | day divider       |                      |
+    /// | 2     | date divider      |                      |
     /// | 3     | content of `$ev3` |                      |
     /// | 4     | content of `$ev5` |                      |
     ///
-    /// Note the day divider that is a virtual item. Also note `$ev4` which is
+    /// Note the date divider that is a virtual item. Also note `$ev4` which is
     /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in
     /// the timeline.
     ///
