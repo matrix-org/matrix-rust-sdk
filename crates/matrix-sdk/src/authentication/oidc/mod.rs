@@ -625,7 +625,7 @@ impl Oidc {
     /// Returns `Ok(None)` if the URL was not found. Returns an error if the
     /// request to get the provider metadata fails or the URL could not be
     /// parsed.
-    pub async fn account_management_url(
+    pub async fn fetch_account_management_url(
         &self,
         action: Option<AccountManagementActionFull>,
     ) -> Result<Option<Url>, OidcError> {

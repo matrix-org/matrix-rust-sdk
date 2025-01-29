@@ -444,7 +444,7 @@ impl OidcCli {
 
     /// Get the account management URL.
     async fn account(&self, action: Option<AccountManagementActionFull>) {
-        match self.client.oidc().account_management_url(action).await {
+        match self.client.oidc().fetch_account_management_url(action).await {
             Ok(Some(url)) => {
                 println!("\nTo manage your account, visit: {url}");
             }
