@@ -59,7 +59,7 @@ pub mod skip {
 
     const MAXIMUM_NUMBER_OF_INITIAL_ITEMS: usize = 20;
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct SkipCount {
         count: SharedObservable<usize>,
     }

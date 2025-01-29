@@ -20,7 +20,8 @@ use tracing::trace;
 
 use super::{
     super::{
-        reactions::Reactions, rfind_event_by_id, TimelineItem, TimelineItemKind, TimelineUniqueId,
+        reactions::Reactions, rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem,
+        TimelineItemKind, TimelineUniqueId,
     },
     read_receipts::ReadReceipts,
     state::PendingPollEvents,
@@ -36,6 +37,8 @@ pub(in crate::timeline) struct TimelineMetadata {
     ///
     /// This value is constant over the lifetime of the metadata.
     internal_id_prefix: Option<String>,
+
+    pub(super) subscriber_skip_count: SkipCount,
 
     /// The hook to call whenever we run into a unable-to-decrypt event.
     ///
@@ -107,6 +110,7 @@ impl TimelineMetadata {
         is_room_encrypted: Option<bool>,
     ) -> Self {
         Self {
+            subscriber_skip_count: SkipCount::new(),
             own_user_id,
             next_internal_id: Default::default(),
             reactions: Default::default(),
