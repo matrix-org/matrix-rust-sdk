@@ -170,7 +170,7 @@ impl Default for TimelineSettings {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum TimelineFocusKind {
+pub(super) enum TimelineFocusKind {
     Live,
     Event,
     PinnedEvents,
