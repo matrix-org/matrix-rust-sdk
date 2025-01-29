@@ -276,7 +276,7 @@ impl Timeline {
     pub async fn subscribe(
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
-        let (items, stream) = self.controller.subscribe_batched().await;
+        let (items, stream) = self.controller.subscribe_batched_and_limited().await;
         let stream = TimelineWithDropHandle::new(stream, self.drop_handle.clone());
         (items, stream)
     }

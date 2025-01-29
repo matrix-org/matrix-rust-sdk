@@ -33,9 +33,9 @@ as_variant = "1.2.0"
 base64 = "0.22.1"
 byteorder = "1.5.0"
 chrono = "0.4.39"
-eyeball = { version = "0.8.8", features = ["tracing"] }
-eyeball-im = { version = "0.6.0", features = ["tracing"] }
-eyeball-im-util = "0.8.0"
+eyeball = { git = "https://github.com/Hywan/eyeball", branch = "feat-im-util-skip", features = ["tracing"] }
+eyeball-im = { git = "https://github.com/Hywan/eyeball", branch = "feat-im-util-skip", features = ["tracing"] }
+eyeball-im-util = { git = "https://github.com/Hywan/eyeball", branch = "feat-im-util-skip" }
 futures-core = "0.3.31"
 futures-executor = "0.3.31"
 futures-util = "0.3.31"

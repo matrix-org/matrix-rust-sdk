@@ -496,11 +496,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
         (state.items.clone_items(), state.items.subscribe().into_stream())
     }
 
-    pub(super) async fn subscribe_batched(
+    pub(super) async fn subscribe_batched_and_limited(
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
         let state = self.state.read().await;
-        state.items.subscribe().into_values_and_batched_stream()
+        state
+            .items
+            .subscribe()
+            .into_values_and_batched_stream()
+            .dynamic_skip_with_initial_count(0, state.meta.subscriber_skip_count.subscribe())
     }
 
     pub(super) async fn subscribe_filter_map<U, F>(
