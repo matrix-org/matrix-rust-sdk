@@ -1755,8 +1755,7 @@ dependencies = [
 [[package]]
 name = "eyeball"
 version = "0.8.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d93bd0ebf93d61d6332d3c09a96e97975968a44e19a64c947bde06e6baff383f"
+source = "git+https://github.com/Hywan/eyeball?branch=feat-im-util-skip#23104aeb9acf128c5f7d3e8e73ddbca25e88d9f4"
 dependencies = [
  "futures-core",
  "readlock",
@@ -1769,8 +1768,7 @@ dependencies = [
 [[package]]
 name = "eyeball-im"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad276eb017655257443d34f27455f60e8b02b839c6ebcaa8d6f06cc498784e8f"
+source = "git+https://github.com/Hywan/eyeball?branch=feat-im-util-skip#23104aeb9acf128c5f7d3e8e73ddbca25e88d9f4"
 dependencies = [
  "futures-core",
  "imbl",
@@ -1781,8 +1779,7 @@ dependencies = [
 [[package]]
 name = "eyeball-im-util"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac7f06ce388e4f64876ad3836b275d0972ab64ae8bd8456862d5ebdb7bec4f5"
+source = "git+https://github.com/Hywan/eyeball?branch=feat-im-util-skip#23104aeb9acf128c5f7d3e8e73ddbca25e88d9f4"
 dependencies = [
  "arrayvec",
  "eyeball-im",
