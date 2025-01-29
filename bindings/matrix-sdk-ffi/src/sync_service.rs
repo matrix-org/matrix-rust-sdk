@@ -120,6 +120,13 @@ impl SyncServiceBuilder {
         Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
     }
 
+    /// Enable the "offline" mode for the [`SyncService`].
+    pub fn with_offline_mode(self: Arc<Self>) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_offline_mode();
+        Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
+    }
+
     pub async fn with_utd_hook(
         self: Arc<Self>,
         delegate: Box<dyn UnableToDecryptDelegate>,
