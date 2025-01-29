@@ -73,12 +73,12 @@ impl SyncService {
         })
     }
 
-    pub async fn start(&self) -> Result<(), ClientError> {
-        Ok(self.inner.start().await?)
+    pub async fn start(&self) {
+        self.inner.start().await
     }
 
-    pub async fn stop(&self) -> Result<(), ClientError> {
-        Ok(self.inner.stop().await?)
+    pub async fn stop(&self) {
+        self.inner.stop().await
     }
 
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {

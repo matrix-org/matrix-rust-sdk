@@ -491,7 +491,7 @@ impl OidcCli {
     async fn watch_sliding_sync(&self) -> anyhow::Result<()> {
         let sync_service = Arc::new(SyncService::builder(self.client.clone()).build().await?);
 
-        sync_service.start().await?;
+        sync_service.start().await;
 
         println!("press enter to exit the sync loop");
 
@@ -542,7 +542,7 @@ impl OidcCli {
                                         break;
                                     }
 
-                                    sync_service_clone.start().await.expect("We should be able to start the sync service");
+                                    sync_service_clone.start().await;
                                 }
                             }
                             println!("New sync service state update: {state:?}");
@@ -553,10 +553,7 @@ impl OidcCli {
 
                     _ = stdin.read_line(&mut _unused) => {
                         println!("Stopping loop because of user request");
-
-                        if let Err(err) = sync_service.stop().await {
-                            println!("Error when stopping the sync service: {err}");
-                        }
+                        sync_service.stop().await;
 
                         break;
                     }
