@@ -32,8 +32,11 @@ use matrix_sdk::{
             user_directory::search_users,
         },
         events::{
-            room::{avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent},
-            AnyInitialStateEvent, AnyToDeviceEvent, InitialStateEvent,
+            room::{
+                avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent,
+                message::MessageType,
+            },
+            AnyInitialStateEvent, InitialStateEvent,
         },
         serde::Raw,
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
@@ -53,10 +56,12 @@ use ruma::{
     },
     events::{
         ignored_user_list::IgnoredUserListEventContent,
+        key::verification::request::ToDeviceKeyVerificationRequestEvent,
         room::{
             join_rules::{
                 AllowRule as RumaAllowRule, JoinRule as RumaJoinRule, RoomJoinRulesEventContent,
             },
+            message::OriginalSyncRoomMessageEvent,
             power_levels::RoomPowerLevelsEventContent,
         },
         GlobalAccountDataEventType,
@@ -204,12 +209,27 @@ impl Client {
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
         let controller = session_verification_controller.clone();
+        sdk_client.add_event_handler(
+            move |event: ToDeviceKeyVerificationRequestEvent| async move {
+                if let Some(session_verification_controller) = &*controller.clone().read().await {
+                    session_verification_controller
+                        .process_incoming_verification_request(
+                            &event.sender,
+                            event.content.transaction_id,
+                        )
+                        .await;
+                }
+            },
+        );
 
-        sdk_client.add_event_handler(move |ev: AnyToDeviceEvent| async move {
-            if let Some(session_verification_controller) = &*controller.clone().read().await {
-                session_verification_controller.process_to_device_message(ev).await;
-            } else {
-                debug!("received to-device message, but verification controller isn't ready");
+        let controller = session_verification_controller.clone();
+        sdk_client.add_event_handler(move |event: OriginalSyncRoomMessageEvent| async move {
+            if let MessageType::VerificationRequest(_) = &event.content.msgtype {
+                if let Some(session_verification_controller) = &*controller.clone().read().await {
+                    session_verification_controller
+                        .process_incoming_verification_request(&event.sender, event.event_id)
+                        .await;
+                }
             }
         });
 
@@ -777,8 +797,11 @@ impl Client {
             .await?
             .context("Failed retrieving user identity")?;
 
-        let session_verification_controller =
-            SessionVerificationController::new(self.inner.encryption(), user_identity);
+        let session_verification_controller = SessionVerificationController::new(
+            self.inner.encryption(),
+            user_identity,
+            self.inner.account(),
+        );
 
         *self.session_verification_controller.write().await =
             Some(session_verification_controller.clone());
