@@ -410,7 +410,28 @@ impl<P: RoomDataProvider> TimelineController<P> {
         }
     }
 
-    /// Run a backward pagination (in focused mode) and append the results to
+    /// Run a lazy backwards pagination (in live mode).
+    ///
+    /// It adjusts the `count` value of the `Skip` higher-order stream so that
+    /// more items are pushed front in the timeline.
+    ///
+    /// If no more items are available (i.e. if the `count` is zero), this
+    /// method returns `Some(needs)` where `needs` is the number of events that
+    /// must be unlazily backwards paginated.
+    pub(super) async fn live_lazy_paginate_backwards(&self, num_events: u16) -> Option<usize> {
+        let state = self.state.read().await;
+
+        let (count, needs) = state
+            .meta
+            .subscriber_skip_count
+            .compute_next_when_paginating_backwards(num_events.into());
+
+        state.meta.subscriber_skip_count.update(count, &state.timeline_focus);
+
+        needs
+    }
+
+    /// Run a backwards pagination (in focused mode) and append the results to
     /// the timeline.
     ///
     /// Returns whether we hit the start of the timeline.
@@ -439,7 +460,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         Ok(hit_end_of_timeline)
     }
 
-    /// Run a forward pagination (in focused mode) and append the results to
+    /// Run a forwards pagination (in focused mode) and append the results to
     /// the timeline.
     ///
     /// Returns whether we hit the end of the timeline.

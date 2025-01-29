@@ -58,7 +58,7 @@ pub(in crate::timeline) struct TimelineState {
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    pub(super) timeline_focus: TimelineFocusKind,
+    pub timeline_focus: TimelineFocusKind,
 }
 
 impl TimelineState {
