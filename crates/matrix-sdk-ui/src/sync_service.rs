@@ -24,7 +24,7 @@
 //! sync, if that is not desirable, the offline support for the [`SyncService`]
 //! may be enabled using the [`SyncServiceBuilder::with_offline_mode`] setting.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{
@@ -33,6 +33,7 @@ use futures_util::{
 };
 use matrix_sdk::{
     executor::{spawn, JoinHandle},
+    sleep::sleep,
     Client,
 };
 use thiserror::Error;
@@ -157,9 +158,22 @@ impl SyncTaskSupervisor {
 
         let wait_to_be_online = async move {
             loop {
+                // We're in an infinite loop, but our request sending already has an exponential
+                // backoff set up. This will kick in for any request errors that we consider to
+                // be transient. Common network errors (timeouts, DNS failures)
+                // or any server error in the 5xx range of HTTP errors are
+                // considered to be transient.
+                //
+                // This means that we're not going to tightloop here, and in the case the
+                // `RequestConfig` has been set up to not have a limit, ever hit the second
+                // iteration of this loop.
+                //
+                // No matter, as a precaution, we're going to sleep for a while here in the
+                // Error case, the user might have configured the RequestConfig
+                // to not contain any backoff or retries.
                 match client.fetch_server_capabilities().await {
                     Ok(_) => break,
-                    Err(_) => continue,
+                    Err(_) => sleep(Duration::from_millis(500)).await,
                 }
             }
         };
