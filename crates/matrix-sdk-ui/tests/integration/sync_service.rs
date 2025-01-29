@@ -80,13 +80,13 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     // After starting, the sync service is, well, running.
-    sync_service.start().await?;
+    sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
     assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Restarting while started doesn't change the current state.
-    sync_service.start().await?;
+    sync_service.start().await;
     assert_pending!(state_stream);
     assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
@@ -95,7 +95,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Pausing will stop both syncs, after a bit of delay.
-    sync_service.stop().await?;
+    sync_service.stop().await;
     assert_next_matches!(state_stream, State::Idle);
     assert!(!sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
@@ -150,7 +150,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 
     // When restarting and waiting a bit, the server gets new requests, starting at
     // the same position than just before being stopped.
-    sync_service.start().await?;
+    sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
     assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
@@ -223,7 +223,7 @@ async fn test_sync_service_offline_mode() {
     {
         let _versions_guard = mock_server.mock_versions().error500().mount_as_scoped().await;
 
-        sync_service.start().await.expect("We should be able to start the sync service");
+        sync_service.start().await;
         assert_next_eq!(states, State::Running);
 
         let next_state = timeout(states.next(), Duration::from_millis(500))
@@ -259,7 +259,7 @@ async fn test_sync_service_offline_mode_stopping() {
         .await;
     mock_server.mock_versions().error500().mount().await;
 
-    sync_service.start().await.expect("We should be able to start the sync service");
+    sync_service.start().await;
     assert_next_eq!(states, State::Running);
 
     let next_state = timeout(states.next(), Duration::from_millis(500))
@@ -269,10 +269,7 @@ async fn test_sync_service_offline_mode_stopping() {
 
     assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
 
-    sync_service
-        .stop()
-        .await
-        .expect("We should be able to stop the sync service when it's in the offline mode");
+    sync_service.stop().await;
 
     let next_state = timeout(states.next(), Duration::from_millis(500))
         .await
@@ -296,7 +293,7 @@ async fn test_sync_service_offline_mode_restarting() {
         .await;
     mock_server.mock_versions().error500().mount().await;
 
-    sync_service.start().await.expect("We should be able to start the sync service");
+    sync_service.start().await;
     assert_next_eq!(states, State::Running);
 
     let next_state = timeout(states.next(), Duration::from_millis(500))
@@ -306,10 +303,7 @@ async fn test_sync_service_offline_mode_restarting() {
 
     assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
 
-    sync_service
-        .start()
-        .await
-        .expect("We should be able to restart the sync service when it's in the offline mode");
+    sync_service.start().await;
 
     let next_state = timeout(states.next(), Duration::from_millis(500))
         .await
