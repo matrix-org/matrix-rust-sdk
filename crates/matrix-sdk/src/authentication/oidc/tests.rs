@@ -3,7 +3,10 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use mas_oidc_client::{
-    requests::authorization_code::AuthorizationValidationData,
+    requests::{
+        account_management::AccountManagementActionFull,
+        authorization_code::AuthorizationValidationData,
+    },
     types::{
         errors::ClientErrorCode,
         iana::oauth::OAuthClientAuthenticationMethod,
@@ -29,7 +32,10 @@ use super::{
     AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc, OidcError, OidcSession,
     OidcSessionTokens, RedirectUriQueryParseError, UserSession,
 };
-use crate::{test_utils::test_client_builder, Client, Error};
+use crate::{
+    test_utils::{client::MockClientBuilder, test_client_builder},
+    Client, Error,
+};
 
 const REDIRECT_URI_STRING: &str = "http://matrix.example.com/oidc/callback";
 
@@ -473,4 +479,37 @@ async fn test_register_client() {
     assert_eq!(auth_data.issuer, ISSUER_URL);
     assert_eq!(auth_data.client_id.0, response.client_id);
     assert_eq!(auth_data.metadata, client_metadata);
+}
+
+#[async_test]
+async fn test_management_url_cache() {
+    let client = MockClientBuilder::new("http://localhost".to_owned()).unlogged().build().await;
+    let backend = Arc::new(
+        MockImpl::new().mark_insecure().account_management_uri("http://localhost".to_owned()),
+    );
+    let oidc = Oidc { client: client.clone(), backend: backend.clone() };
+
+    let tokens = OidcSessionTokens {
+        access_token: "4cc3ss".to_owned(),
+        refresh_token: Some("r3fr3sh".to_owned()),
+        latest_id_token: None,
+    };
+
+    let session = mock_session(tokens.clone());
+    oidc.restore_session(session.clone())
+        .await
+        .expect("We should be able to restore an OIDC session");
+
+    // The cache should not contain the entry.
+    assert!(!client.inner.caches.provider_metadata.lock().await.contains("PROVIDER_METADATA"));
+
+    let management_url = oidc
+        .account_management_url(Some(AccountManagementActionFull::Profile))
+        .await
+        .expect("We should be able to fetch the account management url");
+
+    assert!(management_url.is_some());
+
+    // Check that the provider metadata has been inserted into the cache.
+    assert!(client.inner.caches.provider_metadata.lock().await.contains("PROVIDER_METADATA"));
 }

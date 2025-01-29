@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**]: The `Oidc::account_management_url` method now caches the
+  result of a call, subsequent calls to the method will not contact the OIDC
+  provider for a while, instead the cached URI will be returned. If caching of
+  this URI is not desirable, the `Oidc::fetch_account_management_url` method
+  can be used.
+  ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
+
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))

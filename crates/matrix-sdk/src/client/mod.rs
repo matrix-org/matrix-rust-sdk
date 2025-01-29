@@ -36,6 +36,8 @@ use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
+#[cfg(feature = "experimental-oidc")]
+use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
@@ -352,7 +354,11 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         cross_process_store_locks_holder_name: String,
     ) -> Arc<Self> {
-        let caches = ClientCaches { server_capabilities: server_capabilities.into() };
+        let caches = ClientCaches {
+            server_capabilities: server_capabilities.into(),
+            #[cfg(feature = "experimental-oidc")]
+            provider_metadata: Mutex::new(TtlCache::new()),
+        };
 
         let client = Self {
             server,
