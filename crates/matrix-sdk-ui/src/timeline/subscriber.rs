@@ -24,20 +24,23 @@ use pin_project_lite::pin_project;
 use super::TimelineDropHandle;
 
 pin_project! {
-    pub(super) struct TimelineStream<S> {
+    /// A stream that wraps a [`TimelineDropHandle`] so that the `Timeline`
+    /// isn't dropped until the `Stream` is dropped.
+    pub(super) struct TimelineWithDropHandle<S> {
         #[pin]
         inner: S,
         drop_handle: Arc<TimelineDropHandle>,
     }
 }
 
-impl<S> TimelineStream<S> {
-    pub fn new(inner: S, drop_handle: Arc<TimelineDropHandle>) -> Self {
+impl<S> TimelineWithDropHandle<S> {
+    /// Create a new [`WithTimelineDropHandle`].
+    pub(super) fn new(inner: S, drop_handle: Arc<TimelineDropHandle>) -> Self {
         Self { inner, drop_handle }
     }
 }
 
-impl<S> Stream for TimelineStream<S>
+impl<S> Stream for TimelineWithDropHandle<S>
 where
     S: Stream,
 {
