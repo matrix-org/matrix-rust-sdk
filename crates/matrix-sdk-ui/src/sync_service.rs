@@ -448,7 +448,7 @@ impl SyncTaskSupervisor {
         }
     }
 
-    async fn shutdown(self) -> Result<(), Error> {
+    async fn shutdown(self) {
         match self
             .termination_sender
             .send(TerminationReport {
@@ -458,16 +458,21 @@ impl SyncTaskSupervisor {
             })
             .await
         {
-            Ok(_) => self.task.await.map_err(|err| {
-                error!("couldn't finish supervisor task: {err}");
-                Error::InternalSupervisorError
-            }),
+            Ok(_) => {
+                let _ = self.task.await.inspect_err(|err| {
+                    // A `JoinError` indicates that the task was already dead, either because it got
+                    // cancelled or because it panicked. We only cancel the task in the Err branch
+                    // below and the task shouldn't be able to panic.
+                    //
+                    // So let's log an error and return.
+                    error!("The supervisor task has stopped unexpectedly: {err:?}");
+                });
+            }
             Err(err) => {
-                error!("when sending termination report: {err}");
+                error!("Couldn't send the termination report to the supervisor task: {err}");
                 // Let's abort the task if it won't shut down properly, otherwise we would have
                 // left it as a detached task.
                 self.task.abort();
-                Err(Error::InternalSupervisorError)
             }
         }
     }
@@ -504,29 +509,24 @@ impl SyncServiceInner {
         self.state.set(State::Running);
     }
 
-    async fn stop(&mut self) -> Result<(), Error> {
+    async fn stop(&mut self) {
         trace!("pausing sync service");
 
         // Remove the supervisor from our state and request the tasks to be shutdown.
-        let supervisor = self.supervisor.take().ok_or_else(|| {
-            error!("The supervisor was not properly started up");
-            Error::InternalSupervisorError
-        })?;
-
-        supervisor.shutdown().await?;
-
-        Ok(())
+        if let Some(supervisor) = self.supervisor.take() {
+            supervisor.shutdown().await;
+        } else {
+            error!("The sync service was not properly started, the supervisor task doesn't exist");
+        }
     }
 
     async fn restart(
         &mut self,
         room_list_service: Arc<RoomListService>,
         encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
-    ) -> Result<(), Error> {
-        self.stop().await?;
+    ) {
+        self.stop().await;
         self.start(room_list_service, encryption_sync_permit).await;
-
-        Ok(())
     }
 }
 
@@ -626,7 +626,7 @@ impl SyncService {
     ///   mode and immediately attempt to sync again.
     /// - if the stream has been aborted before, it will be properly cleaned up
     ///   and restarted.
-    pub async fn start(&self) -> Result<(), Error> {
+    pub async fn start(&self) {
         let mut inner = self.inner.lock().await;
 
         // Only (re)start the tasks if it's stopped or if we're in the offline mode.
@@ -637,7 +637,7 @@ impl SyncService {
             State::Offline => {
                 inner
                     .restart(self.room_list_service.clone(), self.encryption_sync_permit.clone())
-                    .await?
+                    .await
             }
             // Otherwise just start.
             State::Idle | State::Terminated | State::Error => {
@@ -646,8 +646,6 @@ impl SyncService {
                     .await
             }
         }
-
-        Ok(())
     }
 
     /// Stop the underlying sliding syncs.
@@ -656,13 +654,13 @@ impl SyncService {
     /// to call this API when the application exits, although not strictly
     /// necessary.
     #[instrument(skip_all)]
-    pub async fn stop(&self) -> Result<(), Error> {
+    pub async fn stop(&self) {
         let mut inner = self.inner.lock().await;
 
         match inner.state.get() {
             State::Idle | State::Terminated | State::Error => {
                 // No need to stop if we were not running.
-                return Ok(());
+                return;
             }
             State::Running | State::Offline => (),
         }

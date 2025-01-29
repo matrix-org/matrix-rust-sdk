@@ -27,7 +27,7 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Add an "offline" mode to the `SyncService`. This allows the
   `SyncService` to attempt to restart the sync automatically. It can be enabled
   with the `SyncServiceBuilder::with_offline_mode` method. Due to this addition,
-  the `SyncService::start` method now returns a `Result` type.
+  the `SyncService::stop` method has been made infallible.
   ([#4592](https://github.com/matrix-org/matrix-rust-sdk/pull/4592))
 
 ### Refactor
