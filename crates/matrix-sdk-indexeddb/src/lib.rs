@@ -6,6 +6,8 @@ use thiserror::Error;
 
 #[cfg(feature = "e2e-encryption")]
 mod crypto_store;
+#[cfg(feature = "event-cache-store")]
+mod event_cache_store;
 mod safe_encode;
 #[cfg(feature = "e2e-encryption")]
 mod serialize_bool_for_indexeddb;
@@ -14,6 +16,8 @@ mod state_store;
 
 #[cfg(feature = "e2e-encryption")]
 pub use crypto_store::{IndexeddbCryptoStore, IndexeddbCryptoStoreError};
+#[cfg(feature = "event-cache-store")]
+pub use event_cache_store::{IndexeddbEventCacheStore, IndexeddbEventCacheStoreBuilder};
 #[cfg(feature = "state-store")]
 pub use state_store::{
     IndexeddbStateStore, IndexeddbStateStoreBuilder, IndexeddbStateStoreError,
