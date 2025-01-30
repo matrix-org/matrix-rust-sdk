@@ -551,7 +551,7 @@ impl SlidingSync {
             // and extra time for the network delays.
             RequestConfig::default()
                 .timeout(self.inner.poll_timeout + self.inner.network_timeout)
-                .retry_limit(10),
+                .retry_limit(3),
             position_guard,
         ))
     }
