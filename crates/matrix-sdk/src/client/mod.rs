@@ -1653,13 +1653,14 @@ impl Client {
     /// Fetches server capabilities from network; no caching.
     pub async fn fetch_server_capabilities(
         &self,
+        request_config: Option<RequestConfig>,
     ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
         let resp = self
             .inner
             .http_client
             .send(
                 get_supported_versions::Request::new(),
-                None,
+                request_config,
                 self.homeserver().to_string(),
                 None,
                 &[MatrixVersion::V1_0],
@@ -1698,7 +1699,7 @@ impl Client {
             }
         }
 
-        let (versions, unstable_features) = self.fetch_server_capabilities().await?;
+        let (versions, unstable_features) = self.fetch_server_capabilities(None).await?;
 
         // Attempt to cache the result in storage.
         {
