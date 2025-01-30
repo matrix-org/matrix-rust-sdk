@@ -32,7 +32,7 @@ sqlite = [
     "matrix-sdk-sqlite?/event-cache"
 ]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
-indexeddb = ["matrix-sdk-indexeddb/state-store"]
+indexeddb = ["matrix-sdk-indexeddb/state-store", "matrix-sdk-indexeddb/event-cache-store"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]

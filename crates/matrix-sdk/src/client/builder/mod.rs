@@ -635,9 +635,15 @@ async fn build_indexeddb_store_config(
     };
 
     let store_config = {
-        tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
-        store_config.event_cache_store(matrix_sdk_base::event_cache::store::MemoryStore::new())
+        let event_cache_store =
+            matrix_sdk_indexeddb::open_event_cache_store(name, passphrase).await?;
+        store_config.event_cache_store(event_cache_store)
     };
+
+    // let store_config = {
+    //     tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
+    //     store_config.event_cache_store(matrix_sdk_base::event_cache::store::MemoryStore::new())
+    // };
 
     Ok(store_config)
 }

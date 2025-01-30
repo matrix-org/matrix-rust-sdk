@@ -58,6 +58,24 @@ pub async fn open_state_store(
     Ok(state_store)
 }
 
+/// Create an ['IndexeddbEventCacheStore']
+///
+/// If a `passphrase` is given, the store will be encrypted using a key derived
+/// from that passphrase.
+#[cfg(feature = "event-cache-store")]
+pub async fn open_event_cache_store(
+    name: &str,
+    passphrase: Option<&str>,
+) -> Result<IndexeddbEventCacheStore, OpenStoreError> {
+    let mut builder = IndexeddbEventCacheStore::builder().name(name.to_owned());
+    if let Some(passphrase) = passphrase {
+        builder = builder.passphrase(passphrase.to_owned());
+    }
+    let event_cache_store = builder.build().await.map_err(StoreError::from)?;
+
+    Ok(event_cache_store)
+}
+
 /// All the errors that can occur when opening an IndexedDB store.
 #[derive(Error, Debug)]
 pub enum OpenStoreError {

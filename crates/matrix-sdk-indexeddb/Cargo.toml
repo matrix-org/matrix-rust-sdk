@@ -14,8 +14,9 @@ default-target = "wasm32-unknown-unknown"
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["e2e-encryption", "state-store"]
+default = ["e2e-encryption", "state-store", "event-cache-store"]
 state-store = ["dep:matrix-sdk-base", "growable-bloom-filter"]
+event-cache-store = ["dep:matrix-sdk-base"]
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
 
