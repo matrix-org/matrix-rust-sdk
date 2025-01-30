@@ -2,6 +2,10 @@
 
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError;
+#[cfg(feature = "event-cache-store")]
+use matrix_sdk_store_encryption::StoreCipher;
+use std::sync::Arc;
+#[cfg(feature = "event-cache-store")]
 use thiserror::Error;
 
 #[cfg(feature = "e2e-encryption")]
@@ -69,12 +73,13 @@ pub async fn open_state_store(
 #[cfg(feature = "event-cache-store")]
 pub async fn open_event_cache_store(
     name: &str,
-    passphrase: Option<&str>,
+    store_cipher: Option<Arc<StoreCipher>>,
 ) -> Result<IndexeddbEventCacheStore, OpenStoreError> {
     let mut builder = IndexeddbEventCacheStore::builder().name(name.to_owned());
-    if let Some(passphrase) = passphrase {
-        builder = builder.passphrase(passphrase.to_owned());
+    if let Some(store_cipher) = store_cipher {
+        builder = builder.store_cipher(store_cipher.clone());
     }
+
     let event_cache_store = builder.build().await.map_err(StoreError::from)?;
 
     Ok(event_cache_store)
