@@ -32,6 +32,7 @@ use futures_util::{
     pin_mut, StreamExt as _,
 };
 use matrix_sdk::{
+    config::RequestConfig,
     executor::{spawn, JoinHandle},
     sleep::sleep,
     Client,
@@ -174,22 +175,23 @@ impl SyncTaskSupervisor {
 
         let wait_to_be_online = async move {
             loop {
+                // Encountering network failures when sending a request which has with no retry
+                // limit set in the `RequestConfig` are treated as permanent failures and our
+                // exponential backoff doesn't kick in.
+                //
+                // Let's set a retry limit so network failures are retried as well.
+                let request_config = RequestConfig::default().retry_limit(5);
+
                 // We're in an infinite loop, but our request sending already has an exponential
                 // backoff set up. This will kick in for any request errors that we consider to
-                // be transient. Common network errors (timeouts, DNS failures)
-                // or any server error in the 5xx range of HTTP errors are
-                // considered to be transient.
+                // be transient. Common network errors (timeouts, DNS failures) or any server
+                // error in the 5xx range of HTTP errors are considered to be transient.
                 //
-                // This means that we're not going to tightloop here, and in the case the
-                // `RequestConfig` has been set up to not have a limit, ever hit the second
-                // iteration of this loop.
-                //
-                // No matter, as a precaution, we're going to sleep for a while here in the
-                // Error case, the user might have configured the RequestConfig
-                // to not contain any backoff or retries.
-                match client.fetch_server_capabilities().await {
+                // Still, as a precaution, we're going to sleep here for a while in the Error
+                // case.
+                match client.fetch_server_capabilities(Some(request_config)).await {
                     Ok(_) => break,
-                    Err(_) => sleep(Duration::from_millis(500)).await,
+                    Err(_) => sleep(Duration::from_millis(100)).await,
                 }
             }
         };
