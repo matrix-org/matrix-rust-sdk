@@ -785,16 +785,17 @@ impl MatrixMockServer {
     ///
     /// # Examples
     ///
-    /// ``` #
-    /// tokio_test::block_on(async {
-    /// use matrix_sdk_base::RoomMemberships;
-    /// use ruma::events::room::member::MembershipState;
-    /// use ruma::events::room::member::RoomMemberEventContent;
-    /// use ruma::user_id;
-    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// ```
+    /// # tokio_test::block_on(async {
     /// use matrix_sdk::{
     ///     ruma::{event_id, room_id},
     ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use matrix_sdk_base::RoomMemberships;
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     events::room::member::{MembershipState, RoomMemberEventContent},
+    ///     user_id,
     /// };
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
@@ -811,7 +812,12 @@ impl MatrixMockServer {
     ///     .into_raw_timeline()
     ///     .cast();
     ///
-    /// mock_server.mock_get_members().ok(vec![alice_knock_event]).mock_once().mount().await;
+    /// mock_server
+    ///     .mock_get_members()
+    ///     .ok(vec![alice_knock_event])
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
     /// let room = mock_server.sync_joined_room(&client, room_id).await;
     ///
     /// let members = room.members(RoomMemberships::all()).await.unwrap();
