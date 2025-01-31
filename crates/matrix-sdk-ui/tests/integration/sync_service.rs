@@ -18,8 +18,8 @@ use std::{
 };
 
 use matrix_sdk::{
+    assert_next_eq_with_timeout,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
-    timeout::timeout,
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
@@ -225,23 +225,12 @@ async fn test_sync_service_offline_mode() {
 
         sync_service.start().await;
         assert_next_eq!(states, State::Running);
-
-        let next_state = timeout(states.next(), Duration::from_millis(500))
-            .await
-            .expect("We should have changed states by now")
-            .unwrap();
-
-        assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
+        assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
     }
 
     mock_server.mock_versions().ok().expect(1..).mount().await;
 
-    let next_state = timeout(states.next(), Duration::from_millis(500))
-        .await
-        .expect("We should changed the state")
-        .unwrap();
-
-    assert_eq!(next_state, State::Running, "We should have continued to sync");
+    assert_next_eq_with_timeout!(states, State::Running, 500 ms,  "We should have continued to sync");
 }
 
 #[async_test]
@@ -262,21 +251,9 @@ async fn test_sync_service_offline_mode_stopping() {
     sync_service.start().await;
     assert_next_eq!(states, State::Running);
 
-    let next_state = timeout(states.next(), Duration::from_millis(500))
-        .await
-        .expect("We should have changed states by now")
-        .unwrap();
-
-    assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
-
+    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
     sync_service.stop().await;
-
-    let next_state = timeout(states.next(), Duration::from_millis(500))
-        .await
-        .expect("We should have changed the state by now")
-        .unwrap();
-
-    assert_eq!(next_state, State::Idle, "We should have entered the idle mode");
+    assert_next_eq_with_timeout!(states, State::Idle, 500 ms, "We should have entered the idle mode");
 }
 
 #[async_test]
@@ -295,27 +272,10 @@ async fn test_sync_service_offline_mode_restarting() {
 
     sync_service.start().await;
     assert_next_eq!(states, State::Running);
-
-    let next_state = timeout(states.next(), Duration::from_millis(500))
-        .await
-        .expect("We should have changed states by now")
-        .unwrap();
-
-    assert_eq!(next_state, State::Offline, "We should have entered the offline mode");
+    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
 
     sync_service.start().await;
 
-    let next_state = timeout(states.next(), Duration::from_millis(500))
-        .await
-        .expect("We should have changed the state by now")
-        .unwrap();
-
-    assert_eq!(next_state, State::Running, "We should have entered the running mode");
-
-    let next_state = timeout(states.next(), Duration::from_millis(500))
-        .await
-        .expect("We should have changed the state by now")
-        .unwrap();
-
-    assert_eq!(next_state, State::Offline, "We should have entered the offline mode again");
+    assert_next_eq_with_timeout!(states, State::Running, 500 ms, "We should have entered the running mode");
+    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode again");
 }
