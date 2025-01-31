@@ -378,7 +378,7 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
 pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
     assert_ne!(count, 0, "Can't generate zero repeated vars");
 
-    iter::repeat("?").take(count).format(",")
+    iter::repeat_n("?", count).format(",")
 }
 
 /// Convert the given `SystemTime` to a timestamp, as the number of seconds
