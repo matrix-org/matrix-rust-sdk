@@ -5,7 +5,7 @@ use crate::event_cache_store::{
 };
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
-use matrix::sdk::base::event_cache::store::EventCacheStore;
+use matrix_sdk_base::event_cache::store::EventCacheStore;
 use matrix_sdk_base::StoreError;
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use tracing::debug;
