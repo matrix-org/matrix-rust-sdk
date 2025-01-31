@@ -163,7 +163,7 @@ impl SyncTaskSupervisor {
                     receiver.recv().await.unwrap_or_else(TerminationReport::supervisor_error);
 
                 match report.origin {
-                    TerminationOrigin::EncryptionSync | TerminationOrigin::RoomList => (),
+                    TerminationOrigin::EncryptionSync | TerminationOrigin::RoomList => {}
                     // Since the sync service aren't running anymore, we can only receive a report
                     // from the supervisor. It would have probably made sense to have separate
                     // channels for reports the sync services send and the user can send using the
@@ -634,7 +634,7 @@ impl SyncService {
         // Only (re)start the tasks if it's stopped or if we're in the offline mode.
         match inner.state.get() {
             // If we're already running, there's nothing to do.
-            State::Running => (),
+            State::Running => {}
             // If we're in the offline mode, first stop the service and then start it again.
             State::Offline => {
                 inner
@@ -664,7 +664,7 @@ impl SyncService {
                 // No need to stop if we were not running.
                 return;
             }
-            State::Running | State::Offline => (),
+            State::Running | State::Offline => {}
         }
 
         inner.stop().await
