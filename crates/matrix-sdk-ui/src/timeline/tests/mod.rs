@@ -155,7 +155,7 @@ impl TestTimeline {
     }
 
     async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
-        let (items, stream) = self.controller.subscribe().await;
+        let (items, stream) = self.controller.subscribe_raw().await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
     }
