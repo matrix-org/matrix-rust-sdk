@@ -148,10 +148,7 @@ impl EventSource for &Room {
         }
 
         trace!("trying with /event now");
-        self.event(event_id, None)
-            .await
-            .map(Into::into)
-            .map_err(|err| EditError::Fetch(Box::new(err)))
+        self.event(event_id, None).await.map_err(|err| EditError::Fetch(Box::new(err)))
     }
 }
 
