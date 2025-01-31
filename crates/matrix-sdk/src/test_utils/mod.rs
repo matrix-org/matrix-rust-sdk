@@ -154,6 +154,84 @@ macro_rules! assert_next_matches_with_timeout {
     };
 }
 
+/// Asserts that the next item from an asynchronous stream is equal to the
+/// expected value, with an optional timeout and custom error message.
+///
+/// # Arguments
+///
+/// * `$stream` - The asynchronous stream to retrieve the next item from.
+/// * `$expected` - The expected value to assert against.
+/// * `$timeout ms` (optional) - A timeout in milliseconds (e.g., `200ms`).
+///   Defaults to `100ms`.
+/// * `$msg` (optional) - A formatted message string for assertion failure.
+///
+/// # Examples
+///
+/// ```
+/// # async {
+/// # use matrix_sdk::assert_next_eq_with_timeout;
+/// # use tokio_stream::StreamExt;
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(stream, 42);
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(stream, 42, 200 ms);
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(
+///     stream,
+///     42,
+///     "Expected 42 but got something else"
+/// );
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(stream, 42, 200 ms, "Expected 42 within 200ms");
+/// # };
+/// ```
+#[macro_export]
+macro_rules! assert_next_eq_with_timeout {
+    ($stream:expr, $expected:expr) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis(100));
+    };
+    ($stream:expr, $expected:expr, $timeout:literal ms) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis($timeout));
+    };
+    ($stream:expr, $expected:expr, $timeout:literal ms, $($msg:tt)*) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis($timeout), $($msg)*);
+    };
+    ($stream:expr, $expected:expr, $($msg:tt)*) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis(100), $($msg)*);
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! assert_next_eq_with_timeout_impl {
+    ($stream:expr, $expected:expr, $timeout:expr) => {
+        let next_value = tokio::time::timeout(
+            $timeout,
+            $stream.next()
+        )
+        .await
+        .expect("We should be able to get the next value out of the stream by now")
+        .expect("The stream should have given us a new value instead of None");
+
+        assert_eq!(next_value, $expected);
+    };
+    ($stream:expr, $expected:expr, $timeout:expr, $($msg:tt)*) => {
+        let next_value = tokio::time::timeout(
+            $timeout,
+            $stream.next()
+        )
+        .await
+        .expect("We should be able to get the next value out of the stream by now")
+        .expect("The stream should have given us a new value instead of None");
+
+        assert_eq!(next_value, $expected, $($msg)*);
+    };
+}
+
 /// Like `assert_let`, but with the possibility to add an optional timeout.
 ///
 /// If not provided, a timeout value of 100 milliseconds is used.
