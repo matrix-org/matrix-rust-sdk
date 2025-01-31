@@ -17,7 +17,7 @@
 use std::{future::Future, ops::ControlFlow, sync::Arc, time::Duration};
 
 use eyeball::Subscriber;
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, timeout::timeout};
+use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_common::linked_chunk::ChunkContent;
 use tracing::{debug, instrument, trace};
 
@@ -180,7 +180,6 @@ impl RoomPagination {
                     // (backward). The `RoomEvents` API expects the first event to be the oldest.
                     .rev()
                     .cloned()
-                    .map(TimelineEvent::from)
                     .collect::<Vec<_>>();
 
                 let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
