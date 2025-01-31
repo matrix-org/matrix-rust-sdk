@@ -102,10 +102,38 @@ pub async fn logged_in_client_with_server() -> (Client, wiremock::MockServer) {
     (client, server)
 }
 
-/// Asserts the next item in a `Stream` or `Subscriber` can be loaded in the
-/// given timeout in the given timeout in milliseconds.
+/// Asserts that the next item in a `Stream` is received within a given timeout.
+///
+/// This macro waits for the next item from an asynchronous `Stream` or, if no
+/// item is received within the specified timeout, the macro panics.
+///
+/// # Parameters
+///
+/// - `$stream`: The `Stream` or `Subscriber` to poll for the next item.
+/// - `$timeout_ms` (optional): The timeout in milliseconds to wait for the next
+///   item. Defaults to 500ms if not provided.
+///
+/// # Example
+///
+/// ```rust
+/// use futures_util::{stream, StreamExt};
+/// use matrix_sdk::assert_next_with_timeout;
+///
+/// # async {
+/// let mut stream = stream::iter(vec![1, 2, 3]);
+/// let next_item = assert_next_with_timeout!(stream, 1000); // Waits up to 1000ms
+/// assert_eq!(next_item, 1);
+///
+/// // The timeout can be omitted, in which case it defaults to 500 ms.
+/// let next_item = assert_next_with_timeout!(stream); // Waits up to 500ms
+/// assert_eq!(next_item, 2);
+/// # };
+/// ```
 #[macro_export]
 macro_rules! assert_next_with_timeout {
+    ($stream:expr) => {
+        $crate::assert_next_with_timeout!($stream, 500)
+    };
     ($stream:expr, $timeout_ms:expr) => {{
         // Needed for subscribers, as they won't use the StreamExt features
         #[allow(unused_imports)]
