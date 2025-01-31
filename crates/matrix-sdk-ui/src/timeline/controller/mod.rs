@@ -54,12 +54,10 @@ use tracing::{
     debug, error, field, field::debug, info, info_span, instrument, trace, warn, Instrument as _,
 };
 
-#[cfg(test)]
-pub(super) use self::observable_items::ObservableItems;
 pub(super) use self::{
     metadata::{RelativePosition, TimelineMetadata},
     observable_items::{
-        AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction,
+        AllRemoteEvents, ObservableItems, ObservableItemsEntry, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
     },
     state::{FullEventMeta, PendingEdit, PendingEditKind, TimelineState},
@@ -70,6 +68,7 @@ use super::{
     event_handler::TimelineEventKind,
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
+    subscriber::TimelineSubscriber,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
     PaginationError, Profile, ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId,
@@ -514,18 +513,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
         impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
     ) {
         let state = self.state.read().await;
-        (state.items.clone_items(), state.items.subscribe().into_stream())
+
+        state.items.subscribe().into_values_and_stream()
     }
 
-    pub(super) async fn subscribe_batched_and_limited(
-        &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
+    pub(super) async fn subscribe(&self) -> (Vector<Arc<TimelineItem>>, TimelineSubscriber) {
         let state = self.state.read().await;
-        state
-            .items
-            .subscribe()
-            .into_values_and_batched_stream()
-            .dynamic_skip_with_initial_count(0, state.meta.subscriber_skip_count.subscribe())
+
+        TimelineSubscriber::new(&state.items, &state.meta.subscriber_skip_count)
     }
 
     pub(super) async fn subscribe_filter_map<U, F>(
