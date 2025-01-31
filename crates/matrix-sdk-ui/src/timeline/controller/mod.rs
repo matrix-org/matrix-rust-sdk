@@ -507,7 +507,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     }
 
     #[cfg(test)]
-    pub(super) async fn subscribe(
+    pub(super) async fn subscribe_raw(
         &self,
     ) -> (
         Vector<Arc<TimelineItem>>,
