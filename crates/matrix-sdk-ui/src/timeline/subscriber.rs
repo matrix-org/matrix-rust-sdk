@@ -18,10 +18,14 @@ use std::{
     task::{Context, Poll},
 };
 
+use eyeball::Subscriber;
+use eyeball_im::{VectorDiff, VectorSubscriberBatchedStream};
+use eyeball_im_util::vector::{Skip, VectorObserverExt};
 use futures_core::Stream;
+use imbl::Vector;
 use pin_project_lite::pin_project;
 
-use super::TimelineDropHandle;
+use super::{controller::ObservableItems, item::TimelineItem, TimelineDropHandle};
 
 pin_project! {
     /// A stream that wraps a [`TimelineDropHandle`] so that the `Timeline`
@@ -46,25 +50,77 @@ where
 {
     type Item = S::Item;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().inner.poll_next(cx)
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().inner.poll_next(context)
+    }
+}
+
+pin_project! {
+    /// A type that creates a proper `Timeline` subscriber.
+    ///
+    /// This type implements [`Stream`], so that it's entirely transparent for
+    /// all consumers expecting an `impl Stream`.
+    ///
+    /// This `Stream` pipes `VectorDiff`s from [`ObservableItems`] into a batched
+    /// stream ([`VectorSubscriberBatchedStream`]), and then apply a skip
+    /// higher-order stream ([`Skip`]).
+    ///
+    /// `Skip` works by skipping the first _n_ values, where _n_ is referred
+    /// as `count`. Here, this `count` value is defined by a `Stream<Item =
+    /// usize>` (see [`Skip::dynamic_skip_with_initial_count`]). Everytime
+    /// the `count` stream produces a value, `Skip` adjusts its output.
+    /// `count` is managed by [`SkipCount`][skip::SkipCount], and is hold in
+    /// `TimelineMetadata::subscriber_skip_count`.
+    pub(super) struct TimelineSubscriber {
+        #[pin]
+        inner: Skip<VectorSubscriberBatchedStream<Arc<TimelineItem>>, Subscriber<usize>>,
+    }
+}
+
+impl TimelineSubscriber {
+    /// Creates a [`TimelineSubscriber`], in addition to the initial values of
+    /// the subscriber.
+    pub(super) fn new(
+        observable_items: &ObservableItems,
+        observable_skip_count: &skip::SkipCount,
+    ) -> (Vector<Arc<TimelineItem>>, Self) {
+        let (initial_values, stream) = observable_items
+            .subscribe()
+            .into_values_and_batched_stream()
+            .dynamic_skip_with_initial_count(0, observable_skip_count.subscribe());
+
+        (initial_values, Self { inner: stream })
+    }
+}
+
+impl Stream for TimelineSubscriber {
+    type Item = Vec<VectorDiff<Arc<TimelineItem>>>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().inner.poll_next(context)
     }
 }
 
 pub mod skip {
-    use eyeball::SharedObservable;
-    use futures_core::Stream;
+    use eyeball::{SharedObservable, Subscriber};
 
     use super::super::controller::TimelineFocusKind;
 
     const MAXIMUM_NUMBER_OF_INITIAL_ITEMS: usize = 20;
 
+    /// `SkipCount` helps to manage the `count` value used by the [`Skip`]
+    /// higher-order stream used by the [`TimelineSubscriber`]. See its
+    /// documentation to learn more.
+    ///
+    /// [`Skip`]: eyeball_im_util::vector::Skip
+    /// [`TimelineSubscriber`]: super::TimelineSubscriber
     #[derive(Clone, Debug)]
     pub struct SkipCount {
         count: SharedObservable<usize>,
     }
 
     impl SkipCount {
+        /// Create a [`SkipCount`] with a default `count` value set to 0.
         pub fn new() -> Self {
             Self { count: SharedObservable::new(0) }
         }
