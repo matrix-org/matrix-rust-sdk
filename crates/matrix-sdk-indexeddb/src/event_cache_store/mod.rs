@@ -15,6 +15,7 @@
 use crate::event_cache_store::{
     indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
 };
+use anyhow::Ok;
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::event_cache::store::EventCacheStore;
@@ -105,6 +106,152 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         room_id: &RoomId,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Return all the raw components of a linked chunk, so the caller may
+    /// reconstruct the linked chunk later.
+    async fn reload_linked_chunk(&self, room_id: &RoomId) -> Result<Vec<RawChunk<Event, Gap>>> {
+        Ok(vec![])
+    }
+
+    /// Clear persisted events for all the rooms.
+    ///
+    /// This will empty and remove all the linked chunks stored previously,
+    /// using the above [`Self::handle_linked_chunk_updates`] methods.
+    async fn clear_all_rooms_chunks(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Add a media file's content in the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    ///
+    /// * `content` - The content of the file.
+    async fn add_media_content(
+        &self,
+        request: &MediaRequestParameters,
+        content: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Replaces the given media's content key with another one.
+    ///
+    /// This should be used whenever a temporary (local) MXID has been used, and
+    /// it must now be replaced with its actual remote counterpart (after
+    /// uploading some content, or creating an empty MXC URI).
+    ///
+    /// ⚠ No check is performed to ensure that the media formats are consistent,
+    /// i.e. it's possible to update with a thumbnail key a media that was
+    /// keyed as a file before. The caller is responsible of ensuring that
+    /// the replacement makes sense, according to their use case.
+    ///
+    /// This should not raise an error when the `from` parameter points to an
+    /// unknown media, and it should silently continue in this case.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The previous `MediaRequest` of the file.
+    ///
+    /// * `to` - The new `MediaRequest` of the file.
+    async fn replace_media_key(
+        &self,
+        from: &MediaRequestParameters,
+        to: &MediaRequestParameters,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get a media file's content out of the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    /// Remove a media file's content from the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get a media file's content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// In theory, there could be several files stored using the same URI and a
+    /// different `MediaFormat`. This API is meant to be used with a media file
+    /// that has only been stored with a single format.
+    ///
+    /// If there are several media files for a given URI in different formats,
+    /// this API will only return one of them. Which one is left as an
+    /// implementation detail.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media file.
+    async fn get_media_content_for_uri(&self, uri: &MxcUri) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    /// Remove all the media files' content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// This should not raise an error when the `uri` parameter points to an
+    /// unknown media, and it should return an Ok result in this case.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media files.
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        Ok(())
+    }
+
+    fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        MediaRetentionPolicy::KeepForever
+    }
+
+    /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
+    /// keep media content.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - The `MediaRetentionPolicy` to use.
+    async fn set_media_retention_policy(&self, policy: MediaRetentionPolicy) -> Result<()> {
+        Ok(())
+    }
+
+    /// Set whether the current [`MediaRetentionPolicy`] should be ignored for
+    /// the media.
+    ///
+    /// The change will be taken into account in the next cleanup.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequestParameters` of the file.
+    ///
+    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    ///   ignored.
+    async fn set_ignore_media_retention_policy(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Clean up the media cache with the current `MediaRetentionPolicy`.
+    ///
+    /// If there is already an ongoing cleanup, this is a noop.
+    async fn clean_up_media_cache(&self) -> Result<()> {
         Ok(())
     }
 
