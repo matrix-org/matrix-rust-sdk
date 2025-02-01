@@ -103,6 +103,18 @@ pub(crate) trait SqliteAsyncConnExt {
     where
         Res: Send + 'static,
         Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+
+    /// Optimize the database.
+    ///
+    /// [The SQLite docs] recommend to run this regularly and after any schema
+    /// change. The easiest is to do it consistently when the state store is
+    /// constructed, after eventual migrations.
+    ///
+    /// [The SQLite docs]: https://www.sqlite.org/pragma.html#pragma_optimize
+    async fn optimize(&self) -> Result<()> {
+        self.execute_batch("PRAGMA optimize=0x10002;").await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
