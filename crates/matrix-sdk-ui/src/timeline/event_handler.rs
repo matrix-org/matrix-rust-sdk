@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{ops::ControlFlow, sync::Arc};
 
 use as_variant::as_variant;
 use indexmap::IndexMap;
@@ -51,7 +51,7 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    algorithms::{rfind_event_by_id, rfind_event_item},
+    algorithms::rfind_event_by_id,
     controller::{
         ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
         TimelineMetadata, TimelineStateTransaction,
@@ -1261,18 +1261,48 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         event_id: Option<&EventId>,
         transaction_id: Option<&TransactionId>,
     ) -> Option<Arc<TimelineItem>> {
-        // Start with the canonical case: detect a local timeline item that matches
-        // `event_id` or `transaction_id`.
-        if let Some((local_timeline_item_index, local_timeline_item)) =
-            rfind_event_item(items, |event_timeline_item| {
-                if event_timeline_item.is_local_echo() {
-                    event_id == event_timeline_item.event_id()
-                        || (transaction_id.is_some()
-                            && transaction_id == event_timeline_item.transaction_id())
+        // Detect a local timeline item that matches `event_id` or `transaction_id`.
+        if let Some((local_timeline_item_index, local_timeline_item)) = items
+            .iter()
+            // Get the index of each item.
+            .enumerate()
+            // Iterate from the end to the start.
+            .rev()
+            // Use a `Iterator::try_fold` to produce a single value, and to stop the iterator
+            // when a non local event timeline item is met. We want to stop iterating when:
+            //
+            // - a duplicate local event timeline item has been found,
+            // - a non local event timeline item is met,
+            // - a non event timeline is met.
+            //
+            // Indeed, it is a waste of time to iterate over all items in `items`. Local event
+            // timeline items are necessarily at the end of `items`: as soon as they have been
+            // iterated, we can stop the entire iteration.
+            .try_fold((), |(), (nth, timeline_item)| {
+                let Some(event_timeline_item) = timeline_item.as_event() else {
+                    // Not an event timeline item? Stop iterating here.
+                    return ControlFlow::Break(None);
+                };
+
+                // Not a local event timeline item? Stop iterating here.
+                if !event_timeline_item.is_local_echo() {
+                    return ControlFlow::Break(None);
+                }
+
+                if event_id == event_timeline_item.event_id()
+                    || (transaction_id.is_some()
+                        && transaction_id == event_timeline_item.transaction_id())
+                {
+                    // A duplicate local event timeline item has been found!
+                    ControlFlow::Break(Some((nth, event_timeline_item)))
                 } else {
-                    false
+                    // This local event timeline is not the one we are looking for. Continue our
+                    // search.
+                    ControlFlow::Continue(())
                 }
             })
+            .break_value()
+            .flatten()
         {
             trace!(
                 ?event_id,
@@ -1281,7 +1311,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 "Removing local timeline item"
             );
 
-            transfer_details(new_event_timeline_item, &local_timeline_item);
+            transfer_details(new_event_timeline_item, local_timeline_item);
 
             // Remove the local timeline item.
             return Some(items.remove(local_timeline_item_index));
