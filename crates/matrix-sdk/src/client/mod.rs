@@ -81,7 +81,7 @@ use crate::{
     },
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
-    error::{HttpError, HttpResult},
+    error::HttpResult,
     event_cache::EventCache,
     event_handler::{
         EventHandler, EventHandlerContext, EventHandlerDropGuard, EventHandlerHandle,
@@ -93,8 +93,8 @@ use crate::{
     send_queue::SendQueueData,
     sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
-    Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
-    TransmissionProgress,
+    Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
+    Room, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
