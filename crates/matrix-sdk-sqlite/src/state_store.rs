@@ -104,6 +104,8 @@ impl SqliteStateStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
+        conn.set_journal_size_limit().await?;
+
         let mut version = conn.db_version().await?;
 
         if version == 0 {
