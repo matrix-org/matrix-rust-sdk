@@ -220,7 +220,27 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events_with_stored() {
-    let timeline = TestTimeline::new().with_settings(TimelineSettings {
+    let event_with_bob_receipt_id = event_id!("$event_with_bob_receipt");
+
+    // Add initial unthreaded private receipt.
+    let mut initial_user_receipts = ReadReceiptMap::new();
+    initial_user_receipts
+        .entry(ReceiptType::Read)
+        .or_default()
+        .entry(ReceiptThread::Unthreaded)
+        .or_default()
+        .insert(
+            BOB.to_owned(),
+            (
+                event_with_bob_receipt_id.to_owned(),
+                Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(5))),
+            ),
+        );
+
+    let timeline = TestTimeline::with_room_data_provider(
+        TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
+    )
+    .with_settings(TimelineSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
         ..Default::default()
@@ -230,9 +250,7 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
 
     timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
     timeline
-        .handle_live_event(
-            f.notice("B").sender(*CAROL).event_id(event_id!("$event_with_bob_receipt")),
-        )
+        .handle_live_event(f.notice("B").sender(*CAROL).event_id(event_with_bob_receipt_id))
         .await;
 
     // No read receipt for our own user.
@@ -272,7 +290,27 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
-    let timeline = TestTimeline::new().with_settings(TimelineSettings {
+    let event_with_bob_receipt_id = event_id!("$event_with_bob_receipt");
+
+    // Add initial unthreaded private receipt.
+    let mut initial_user_receipts = ReadReceiptMap::new();
+    initial_user_receipts
+        .entry(ReceiptType::Read)
+        .or_default()
+        .entry(ReceiptThread::Unthreaded)
+        .or_default()
+        .insert(
+            BOB.to_owned(),
+            (
+                event_with_bob_receipt_id.to_owned(),
+                Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(5))),
+            ),
+        );
+
+    let timeline = TestTimeline::with_room_data_provider(
+        TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
+    )
+    .with_settings(TimelineSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
         ..Default::default()
@@ -289,10 +327,7 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
         .await;
     timeline
         .handle_back_paginated_event(
-            f.notice("B")
-                .sender(*CAROL)
-                .event_id(event_id!("$event_with_bob_receipt"))
-                .into_raw_timeline(),
+            f.notice("B").sender(*CAROL).event_id(event_with_bob_receipt_id).into_raw_timeline(),
         )
         .await;
 
