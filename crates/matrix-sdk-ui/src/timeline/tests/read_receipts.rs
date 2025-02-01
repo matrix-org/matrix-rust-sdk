@@ -647,3 +647,94 @@ async fn test_clear_read_receipts() {
     assert_eq!(event_b.read_receipts().len(), 1);
     assert!(event_b.read_receipts().get(*BOB).is_some());
 }
+
+#[async_test]
+async fn test_implicit_read_receipt_before_explicit_read_receipt() {
+    // Test a timeline in this order:
+    // 1. $alice_event: sent by alice, has no explicit read receipts.
+    // 2. $bob_event: sent by bob, has no explicit read receipts.
+    // 3. $carol_event: sent by carol, has the explicit read receipts of all users.
+    let room_id = room_id!("!room:localhost");
+    let alice_event_id = owned_event_id!("$alice_event");
+    let bob_event_id = owned_event_id!("$bob_event");
+    let carol_event_id = owned_event_id!("$carol_event");
+
+    // Add initial unthreaded private receipt.
+    let mut initial_user_receipts = ReadReceiptMap::new();
+    let unthreaded_read_receipts = initial_user_receipts
+        .entry(ReceiptType::Read)
+        .or_default()
+        .entry(ReceiptThread::Unthreaded)
+        .or_default();
+    unthreaded_read_receipts.insert(
+        ALICE.to_owned(),
+        (carol_event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
+    unthreaded_read_receipts.insert(
+        BOB.to_owned(),
+        (carol_event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(5)))),
+    );
+    unthreaded_read_receipts.insert(
+        CAROL.to_owned(),
+        (carol_event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(1)))),
+    );
+
+    let timeline = TestTimeline::with_room_data_provider(
+        TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
+    )
+    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
+
+    // Check that the receipts are at the correct place.
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    assert_eq!(receipt_event_id, carol_event_id);
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(receipt_event_id, carol_event_id);
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*CAROL).await.unwrap();
+    assert_eq!(receipt_event_id, carol_event_id);
+
+    // Add the events.
+    let carol_event_content = RoomMessageEventContent::text_plain("I am Carol!");
+    timeline
+        .handle_back_paginated_event(
+            timeline
+                .factory
+                .event(carol_event_content)
+                .sender(*CAROL)
+                .room(room_id)
+                .event_id(&carol_event_id)
+                .into_raw_timeline(),
+        )
+        .await;
+    let bob_event_content = RoomMessageEventContent::text_plain("I am Bob!");
+    timeline
+        .handle_back_paginated_event(
+            timeline
+                .factory
+                .event(bob_event_content)
+                .sender(*BOB)
+                .room(room_id)
+                .event_id(&bob_event_id)
+                .into_raw_timeline(),
+        )
+        .await;
+    let alice_event_content = RoomMessageEventContent::text_plain("I am Alice!");
+    timeline
+        .handle_back_paginated_event(
+            timeline
+                .factory
+                .event(alice_event_content)
+                .sender(*ALICE)
+                .room(room_id)
+                .event_id(&alice_event_id)
+                .into_raw_timeline(),
+        )
+        .await;
+
+    // The receipts shouldn't have moved.
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    assert_eq!(receipt_event_id, carol_event_id);
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(receipt_event_id, carol_event_id);
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*CAROL).await.unwrap();
+    assert_eq!(receipt_event_id, carol_event_id);
+}
