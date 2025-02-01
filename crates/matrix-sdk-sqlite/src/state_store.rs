@@ -117,6 +117,7 @@ impl SqliteStateStore {
         };
         let this = Self { store_cipher, pool };
         this.run_migrations(&conn, version, None).await?;
+        conn.optimize().await?;
 
         Ok(this)
     }
