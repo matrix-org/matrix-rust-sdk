@@ -21,6 +21,7 @@ use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::time::SystemTime;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     error::{Error, Result},
@@ -258,6 +259,14 @@ pub(crate) trait SqliteKeyValueStoreConnExt {
     /// Store the given value for the given key.
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
 
+    /// Store the given value for the given key by serializing it.
+    fn set_serialized_kv<T: Serialize + Send>(&self, key: &str, value: T) -> Result<()> {
+        let serialized_value = rmp_serde::to_vec_named(&value)?;
+        self.set_kv(key, &serialized_value)?;
+
+        Ok(())
+    }
+
     /// Removes the current key and value if exists.
     fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
 
@@ -313,8 +322,24 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
             .optional()
     }
 
+    /// Get the stored serialized value for the given key.
+    async fn get_serialized_kv<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        let Some(bytes) = self.get_kv(key).await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(rmp_serde::from_slice(&bytes)?))
+    }
+
     /// Store the given value for the given key.
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
+
+    /// Store the given value for the given key by serializing it.
+    async fn set_serialized_kv<T: Serialize + Send + 'static>(
+        &self,
+        key: &str,
+        value: T,
+    ) -> Result<()>;
 
     /// Clears the given value for the given key.
     async fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
@@ -362,6 +387,17 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
         self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
+
+        Ok(())
+    }
+
+    async fn set_serialized_kv<T: Serialize + Send + 'static>(
+        &self,
+        key: &str,
+        value: T,
+    ) -> Result<()> {
+        let key = key.to_owned();
+        self.interact(move |conn| conn.set_serialized_kv(&key, value)).await.unwrap()?;
 
         Ok(())
     }

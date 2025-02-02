@@ -115,7 +115,7 @@ impl SqliteEventCacheStore {
         };
 
         let media_service = MediaService::new();
-        let media_retention_policy = media_retention_policy(&conn).await?;
+        let media_retention_policy = conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await?;
         media_service.restore(media_retention_policy);
 
         Ok(Self { store_cipher, pool, media_service: Arc::new(media_service) })
@@ -712,7 +712,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         &self,
     ) -> Result<Option<MediaRetentionPolicy>, Self::Error> {
         let conn = self.acquire().await?;
-        media_retention_policy(&conn).await
+        conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await
     }
 
     async fn set_media_retention_policy_inner(
@@ -720,10 +720,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         policy: MediaRetentionPolicy,
     ) -> Result<(), Self::Error> {
         let conn = self.acquire().await?;
-
-        let serialized_policy = rmp_serde::to_vec_named(&policy)?;
-        conn.set_kv(keys::MEDIA_RETENTION_POLICY, serialized_policy).await?;
-
+        conn.set_serialized_kv(keys::MEDIA_RETENTION_POLICY, policy).await?;
         Ok(())
     }
 
@@ -1053,17 +1050,6 @@ fn insert_chunk(
     }
 
     Ok(())
-}
-
-/// Get the persisted [`MediaRetentionPolicy`] with the given connection.
-async fn media_retention_policy(
-    conn: &SqliteAsyncConn,
-) -> Result<Option<MediaRetentionPolicy>, Error> {
-    let Some(bytes) = conn.get_kv(keys::MEDIA_RETENTION_POLICY).await? else {
-        return Ok(None);
-    };
-
-    Ok(Some(rmp_serde::from_slice(&bytes)?))
 }
 
 #[cfg(test)]
