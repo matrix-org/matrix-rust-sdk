@@ -50,6 +50,7 @@ struct MemoryStoreInner {
     leases: HashMap<String, (String, Instant)>,
     events: RelationalLinkedChunk<Event, Gap>,
     media_retention_policy: Option<MediaRetentionPolicy>,
+    last_media_cleanup_time: SystemTime,
 }
 
 /// A media content in the `MemoryStore`.
@@ -82,6 +83,8 @@ impl Default for MemoryStore {
                 leases: Default::default(),
                 events: RelationalLinkedChunk::new(),
                 media_retention_policy: None,
+                // Given that the store is empty, we won't need to clean it up right away.
+                last_media_cleanup_time: SystemTime::now(),
             }),
             // No need to call `restore()` since nothing is persisted.
             media_service: MediaService::new(),
@@ -431,7 +434,13 @@ impl EventCacheStoreMedia for MemoryStore {
             }
         }
 
+        inner.last_media_cleanup_time = current_time;
+
         Ok(())
+    }
+
+    async fn last_media_cleanup_time_inner(&self) -> Result<Option<SystemTime>, Self::Error> {
+        Ok(Some(self.inner.read().unwrap().last_media_cleanup_time))
     }
 }
 

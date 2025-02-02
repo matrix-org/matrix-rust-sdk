@@ -340,12 +340,15 @@ pub trait EventCacheStoreMedia: AsyncTraitDeps {
     ///   `cleanup_frequency` will be ignored.
     ///
     /// * `current_time` - The current time, to be used to check for expired
-    ///   content.
+    ///   content and to be stored as the time of the last media cache cleanup.
     async fn clean_up_media_cache_inner(
         &self,
         policy: MediaRetentionPolicy,
         current_time: SystemTime,
     ) -> Result<(), Self::Error>;
+
+    /// The time of the last media cache cleanup.
+    async fn last_media_cleanup_time_inner(&self) -> Result<Option<SystemTime>, Self::Error>;
 }
 
 /// Whether the [`MediaRetentionPolicy`] should be ignored for the current
@@ -617,6 +620,10 @@ mod tests {
 
             Ok(())
         }
+
+        async fn last_media_cleanup_time_inner(&self) -> Result<Option<SystemTime>, Self::Error> {
+            Ok(self.inner().cleanup_time)
+        }
     }
 
     #[derive(Debug)]
@@ -712,12 +719,12 @@ mod tests {
         assert!(media_content.ignore_policy);
 
         // Try a cleanup. With the empty policy the store should not be accessed.
-        assert_eq!(store.inner().cleanup_time, None);
+        assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), None);
         store.reset_accessed();
 
         service.clean_up_media_cache(&store).await.unwrap();
         assert!(!store.accessed());
-        assert_eq!(store.inner().cleanup_time, None);
+        assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), None);
     }
 
     #[async_test]
@@ -871,7 +878,7 @@ mod tests {
         assert_eq!(media.last_access, now);
 
         // Try a cleanup, the store should be accessed.
-        assert_eq!(store.inner().cleanup_time, None);
+        assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), None);
 
         let now = now + Duration::from_secs(60);
         service.time_provider.set_now(now);
@@ -879,6 +886,6 @@ mod tests {
 
         service.clean_up_media_cache(&store).await.unwrap();
         assert!(store.accessed());
-        assert_eq!(store.inner().cleanup_time, Some(now));
+        assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), Some(now));
     }
 }

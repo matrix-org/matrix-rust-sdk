@@ -52,6 +52,7 @@ use crate::{
 mod keys {
     // Entries in Key-value store
     pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
+    pub const LAST_MEDIA_CLEANUP_TIME: &str = "last_media_cleanup_time";
 
     // Tables
     pub const LINKED_CHUNKS: &str = "linked_chunks";
@@ -948,6 +949,8 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                     }
                 }
 
+                txn.set_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME, current_time)?;
+
                 Ok(removed)
             })
             .await?;
@@ -968,6 +971,11 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         }
 
         Ok(())
+    }
+
+    async fn last_media_cleanup_time_inner(&self) -> Result<Option<SystemTime>, Self::Error> {
+        let conn = self.acquire().await?;
+        conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await
     }
 }
 
