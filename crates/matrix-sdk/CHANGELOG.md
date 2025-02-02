@@ -62,6 +62,10 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `oidc` module is now at `authentication::oidc`.
   ([#4575](https://github.com/matrix-org/matrix-rust-sdk/pull/4575))
 
+- [**breaking**] The `authentication::qrcode` module now reexports types from
+  `oauth2` rather than `openidconnect`. Some type names might have changed.
+  ([#4604](https://github.com/matrix-org/matrix-rust-sdk/pull/4604))
+
 ## [0.9.0] - 2024-12-18
 
 ### Bug Fixes
