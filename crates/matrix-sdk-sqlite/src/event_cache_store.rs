@@ -78,7 +78,7 @@ const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 pub struct SqliteEventCacheStore {
     store_cipher: Option<Arc<StoreCipher>>,
     pool: SqlitePool,
-    media_service: Arc<MediaService>,
+    media_service: MediaService,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -119,7 +119,7 @@ impl SqliteEventCacheStore {
         let media_retention_policy = conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await?;
         media_service.restore(media_retention_policy);
 
-        Ok(Self { store_cipher, pool, media_service: Arc::new(media_service) })
+        Ok(Self { store_cipher, pool, media_service })
     }
 
     fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
