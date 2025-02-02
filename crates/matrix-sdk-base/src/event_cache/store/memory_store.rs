@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock};
+use std::{
+    collections::HashMap,
+    num::NonZeroUsize,
+    sync::{Arc, RwLock as StdRwLock},
+};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
@@ -37,10 +41,9 @@ use crate::{
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
 /// Default if no other is configured at startup.
-#[allow(clippy::type_complexity)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryStore {
-    inner: StdRwLock<MemoryStoreInner>,
+    inner: Arc<StdRwLock<MemoryStoreInner>>,
     media_service: MediaService,
 }
 
@@ -78,14 +81,14 @@ const NUMBER_OF_MEDIAS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(20) 
 impl Default for MemoryStore {
     fn default() -> Self {
         Self {
-            inner: StdRwLock::new(MemoryStoreInner {
+            inner: Arc::new(StdRwLock::new(MemoryStoreInner {
                 media: RingBuffer::new(NUMBER_OF_MEDIAS),
                 leases: Default::default(),
                 events: RelationalLinkedChunk::new(),
                 media_retention_policy: None,
                 // Given that the store is empty, we won't need to clean it up right away.
                 last_media_cleanup_time: SystemTime::now(),
-            }),
+            })),
             // No need to call `restore()` since nothing is persisted.
             media_service: MediaService::new(),
         }

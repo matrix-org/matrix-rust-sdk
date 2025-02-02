@@ -247,7 +247,7 @@ where
 /// over the `SystemTime`s provided to the store.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait EventCacheStoreMedia: AsyncTraitDeps {
+pub trait EventCacheStoreMedia: AsyncTraitDeps + Clone {
     /// The error type used by this media cache store.
     type Error: fmt::Debug + Into<EventCacheStoreError>;
 
@@ -418,7 +418,10 @@ impl TimeProvider for DefaultTimeProvider {
 
 #[cfg(test)]
 mod tests {
-    use std::{fmt, sync::MutexGuard};
+    use std::{
+        fmt,
+        sync::{Arc, MutexGuard},
+    };
 
     use async_trait::async_trait;
     use matrix_sdk_common::locks::Mutex;
@@ -436,9 +439,9 @@ mod tests {
         media::{MediaFormat, MediaRequestParameters, UniqueKey},
     };
 
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, Clone)]
     struct MockEventCacheStoreMedia {
-        inner: Mutex<MockEventCacheStoreMediaInner>,
+        inner: Arc<Mutex<MockEventCacheStoreMediaInner>>,
     }
 
     impl MockEventCacheStoreMedia {
