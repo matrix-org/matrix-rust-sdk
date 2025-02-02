@@ -117,7 +117,8 @@ impl SqliteEventCacheStore {
 
         let media_service = MediaService::new();
         let media_retention_policy = conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await?;
-        media_service.restore(media_retention_policy);
+        let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
+        media_service.restore(media_retention_policy, last_media_cleanup_time);
 
         Ok(Self { store_cipher, pool, media_service })
     }
