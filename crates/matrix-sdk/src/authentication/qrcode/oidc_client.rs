@@ -15,117 +15,68 @@
 use std::pin::Pin;
 
 use futures_core::Future;
-use mas_oidc_client::types::scope::{MatrixApiScopeToken, ScopeToken};
-use openidconnect::{
-    core::{
-        CoreAuthDisplay, CoreAuthPrompt, CoreClaimName, CoreClaimType, CoreClient,
-        CoreClientAuthMethod, CoreDeviceAuthorizationResponse, CoreErrorResponseType,
-        CoreGenderClaim, CoreGrantType, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm,
-        CoreJweKeyManagementAlgorithm, CoreResponseMode, CoreResponseType, CoreRevocableToken,
-        CoreRevocationErrorResponse, CoreSubjectIdentifierType, CoreTokenIntrospectionResponse,
-        CoreTokenResponse,
-    },
-    AdditionalProviderMetadata, AuthType, ClientId, ClientSecret, DeviceAuthorizationUrl,
-    EmptyAdditionalClaims, EndpointMaybeSet, EndpointNotSet, EndpointSet, HttpClientError,
-    HttpRequest, IssuerUrl, OAuth2TokenResponse, ProviderMetadata, Scope, StandardErrorResponse,
+use mas_oidc_client::types::{
+    oidc::VerifiedProviderMetadata,
+    scope::{MatrixApiScopeToken, ScopeToken},
+};
+use oauth2::{
+    basic::BasicClient, ClientId, DeviceAuthorizationUrl, EndpointNotSet, EndpointSet,
+    HttpClientError, HttpRequest, Scope, StandardDeviceAuthorizationResponse, TokenResponse,
+    TokenUrl,
 };
 use vodozemac::Curve25519PublicKey;
 
 use super::DeviceAuhorizationOidcError;
 use crate::{authentication::oidc::OidcSessionTokens, http_client::HttpClient};
 
-// Obtain the device_authorization_url from the OIDC metadata provider.
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-struct DeviceEndpointProviderMetadata {
-    device_authorization_endpoint: DeviceAuthorizationUrl,
-}
-impl AdditionalProviderMetadata for DeviceEndpointProviderMetadata {}
-
-type DeviceProviderMetadata = ProviderMetadata<
-    DeviceEndpointProviderMetadata,
-    CoreAuthDisplay,
-    CoreClientAuthMethod,
-    CoreClaimName,
-    CoreClaimType,
-    CoreGrantType,
-    CoreJweContentEncryptionAlgorithm,
-    CoreJweKeyManagementAlgorithm,
-    CoreJsonWebKey,
-    CoreResponseMode,
-    CoreResponseType,
-    CoreSubjectIdentifierType,
->;
-
-/// OpenID Connect Core client.
-pub type OidcClientInner<
-    HasAuthUrl = EndpointSet,
+/// Oauth 2.0 Basic client.
+type OauthClientInner<
+    HasAuthUrl = EndpointNotSet,
     HasDeviceAuthUrl = EndpointSet,
     HasIntrospectionUrl = EndpointNotSet,
     HasRevocationUrl = EndpointNotSet,
-    HasTokenUrl = EndpointMaybeSet,
-    HasUserInfoUrl = EndpointMaybeSet,
-> = openidconnect::Client<
-    EmptyAdditionalClaims,
-    CoreAuthDisplay,
-    CoreGenderClaim,
-    CoreJweContentEncryptionAlgorithm,
-    CoreJsonWebKey,
-    CoreAuthPrompt,
-    StandardErrorResponse<CoreErrorResponseType>,
-    CoreTokenResponse,
-    CoreTokenIntrospectionResponse,
-    CoreRevocableToken,
-    CoreRevocationErrorResponse,
-    HasAuthUrl,
-    HasDeviceAuthUrl,
-    HasIntrospectionUrl,
-    HasRevocationUrl,
-    HasTokenUrl,
-    HasUserInfoUrl,
->;
+    HasTokenUrl = EndpointSet,
+> = BasicClient<HasAuthUrl, HasDeviceAuthUrl, HasIntrospectionUrl, HasRevocationUrl, HasTokenUrl>;
 
 /// An OIDC specific HTTP client.
 ///
 /// This is used to communicate with the OIDC provider exclusively.
 pub(super) struct OidcClient {
-    inner: OidcClientInner,
+    inner: OauthClientInner,
     http_client: HttpClient,
 }
 
 impl OidcClient {
-    pub(super) async fn new(
+    pub(super) fn new(
         client_id: String,
-        issuer_url: String,
+        server_metadata: &VerifiedProviderMetadata,
         http_client: HttpClient,
-        client_secret: Option<&str>,
     ) -> Result<Self, DeviceAuhorizationOidcError> {
         let client_id = ClientId::new(client_id);
-        let issuer_url = IssuerUrl::new(issuer_url)?;
-        let client_secret = client_secret.map(|s| ClientSecret::new(s.to_owned()));
 
-        // We're fetching the provider metadata which will contain the device
-        // authorization endpoint. We can use this endpoint to attempt to log in
-        // this new device, though the other, existing device will do that using the
+        let token_endpoint = TokenUrl::from_url(server_metadata.token_endpoint().clone());
+
+        // We can use the device authorization endpoint to attempt to log in this new
+        // device, though the other, existing device will do that using the
         // verification URL.
-        let provider_metadata =
-            DeviceProviderMetadata::discover_async(issuer_url, &http_client).await?;
-        let device_authorization_endpoint =
-            provider_metadata.additional_metadata().device_authorization_endpoint.clone();
+        let device_authorization_endpoint = server_metadata
+            .device_authorization_endpoint
+            .clone()
+            .map(DeviceAuthorizationUrl::from_url)
+            .ok_or(DeviceAuhorizationOidcError::NoDeviceAuthorizationEndpoint)?;
 
-        let oidc_client =
-            CoreClient::from_provider_metadata(provider_metadata, client_id.clone(), client_secret)
-                .set_device_authorization_url(device_authorization_endpoint)
-                .set_auth_type(AuthType::RequestBody);
+        let oauth2_client = BasicClient::new(client_id)
+            .set_token_uri(token_endpoint)
+            .set_device_authorization_url(device_authorization_endpoint);
 
-        Ok(OidcClient { inner: oidc_client, http_client })
+        Ok(OidcClient { inner: oauth2_client, http_client })
     }
 
     pub(super) async fn request_device_authorization(
         &self,
         device_id: Curve25519PublicKey,
-    ) -> Result<CoreDeviceAuthorizationResponse, DeviceAuhorizationOidcError> {
+    ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuhorizationOidcError> {
         let scopes = [
-            ScopeToken::Openid,
             ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
             ScopeToken::try_with_matrix_device(device_id.to_base64()).expect(
                 "We should be able to create a scope token from a \
@@ -135,7 +86,7 @@ impl OidcClient {
         .into_iter()
         .map(|scope| Scope::new(scope.to_string()));
 
-        let details: CoreDeviceAuthorizationResponse = self
+        let details: StandardDeviceAuthorizationResponse = self
             .inner
             .exchange_device_code()
             .add_scopes(scopes)
@@ -147,11 +98,11 @@ impl OidcClient {
 
     pub(super) async fn wait_for_tokens(
         &self,
-        details: &CoreDeviceAuthorizationResponse,
+        details: &StandardDeviceAuthorizationResponse,
     ) -> Result<OidcSessionTokens, DeviceAuhorizationOidcError> {
         let response = self
             .inner
-            .exchange_device_access_token(details)?
+            .exchange_device_access_token(details)
             .request_async(&self.http_client, tokio::time::sleep, None)
             .await?;
 
@@ -165,17 +116,11 @@ impl OidcClient {
     }
 }
 
-impl<'c> openidconnect::AsyncHttpClient<'c> for HttpClient {
+impl<'c> oauth2::AsyncHttpClient<'c> for HttpClient {
     type Error = HttpClientError<reqwest::Error>;
 
-    type Future = Pin<
-        Box<
-            dyn Future<Output = Result<openidconnect::HttpResponse, Self::Error>>
-                + Send
-                + Sync
-                + 'c,
-        >,
-    >;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<oauth2::HttpResponse, Self::Error>> + Send + Sync + 'c>>;
 
     fn call(&'c self, request: HttpRequest) -> Self::Future {
         Box::pin(async move {

@@ -24,9 +24,10 @@
 
 use as_variant::as_variant;
 use matrix_sdk_base::crypto::SecretImportError;
-pub use openidconnect::{
-    core::CoreErrorResponseType, ConfigurationError, DeviceCodeErrorResponseType, DiscoveryError,
-    HttpClientError, RequestTokenError, StandardErrorResponse,
+pub use oauth2::{
+    basic::{BasicErrorResponse, BasicRequestTokenError},
+    ConfigurationError, DeviceCodeErrorResponse, DeviceCodeErrorResponseType, HttpClientError,
+    RequestTokenError, StandardErrorResponse,
 };
 use thiserror::Error;
 use url::Url;
@@ -115,14 +116,9 @@ pub enum DeviceAuhorizationOidcError {
     #[error(transparent)]
     Oidc(#[from] crate::authentication::oidc::OidcError),
 
-    /// The issuer URL failed to be parsed.
-    #[error(transparent)]
-    InvalidIssuerUrl(#[from] url::ParseError),
-
-    /// There was an error with our device configuration right before attempting
-    /// to wait for the access token to be issued by the OIDC provider.
-    #[error(transparent)]
-    Configuration(#[from] ConfigurationError),
+    /// The OAuth 2.0 server doesn't support the device authorization grant.
+    #[error("OAuth 2.0 server doesn't support the device authorization grant")]
+    NoDeviceAuthorizationEndpoint,
 
     /// An error happened while we attempted to discover the authentication
     /// issuer URL.
@@ -132,28 +128,14 @@ pub enum DeviceAuhorizationOidcError {
     /// An error happened while we attempted to request a device authorization
     /// from the OIDC provider.
     #[error(transparent)]
-    DeviceAuthorization(
-        #[from]
-        RequestTokenError<
-            HttpClientError<reqwest::Error>,
-            StandardErrorResponse<CoreErrorResponseType>,
-        >,
-    ),
+    DeviceAuthorization(#[from] BasicRequestTokenError<HttpClientError<reqwest::Error>>),
 
     /// An error happened while waiting for the access token to be issued and
     /// sent to us by the OIDC provider.
     #[error(transparent)]
     RequestToken(
-        #[from]
-        RequestTokenError<
-            HttpClientError<reqwest::Error>,
-            StandardErrorResponse<DeviceCodeErrorResponseType>,
-        >,
+        #[from] RequestTokenError<HttpClientError<reqwest::Error>, DeviceCodeErrorResponse>,
     ),
-
-    /// An error happened during the discovery of the OIDC provider metadata.
-    #[error(transparent)]
-    Discovery(#[from] DiscoveryError<HttpClientError<reqwest::Error>>),
 }
 
 impl DeviceAuhorizationOidcError {

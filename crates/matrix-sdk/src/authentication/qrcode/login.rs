@@ -24,7 +24,7 @@ use matrix_sdk_base::{
     crypto::types::qr_login::{QrCodeData, QrCodeMode},
     SessionMeta,
 };
-use openidconnect::DeviceCodeErrorResponseType;
+use oauth2::DeviceCodeErrorResponseType;
 use ruma::OwnedDeviceId;
 use tracing::trace;
 use vodozemac::ecies::CheckCode;
@@ -291,38 +291,33 @@ impl<'a> LoginWithQrCode<'a> {
     }
 
     async fn register_client(&self) -> Result<OidcClient, DeviceAuhorizationOidcError> {
+        let oidc = self.client.oidc();
+
         // Let's figure out the OIDC issuer, this fetches the info from the homeserver.
-        let issuer = self
-            .client
-            .oidc()
+        let issuer = oidc
             .fetch_authentication_issuer()
             .await
             .map_err(DeviceAuhorizationOidcError::AuthenticationIssuer)?;
 
         // Now we register the client with the OIDC provider.
         let registration_response =
-            self.client.oidc().register_client(&issuer, self.client_metadata.clone(), None).await?;
+            oidc.register_client(&issuer, self.client_metadata.clone(), None).await?;
 
-        // Now we need to put the relevant data we got from the regustration response
+        // Now we need to put the relevant data we got from the registration response
         // into the `Client`.
         // TODO: Why isn't `oidc().register_client()` doing this automatically?
-        self.client.oidc().restore_registered_client(
+        oidc.restore_registered_client(
             issuer.clone(),
             self.client_metadata.clone(),
             ClientCredentials::None { client_id: registration_response.client_id.clone() },
         );
 
-        // We're now switching to the openidconnect crate, it has a bit of a strange API
+        // We're now switching to the oauth2 crate, it has a bit of a strange API
         // where you need to provide the HTTP client in every call you make.
         let http_client = self.client.inner.http_client.clone();
+        let server_metadata = oidc.provider_metadata().await?;
 
-        OidcClient::new(
-            registration_response.client_id,
-            issuer,
-            http_client,
-            registration_response.client_secret.as_deref(),
-        )
-        .await
+        OidcClient::new(registration_response.client_id, &server_metadata, http_client)
     }
 }
 
@@ -633,6 +628,7 @@ mod test {
 
             })))
             .expect(1)
+            .named("auth_issuer")
             .mount(server)
             .await;
 
@@ -640,6 +636,7 @@ mod test {
             .and(path("/.well-known/openid-configuration"))
             .respond_with(ResponseTemplate::new(200).set_body_json(open_id_configuration(server)))
             .expect(1..)
+            .named("server_metadata")
             .mount(server)
             .await;
 
@@ -650,13 +647,14 @@ mod test {
                 "client_id_issued_at": 1716375696
             })))
             .expect(1)
+            .named("registration_endpoint")
             .mount(server)
             .await;
 
         Mock::given(method("GET"))
             .and(path("/oauth2/keys.json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(keys_json()))
-            .expect(1)
+            .named("jwks")
             .mount(server)
             .await;
 
@@ -664,12 +662,14 @@ mod test {
             .and(path("/oauth2/device"))
             .respond_with(ResponseTemplate::new(200).set_body_json(device_code(server)))
             .expect(1)
+            .named("device_authorization_endpoint")
             .mount(server)
             .await;
 
         Mock::given(method("POST"))
             .and(path("/oauth2/token"))
             .respond_with(token_response)
+            .named("token_endpoint")
             .mount(server)
             .await;
     }
