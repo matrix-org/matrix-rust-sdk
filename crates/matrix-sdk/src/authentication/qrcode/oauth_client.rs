@@ -26,7 +26,7 @@ use oauth2::{
 };
 use vodozemac::Curve25519PublicKey;
 
-use super::DeviceAuhorizationOidcError;
+use super::DeviceAuthorizationOauthError;
 use crate::{authentication::oidc::OidcSessionTokens, http_client::HttpClient};
 
 /// Oauth 2.0 Basic client.
@@ -38,20 +38,21 @@ type OauthClientInner<
     HasTokenUrl = EndpointSet,
 > = BasicClient<HasAuthUrl, HasDeviceAuthUrl, HasIntrospectionUrl, HasRevocationUrl, HasTokenUrl>;
 
-/// An OIDC specific HTTP client.
+/// An OAuth 2.0 specific HTTP client.
 ///
-/// This is used to communicate with the OIDC provider exclusively.
-pub(super) struct OidcClient {
+/// This is used to communicate with the OAuth 2.0 authorization server
+/// exclusively.
+pub(super) struct OauthClient {
     inner: OauthClientInner,
     http_client: HttpClient,
 }
 
-impl OidcClient {
+impl OauthClient {
     pub(super) fn new(
         client_id: String,
         server_metadata: &VerifiedProviderMetadata,
         http_client: HttpClient,
-    ) -> Result<Self, DeviceAuhorizationOidcError> {
+    ) -> Result<Self, DeviceAuthorizationOauthError> {
         let client_id = ClientId::new(client_id);
 
         let token_endpoint = TokenUrl::from_url(server_metadata.token_endpoint().clone());
@@ -63,19 +64,19 @@ impl OidcClient {
             .device_authorization_endpoint
             .clone()
             .map(DeviceAuthorizationUrl::from_url)
-            .ok_or(DeviceAuhorizationOidcError::NoDeviceAuthorizationEndpoint)?;
+            .ok_or(DeviceAuthorizationOauthError::NoDeviceAuthorizationEndpoint)?;
 
         let oauth2_client = BasicClient::new(client_id)
             .set_token_uri(token_endpoint)
             .set_device_authorization_url(device_authorization_endpoint);
 
-        Ok(OidcClient { inner: oauth2_client, http_client })
+        Ok(Self { inner: oauth2_client, http_client })
     }
 
     pub(super) async fn request_device_authorization(
         &self,
         device_id: Curve25519PublicKey,
-    ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuhorizationOidcError> {
+    ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOauthError> {
         let scopes = [
             ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
             ScopeToken::try_with_matrix_device(device_id.to_base64()).expect(
@@ -99,7 +100,7 @@ impl OidcClient {
     pub(super) async fn wait_for_tokens(
         &self,
         details: &StandardDeviceAuthorizationResponse,
-    ) -> Result<OidcSessionTokens, DeviceAuhorizationOidcError> {
+    ) -> Result<OidcSessionTokens, DeviceAuthorizationOauthError> {
         let response = self
             .inner
             .exchange_device_access_token(details)

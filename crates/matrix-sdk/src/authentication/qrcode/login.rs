@@ -30,7 +30,7 @@ use tracing::trace;
 use vodozemac::ecies::CheckCode;
 
 use super::{
-    messages::LoginFailureReason, oidc_client::OidcClient, DeviceAuhorizationOidcError,
+    messages::LoginFailureReason, oauth_client::OauthClient, DeviceAuthorizationOauthError,
     SecureChannelError,
 };
 #[cfg(doc)]
@@ -66,11 +66,13 @@ pub enum LoginProgress {
         /// The check code we need to, out of band, send to the other device.
         check_code: CheckCode,
     },
-    /// We're waiting for the OIDC provider to give us the access token. This
-    /// will only happen if the other device allows the OIDC provider to so.
+    /// We're waiting for the OAuth 2.0 authorization server to give us the
+    /// access token. This will only happen if the other device allows the
+    /// OAuth 2.0 authorization server to do so.
     WaitingForToken {
-        /// The user code the OIDC provider has given us, the OIDC provider
-        /// might ask the other device to enter this code.
+        /// The user code the OAuth 2.0 authorization server has given us, the
+        /// OAuth 2.0 authorization server might ask the other device to
+        /// enter this code.
         user_code: String,
     },
     /// The login process has completed.
@@ -115,9 +117,9 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             let check_code = channel.check_code().to_owned();
             self.state.set(LoginProgress::EstablishingSecureChannel { check_code });
 
-            // Register the client with the OIDC provider.
-            trace!("Registering the client with the OIDC provider.");
-            let oidc_client = self.register_client().await?;
+            // Register the client with the OAuth 2.0 authorization server.
+            trace!("Registering the client with the OAuth 2.0 authorization server.");
+            let oauth_client = self.register_client().await?;
 
             // We want to use the Curve25519 public key for the device ID, so let's generate
             // a new vodozemac `Account` now.
@@ -125,10 +127,10 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             let public_key = account.identity_keys().curve25519;
             let device_id = public_key;
 
-            // Let's tell the OIDC provider that we want to log in using the device
-            // authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
+            // Let's tell the OAuth 2.0 authorization server that we want to log in using
+            // the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
             trace!("Requesting device authorization.");
-            let auth_grant_response = oidc_client.request_device_authorization(device_id).await?;
+            let auth_grant_response = oauth_client.request_device_authorization(device_id).await?;
 
             // Now we need to inform the other device of the login protocols we picked and
             // the URL they should use to log us in.
@@ -155,17 +157,17 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
                 }
             }
 
-            // The OIDC provider may or may not show this user code to double check that
-            // we're talking to the right OIDC provider. Let us display this, so
+            // The OAuth 2.0 authorization server may or may not show this user code to
+            // double check that we're talking to the right server. Let us display this, so
             // the other device can double check this as well.
             let user_code = auth_grant_response.user_code();
             self.state
                 .set(LoginProgress::WaitingForToken { user_code: user_code.secret().to_owned() });
 
-            // Let's now wait for the access token to be provided to use by the OIDC
-            // provider.
-            trace!("Waiting for the OIDC provider to give us the access token.");
-            let session_tokens = match oidc_client.wait_for_tokens(&auth_grant_response).await {
+            // Let's now wait for the access token to be provided to use by the OAuth 2.0
+            // authorization server.
+            trace!("Waiting for the OAuth 2.0 authorization server to give us the access token.");
+            let session_tokens = match oauth_client.wait_for_tokens(&auth_grant_response).await {
                 Ok(t) => t,
                 Err(e) => {
                     // If we received an error, and it's one of the ones we should report to the
@@ -192,11 +194,11 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             };
             self.client.oidc().set_session_tokens(session_tokens);
 
-            // We only received an access token from the OIDC provider, we have no clue who
-            // we are, so we need to figure out our user ID now.
-            // TODO: This snippet is almost the same as the Oidc::finish_login_method(), why
-            // is that method even a public method and not called as part of the set session
-            // tokens method.
+            // We only received an access token from the OAuth 2.0 authorization server, we
+            // have no clue who we are, so we need to figure out our user ID
+            // now. TODO: This snippet is almost the same as the
+            // Oidc::finish_login_method(), why is that method even a public
+            // method and not called as part of the set session tokens method.
             trace!("Discovering our own user id.");
             let whoami_response =
                 self.client.whoami().await.map_err(QRCodeLoginError::UserIdDiscovery)?;
@@ -290,16 +292,17 @@ impl<'a> LoginWithQrCode<'a> {
         Ok(channel)
     }
 
-    async fn register_client(&self) -> Result<OidcClient, DeviceAuhorizationOidcError> {
+    async fn register_client(&self) -> Result<OauthClient, DeviceAuthorizationOauthError> {
         let oidc = self.client.oidc();
 
-        // Let's figure out the OIDC issuer, this fetches the info from the homeserver.
+        // Let's figure out the OAuth 2.0 issuer, this fetches the info from the
+        // homeserver.
         let issuer = oidc
             .fetch_authentication_issuer()
             .await
-            .map_err(DeviceAuhorizationOidcError::AuthenticationIssuer)?;
+            .map_err(DeviceAuthorizationOauthError::AuthenticationIssuer)?;
 
-        // Now we register the client with the OIDC provider.
+        // Now we register the client with the OAuth 2.0 authorization server.
         let registration_response =
             oidc.register_client(&issuer, self.client_metadata.clone(), None).await?;
 
@@ -317,7 +320,7 @@ impl<'a> LoginWithQrCode<'a> {
         let http_client = self.client.inner.http_client.clone();
         let server_metadata = oidc.provider_metadata().await?;
 
-        OidcClient::new(registration_response.client_id, &server_metadata, http_client)
+        OauthClient::new(registration_response.client_id, &server_metadata, http_client)
     }
 }
 
@@ -620,7 +623,10 @@ mod test {
         alice.send_json(message).await.unwrap();
     }
 
-    async fn mock_oidc_provider(server: &MockServer, token_response: ResponseTemplate) {
+    async fn mock_oauth_authorization_server(
+        server: &MockServer,
+        token_response: ResponseTemplate,
+    ) {
         Mock::given(method("GET"))
             .and(path("/_matrix/client/unstable/org.matrix.msc2965/auth_issuer"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -680,7 +686,8 @@ mod test {
         let rendezvous_server = MockedRendezvousServer::new(&server, "abcdEFG12345").await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
-        mock_oidc_provider(&server, ResponseTemplate::new(200).set_body_json(token())).await;
+        mock_oauth_authorization_server(&server, ResponseTemplate::new(200).set_body_json(token()))
+            .await;
 
         Mock::given(method("GET"))
             .and(path("/_matrix/client/r0/account/whoami"))
@@ -775,7 +782,7 @@ mod test {
         let rendezvous_server = MockedRendezvousServer::new(&server, "abcdEFG12345").await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
-        mock_oidc_provider(&server, token_response).await;
+        mock_oauth_authorization_server(&server, token_response).await;
 
         Mock::given(method("GET"))
             .and(path("/_matrix/client/r0/account/whoami"))
@@ -841,7 +848,7 @@ mod test {
         )
         .await;
 
-        assert_let!(Err(QRCodeLoginError::Oidc(e)) = result);
+        assert_let!(Err(QRCodeLoginError::Oauth(e)) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::AccessDenied),
@@ -859,7 +866,7 @@ mod test {
         )
         .await;
 
-        assert_let!(Err(QRCodeLoginError::Oidc(e)) = result);
+        assert_let!(Err(QRCodeLoginError::Oauth(e)) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::ExpiredToken),
