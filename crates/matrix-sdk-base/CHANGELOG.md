@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
     They need to implement the `EventCacheStoreMedia` trait that can be tested
     with the `event_cache_store_media_integration_tests!` macro.
     ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
+    ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 
 ### Refactor
 

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
   `EventCacheStore` for `MediaRetentionPolicy`. See the changelog of
   `matrix-sdk-base` for more details.
   ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
+  ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 
 ## [0.9.0] - 2024-12-18
 
