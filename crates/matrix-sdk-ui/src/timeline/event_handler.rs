@@ -685,7 +685,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut new_msg = msg.clone();
         new_msg.apply_edit(new_content);
 
-        let mut new_item = item.with_content(TimelineItemContent::Message(new_msg), edit_json);
+        let mut new_item =
+            item.with_content_and_latest_edit(TimelineItemContent::Message(new_msg), edit_json);
 
         if let Flow::Remote { encryption_info, .. } = &self.ctx.flow {
             new_item = new_item.with_encryption_info(encryption_info.clone());
@@ -830,7 +831,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        Some(item.with_content(new_content, edit_json))
+        Some(item.with_content_and_latest_edit(new_content, edit_json))
     }
 
     /// Adds a new poll to the timeline.
@@ -893,14 +894,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return;
         };
 
-        let new_item = item.with_content(
-            TimelineItemContent::Poll(poll_state.add_response(
-                &self.ctx.sender,
-                self.ctx.timestamp,
-                &c,
-            )),
-            None,
-        );
+        let new_item = item.with_content(TimelineItemContent::Poll(poll_state.add_response(
+            &self.ctx.sender,
+            self.ctx.timestamp,
+            &c,
+        )));
 
         trace!("Adding poll response.");
         self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
@@ -919,7 +917,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         match poll_state.end(self.ctx.timestamp) {
             Ok(poll_state) => {
-                let new_item = item.with_content(TimelineItemContent::Poll(poll_state), None);
+                let new_item = item.with_content(TimelineItemContent::Poll(poll_state));
 
                 trace!("Ending poll.");
                 self.items
@@ -1342,7 +1340,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let new_reply_content =
                 TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
                 let new_reply_item =
-                entry.with_kind(event_item.with_content(new_reply_content, None));
+                entry.with_kind(event_item.with_content(new_reply_content));
                 ObservableItemsTransactionEntry::replace(&mut entry, new_reply_item);
             }
         });
