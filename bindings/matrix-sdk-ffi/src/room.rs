@@ -1033,6 +1033,16 @@ impl Room {
             }
         })))
     }
+
+    /// Forget this room.
+    ///
+    /// This communicates to the homeserver that it should forget the room.
+    ///
+    /// Only left or banned-from rooms can be forgotten.
+    pub async fn forget(&self) -> Result<(), ClientError> {
+        self.inner.forget().await?;
+        Ok(())
+    }
 }
 
 /// A listener for receiving new live location shares in a room.
