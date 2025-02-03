@@ -90,7 +90,7 @@ fn check_prerequisites() {
 
 fn prepare(version: ReleaseVersion, execute: bool) -> Result<()> {
     let sh = sh();
-    let cmd = cmd!(sh, "cargo release --no-publish --no-tag --no-push");
+    let cmd = cmd!(sh, "cargo release --workspace --no-publish --no-tag --no-push");
 
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     let cmd = cmd.arg(version.as_str());
@@ -111,15 +111,15 @@ fn prepare(version: ReleaseVersion, execute: bool) -> Result<()> {
 fn publish(execute: bool) -> Result<()> {
     let sh = sh();
 
-    let cmd = cmd!(sh, "cargo release tag");
+    let cmd = cmd!(sh, "cargo release tag --workspace");
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     cmd.run()?;
 
-    let cmd = cmd!(sh, "cargo release publish");
+    let cmd = cmd!(sh, "cargo release publish --workspace");
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     cmd.run()?;
 
-    let cmd = cmd!(sh, "cargo release push");
+    let cmd = cmd!(sh, "cargo release push --workspace");
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     cmd.run()?;
 
