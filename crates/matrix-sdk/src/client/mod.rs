@@ -3186,4 +3186,114 @@ pub(crate) mod tests {
             .await;
         assert_matches!(ret, Ok(()));
     }
+
+    #[async_test]
+    async fn test_room_preview_for_invited_room_hits_summary_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is called once
+        server.mock_room_summary().ok(room_id).mock_once().mount().await;
+
+        // We create a locally cached invited room
+        let invited_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Invited);
+
+        // And we get a preview, the server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(invited_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_left_room_hits_summary_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is called once
+        server.mock_room_summary().ok(room_id).mock_once().mount().await;
+
+        // We create a locally cached left room
+        let left_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Left);
+
+        // And we get a preview, the server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(left_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_knocked_room_hits_summary_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is called once
+        server.mock_room_summary().ok(room_id).mock_once().mount().await;
+
+        // We create a locally cached knocked room
+        let knocked_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Knocked);
+
+        // And we get a preview, the server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(knocked_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_joined_room_retrieves_local_room_info() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is not called
+        server.mock_room_summary().ok(room_id).never().mount().await;
+
+        // We create a locally cached joined room
+        let joined_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Joined);
+
+        // And we get a preview, no server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(joined_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_banned_room_retrieves_local_room_info() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is not called
+        server.mock_room_summary().ok(room_id).never().mount().await;
+
+        // We create a locally cached banned room
+        let banned_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Banned);
+
+        // And we get a preview, no server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(banned_room.room_id().to_owned(), preview.room_id);
+    }
 }

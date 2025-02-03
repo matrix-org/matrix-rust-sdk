@@ -924,6 +924,13 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/versions"));
         MockEndpoint { mock, server: &self.server, endpoint: VersionsEndpoint }
     }
+
+    /// Creates a prebuilt mock for the room summary endpoint [MSC3266](https://github.com/matrix-org/matrix-spec-proposals/pull/3266).
+    pub fn mock_room_summary(&self) -> MockEndpoint<'_, RoomSummaryEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/im.nheko.summary/rooms/.*/summary"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSummaryEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2283,6 +2290,24 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
             ]
         })));
 
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for the room summary endpoint.
+pub struct RoomSummaryEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
+    /// Returns a successful response with some default data for the given room
+    /// id.
+    pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "room_id": room_id,
+            "guest_can_join": true,
+            "num_joined_members": 1,
+            "world_readable": true,
+            "join_rule": "public",
+        })));
         MatrixMock { server: self.server, mock }
     }
 }
