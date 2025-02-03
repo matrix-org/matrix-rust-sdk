@@ -667,7 +667,6 @@ mod tests {
             timestamp,
             TimelineItemContent::RedactedMessage,
             event_kind,
-            Default::default(),
             false,
         )
     }

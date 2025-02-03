@@ -29,6 +29,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedUserId,
 };
 
+use crate::timeline::ReactionsByKeyBySender;
+
 /// Holds the state of a poll.
 ///
 /// This struct should be created for each poll start event handled and then
@@ -40,6 +42,7 @@ pub struct PollState {
     pub(in crate::timeline) response_data: Vec<ResponseData>,
     pub(in crate::timeline) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
     pub(in crate::timeline) has_been_edited: bool,
+    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
 }
 
 #[derive(Clone, Debug)]
@@ -53,12 +56,14 @@ impl PollState {
     pub(crate) fn new(
         content: NewUnstablePollStartEventContent,
         edit: Option<NewUnstablePollStartEventContentWithoutRelation>,
+        reactions: ReactionsByKeyBySender,
     ) -> Self {
         let mut ret = Self {
             start_event_content: content,
             response_data: vec![],
             end_event_timestamp: None,
             has_been_edited: false,
+            reactions,
         };
 
         if let Some(edit) = edit {

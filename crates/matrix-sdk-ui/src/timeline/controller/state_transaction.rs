@@ -443,7 +443,7 @@ impl<'a> TimelineStateTransaction<'a> {
                     if let Some(event_id) = event_item.event_id() {
                         let target_event = event_id.to_owned();
 
-                        for (key, user_to_reaction) in event_item.reactions().iter() {
+                        for (key, user_to_reaction) in event_item.content().reactions().iter() {
                             for (user_id, reaction_info) in user_to_reaction {
                                 let reaction_event = match &reaction_info.status {
                                     ReactionStatus::LocalToLocal(_)

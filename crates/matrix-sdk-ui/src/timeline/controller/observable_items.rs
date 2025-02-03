@@ -404,6 +404,7 @@ mod observable_items_tests {
                     thread_root: None,
                     edited: false,
                     mentions: None,
+                    reactions: Default::default(),
                 }),
                 EventTimelineItemKind::Remote(RemoteEventTimelineItem {
                     event_id: event_id.parse().unwrap(),
@@ -416,7 +417,6 @@ mod observable_items_tests {
                     latest_edit_json: None,
                     origin: RemoteEventOrigin::Sync,
                 }),
-                Default::default(),
                 false,
             ),
             TimelineUniqueId(format!("__id_{event_id}")),

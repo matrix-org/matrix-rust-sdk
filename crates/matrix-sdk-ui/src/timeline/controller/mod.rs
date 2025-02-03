@@ -555,6 +555,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let user_id = self.room_data_provider.own_user_id();
         let prev_status = item
+            .content()
             .reactions()
             .get(key)
             .and_then(|group| group.get(user_id))
@@ -634,7 +635,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     return Ok(false);
                 };
 
-                let mut reactions = item.reactions().clone();
+                let mut reactions = item.content().reactions().clone();
                 let reaction_info = reactions.remove_reaction(user_id, key);
 
                 if reaction_info.is_some() {
@@ -657,7 +658,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             rfind_event_by_id(&state.items, &annotated_event_id)
                         {
                             // Re-add the reaction to the mapping.
-                            let mut reactions = item.reactions().clone();
+                            let mut reactions = item.content().reactions().clone();
                             reactions
                                 .entry(key.to_owned())
                                 .or_default()
@@ -860,7 +861,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         if let Some((item_pos, event_item)) =
                             rfind_event_by_id(&txn.items, reacted_to_event_id)
                         {
-                            let mut reactions = event_item.reactions().clone();
+                            let mut reactions = event_item.content().reactions().clone();
                             if let Some(entry) = reactions
                                 .get_mut(&reaction_key.key)
                                 .and_then(|by_user| by_user.get_mut(&reaction_key.sender))
@@ -894,7 +895,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         // If the event had local reactions, upgrade the mapping from reaction to
         // events, to indicate that the event is now remote.
         if let Some(new_event_id) = new_event_id {
-            let reactions = item.reactions();
+            let reactions = item.content().reactions();
             for (_key, by_user) in reactions.iter() {
                 for (_user_id, info) in by_user.iter() {
                     if let ReactionStatus::LocalToLocal(Some(reaction_handle)) = &info.status {
@@ -957,7 +958,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 return false;
             };
 
-            let mut reactions = item.reactions().clone();
+            let mut reactions = item.content().reactions().clone();
             if reactions.remove_reaction(&full_key.sender, &full_key.key).is_some() {
                 let updated_item = item.with_reactions(reactions);
                 state.items.replace(idx, updated_item);
@@ -1010,10 +1011,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         // Replace the local-related state (kind) and the content state.
+        let prev_reactions = prev_item.content().reactions().clone();
         let new_item = TimelineItem::new(
-            prev_item
-                .with_kind(ti_kind)
-                .with_content(TimelineItemContent::message(content, None, &txn.items)),
+            prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
+                content,
+                None,
+                &txn.items,
+                prev_reactions,
+            )),
             prev_item.internal_id.to_owned(),
         );
 
@@ -1365,7 +1370,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             status: ReactionStatus::LocalToLocal(Some(send_handle)),
         };
 
-        let mut reactions = item.reactions().clone();
+        let mut reactions = item.content().reactions().clone();
         let by_user = reactions.entry(reaction_key.clone()).or_default();
         by_user.insert(user_id.to_owned(), reaction_info);
 

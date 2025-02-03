@@ -404,7 +404,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
-                        self.add_item(TimelineItemContent::Sticker(Sticker { content }), None);
+                        let reactions = self.pending_reactions().unwrap_or_default();
+                        self.add_item(
+                            TimelineItemContent::Sticker(Sticker { content, reactions }),
+                            None,
+                        );
                     }
                 }
 
@@ -564,7 +568,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
-        self.add_item(TimelineItemContent::message(msg, edit_content, self.items), edit_json);
+        let reactions = self.pending_reactions().unwrap_or_default();
+        self.add_item(
+            TimelineItemContent::message(msg, edit_content, self.items, reactions),
+            edit_json,
+        );
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -719,7 +727,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("Added reaction");
 
             // Add the reaction to the event item's bundled reactions.
-            let mut reactions = event_item.reactions.clone();
+            let mut reactions = event_item.content().reactions().clone();
 
             reactions.entry(c.relates_to.key.clone()).or_default().insert(
                 self.ctx.sender.clone(),
@@ -866,7 +874,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .or(pending_edit)
             .unzip();
 
-        let poll_state = PollState::new(c, edit_content);
+        let reactions = self.pending_reactions().unwrap_or_default();
+        let poll_state = PollState::new(c, edit_content, reactions);
         let mut content = TimelineItemContent::Poll(poll_state);
 
         if let Some(event_id) = self.ctx.flow.event_id() {
@@ -1012,7 +1021,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 return false;
             };
 
-            let mut reactions = item.reactions.clone();
+            let mut reactions = item.content().reactions().clone();
             if reactions.remove_reaction(&sender, &key).is_some() {
                 trace!("Removing reaction");
                 self.items.replace(item_pos, item.with_reactions(reactions));
@@ -1045,7 +1054,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let sender = self.ctx.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());
         let timestamp = self.ctx.timestamp;
-        let reactions = self.pending_reactions(&content).unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id, send_handle } => LocalEventTimelineItem {
@@ -1094,7 +1102,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             timestamp,
             content,
             kind,
-            reactions,
             is_room_encrypted,
         );
 
@@ -1357,17 +1364,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         });
     }
 
-    fn pending_reactions(
-        &mut self,
-        content: &TimelineItemContent,
-    ) -> Option<ReactionsByKeyBySender> {
+    fn pending_reactions(&mut self) -> Option<ReactionsByKeyBySender> {
         let event_id = self.ctx.flow.event_id()?;
         let reactions = self.meta.reactions.pending.remove(event_id)?;
-
-        // Drop pending reactions if the message is redacted.
-        if let TimelineItemContent::RedactedMessage = content {
-            return None;
-        }
 
         let mut bundled = ReactionsByKeyBySender::default();
 

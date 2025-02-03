@@ -39,7 +39,13 @@ impl EventTimelineItemWithId<'_> {
     /// Create a clone of the underlying [`TimelineItem`] with the given
     /// reactions.
     pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Arc<TimelineItem> {
-        let event_item = self.inner.with_reactions(reactions);
+        let content = self.inner.content().with_reactions(reactions);
+
+        // Do not use `Self::with_content` which may override the latest_edit_json.
+        // TODO: it's likely incorrect?
+        let mut event_item = self.inner.clone();
+        event_item.content = content;
+
         TimelineItem::new(event_item, self.internal_id.clone())
     }
 }
