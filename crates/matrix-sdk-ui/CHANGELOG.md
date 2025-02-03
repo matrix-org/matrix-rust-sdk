@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
   ([#4448](https://github.com/matrix-org/matrix-rust-sdk/pull/4448))
 - Fix `EventTimelineItem::latest_edit_json()` when it is populated by a live
   edit. ([#4552](https://github.com/matrix-org/matrix-rust-sdk/pull/4552))
+- Fix our own explicit read receipt being ignored when loading it from the
+  state store, which resulted in our own read receipt being wrong sometimes.
+  ([#4600](https://github.com/matrix-org/matrix-rust-sdk/pull/4600))
 
 ### Features
 
