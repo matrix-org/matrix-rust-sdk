@@ -87,7 +87,12 @@ impl TimelineSubscriber {
         let (initial_values, stream) = observable_items
             .subscribe()
             .into_values_and_batched_stream()
-            .dynamic_skip_with_initial_count(0, observable_skip_count.subscribe());
+            .dynamic_skip_with_initial_count(
+                // The `SkipCount` value may have been modified before the subscriber is
+                // created. Let's use the current value instead of hardcoding it to 0.
+                observable_skip_count.get(),
+                observable_skip_count.subscribe(),
+            );
 
         (initial_values, Self { inner: stream })
     }

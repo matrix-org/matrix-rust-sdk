@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{ops::Not, time::Duration};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -24,7 +24,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
-    JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder, BOB,
+    JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::{
     timeline::{
@@ -36,9 +36,10 @@ use matrix_sdk_ui::{
 use ruma::{
     event_id,
     events::room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
-    owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
+    owned_event_id, room_id, user_id, EventId, MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
+use sliding_sync::assert_timeline_stream;
 use stream_assert::assert_pending;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -831,8 +832,71 @@ async fn test_timeline_without_encryption_can_update() {
     assert_pending!(stream);
 }
 
+#[async_test]
+async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
+    let room_id = room_id!("!foo:bar.baz");
+    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    mock_server.sync_joined_room(&client, room_id).await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    // The event cache contains 30 events.
+    event_cache
+        .add_initial_events(
+            room_id,
+            (0..30)
+                .map(|nth| {
+                    event_factory
+                        .text_msg("foo")
+                        .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                        .into_event()
+                })
+                .collect::<Vec<_>>(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let room = client.get_room(room_id).unwrap();
+
+    // The timeline is created.
+    let timeline = room.timeline().await.unwrap();
+    let (timeline_initial_items, mut timeline_stream) = timeline.subscribe().await;
+
+    // The timeline receives 20 initial values, not 30!
+    assert_eq!(timeline_initial_items.len(), 20);
+    assert_pending!(timeline_stream);
+
+    // To get the other, the timeline needs to paginate.
+
+    let _no_network_pagination =
+        mock_server.mock_room_messages().error500().never().mount_as_scoped().await;
+
+    // Now let's do a backwards pagination of 5 items.
+    let hit_end_of_timeline = timeline.paginate_backwards(5).await.unwrap();
+
+    assert!(hit_end_of_timeline.not());
+
+    // Oh, 5 new items, without even hitting the network because the timeline
+    // already has these!
+    assert_timeline_stream! {
+        [timeline_stream]
+        prepend "$ev9";
+        prepend "$ev8";
+        prepend "$ev7";
+        prepend "$ev6";
+        prepend "$ev5";
+    };
+    assert_pending!(timeline_stream);
+}
+
 struct PinningTestSetup<'a> {
-    event_id: &'a ruma::EventId,
+    event_id: &'a EventId,
     room_id: &'a ruma::RoomId,
     client: matrix_sdk::Client,
     server: wiremock::MockServer,
@@ -904,7 +968,7 @@ impl PinningTestSetup<'_> {
         let _response = self.client.sync_once(self.sync_settings.clone()).await.unwrap();
     }
 
-    fn event_id(&self) -> &ruma::EventId {
+    fn event_id(&self) -> &EventId {
         self.event_id
     }
 }
