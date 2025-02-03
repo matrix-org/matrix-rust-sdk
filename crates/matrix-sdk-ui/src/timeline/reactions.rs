@@ -14,8 +14,7 @@
 
 use std::collections::HashMap;
 
-use indexmap::IndexMap;
-use ruma::{events::relation::Annotation, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use ruma::{events::relation::Annotation, OwnedEventId, OwnedUserId};
 
 use super::event_item::TimelineEventItemId;
 
@@ -33,16 +32,6 @@ impl From<&Annotation> for AnnotationKey {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct PendingReaction {
-    /// The annotation used for the reaction.
-    pub key: String,
-    /// Sender identifier.
-    pub sender_id: OwnedUserId,
-    /// Date at which the sender reacted.
-    pub timestamp: MilliSecondsSinceUnixEpoch,
-}
-
-#[derive(Clone, Debug)]
 pub(crate) struct FullReactionKey {
     pub item: TimelineEventItemId,
     pub key: String,
@@ -53,14 +42,10 @@ pub(crate) struct FullReactionKey {
 pub(super) struct Reactions {
     /// Reaction event / txn ID => full path to the reaction in some item.
     pub map: HashMap<TimelineEventItemId, FullReactionKey>,
-    /// Mapping of events that are not in the timeline => reaction event id =>
-    /// pending reaction.
-    pub pending: HashMap<OwnedEventId, IndexMap<OwnedEventId, PendingReaction>>,
 }
 
 impl Reactions {
     pub(super) fn clear(&mut self) {
         self.map.clear();
-        self.pending.clear();
     }
 }

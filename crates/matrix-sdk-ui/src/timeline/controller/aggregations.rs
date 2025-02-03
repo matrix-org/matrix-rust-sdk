@@ -16,7 +16,9 @@ use std::collections::HashMap;
 
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 
-use crate::timeline::{PollState, TimelineEventItemId, TimelineItemContent};
+use crate::timeline::{
+    PollState, ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItemContent,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) enum Aggregation {
@@ -28,6 +30,13 @@ pub(crate) enum Aggregation {
 
     PollEnd {
         end_date: MilliSecondsSinceUnixEpoch,
+    },
+
+    Reaction {
+        key: String,
+        sender: OwnedUserId,
+        timestamp: MilliSecondsSinceUnixEpoch,
+        own_event_id: OwnedEventId,
     },
 }
 
@@ -53,11 +62,41 @@ impl Aggregation {
                     answers.clone(),
                 );
             }
+
             Aggregation::PollEnd { end_date } => {
                 let poll_state = poll_state_from_item(content)?;
                 if !poll_state.end(*end_date) {
                     return Err(AggregationError::PollAlreadyEnded);
                 }
+            }
+
+            Aggregation::Reaction { key, sender, timestamp, own_event_id } => {
+                let reactions = match content {
+                    TimelineItemContent::Message(message) => &mut message.reactions,
+                    TimelineItemContent::Poll(poll_state) => &mut poll_state.reactions,
+                    TimelineItemContent::Sticker(sticker) => &mut sticker.reactions,
+
+                    TimelineItemContent::RedactedMessage
+                    | TimelineItemContent::UnableToDecrypt(..)
+                    | TimelineItemContent::MembershipChange(..)
+                    | TimelineItemContent::ProfileChange(..)
+                    | TimelineItemContent::OtherState(..)
+                    | TimelineItemContent::FailedToParseMessageLike { .. }
+                    | TimelineItemContent::FailedToParseState { .. }
+                    | TimelineItemContent::CallInvite
+                    | TimelineItemContent::CallNotify => {
+                        // These items don't hold reactions.
+                        return Ok(());
+                    }
+                };
+
+                reactions.entry(key.clone()).or_default().insert(
+                    sender.clone(),
+                    ReactionInfo {
+                        timestamp: *timestamp,
+                        status: ReactionStatus::RemoteToRemote(own_event_id.clone()),
+                    },
+                );
             }
         }
         Ok(())
@@ -74,8 +113,12 @@ impl Aggregations {
         self.stashed.clear();
     }
 
-    pub fn add(&mut self, event_id: OwnedEventId, aggregation: Aggregation) {
-        self.stashed.entry(TimelineEventItemId::EventId(event_id)).or_default().push(aggregation);
+    pub fn add(&mut self, related_to: OwnedEventId, aggregation: Aggregation) {
+        self.stashed.entry(TimelineEventItemId::EventId(related_to)).or_default().push(aggregation);
+    }
+
+    pub fn get_mut(&mut self, related_to: &TimelineEventItemId) -> Option<&mut Vec<Aggregation>> {
+        self.stashed.get_mut(related_to)
     }
 
     pub fn apply(

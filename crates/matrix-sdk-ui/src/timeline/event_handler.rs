@@ -61,9 +61,9 @@ use super::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
         AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
         LocalEventTimelineItem, PollState, Profile, ReactionInfo, ReactionStatus,
-        ReactionsByKeyBySender, RemoteEventOrigin, RemoteEventTimelineItem, TimelineEventItemId,
+        RemoteEventOrigin, RemoteEventTimelineItem, TimelineEventItemId,
     },
-    reactions::{FullReactionKey, PendingReaction},
+    reactions::FullReactionKey,
     traits::RoomDataProvider,
     EventTimelineItem, InReplyToDetails, OtherState, RepliedToEvent, Sticker, TimelineDetails,
     TimelineItem, TimelineItemContent,
@@ -102,6 +102,14 @@ impl Flow {
     /// If the flow is remote, returns the associated event id.
     pub(crate) fn event_id(&self) -> Option<&EventId> {
         as_variant!(self, Flow::Remote { event_id, .. } => event_id)
+    }
+
+    /// Returns the [`TimelineEventItemId`] associated to this future item.
+    pub(crate) fn timeline_item_id(&self) -> TimelineEventItemId {
+        match self {
+            Flow::Remote { event_id, .. } => TimelineEventItemId::EventId(event_id.clone()),
+            Flow::Local { txn_id, .. } => TimelineEventItemId::TransactionId(txn_id.clone()),
+        }
     }
 
     /// If the flow is remote, returns the associated full raw event.
@@ -404,11 +412,23 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
-                        let reactions = self.pending_reactions().unwrap_or_default();
-                        self.add_item(
-                            TimelineItemContent::Sticker(Sticker { content, reactions }),
-                            None,
-                        );
+                        let mut content = TimelineItemContent::Sticker(Sticker {
+                            content,
+                            reactions: Default::default(),
+                        });
+
+                        if let Some(event_id) = self.ctx.flow.event_id() {
+                            // Applying the cache to remote events only because local echoes
+                            // don't have an event ID that could be referenced by responses yet.
+                            if let Err(err) = self.meta.aggregations.apply(
+                                &TimelineEventItemId::EventId(event_id.to_owned()),
+                                &mut content,
+                            ) {
+                                warn!("discarding sticker aggregations: {err}");
+                            }
+                        }
+
+                        self.add_item(content, None);
                     }
                 }
 
@@ -568,11 +588,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
-        let reactions = self.pending_reactions().unwrap_or_default();
-        self.add_item(
-            TimelineItemContent::message(msg, edit_content, self.items, reactions),
-            edit_json,
-        );
+        let mut content =
+            TimelineItemContent::message(msg, edit_content, self.items, Default::default());
+        if let Err(err) =
+            self.meta.aggregations.apply(&self.ctx.flow.timeline_item_id(), &mut content)
+        {
+            warn!("discarding message aggregations: {err}");
+        }
+
+        self.add_item(content, edit_json);
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -712,7 +736,19 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Local { txn_id, send_handle, .. } => {
                 (TimelineEventItemId::TransactionId(txn_id.clone()), send_handle.clone(), None)
             }
+
             Flow::Remote { event_id, txn_id, .. } => {
+                // If the reaction was a remote one, remember it in the list of aggregations.
+                self.meta.aggregations.add(
+                    reacted_to_event_id.clone(),
+                    Aggregation::Reaction {
+                        key: c.relates_to.key.clone(),
+                        sender: self.ctx.sender.clone(),
+                        timestamp: self.ctx.timestamp,
+                        own_event_id: event_id.clone(),
+                    },
+                );
+
                 (TimelineEventItemId::EventId(event_id.clone()), None, txn_id.as_ref())
             }
         };
@@ -747,22 +783,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             self.items.replace(idx, event_item.with_reactions(reactions));
 
             self.result.items_updated += 1;
-        } else {
-            trace!("Timeline item not found, adding reaction to the pending list");
-
-            let TimelineEventItemId::EventId(reaction_event_id) = reaction_id.clone() else {
-                error!("Adding local reaction echo to event absent from the timeline");
-                return;
-            };
-
-            self.meta.reactions.pending.entry(reacted_to_event_id.to_owned()).or_default().insert(
-                reaction_event_id,
-                PendingReaction {
-                    key: c.relates_to.key.clone(),
-                    sender_id: self.ctx.sender.clone(),
-                    timestamp: self.ctx.timestamp,
-                },
-            );
         }
 
         if let Some(txn_id) = old_txn_id {
@@ -874,20 +894,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .or(pending_edit)
             .unzip();
 
-        let reactions = self.pending_reactions().unwrap_or_default();
-        let poll_state = PollState::new(c, edit_content, reactions);
+        let poll_state = PollState::new(c, edit_content, Default::default());
         let mut content = TimelineItemContent::Poll(poll_state);
-
-        if let Some(event_id) = self.ctx.flow.event_id() {
-            // Applying the cache to remote events only because local echoes
-            // don't have an event ID that could be referenced by responses yet.
-            if let Err(err) = self
-                .meta
-                .aggregations
-                .apply(&TimelineEventItemId::EventId(event_id.to_owned()), &mut content)
-            {
-                warn!("discarding poll aggregations: {err}");
-            }
+        if let Err(err) =
+            self.meta.aggregations.apply(&self.ctx.flow.timeline_item_id(), &mut content)
+        {
+            warn!("discarding poll aggregations: {err}");
         }
 
         let edit_json = edit_json.flatten();
@@ -1010,10 +1022,25 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 if let TimelineEventItemId::EventId(event_id) = reaction_id {
                     // Remove any possibly pending reactions to that event, as this redaction would
                     // affect them.
-                    if let Some(reactions) =
-                        self.meta.reactions.pending.get_mut(&reacted_to_event_id)
+                    if let Some(aggregations) = self
+                        .meta
+                        .aggregations
+                        .get_mut(&TimelineEventItemId::EventId(reacted_to_event_id))
                     {
-                        reactions.swap_remove(&event_id);
+                        if let Some(found) =
+                            aggregations.iter().enumerate().find_map(|(idx, agg)| match agg {
+                                Aggregation::Reaction { own_event_id, .. } => {
+                                    if *own_event_id == event_id {
+                                        Some(idx)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => None,
+                            })
+                        {
+                            aggregations.remove(found);
+                        }
                     }
                 }
 
@@ -1362,28 +1389,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 ObservableItemsTransactionEntry::replace(&mut entry, new_reply_item);
             }
         });
-    }
-
-    fn pending_reactions(&mut self) -> Option<ReactionsByKeyBySender> {
-        let event_id = self.ctx.flow.event_id()?;
-        let reactions = self.meta.reactions.pending.remove(event_id)?;
-
-        let mut bundled = ReactionsByKeyBySender::default();
-
-        for (reaction_event_id, reaction) in reactions {
-            let group: &mut IndexMap<OwnedUserId, ReactionInfo> =
-                bundled.entry(reaction.key).or_default();
-
-            group.insert(
-                reaction.sender_id,
-                ReactionInfo {
-                    timestamp: reaction.timestamp,
-                    status: ReactionStatus::RemoteToRemote(reaction_event_id),
-                },
-            );
-        }
-
-        Some(bundled)
     }
 }
 
