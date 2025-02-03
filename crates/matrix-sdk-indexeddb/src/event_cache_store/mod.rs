@@ -15,54 +15,104 @@
 use crate::event_cache_store::{
     indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
 };
-use anyhow::Ok;
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
-use matrix_sdk_base::event_cache::store::EventCacheStore;
-use matrix_sdk_base::StoreError;
-use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
+use matrix_sdk_base::{
+    event_cache::{
+        store::{
+            media::{
+                EventCacheStoreMedia,
+                IgnoreMediaRetentionPolicy,
+                MediaRetentionPolicy,
+                // MediaService,
+            },
+            EventCacheStore,
+        },
+        Event, Gap,
+    },
+    linked_chunk::{
+        // ChunkContent,
+        // ChunkIdentifier,
+        RawChunk,
+        Update,
+    },
+    media::{MediaRequestParameters, UniqueKey},
+};
+use matrix_sdk_store_encryption::StoreCipher;
+use ruma::{
+    // time::SystemTime,
+    MilliSecondsSinceUnixEpoch,
+    MxcUri,
+    RoomId,
+};
 use std::sync::Arc;
 use tracing::debug;
+use wasm_bindgen::JsValue;
+use web_sys::IdbTransactionMode;
 
+mod error;
 mod indexeddb_serializer;
 mod migrations;
 
-#[derive(Debug, thiserror::Error)]
-pub enum IndexeddbEventCacheStoreError {
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    #[error(transparent)]
-    Encryption(#[from] EncryptionError),
-    #[error("DomException {name} ({code}): {message}")]
-    DomException { name: String, message: String, code: u16 },
-    #[error(transparent)]
-    StoreError(#[from] StoreError),
-    #[error("Can't migrate {name} from {old_version} to {new_version} without deleting data. See MigrationConflictStrategy for ways to configure.")]
-    MigrationConflict { name: String, old_version: u32, new_version: u32 },
+pub use error::IndexeddbEventCacheStoreError;
+
+mod keys {
+    pub const CORE: &str = "core";
+    // Entries in Key-value store
+    pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
+
+    // Tables
+    pub const LINKED_CHUNKS: &str = "linked_chunks";
+    pub const MEDIA: &str = "media";
 }
 
-impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
-    fn from(frm: web_sys::DomException) -> IndexeddbEventCacheStoreError {
-        IndexeddbEventCacheStoreError::DomException {
-            name: frm.name(),
-            message: frm.message(),
-            code: frm.code(),
+/// Builder for [`IndexeddbEventCacheStore`]
+// #[derive(Debug)] // TODO StoreCipher cannot be derived
+pub struct IndexeddbEventCacheStoreBuilder {
+    name: Option<String>,
+    store_cipher: Option<Arc<StoreCipher>>,
+    migration_conflict_strategy: MigrationConflictStrategy,
+}
+
+impl IndexeddbEventCacheStoreBuilder {
+    fn new() -> Self {
+        Self {
+            name: None,
+            store_cipher: None,
+            migration_conflict_strategy: MigrationConflictStrategy::BackupAndDrop,
         }
     }
-}
 
-impl From<IndexeddbEventCacheStoreError> for StoreError {
-    fn from(e: IndexeddbEventCacheStoreError) -> Self {
-        match e {
-            IndexeddbEventCacheStoreError::Json(e) => StoreError::Json(e),
-            IndexeddbEventCacheStoreError::StoreError(e) => e,
-            IndexeddbEventCacheStoreError::Encryption(e) => StoreError::Encryption(e),
-            _ => StoreError::backend(e),
-        }
+    pub fn name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    pub fn store_cipher(mut self, store_cipher: Arc<StoreCipher>) -> Self {
+        self.store_cipher = Some(store_cipher);
+        self
+    }
+
+    /// The strategy to use when a merge conflict is found.
+    ///
+    /// See [`MigrationConflictStrategy`] for details.
+    pub fn migration_conflict_strategy(mut self, value: MigrationConflictStrategy) -> Self {
+        self.migration_conflict_strategy = value;
+        self
+    }
+
+    pub async fn build(self) -> Result<IndexeddbEventCacheStore> {
+        // let migration_strategy = self.migration_conflict_strategy.clone();
+        let name = self.name.unwrap_or_else(|| "event_cache".to_owned());
+
+        let serializer = IndexeddbSerializer::new(self.store_cipher);
+        debug!("IndexedDbEventCacheStore: opening main store {name}");
+        let inner = open_and_upgrade_db(&name, &serializer).await?;
+
+        let store = IndexeddbEventCacheStore { name, inner, serializer };
+        Ok(store)
     }
 }
-
-type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
 
 /// Sometimes Migrations can't proceed without having to drop existing
 /// data. This allows you to configure, how these cases should be handled.
@@ -97,15 +147,56 @@ impl IndexeddbEventCacheStore {
     }
 }
 
-#[async_trait]
-impl EventCacheStore for IndexeddbEventCacheStore {
-    type Error = IndexeddbEventCacheStoreError;
+type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
 
+#[cfg(target_arch = "wasm32")]
+macro_rules! impl_event_cache_store {
+    ({ $($body:tt)* }) => {
+        #[async_trait(?Send)]
+        impl EventCacheStore for IndexeddbEventCacheStore {
+            type Error = IndexeddbEventCacheStoreError;
+
+            $($body)*
+        }
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! impl_state_store {
+    ({ $($body:tt)* }) => {
+        impl IndexeddbEventCacheStore {
+            $($body)*
+        }
+    };
+}
+
+impl_event_cache_store!({
     async fn handle_linked_chunk_updates(
         &self,
         room_id: &RoomId,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
+        // let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        // let room_id = room_id.to_owned();
+        // let this = self.clone();
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::LINKED_CHUNKS, IdbTransactionMode::Readwrite)?;
+
+        let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+
+        // for update in updates {
+        //     match update {
+        //         Update::Insert { chunk } => {
+        //             let chunk = self.serializer.serialize_chunk(&chunk)?;
+        //             object_store.put_key_val(&room_id, &chunk)?;
+        //         }
+        //         Update::Delete { chunk_id } => {
+        //             object_store.delete(&chunk_id)?;
+        //         }
+        //     }
+        // }
+
         Ok(())
     }
 
@@ -303,51 +394,4 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             }
         }
     }
-}
-
-/// Builder for [`IndexeddbEventCacheStore`]
-#[derive(Debug)]
-pub struct IndexeddbEventCacheStoreBuilder {
-    name: Option<String>,
-    store_cipher: Option<Arc<StoreCipher>>,
-    migration_conflict_strategy: MigrationConflictStrategy,
-}
-
-impl IndexeddbEventCacheStoreBuilder {
-    fn new() -> Self {
-        Self {
-            name: None,
-            store_cipher: None,
-            migration_conflict_strategy: MigrationConflictStrategy::BackupAndDrop,
-        }
-    }
-
-    pub fn name(mut self, name: String) -> Self {
-        self.name = Some(name);
-        self
-    }
-
-    pub fn store_cipher(mut self, store_cipher: Arc<StoreCipher>) -> Self {
-        self.store_cipher = Some(store_cipher);
-        self
-    }
-
-    /// The strategy to use when a merge conflict is found.
-    ///
-    /// See [`MigrationConflictStrategy`] for details.
-    pub fn migration_conflict_strategy(mut self, value: MigrationConflictStrategy) -> Self {
-        self.migration_conflict_strategy = value;
-        self
-    }
-
-    pub async fn build(self) -> Result<IndexeddbEventCacheStore> {
-        // let migration_strategy = self.migration_conflict_strategy.clone();
-        let name = self.name.unwrap_or_else(|| "event_cache".to_owned());
-
-        let serializer = IndexeddbSerializer::new(self.store_cipher);
-        debug!("IndexedDbEventCacheStore: opening main store {name}");
-        let inner = open_and_upgrade_db(&name, &serializer).await?;
-
-        Ok(IndexeddbEventCacheStore { name, inner, serializer })
-    }
-}
+});
