@@ -17,11 +17,12 @@ use crate::event_cache_store::{
 };
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
+use indexed_db_futures::IdbQuerySource;
 use matrix_sdk_base::{
     event_cache::{
         store::{
             media::{
-                EventCacheStoreMedia,
+                // EventCacheStoreMedia,
                 IgnoreMediaRetentionPolicy,
                 MediaRetentionPolicy,
                 // MediaService,
@@ -36,7 +37,10 @@ use matrix_sdk_base::{
         RawChunk,
         Update,
     },
-    media::{MediaRequestParameters, UniqueKey},
+    media::{
+        MediaRequestParameters,
+        // UniqueKey
+    },
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -307,7 +311,9 @@ impl_event_cache_store!({
     }
 
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
-        MediaRetentionPolicy::KeepForever
+        // TODO on the sqlite version this has a media_service... what is that?
+        // It seems there is a Trait EventCacheStoreMedia that might need to be implemented
+        MediaRetentionPolicy::default()
     }
 
     /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
