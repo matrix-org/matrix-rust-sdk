@@ -29,21 +29,13 @@ use vodozemac::Curve25519PublicKey;
 use super::DeviceAuthorizationOauthError;
 use crate::{authentication::oidc::OidcSessionTokens, http_client::HttpClient};
 
-/// Oauth 2.0 Basic client.
-type OauthClientInner<
-    HasAuthUrl = EndpointNotSet,
-    HasDeviceAuthUrl = EndpointSet,
-    HasIntrospectionUrl = EndpointNotSet,
-    HasRevocationUrl = EndpointNotSet,
-    HasTokenUrl = EndpointSet,
-> = BasicClient<HasAuthUrl, HasDeviceAuthUrl, HasIntrospectionUrl, HasRevocationUrl, HasTokenUrl>;
-
 /// An OAuth 2.0 specific HTTP client.
 ///
 /// This is used to communicate with the OAuth 2.0 authorization server
 /// exclusively.
 pub(super) struct OauthClient {
-    inner: OauthClientInner,
+    /// Oauth 2.0 Basic client.
+    inner: BasicClient<EndpointNotSet, EndpointSet, EndpointNotSet, EndpointNotSet, EndpointSet>,
     http_client: HttpClient,
 }
 
