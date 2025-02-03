@@ -53,8 +53,8 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     algorithms::rfind_event_by_id,
     controller::{
-        Aggregation, ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit,
-        PendingEditKind, TimelineMetadata, TimelineStateTransaction,
+        Aggregation, AggregationKind, ObservableItemsTransaction, ObservableItemsTransactionEntry,
+        PendingEdit, PendingEditKind, TimelineMetadata, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -741,12 +741,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // If the reaction was a remote one, remember it in the list of aggregations.
                 self.meta.aggregations.add(
                     reacted_to_event_id.clone(),
-                    Aggregation::Reaction {
-                        key: c.relates_to.key.clone(),
-                        sender: self.ctx.sender.clone(),
-                        timestamp: self.ctx.timestamp,
-                        own_event_id: event_id.clone(),
-                    },
+                    Aggregation::new(
+                        TimelineEventItemId::EventId(event_id.clone()),
+                        AggregationKind::Reaction {
+                            key: c.relates_to.key.clone(),
+                            sender: self.ctx.sender.clone(),
+                            timestamp: self.ctx.timestamp,
+                        },
+                    ),
                 );
 
                 (TimelineEventItemId::EventId(event_id.clone()), None, txn_id.as_ref())
@@ -910,11 +912,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
         let start_event_id = c.relates_to.event_id;
 
-        let aggregation = Aggregation::PollResponse {
-            sender: self.ctx.sender.clone(),
-            timestamp: self.ctx.timestamp,
-            answers: c.poll_response.answers,
-        };
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::PollResponse {
+                sender: self.ctx.sender.clone(),
+                timestamp: self.ctx.timestamp,
+                answers: c.poll_response.answers,
+            },
+        );
+
         self.meta.aggregations.add(start_event_id.clone(), aggregation.clone());
 
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
@@ -940,7 +946,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
         let start_event_id = c.relates_to.event_id;
 
-        let aggregation = Aggregation::PollEnd { end_date: self.ctx.timestamp };
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::PollEnd { end_date: self.ctx.timestamp },
+        );
         self.meta.aggregations.add(start_event_id.clone(), aggregation.clone());
 
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
@@ -976,7 +985,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
 
         // If it's a reaction that's being redacted, handle it here.
-        if self.handle_reaction_redaction(TimelineEventItemId::EventId(redacted.clone())) {
+        if self.handle_reaction_redaction(redacted.clone()) {
             // When we have raw timeline items, we should not return here anymore, as we
             // might need to redact the raw item as well.
             return;
@@ -1006,11 +1015,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
     }
 
-    /// Attempts to redact a reaction, local or remote.
+    /// Attempts to redact a reaction.
     ///
     /// Returns true if it's succeeded.
     #[instrument(skip_all, fields(redacts = ?reaction_id))]
-    fn handle_reaction_redaction(&mut self, reaction_id: TimelineEventItemId) -> bool {
+    fn handle_reaction_redaction(&mut self, reaction_id: OwnedEventId) -> bool {
+        let reaction_id = TimelineEventItemId::EventId(reaction_id);
+
         if let Some(FullReactionKey {
             item: TimelineEventItemId::EventId(reacted_to_event_id),
             key,
@@ -1019,28 +1030,20 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         {
             let Some((item_pos, item)) = rfind_event_by_id(self.items, &reacted_to_event_id) else {
                 // The remote event wasn't in the timeline.
-                if let TimelineEventItemId::EventId(event_id) = reaction_id {
-                    // Remove any possibly pending reactions to that event, as this redaction would
-                    // affect them.
-                    if let Some(aggregations) = self
-                        .meta
-                        .aggregations
-                        .get_mut(&TimelineEventItemId::EventId(reacted_to_event_id))
+
+                // Remove any possibly pending reactions to that event, as this redaction would
+                // affect them.
+                if let Some(aggregations) = self
+                    .meta
+                    .aggregations
+                    .get_mut(&TimelineEventItemId::EventId(reacted_to_event_id))
+                {
+                    if let Some(found) = aggregations
+                        .iter()
+                        .enumerate()
+                        .find_map(|(idx, agg)| (agg.own_id == reaction_id).then_some(idx))
                     {
-                        if let Some(found) =
-                            aggregations.iter().enumerate().find_map(|(idx, agg)| match agg {
-                                Aggregation::Reaction { own_event_id, .. } => {
-                                    if *own_event_id == event_id {
-                                        Some(idx)
-                                    } else {
-                                        None
-                                    }
-                                }
-                                _ => None,
-                            })
-                        {
-                            aggregations.remove(found);
-                        }
+                        aggregations.remove(found);
                     }
                 }
 

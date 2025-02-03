@@ -21,7 +21,7 @@ use crate::timeline::{
 };
 
 #[derive(Clone, Debug)]
-pub(crate) enum Aggregation {
+pub(crate) enum AggregationKind {
     PollResponse {
         sender: OwnedUserId,
         timestamp: MilliSecondsSinceUnixEpoch,
@@ -36,8 +36,13 @@ pub(crate) enum Aggregation {
         key: String,
         sender: OwnedUserId,
         timestamp: MilliSecondsSinceUnixEpoch,
-        own_event_id: OwnedEventId,
     },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Aggregation {
+    kind: AggregationKind,
+    pub own_id: TimelineEventItemId,
 }
 
 fn poll_state_from_item(
@@ -53,9 +58,13 @@ fn poll_state_from_item(
 }
 
 impl Aggregation {
+    pub fn new(own_id: TimelineEventItemId, kind: AggregationKind) -> Self {
+        Self { kind, own_id }
+    }
+
     pub fn apply(&self, content: &mut TimelineItemContent) -> Result<(), AggregationError> {
-        match self {
-            Aggregation::PollResponse { sender, timestamp, answers } => {
+        match &self.kind {
+            AggregationKind::PollResponse { sender, timestamp, answers } => {
                 poll_state_from_item(content)?.add_response(
                     sender.clone(),
                     *timestamp,
@@ -63,14 +72,14 @@ impl Aggregation {
                 );
             }
 
-            Aggregation::PollEnd { end_date } => {
+            AggregationKind::PollEnd { end_date } => {
                 let poll_state = poll_state_from_item(content)?;
                 if !poll_state.end(*end_date) {
                     return Err(AggregationError::PollAlreadyEnded);
                 }
             }
 
-            Aggregation::Reaction { key, sender, timestamp, own_event_id } => {
+            AggregationKind::Reaction { key, sender, timestamp } => {
                 let reactions = match content {
                     TimelineItemContent::Message(message) => &mut message.reactions,
                     TimelineItemContent::Poll(poll_state) => &mut poll_state.reactions,
@@ -90,13 +99,20 @@ impl Aggregation {
                     }
                 };
 
-                reactions.entry(key.clone()).or_default().insert(
-                    sender.clone(),
-                    ReactionInfo {
-                        timestamp: *timestamp,
-                        status: ReactionStatus::RemoteToRemote(own_event_id.clone()),
-                    },
-                );
+                let status = match &self.own_id {
+                    TimelineEventItemId::TransactionId(_) => {
+                        // TODO?
+                        ReactionStatus::LocalToRemote(None)
+                    }
+                    TimelineEventItemId::EventId(owned_event_id) => {
+                        ReactionStatus::RemoteToRemote(owned_event_id.clone())
+                    }
+                };
+
+                reactions
+                    .entry(key.clone())
+                    .or_default()
+                    .insert(sender.clone(), ReactionInfo { timestamp: *timestamp, status });
             }
         }
         Ok(())
