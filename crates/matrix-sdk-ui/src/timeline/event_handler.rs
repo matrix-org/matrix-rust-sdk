@@ -872,7 +872,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if let Some(event_id) = self.ctx.flow.event_id() {
             // Applying the cache to remote events only because local echoes
             // don't have an event ID that could be referenced by responses yet.
-            if let Err(err) = self.meta.aggregations.apply(event_id, &mut content) {
+            if let Err(err) = self
+                .meta
+                .aggregations
+                .apply(&TimelineEventItemId::EventId(event_id.to_owned()), &mut content)
+            {
                 warn!("discarding poll aggregations: {err}");
             }
         }

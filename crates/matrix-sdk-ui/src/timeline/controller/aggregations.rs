@@ -14,9 +14,9 @@
 
 use std::collections::HashMap;
 
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 
-use crate::timeline::{PollState, TimelineItemContent};
+use crate::timeline::{PollState, TimelineEventItemId, TimelineItemContent};
 
 #[derive(Clone, Debug)]
 pub(crate) enum Aggregation {
@@ -66,7 +66,7 @@ impl Aggregation {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Aggregations {
-    stashed: HashMap<OwnedEventId, Vec<Aggregation>>,
+    stashed: HashMap<TimelineEventItemId, Vec<Aggregation>>,
 }
 
 impl Aggregations {
@@ -75,15 +75,15 @@ impl Aggregations {
     }
 
     pub fn add(&mut self, event_id: OwnedEventId, aggregation: Aggregation) {
-        self.stashed.entry(event_id).or_default().push(aggregation);
+        self.stashed.entry(TimelineEventItemId::EventId(event_id)).or_default().push(aggregation);
     }
 
     pub fn apply(
         &self,
-        event_id: &EventId,
+        item_id: &TimelineEventItemId,
         content: &mut TimelineItemContent,
     ) -> Result<bool, AggregationError> {
-        let Some(aggregations) = self.stashed.get(event_id) else {
+        let Some(aggregations) = self.stashed.get(item_id) else {
             return Ok(false);
         };
         for a in aggregations {
