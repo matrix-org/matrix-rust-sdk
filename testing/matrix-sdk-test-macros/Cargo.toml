@@ -24,4 +24,4 @@ syn = { version = "2.0.43", features = ["full", "extra-traits"] }
 workspace = true
 
 [package.metadata.release]
-release = false
+release = true

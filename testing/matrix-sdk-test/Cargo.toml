@@ -19,7 +19,7 @@ doctest = false
 as_variant = { workspace = true }
 http = { workspace = true }
 insta = { workspace = true }
-matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
+matrix-sdk-common = { version = "0.9.0", path = "../../crates/matrix-sdk-common" }
 matrix-sdk-test-macros = { version = "0.7.0", path = "../matrix-sdk-test-macros" }
 once_cell = { workspace = true }
 # Enable the unstable feature for polls support.
@@ -43,4 +43,4 @@ wasm-bindgen-test = "0.3.33"
 workspace = true
 
 [package.metadata.release]
-release = false
+release = true
