@@ -990,7 +990,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let new_item = TimelineItem::new(
             prev_item
                 .with_kind(ti_kind)
-                .with_content(TimelineItemContent::message(content, None, &txn.items), None),
+                .with_content(TimelineItemContent::message(content, None, &txn.items)),
             prev_item.internal_id.to_owned(),
         );
 
@@ -1605,7 +1605,7 @@ async fn fetch_replied_to_event(
         event_id: in_reply_to.to_owned(),
         event: TimelineDetails::Pending,
     });
-    let event_item = item.with_content(TimelineItemContent::Message(reply), None);
+    let event_item = item.with_content(TimelineItemContent::Message(reply));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
     state.items.replace(index, new_timeline_item);
