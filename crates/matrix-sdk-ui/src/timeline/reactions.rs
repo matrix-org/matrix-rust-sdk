@@ -14,22 +14,9 @@
 
 use std::collections::HashMap;
 
-use ruma::{events::relation::Annotation, OwnedEventId, OwnedUserId};
+use ruma::OwnedUserId;
 
 use super::event_item::TimelineEventItemId;
-
-// Implements hash etc
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub(super) struct AnnotationKey {
-    event_id: OwnedEventId,
-    key: String,
-}
-
-impl From<&Annotation> for AnnotationKey {
-    fn from(annotation: &Annotation) -> Self {
-        Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
-    }
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct FullReactionKey {
