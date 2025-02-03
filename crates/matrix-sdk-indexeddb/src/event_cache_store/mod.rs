@@ -33,14 +33,12 @@ use matrix_sdk_base::{
     },
     linked_chunk::{
         // ChunkContent,
-        // ChunkIdentifier,
+        ChunkIdentifier,
         RawChunk,
         Update,
     },
-    media::{
-        MediaRequestParameters,
-        // UniqueKey
-    },
+    media::MediaRequestParameters,
+    // UniqueKey
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -50,11 +48,12 @@ use ruma::{
     RoomId,
 };
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, trace};
 use wasm_bindgen::JsValue;
 use web_sys::IdbTransactionMode;
 
 mod error;
+mod idb_operations;
 mod indexeddb_serializer;
 mod migrations;
 
@@ -180,8 +179,9 @@ impl_event_cache_store!({
         room_id: &RoomId,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
-        // let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
-        // let room_id = room_id.to_owned();
+        // TODO not sure if this should be a String or JsValue (which I assume is a ByteArray)
+        let hashed_room_id = self.serializer.encode_key_as_string(keys::LINKED_CHUNKS, room_id);
+        let room_id = room_id.to_owned();
         // let this = self.clone();
         let tx = self
             .inner
@@ -189,17 +189,35 @@ impl_event_cache_store!({
 
         let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-        // for update in updates {
-        //     match update {
-        //         Update::Insert { chunk } => {
-        //             let chunk = self.serializer.serialize_chunk(&chunk)?;
-        //             object_store.put_key_val(&room_id, &chunk)?;
-        //         }
-        //         Update::Delete { chunk_id } => {
-        //             object_store.delete(&chunk_id)?;
-        //         }
-        //     }
-        // }
+        for update in updates {
+            match update {
+                Update::NewItemsChunk { previous, new, next } => {
+                    let previous = previous.as_ref().map(ChunkIdentifier::index);
+                    let new = new.index();
+                    let next = next.as_ref().map(ChunkIdentifier::index);
+
+                    trace!(%room_id,"Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
+
+                    idb_operations::insert_chunk(
+                        object_store,
+                        &hashed_room_id,
+                        previous,
+                        new,
+                        next,
+                    )
+                    .await?;
+                }
+                Update::NewGapChunk { previous, new, next, gap } => todo!(),
+                Update::RemoveChunk(chunk_identifier) => todo!(),
+                Update::PushItems { at, items } => todo!(),
+                Update::ReplaceItem { at, item } => todo!(),
+                Update::RemoveItem { at } => todo!(),
+                Update::DetachLastItems { at } => todo!(),
+                Update::StartReattachItems => todo!(),
+                Update::EndReattachItems => todo!(),
+                Update::Clear => todo!(),
+            }
+        }
 
         Ok(())
     }
