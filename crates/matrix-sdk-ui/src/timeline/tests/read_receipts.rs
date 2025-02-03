@@ -693,36 +693,33 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
     assert_eq!(receipt_event_id, carol_event_id);
 
     // Add the events.
-    let carol_event_content = RoomMessageEventContent::text_plain("I am Carol!");
     timeline
         .handle_back_paginated_event(
             timeline
                 .factory
-                .event(carol_event_content)
+                .text_msg("I am Carol!")
                 .sender(*CAROL)
                 .room(room_id)
                 .event_id(&carol_event_id)
                 .into_raw_timeline(),
         )
         .await;
-    let bob_event_content = RoomMessageEventContent::text_plain("I am Bob!");
     timeline
         .handle_back_paginated_event(
             timeline
                 .factory
-                .event(bob_event_content)
+                .text_msg("I am Bob!")
                 .sender(*BOB)
                 .room(room_id)
                 .event_id(&bob_event_id)
                 .into_raw_timeline(),
         )
         .await;
-    let alice_event_content = RoomMessageEventContent::text_plain("I am Alice!");
     timeline
         .handle_back_paginated_event(
             timeline
                 .factory
-                .event(alice_event_content)
+                .text_msg("I am Alice!")
                 .sender(*ALICE)
                 .room(room_id)
                 .event_id(&alice_event_id)
