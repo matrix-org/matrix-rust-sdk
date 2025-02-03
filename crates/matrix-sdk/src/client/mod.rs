@@ -1155,16 +1155,20 @@ impl Client {
         };
 
         if let Some(room) = self.get_room(&room_id) {
-            // The cached data can only be trusted if the room is joined: for invite and
-            // knock rooms, no updates will be received for the rooms after the invite/knock
-            // action took place so we may have very out to date data for important fields
-            // such as `join_rule`
-            if room.state() == RoomState::Joined {
-                return Ok(RoomPreview::from_joined(&room).await);
+            // The cached data can only be trusted if the room state is joined or
+            // banned: for invite and knock rooms, no updates will be received
+            // for the rooms after the invite/knock action took place so we may
+            // have very out to date data for important fields such as
+            // `join_rule`. For left rooms, the homeserver should return the latest info.
+            match room.state() {
+                RoomState::Joined | RoomState::Banned => {
+                    return Ok(RoomPreview::from_known_room(&room).await);
+                }
+                RoomState::Left | RoomState::Invited | RoomState::Knocked => {}
             }
         }
 
-        RoomPreview::from_not_joined(self, room_id, room_or_alias_id, via).await
+        RoomPreview::from_remote_room(self, room_id, room_or_alias_id, via).await
     }
 
     /// Resolve a room alias to a room id and a list of servers which know

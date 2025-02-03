@@ -126,8 +126,12 @@ impl RoomPreview {
         }
     }
 
-    /// Create a room preview from a known room we've joined.
-    pub(crate) async fn from_joined(room: &Room) -> Self {
+    /// Create a room preview from a known room.
+    ///
+    /// Note this shouldn't be used with invited or knocked rooms, since the
+    /// local info may be out of date and no longer represent the latest room
+    /// state.
+    pub(crate) async fn from_known_room(room: &Room) -> Self {
         let is_direct = room.is_direct().await.ok();
 
         let display_name = room.display_name().await.ok().map(|name| name.to_string());
@@ -143,7 +147,7 @@ impl RoomPreview {
     }
 
     #[instrument(skip(client))]
-    pub(crate) async fn from_not_joined(
+    pub(crate) async fn from_remote_room(
         client: &Client,
         room_id: OwnedRoomId,
         room_or_alias_id: &RoomOrAliasId,
