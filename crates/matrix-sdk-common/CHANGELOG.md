@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.10.0] - 2025-02-04
+
 - [**breaking**]: `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
   `TimelineEvent`, and its field `push_actions` has been made `Option`al (it is set to `None` when
   we couldn't compute the push actions, because we lacked some information).
