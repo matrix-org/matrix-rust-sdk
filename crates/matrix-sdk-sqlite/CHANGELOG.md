@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
   `matrix-sdk-base` for more details.
   ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+- The SQLite databases are optimized during the construction of the stores. It
+  should improve the performance of the queries.
+  ([#4602](https://github.com/matrix-org/matrix-rust-sdk/pull/4602))
+- The size of the WAL files is now limited to 10MB. This avoids cases where the
+  WAL file takes as much space as the database.
+  ([#4602](https://github.com/matrix-org/matrix-rust-sdk/pull/4602))
 
 ## [0.9.0] - 2024-12-18
 

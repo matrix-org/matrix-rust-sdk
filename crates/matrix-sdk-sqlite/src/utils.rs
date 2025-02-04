@@ -104,6 +104,38 @@ pub(crate) trait SqliteAsyncConnExt {
     where
         Res: Send + 'static,
         Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+
+    /// Optimize the database.
+    ///
+    /// [The SQLite docs] recommend to run this regularly and after any schema
+    /// change. The easiest is to do it consistently when the state store is
+    /// constructed, after eventual migrations.
+    ///
+    /// [The SQLite docs]: https://www.sqlite.org/pragma.html#pragma_optimize
+    async fn optimize(&self) -> Result<()> {
+        self.execute_batch("PRAGMA optimize=0x10002;").await?;
+        Ok(())
+    }
+
+    /// Limit the size of the WAL file.
+    ///
+    /// By default, while the DB connections of the databases are open, [the
+    /// size of the WAL file can keep increasing] depending on the size
+    /// needed for the transactions. A critical case is VACUUM which
+    /// basically writes the content of the DB file to the WAL file before
+    /// writing it back to the DB file, so we end up taking twice the size
+    /// of the database.
+    ///
+    /// By setting this limit, the WAL file is truncated after its content is
+    /// written to the database, if it is bigger than the limit.
+    ///
+    /// The limit is set to 10MB.
+    ///
+    /// [the size of the WAL file can keep increasing]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
+    async fn set_journal_size_limit(&self) -> Result<()> {
+        self.execute_batch("PRAGMA journal_size_limit = 10000000;").await.map_err(Error::from)?;
+        Ok(())
+    }
 }
 
 #[async_trait]

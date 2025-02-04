@@ -510,10 +510,17 @@ impl EventTimelineItem {
     }
 
     /// Clone the current event item, and update its content.
+    pub(super) fn with_content(&self, new_content: TimelineItemContent) -> Self {
+        let mut new = self.clone();
+        new.content = new_content;
+        new
+    }
+
+    /// Clone the current event item, and update its content.
     ///
     /// Optionally update `latest_edit_json` if the update is an edit received
     /// from the server.
-    pub(super) fn with_content(
+    pub(super) fn with_content_and_latest_edit(
         &self,
         new_content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
@@ -523,7 +530,6 @@ impl EventTimelineItem {
         if let EventTimelineItemKind::Remote(r) = &mut new.kind {
             r.latest_edit_json = edit_json;
         }
-
         new
     }
 

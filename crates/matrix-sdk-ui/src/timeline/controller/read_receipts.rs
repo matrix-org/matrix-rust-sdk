@@ -395,10 +395,7 @@ impl TimelineStateTransaction<'_> {
         room_data_provider: &P,
     ) {
         let read_receipts = room_data_provider.load_event_receipts(event_id).await;
-
-        // Filter out receipts for our own user.
         let own_user_id = room_data_provider.own_user_id();
-        let read_receipts = read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id);
 
         // Since they are explicit read receipts, we need to check if they are
         // superseded by implicit read receipts.
