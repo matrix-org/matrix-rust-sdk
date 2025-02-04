@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use matrix_sdk::send_queue::SendHandle;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 
 use crate::timeline::{
@@ -36,6 +37,9 @@ pub(crate) enum AggregationKind {
         key: String,
         sender: OwnedUserId,
         timestamp: MilliSecondsSinceUnixEpoch,
+        /// For local reactions to remote events, a send handle to manipulate
+        /// the local reaction.
+        send_handle: Option<SendHandle>,
     },
 }
 
@@ -62,6 +66,9 @@ impl Aggregation {
         Self { kind, own_id }
     }
 
+    /// Apply in-place an aggregation to a given [`TimelineItemContent`].
+    ///
+    /// Returns an error if the aggregation couldn't be applied.
     pub fn apply(&self, content: &mut TimelineItemContent) -> Result<(), AggregationError> {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, answers } => {
@@ -79,7 +86,7 @@ impl Aggregation {
                 }
             }
 
-            AggregationKind::Reaction { key, sender, timestamp } => {
+            AggregationKind::Reaction { key, sender, timestamp, send_handle } => {
                 let reactions = match content {
                     TimelineItemContent::Message(message) => &mut message.reactions,
                     TimelineItemContent::Poll(poll_state) => &mut poll_state.reactions,
@@ -101,11 +108,10 @@ impl Aggregation {
 
                 let status = match &self.own_id {
                     TimelineEventItemId::TransactionId(_) => {
-                        // TODO?
-                        ReactionStatus::LocalToRemote(None)
+                        ReactionStatus::LocalToRemote(send_handle.clone())
                     }
-                    TimelineEventItemId::EventId(owned_event_id) => {
-                        ReactionStatus::RemoteToRemote(owned_event_id.clone())
+                    TimelineEventItemId::EventId(event_id) => {
+                        ReactionStatus::RemoteToRemote(event_id.clone())
                     }
                 };
 
@@ -115,26 +121,32 @@ impl Aggregation {
                     .insert(sender.clone(), ReactionInfo { timestamp: *timestamp, status });
             }
         }
+
         Ok(())
     }
 }
 
+/// Manager for all known existing aggregations to all events in the timeline.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Aggregations {
-    stashed: HashMap<TimelineEventItemId, Vec<Aggregation>>,
+    /// Mapping of a target event to its list of aggregations.
+    related_events: HashMap<TimelineEventItemId, Vec<Aggregation>>,
 }
 
 impl Aggregations {
     pub fn clear(&mut self) {
-        self.stashed.clear();
+        self.related_events.clear();
     }
 
     pub fn add(&mut self, related_to: OwnedEventId, aggregation: Aggregation) {
-        self.stashed.entry(TimelineEventItemId::EventId(related_to)).or_default().push(aggregation);
+        self.related_events
+            .entry(TimelineEventItemId::EventId(related_to))
+            .or_default()
+            .push(aggregation);
     }
 
     pub fn get_mut(&mut self, related_to: &TimelineEventItemId) -> Option<&mut Vec<Aggregation>> {
-        self.stashed.get_mut(related_to)
+        self.related_events.get_mut(related_to)
     }
 
     pub fn apply(
@@ -142,7 +154,7 @@ impl Aggregations {
         item_id: &TimelineEventItemId,
         content: &mut TimelineItemContent,
     ) -> Result<bool, AggregationError> {
-        let Some(aggregations) = self.stashed.get(item_id) else {
+        let Some(aggregations) = self.related_events.get(item_id) else {
             return Ok(false);
         };
         for a in aggregations {
