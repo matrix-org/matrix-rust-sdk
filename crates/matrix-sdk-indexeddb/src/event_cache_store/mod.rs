@@ -11,10 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+mod builder;
+mod error;
+mod idb_operations;
+mod indexeddb_serializer;
+mod migrations;
 
-use crate::event_cache_store::{
-    indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
-};
+use crate::event_cache_store::indexeddb_serializer::IndexeddbSerializer;
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
 use indexed_db_futures::IdbQuerySource;
@@ -40,99 +43,39 @@ use matrix_sdk_base::{
     media::MediaRequestParameters,
     // UniqueKey
 };
-use matrix_sdk_store_encryption::StoreCipher;
+
 use ruma::{
     // time::SystemTime,
     MilliSecondsSinceUnixEpoch,
     MxcUri,
     RoomId,
 };
-use std::sync::Arc;
-use tracing::{debug, trace};
+
+use tracing::trace;
 use wasm_bindgen::JsValue;
 use web_sys::IdbTransactionMode;
 
-mod error;
-mod idb_operations;
-mod indexeddb_serializer;
-mod migrations;
-
+pub use builder::IndexeddbEventCacheStoreBuilder;
 pub use error::IndexeddbEventCacheStoreError;
 
 mod keys {
     pub const CORE: &str = "core";
     // Entries in Key-value store
-    pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
+    // pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
 
     // Tables
     pub const LINKED_CHUNKS: &str = "linked_chunks";
-    pub const MEDIA: &str = "media";
+    // pub const MEDIA: &str = "media";
 }
 
-/// Builder for [`IndexeddbEventCacheStore`]
-// #[derive(Debug)] // TODO StoreCipher cannot be derived
-pub struct IndexeddbEventCacheStoreBuilder {
-    name: Option<String>,
-    store_cipher: Option<Arc<StoreCipher>>,
-    migration_conflict_strategy: MigrationConflictStrategy,
-}
-
-impl IndexeddbEventCacheStoreBuilder {
-    fn new() -> Self {
-        Self {
-            name: None,
-            store_cipher: None,
-            migration_conflict_strategy: MigrationConflictStrategy::BackupAndDrop,
-        }
-    }
-
-    pub fn name(mut self, name: String) -> Self {
-        self.name = Some(name);
-        self
-    }
-
-    pub fn store_cipher(mut self, store_cipher: Arc<StoreCipher>) -> Self {
-        self.store_cipher = Some(store_cipher);
-        self
-    }
-
-    /// The strategy to use when a merge conflict is found.
-    ///
-    /// See [`MigrationConflictStrategy`] for details.
-    pub fn migration_conflict_strategy(mut self, value: MigrationConflictStrategy) -> Self {
-        self.migration_conflict_strategy = value;
-        self
-    }
-
-    pub async fn build(self) -> Result<IndexeddbEventCacheStore> {
-        // let migration_strategy = self.migration_conflict_strategy.clone();
-        let name = self.name.unwrap_or_else(|| "event_cache".to_owned());
-
-        let serializer = IndexeddbSerializer::new(self.store_cipher);
-        debug!("IndexedDbEventCacheStore: opening main store {name}");
-        let inner = open_and_upgrade_db(&name, &serializer).await?;
-
-        let store = IndexeddbEventCacheStore { name, inner, serializer };
-        Ok(store)
-    }
-}
-
-/// Sometimes Migrations can't proceed without having to drop existing
-/// data. This allows you to configure, how these cases should be handled.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MigrationConflictStrategy {
-    /// Just drop the data, we don't care that we have to sync again
-    Drop,
-    /// Raise a [`IndexeddbStateStoreError::MigrationConflict`] error with the
-    /// path to the DB in question. The caller then has to take care about
-    /// what they want to do and try again after.
-    Raise,
-    /// Default.
-    BackupAndDrop,
-}
-
+/// The string used to identify a chunk of type events, in the `type` field in
+/// the database.
+const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
+/// The string used to identify a chunk of type gap, in the `type` field in the
+/// database.
+// const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 pub struct IndexeddbEventCacheStore {
-    name: String,
+    // name: String,
     pub(crate) inner: IdbDatabase,
     pub(crate) serializer: IndexeddbSerializer,
 }
@@ -199,20 +142,21 @@ impl_event_cache_store!({
                     trace!(%room_id,"Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
 
                     idb_operations::insert_chunk(
-                        object_store,
+                        &object_store,
                         &hashed_room_id,
                         previous,
                         new,
                         next,
+                        CHUNK_TYPE_EVENT_TYPE_STRING,
                     )
                     .await?;
                 }
-                Update::NewGapChunk { previous, new, next, gap } => todo!(),
-                Update::RemoveChunk(chunk_identifier) => todo!(),
-                Update::PushItems { at, items } => todo!(),
-                Update::ReplaceItem { at, item } => todo!(),
-                Update::RemoveItem { at } => todo!(),
-                Update::DetachLastItems { at } => todo!(),
+                Update::NewGapChunk { previous: _, new: _, next: _, gap: _ } => todo!(),
+                Update::RemoveChunk(_chunk_identifier) => todo!(),
+                Update::PushItems { at: _, items: _ } => todo!(),
+                Update::ReplaceItem { at: _, item: _ } => todo!(),
+                Update::RemoveItem { at: _ } => todo!(),
+                Update::DetachLastItems { at: _ } => todo!(),
                 Update::StartReattachItems => todo!(),
                 Update::EndReattachItems => todo!(),
                 Update::Clear => todo!(),
@@ -224,7 +168,7 @@ impl_event_cache_store!({
 
     /// Return all the raw components of a linked chunk, so the caller may
     /// reconstruct the linked chunk later.
-    async fn reload_linked_chunk(&self, room_id: &RoomId) -> Result<Vec<RawChunk<Event, Gap>>> {
+    async fn reload_linked_chunk(&self, _room_id: &RoomId) -> Result<Vec<RawChunk<Event, Gap>>> {
         Ok(vec![])
     }
 
@@ -245,9 +189,9 @@ impl_event_cache_store!({
     /// * `content` - The content of the file.
     async fn add_media_content(
         &self,
-        request: &MediaRequestParameters,
-        content: Vec<u8>,
-        ignore_policy: IgnoreMediaRetentionPolicy,
+        _request: &MediaRequestParameters,
+        _content: Vec<u8>,
+        _ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
         Ok(())
     }
@@ -273,8 +217,8 @@ impl_event_cache_store!({
     /// * `to` - The new `MediaRequest` of the file.
     async fn replace_media_key(
         &self,
-        from: &MediaRequestParameters,
-        to: &MediaRequestParameters,
+        _from: &MediaRequestParameters,
+        _to: &MediaRequestParameters,
     ) -> Result<()> {
         Ok(())
     }
@@ -284,7 +228,10 @@ impl_event_cache_store!({
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the file.
-    async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
+    async fn get_media_content(
+        &self,
+        _request: &MediaRequestParameters,
+    ) -> Result<Option<Vec<u8>>> {
         Ok(None)
     }
 
@@ -293,7 +240,7 @@ impl_event_cache_store!({
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the file.
-    async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
+    async fn remove_media_content(&self, _request: &MediaRequestParameters) -> Result<()> {
         Ok(())
     }
 
@@ -311,7 +258,7 @@ impl_event_cache_store!({
     /// # Arguments
     ///
     /// * `uri` - The `MxcUri` of the media file.
-    async fn get_media_content_for_uri(&self, uri: &MxcUri) -> Result<Option<Vec<u8>>> {
+    async fn get_media_content_for_uri(&self, _uri: &MxcUri) -> Result<Option<Vec<u8>>> {
         Ok(None)
     }
 
@@ -324,7 +271,7 @@ impl_event_cache_store!({
     /// # Arguments
     ///
     /// * `uri` - The `MxcUri` of the media files.
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+    async fn remove_media_content_for_uri(&self, _uri: &MxcUri) -> Result<()> {
         Ok(())
     }
 
@@ -340,7 +287,7 @@ impl_event_cache_store!({
     /// # Arguments
     ///
     /// * `policy` - The `MediaRetentionPolicy` to use.
-    async fn set_media_retention_policy(&self, policy: MediaRetentionPolicy) -> Result<()> {
+    async fn set_media_retention_policy(&self, _policy: MediaRetentionPolicy) -> Result<()> {
         Ok(())
     }
 
@@ -357,8 +304,8 @@ impl_event_cache_store!({
     ///   ignored.
     async fn set_ignore_media_retention_policy(
         &self,
-        request: &MediaRequestParameters,
-        ignore_policy: IgnoreMediaRetentionPolicy,
+        _request: &MediaRequestParameters,
+        _ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
         Ok(())
     }

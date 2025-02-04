@@ -24,7 +24,7 @@ use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::JsValue;
-use web_sys::IdbKeyRange;
+// use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;
 
 use crate::{safe_encode::SafeEncode, IndexeddbEventCacheStoreError};
@@ -64,13 +64,13 @@ impl IndexeddbSerializer {
     ///
     /// This is faster than [`Self::serialize_value`] and reliably gives the
     /// same output for the same input, making it suitable for index keys.
-    pub fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
-    where
-        T: SafeEncode,
-    {
-        self.encode_key_as_string(table_name, key).into()
-    }
-
+    // pub fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
+    // where
+    //     T: SafeEncode,
+    // {
+    //     self.encode_key_as_string(table_name, key).into()
+    // }
+    //
     /// Hash the given key securely for the given tablename, using the store
     /// cipher.
     ///
@@ -86,25 +86,25 @@ impl IndexeddbSerializer {
         }
     }
 
-    pub fn encode_to_range<T>(
-        &self,
-        table_name: &str,
-        key: T,
-    ) -> Result<IdbKeyRange, IndexeddbEventCacheStoreError>
-    where
-        T: SafeEncode,
-    {
-        match &self.store_cipher {
-            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
-            None => key.encode_to_range(),
-        }
-        .map_err(|e| IndexeddbEventCacheStoreError::DomException {
-            code: 0,
-            name: "IdbKeyRangeMakeError".to_owned(),
-            message: e,
-        })
-    }
-
+    // pub fn encode_to_range<T>(
+    //     &self,
+    //     table_name: &str,
+    //     key: T,
+    // ) -> Result<IdbKeyRange, IndexeddbEventCacheStoreError>
+    // where
+    //     T: SafeEncode,
+    // {
+    //     match &self.store_cipher {
+    //         Some(cipher) => key.encode_to_range_secure(table_name, cipher),
+    //         None => key.encode_to_range(),
+    //     }
+    //     .map_err(|e| IndexeddbEventCacheStoreError::DomException {
+    //         code: 0,
+    //         name: "IdbKeyRangeMakeError".to_owned(),
+    //         message: e,
+    //     })
+    // }
+    //
     /// Encode the value for storage as a value in indexeddb.
     ///
     /// A thin wrapper around [`IndexeddbSerializer::maybe_encrypt_value`]:
@@ -126,16 +126,16 @@ impl IndexeddbSerializer {
     /// Avoid using this in new code. Prefer
     /// [`IndexeddbSerializer::serialize_value`] or
     /// [`IndexeddbSerializer::maybe_encrypt_value`].
-    pub fn serialize_value_as_bytes(
-        &self,
-        value: &impl Serialize,
-    ) -> Result<Vec<u8>, CryptoStoreError> {
-        match &self.store_cipher {
-            Some(cipher) => cipher.encrypt_value(value).map_err(CryptoStoreError::backend),
-            None => serde_json::to_vec(value).map_err(CryptoStoreError::backend),
-        }
-    }
-
+    // pub fn serialize_value_as_bytes(
+    //     &self,
+    //     value: &impl Serialize,
+    // ) -> Result<Vec<u8>, CryptoStoreError> {
+    //     match &self.store_cipher {
+    //         Some(cipher) => cipher.encrypt_value(value).map_err(CryptoStoreError::backend),
+    //         None => serde_json::to_vec(value).map_err(CryptoStoreError::backend),
+    //     }
+    // }
+    //
     /// Encode an object for storage as a value in indexeddb.
     ///
     /// First serializes the object as JSON bytes.
@@ -258,17 +258,17 @@ impl IndexeddbSerializer {
 
     /// Decode a value that was previously encoded with
     /// [`Self::serialize_value_as_bytes`]
-    pub fn deserialize_value_from_bytes<T: DeserializeOwned>(
-        &self,
-        value: &[u8],
-    ) -> Result<T, CryptoStoreError> {
-        if let Some(cipher) = &self.store_cipher {
-            cipher.decrypt_value(value).map_err(CryptoStoreError::backend)
-        } else {
-            serde_json::from_slice(value).map_err(CryptoStoreError::backend)
-        }
-    }
-
+    // pub fn deserialize_value_from_bytes<T: DeserializeOwned>(
+    //     &self,
+    //     value: &[u8],
+    // ) -> Result<T, CryptoStoreError> {
+    //     if let Some(cipher) = &self.store_cipher {
+    //         cipher.decrypt_value(value).map_err(CryptoStoreError::backend)
+    //     } else {
+    //         serde_json::from_slice(value).map_err(CryptoStoreError::backend)
+    //     }
+    // }
+    //
     /// Decode a value that was previously encoded with
     /// [`Self::maybe_encrypt_value`]
     pub fn maybe_decrypt_value<T: DeserializeOwned>(

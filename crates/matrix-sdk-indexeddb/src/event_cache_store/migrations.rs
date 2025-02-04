@@ -8,6 +8,19 @@ use wasm_bindgen::JsValue;
 
 const CURRENT_DB_VERSION: u32 = 1;
 
+/// data. This allows you to configure, how these cases should be handled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MigrationConflictStrategy {
+    /// Just drop the data, we don't care that we have to sync again
+    Drop,
+    /// Raise a [`IndexeddbStateStoreError::MigrationConflict`] error with the
+    /// path to the DB in question. The caller then has to take care about
+    /// what they want to do and try again after.
+    Raise,
+    /// Default.
+    BackupAndDrop,
+}
+
 pub async fn open_and_upgrade_db(
     name: &str,
     _serializer: &IndexeddbSerializer,
@@ -35,7 +48,7 @@ async fn setup_db(db: IdbDatabase, version: u32) -> Result<IdbDatabase> {
         move |events: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             let mut params = IdbObjectStoreParameters::new();
             params.key_path(Some(&IdbKeyPath::from("id")));
-            events.db().create_object_store_with_params(keys::LINKED_CHUNKS, &params);
+            events.db().create_object_store_with_params(keys::LINKED_CHUNKS, &params)?;
             Ok(())
         },
     ));

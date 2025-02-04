@@ -21,9 +21,7 @@ mod state_store;
 #[cfg(feature = "e2e-encryption")]
 pub use crypto_store::{IndexeddbCryptoStore, IndexeddbCryptoStoreError};
 #[cfg(feature = "event-cache-store")]
-pub use event_cache_store::{
-    IndexeddbEventCacheStore, IndexeddbEventCacheStoreBuilder, IndexeddbEventCacheStoreError,
-};
+pub use event_cache_store::{IndexeddbEventCacheStore, IndexeddbEventCacheStoreError};
 #[cfg(feature = "state-store")]
 pub use state_store::{
     IndexeddbStateStore, IndexeddbStateStoreBuilder, IndexeddbStateStoreError,
@@ -79,7 +77,7 @@ pub async fn open_event_cache_store(
 ) -> Result<IndexeddbEventCacheStore, OpenStoreError> {
     let mut builder = IndexeddbEventCacheStore::builder().name(name.to_owned());
     if let Some(store_cipher) = store_cipher {
-        builder = builder.store_cipher(store_cipher.clone());
+        builder = builder.store_cipher(store_cipher);
     }
 
     let event_cache_store = builder.build().await.map_err(StoreError::from)?;
