@@ -22,7 +22,7 @@ use matrix_sdk_common::linked_chunk::{
     ObservableUpdates, Position,
 };
 use ruma::{
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent},
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType},
     OwnedEventId, RoomVersionId,
 };
 use tracing::{debug, error, instrument, trace, warn};
@@ -97,6 +97,18 @@ impl RoomEvents {
     /// event in the chunk, and replace it by the redacted form.
     #[instrument(skip_all)]
     fn maybe_apply_new_redaction(&mut self, room_version: &RoomVersionId, event: &Event) {
+        let raw_event = event.raw();
+
+        // Do not deserialise the entire event if we aren't certain it's a
+        // `m.room.redaction`. It saves a non-negligible amount of computations.
+        let Ok(Some(MessageLikeEventType::RoomRedaction)) =
+            raw_event.get_field::<MessageLikeEventType>("type")
+        else {
+            return;
+        };
+
+        // It is a `m.room.redaction`! We can deserialize it entirely.
+
         let Ok(AnySyncTimelineEvent::MessageLike(
             ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
         )) = event.raw().deserialize()
