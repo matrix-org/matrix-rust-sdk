@@ -37,9 +37,8 @@ use matrix_sdk::{
 use matrix_sdk_base::{
     crypto::types::events::CryptoContextInfo, latest_event::LatestEvent, RoomInfo, RoomState,
 };
-use matrix_sdk_test::{event_factory::EventFactory, ALICE, BOB, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
-    event_id,
     events::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -353,11 +352,17 @@ impl RoomDataProvider for TestRoomDataProvider {
         &'a self,
         event_id: &'a EventId,
     ) -> IndexMap<OwnedUserId, Receipt> {
-        if event_id == event_id!("$event_with_bob_receipt") {
-            [(BOB.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch(uint!(10))))].into()
-        } else {
-            IndexMap::new()
+        let mut map = IndexMap::new();
+
+        for (user_id, (receipt_event_id, receipt)) in
+            self.initial_user_receipts.values().flat_map(|m| m.values()).flatten()
+        {
+            if receipt_event_id == event_id {
+                map.insert(user_id.clone(), receipt.clone());
+            }
         }
+
+        map
     }
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {

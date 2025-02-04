@@ -20,7 +20,7 @@ use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, EncryptionInfo, VerificationLevel, VerificationState,
 };
 use matrix_sdk_base::deserialized_responses::{DecryptedRoomEvent, TimelineEvent};
-use matrix_sdk_test::{async_test, ALICE};
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
     events::{
@@ -368,4 +368,76 @@ async fn test_relations_edit_overrides_pending_edit_poll() {
     assert!(date_divider.is_date_divider());
 
     assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_updated_reply_doesnt_lose_latest_edit() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe_events().await;
+
+    let f = &timeline.factory;
+
+    // Start with a message event.
+    let target = event_id!("$1");
+    timeline.handle_live_event(f.text_msg("hey").sender(&ALICE).event_id(target)).await;
+
+    {
+        let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        assert!(item.latest_edit_json().is_none());
+        assert_eq!(item.content().as_message().unwrap().body(), "hey");
+        assert_pending!(stream);
+    }
+
+    // Have someone send a reply.
+    let reply = event_id!("$2");
+    timeline
+        .handle_live_event(f.text_msg("hallo").sender(&BOB).reply_to(target).event_id(reply))
+        .await;
+
+    {
+        let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        assert!(item.latest_edit_json().is_none());
+        assert_eq!(item.content().as_message().unwrap().body(), "hallo");
+        assert_pending!(stream);
+    }
+
+    // Edit the reply.
+    timeline
+        .handle_live_event(
+            f.text_msg("* guten tag")
+                .sender(&BOB)
+                .edit(reply, MessageType::text_plain("guten tag").into()),
+        )
+        .await;
+
+    {
+        let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+        assert!(item.latest_edit_json().is_some());
+        assert_eq!(item.content().as_message().unwrap().body(), "guten tag");
+        assert_pending!(stream);
+    }
+
+    // Edit the original.
+    timeline
+        .handle_live_event(
+            f.text_msg("* hello")
+                .sender(&ALICE)
+                .edit(target, MessageType::text_plain("hello").into()),
+        )
+        .await;
+
+    {
+        // The reply is updated.
+        let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+        // And still has the latest edit JSON.
+        assert!(item.latest_edit_json().is_some());
+        assert_eq!(item.content().as_message().unwrap().body(), "guten tag");
+
+        // The original is updated.
+        let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+        // And now has a latest edit JSON.
+        assert!(item.latest_edit_json().is_some());
+
+        assert_pending!(stream);
+    }
 }

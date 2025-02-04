@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
   ([#4448](https://github.com/matrix-org/matrix-rust-sdk/pull/4448))
 - Fix `EventTimelineItem::latest_edit_json()` when it is populated by a live
   edit. ([#4552](https://github.com/matrix-org/matrix-rust-sdk/pull/4552))
+- Fix our own explicit read receipt being ignored when loading it from the
+  state store, which resulted in our own read receipt being wrong sometimes.
+  ([#4600](https://github.com/matrix-org/matrix-rust-sdk/pull/4600))
 
 ### Features
 
@@ -23,6 +26,12 @@ All notable changes to this project will be documented in this file.
   the bytes and the filename of the attachment. Note that all types that
   implement `Into<PathBuf>` also implement `Into<AttachmentSource>`.
   ([#4451](https://github.com/matrix-org/matrix-rust-sdk/pull/4451))
+
+- [**breaking**] Add an "offline" mode to the `SyncService`. This allows the
+  `SyncService` to attempt to restart the sync automatically. It can be enabled
+  with the `SyncServiceBuilder::with_offline_mode` method. Due to this addition,
+  the `SyncService::stop` method has been made infallible.
+  ([#4592](https://github.com/matrix-org/matrix-rust-sdk/pull/4592))
 
 ### Refactor
 

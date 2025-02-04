@@ -38,6 +38,7 @@ pub enum SyncServiceState {
     Running,
     Terminated,
     Error,
+    Offline,
 }
 
 impl From<MatrixSyncServiceState> for SyncServiceState {
@@ -47,6 +48,7 @@ impl From<MatrixSyncServiceState> for SyncServiceState {
             MatrixSyncServiceState::Running => Self::Running,
             MatrixSyncServiceState::Terminated => Self::Terminated,
             MatrixSyncServiceState::Error => Self::Error,
+            MatrixSyncServiceState::Offline => Self::Offline,
         }
     }
 }
@@ -72,11 +74,11 @@ impl SyncService {
     }
 
     pub async fn start(&self) {
-        self.inner.start().await;
+        self.inner.start().await
     }
 
-    pub async fn stop(&self) -> Result<(), ClientError> {
-        Ok(self.inner.stop().await?)
+    pub async fn stop(&self) {
+        self.inner.stop().await
     }
 
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
@@ -115,6 +117,13 @@ impl SyncServiceBuilder {
     pub fn with_cross_process_lock(self: Arc<Self>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_cross_process_lock();
+        Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
+    }
+
+    /// Enable the "offline" mode for the [`SyncService`].
+    pub fn with_offline_mode(self: Arc<Self>) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_offline_mode();
         Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
     }
 

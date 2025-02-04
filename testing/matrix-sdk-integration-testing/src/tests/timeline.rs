@@ -610,7 +610,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .expect("We should be able to load the room list");
 
     // Let's stop the sync so we don't receive the room key using the usual channel.
-    sync_service.stop().await.expect("We should be able to stop the sync service");
+    sync_service.stop().await;
 
     debug!("Alice sends the message");
     let event_id = alice_room

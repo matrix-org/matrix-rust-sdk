@@ -69,7 +69,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 11;
+const DATABASE_VERSION: u8 = 12;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -104,6 +104,8 @@ impl SqliteStateStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
+        conn.set_journal_size_limit().await?;
+
         let mut version = conn.db_version().await?;
 
         if version == 0 {
@@ -117,6 +119,7 @@ impl SqliteStateStore {
         };
         let this = Self { store_cipher, pool };
         this.run_migrations(&conn, version, None).await?;
+        conn.optimize().await?;
 
         Ok(this)
     }
@@ -327,6 +330,14 @@ impl SqliteStateStore {
                 txn.set_db_version(11)
             })
             .await?;
+        }
+
+        if from < 12 && to >= 12 {
+            // Defragment the DB and optimize its size on the filesystem.
+            // This should have been run in the migration for version 7, to reduce the size
+            // of the DB as we removed the media cache.
+            conn.execute_batch("VACUUM").await?;
+            conn.set_kv("version", vec![12]).await?;
         }
 
         Ok(())

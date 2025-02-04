@@ -20,15 +20,21 @@
 //!
 //! The sync service will signal errors via its [`state`](SyncService::state)
 //! that the user MUST observe. Whenever an error/termination is observed, the
-//! user MUST call [`SyncService::start()`] again to restart the room list sync.
+//! user should call [`SyncService::start()`] again to restart the room list
+//! sync, if that is not desirable, the offline support for the [`SyncService`]
+//! may be enabled using the [`SyncServiceBuilder::with_offline_mode`] setting.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use eyeball::{SharedObservable, Subscriber};
-use futures_core::Future;
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{
+    future::{select, Either},
+    pin_mut, StreamExt as _,
+};
 use matrix_sdk::{
+    config::RequestConfig,
     executor::{spawn, JoinHandle},
+    sleep::sleep,
     Client,
 };
 use thiserror::Error;
@@ -50,9 +56,6 @@ use crate::{
 /// terminal state [`State::Terminated`] (if it gracefully exited) or
 /// [`State::Error`] (in case any of the underlying syncs ran into an error).
 ///
-/// It is the responsibility of the caller to restart the application using the
-/// [`SyncService::start`] method, in case it terminated, gracefully or not.
-///
 /// This can be observed with [`SyncService::state`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
@@ -64,6 +67,38 @@ pub enum State {
     Terminated,
     /// Any of the underlying syncs has ran into an error.
     Error,
+    /// The service has entered offline mode. This state will only be entered if
+    /// the [`SyncService`] has been built with the
+    /// [`SyncServiceBuilder::with_offline_mode`] setting.
+    ///
+    /// The [`SyncService`] will enter the offline mode if syncing with the
+    /// server fails, it will then periodically check if the server is
+    /// available using the `/_matrix/client/versions` endpoint.
+    ///
+    /// Once the [`SyncService`] receives a 200 response from the
+    /// `/_matrix/client/versions` endpoint, it will go back into the
+    /// [`State::Running`] mode and attempt to sync again.
+    ///
+    /// Calling [`SyncService::start()`] while in this state will abort the
+    /// `/_matrix/client/versions` checks and attempt to sync immediately.
+    ///
+    /// Calling [`SyncService::stop()`] will abort the offline mode and the
+    /// [`SyncService`] will go into the [`State::Idle`] mode.
+    Offline,
+}
+
+enum MaybeAcquiredPermit {
+    Acquired(OwnedMutexGuard<EncryptionSyncPermit>),
+    Unacquired(Arc<AsyncMutex<EncryptionSyncPermit>>),
+}
+
+impl MaybeAcquiredPermit {
+    async fn acquire(self) -> OwnedMutexGuard<EncryptionSyncPermit> {
+        match self {
+            MaybeAcquiredPermit::Acquired(owned_mutex_guard) => owned_mutex_guard,
+            MaybeAcquiredPermit::Unacquired(lock) => lock.lock_owned().await,
+        }
+    }
 }
 
 /// A supervisor responsible for managing two sync tasks: one for handling the
@@ -88,115 +123,231 @@ impl SyncTaskSupervisor {
         room_list_service: Arc<RoomListService>,
         encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
     ) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(16);
-        let (room_list_task, encryption_sync_task) = Self::spawn_child_tasks(
-            inner,
-            room_list_service.clone(),
-            encryption_sync_permit,
-            sender.clone(),
-        )
-        .await;
+        let (task, termination_sender) =
+            Self::spawn_supervisor_task(inner, room_list_service, encryption_sync_permit).await;
 
-        let task = spawn(Self::spawn_supervisor_task(
-            inner,
-            room_list_service,
-            room_list_task,
-            encryption_sync_task,
-            receiver,
-        ));
+        Self { task, termination_sender }
+    }
 
-        Self { task, termination_sender: sender }
+    /// Check if a homeserver is reachable.
+    ///
+    /// This function handles the offline mode by waiting for either a
+    /// termination report or a successful `/_matrix/client/versions` response.
+    ///
+    /// This function waits for two conditions:
+    ///
+    /// 1. Waiting for a termination report: This ensures that the user can exit
+    ///    offline mode and attempt to restart the [`SyncService`] manually.
+    ///
+    /// 2. Waiting to come back online: This continuously checks server
+    ///    availability.
+    ///
+    /// If the `/_matrix/client/versions` request succeeds, the function exits
+    /// without a termination report. If we receive a [`TerminationReport`] from
+    /// the user, we exit immediately and return the termination report.
+    async fn offline_check(
+        client: &Client,
+        receiver: &mut Receiver<TerminationReport>,
+    ) -> Option<TerminationReport> {
+        info!("Entering the offline mode");
+
+        let wait_for_termination_report = async {
+            loop {
+                // Since we didn't empty the channel when entering the offline mode in fear that
+                // we might miss a report with the
+                // `TerminationOrigin::Supervisor` origin and the channel might contain stale
+                // reports from one of the sync services, in case both of them have sent a
+                // report, let's ignore all reports we receive from the sync
+                // services.
+                let report =
+                    receiver.recv().await.unwrap_or_else(TerminationReport::supervisor_error);
+
+                match report.origin {
+                    TerminationOrigin::EncryptionSync | TerminationOrigin::RoomList => {}
+                    // Since the sync service aren't running anymore, we can only receive a report
+                    // from the supervisor. It would have probably made sense to have separate
+                    // channels for reports the sync services send and the user can send using the
+                    // `SyncService::stop()` method.
+                    TerminationOrigin::Supervisor => break report,
+                }
+            }
+        };
+
+        let wait_to_be_online = async move {
+            loop {
+                // Encountering network failures when sending a request which has with no retry
+                // limit set in the `RequestConfig` are treated as permanent failures and our
+                // exponential backoff doesn't kick in.
+                //
+                // Let's set a retry limit so network failures are retried as well.
+                let request_config = RequestConfig::default().retry_limit(5);
+
+                // We're in an infinite loop, but our request sending already has an exponential
+                // backoff set up. This will kick in for any request errors that we consider to
+                // be transient. Common network errors (timeouts, DNS failures) or any server
+                // error in the 5xx range of HTTP errors are considered to be transient.
+                //
+                // Still, as a precaution, we're going to sleep here for a while in the Error
+                // case.
+                match client.fetch_server_capabilities(Some(request_config)).await {
+                    Ok(_) => break,
+                    Err(_) => sleep(Duration::from_millis(100)).await,
+                }
+            }
+        };
+
+        pin_mut!(wait_for_termination_report);
+        pin_mut!(wait_to_be_online);
+
+        let maybe_termination_report = select(wait_for_termination_report, wait_to_be_online).await;
+
+        let report = match maybe_termination_report {
+            Either::Left((termination_report, _)) => Some(termination_report),
+            Either::Right((_, _)) => None,
+        };
+
+        info!("Exiting offline mode: {report:?}");
+
+        report
     }
 
     /// The role of the supervisor task is to wait for a termination message
     /// ([`TerminationReport`]), sent either because we wanted to stop both
     /// syncs, or because one of the syncs failed (in which case we'll stop the
     /// other one too).
-    fn spawn_supervisor_task(
-        inner: &SyncServiceInner,
-        room_list_service: Arc<RoomListService>,
-        room_list_task: JoinHandle<()>,
-        encryption_sync_task: JoinHandle<()>,
-        mut receiver: Receiver<TerminationReport>,
-    ) -> impl Future<Output = ()> {
-        let encryption_sync = inner.encryption_sync_service.clone();
-        let state = inner.state.clone();
-
-        async move {
-            let report = if let Some(report) = receiver.recv().await {
-                report
-            } else {
-                info!("internal channel has been closed?");
-                // We should still stop the child tasks in the unlikely scenario that our
-                // receiver died.
-                TerminationReport::supervisor_error()
-            };
-
-            // If one service failed, make sure to request stopping the other one.
-            let (stop_room_list, stop_encryption) = match &report.origin {
-                TerminationOrigin::EncryptionSync => (true, false),
-                TerminationOrigin::RoomList => (false, true),
-                TerminationOrigin::Supervisor => (true, true),
-            };
-
-            // Stop both services, and wait for the streams to properly finish: at some
-            // point they'll return `None` and will exit their infinite loops, and their
-            // tasks will gracefully terminate.
-
-            if stop_room_list {
-                if let Err(err) = room_list_service.stop_sync() {
-                    warn!(?report, "unable to stop room list service: {err:#}");
-                }
-
-                if report.has_expired {
-                    room_list_service.expire_sync_session().await;
-                }
-            }
-
-            if let Err(err) = room_list_task.await {
-                error!("when awaiting room list service: {err:#}");
-            }
-
-            if stop_encryption {
-                if let Err(err) = encryption_sync.stop_sync() {
-                    warn!(?report, "unable to stop encryption sync: {err:#}");
-                }
-
-                if report.has_expired {
-                    encryption_sync.expire_sync_session().await;
-                }
-            }
-
-            if let Err(err) = encryption_sync_task.await {
-                error!("when awaiting encryption sync: {err:#}");
-            }
-
-            if report.is_error {
-                state.set(State::Error);
-            } else if matches!(report.origin, TerminationOrigin::Supervisor) {
-                state.set(State::Idle);
-            } else {
-                state.set(State::Terminated);
-            }
-        }
-        .instrument(tracing::span!(Level::WARN, "supervisor task"))
-    }
-
-    async fn spawn_child_tasks(
+    async fn spawn_supervisor_task(
         inner: &SyncServiceInner,
         room_list_service: Arc<RoomListService>,
         encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    ) -> (JoinHandle<()>, Sender<TerminationReport>) {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(16);
+
+        let encryption_sync = inner.encryption_sync_service.clone();
+        let state = inner.state.clone();
+        let termination_sender = sender.clone();
+
+        // When we first start, and don't use offline mode, we want to acquire the sync
+        // permit before we enter a future that might be polled at a later time,
+        // this means that the permit will be acquired as soon as this future,
+        // the one the `spawn_supervisor_task` function creates, is awaited.
+        //
+        // In other words, once `sync_service.start().await` is finished, the permit
+        // will be in the acquired state.
+        let mut sync_permit_guard =
+            MaybeAcquiredPermit::Acquired(encryption_sync_permit.clone().lock_owned().await);
+
+        let offline_mode = inner.with_offline_mode;
+
+        let future = async move {
+            loop {
+                let (room_list_task, encryption_sync_task) = Self::spawn_child_tasks(
+                    room_list_service.clone(),
+                    encryption_sync.clone(),
+                    sync_permit_guard,
+                    sender.clone(),
+                )
+                .await;
+
+                sync_permit_guard = MaybeAcquiredPermit::Unacquired(encryption_sync_permit.clone());
+
+                let report = if let Some(report) = receiver.recv().await {
+                    report
+                } else {
+                    info!("internal channel has been closed?");
+                    // We should still stop the child tasks in the unlikely scenario that our
+                    // receiver died.
+                    TerminationReport::supervisor_error()
+                };
+
+                // If one service failed, make sure to request stopping the other one.
+                let (stop_room_list, stop_encryption) = match &report.origin {
+                    TerminationOrigin::EncryptionSync => (true, false),
+                    TerminationOrigin::RoomList => (false, true),
+                    TerminationOrigin::Supervisor => (true, true),
+                };
+
+                // Stop both services, and wait for the streams to properly finish: at some
+                // point they'll return `None` and will exit their infinite loops, and their
+                // tasks will gracefully terminate.
+
+                if stop_room_list {
+                    if let Err(err) = room_list_service.stop_sync() {
+                        warn!(?report, "unable to stop room list service: {err:#}");
+                    }
+
+                    if report.has_expired {
+                        room_list_service.expire_sync_session().await;
+                    }
+                }
+
+                if let Err(err) = room_list_task.await {
+                    error!("when awaiting room list service: {err:#}");
+                }
+
+                if stop_encryption {
+                    if let Err(err) = encryption_sync.stop_sync() {
+                        warn!(?report, "unable to stop encryption sync: {err:#}");
+                    }
+
+                    if report.has_expired {
+                        encryption_sync.expire_sync_session().await;
+                    }
+                }
+
+                if let Err(err) = encryption_sync_task.await {
+                    error!("when awaiting encryption sync: {err:#}");
+                }
+
+                if report.is_error {
+                    if offline_mode {
+                        state.set(State::Offline);
+
+                        let client = room_list_service.client();
+
+                        if let Some(report) = Self::offline_check(client, &mut receiver).await {
+                            if report.is_error {
+                                state.set(State::Error);
+                            } else {
+                                state.set(State::Idle);
+                            }
+                            break;
+                        }
+
+                        state.set(State::Running);
+                    } else {
+                        state.set(State::Error);
+                        break;
+                    }
+                } else if matches!(report.origin, TerminationOrigin::Supervisor) {
+                    state.set(State::Idle);
+                    break;
+                } else {
+                    state.set(State::Terminated);
+                    break;
+                }
+            }
+        }
+        .instrument(tracing::span!(Level::WARN, "supervisor task"));
+
+        let task = spawn(future);
+
+        (task, termination_sender)
+    }
+
+    async fn spawn_child_tasks(
+        room_list_service: Arc<RoomListService>,
+        encryption_sync_service: Arc<EncryptionSyncService>,
+        sync_permit_guard: MaybeAcquiredPermit,
         sender: Sender<TerminationReport>,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         // First, take care of the room list.
         let room_list_task = spawn(Self::room_list_sync_task(room_list_service, sender.clone()));
 
         // Then, take care of the encryption sync.
-        let sync_permit_guard = encryption_sync_permit.clone().lock_owned().await;
         let encryption_sync_task = spawn(Self::encryption_sync_task(
-            inner.encryption_sync_service.clone(),
+            encryption_sync_service,
             sender.clone(),
-            sync_permit_guard,
+            sync_permit_guard.acquire().await,
         ));
 
         (room_list_task, encryption_sync_task)
@@ -299,7 +450,7 @@ impl SyncTaskSupervisor {
         }
     }
 
-    async fn shutdown(self) -> Result<(), Error> {
+    async fn shutdown(self) {
         match self
             .termination_sender
             .send(TerminationReport {
@@ -309,16 +460,21 @@ impl SyncTaskSupervisor {
             })
             .await
         {
-            Ok(_) => self.task.await.map_err(|err| {
-                error!("couldn't finish supervisor task: {err}");
-                Error::InternalSupervisorError
-            }),
+            Ok(_) => {
+                let _ = self.task.await.inspect_err(|err| {
+                    // A `JoinError` indicates that the task was already dead, either because it got
+                    // cancelled or because it panicked. We only cancel the task in the Err branch
+                    // below and the task shouldn't be able to panic.
+                    //
+                    // So let's log an error and return.
+                    error!("The supervisor task has stopped unexpectedly: {err:?}");
+                });
+            }
             Err(err) => {
-                error!("when sending termination report: {err}");
+                error!("Couldn't send the termination report to the supervisor task: {err}");
                 // Let's abort the task if it won't shut down properly, otherwise we would have
                 // left it as a detached task.
                 self.task.abort();
-                Err(Error::InternalSupervisorError)
             }
         }
     }
@@ -326,6 +482,10 @@ impl SyncTaskSupervisor {
 
 struct SyncServiceInner {
     encryption_sync_service: Arc<EncryptionSyncService>,
+    /// Is the offline mode for the [`SyncService`] enabled?
+    ///
+    /// The offline mode is described in the [`State::Offline`] enum variant.
+    with_offline_mode: bool,
     state: SharedObservable<State>,
     /// Supervisor task ensuring proper termination.
     ///
@@ -336,6 +496,40 @@ struct SyncServiceInner {
     ///
     /// This is set at the same time as the other two tasks.
     supervisor: Option<SyncTaskSupervisor>,
+}
+
+impl SyncServiceInner {
+    async fn start(
+        &mut self,
+        room_list_service: Arc<RoomListService>,
+        encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    ) {
+        trace!("starting sync service");
+
+        self.supervisor =
+            Some(SyncTaskSupervisor::new(self, room_list_service, encryption_sync_permit).await);
+        self.state.set(State::Running);
+    }
+
+    async fn stop(&mut self) {
+        trace!("pausing sync service");
+
+        // Remove the supervisor from our state and request the tasks to be shutdown.
+        if let Some(supervisor) = self.supervisor.take() {
+            supervisor.shutdown().await;
+        } else {
+            error!("The sync service was not properly started, the supervisor task doesn't exist");
+        }
+    }
+
+    async fn restart(
+        &mut self,
+        room_list_service: Arc<RoomListService>,
+        encryption_sync_permit: Arc<AsyncMutex<EncryptionSyncPermit>>,
+    ) {
+        self.stop().await;
+        self.start(room_list_service, encryption_sync_permit).await;
+    }
 }
 
 /// A high level manager for your Matrix syncing needs.
@@ -372,6 +566,10 @@ struct SyncServiceInner {
 ///     match state {
 ///         State::Idle => eprintln!("The sync service is idle."),
 ///         State::Running => eprintln!("The sync has started to run."),
+///         State::Offline => eprintln!(
+///             "We have entered the offline mode, the server seems to be
+///              unavailable"
+///         ),
 ///         State::Terminated => {
 ///             eprintln!("The sync service has been gracefully terminated");
 ///             break;
@@ -426,27 +624,28 @@ impl SyncService {
     ///
     /// This can be called multiple times safely:
     /// - if the stream is still properly running, it won't be restarted.
+    /// - if the [`SyncService`] is in the offline mode we will exit the offline
+    ///   mode and immediately attempt to sync again.
     /// - if the stream has been aborted before, it will be properly cleaned up
     ///   and restarted.
     pub async fn start(&self) {
         let mut inner = self.inner.lock().await;
 
-        // Only (re)start the tasks if any was stopped.
+        // Only (re)start the tasks if it's stopped or if we're in the offline mode.
         match inner.state.get() {
             // If we're already running, there's nothing to do.
-            State::Running => (),
+            State::Running => {}
+            // If we're in the offline mode, first stop the service and then start it again.
+            State::Offline => {
+                inner
+                    .restart(self.room_list_service.clone(), self.encryption_sync_permit.clone())
+                    .await
+            }
+            // Otherwise just start.
             State::Idle | State::Terminated | State::Error => {
-                trace!("starting sync service");
-
-                inner.supervisor = Some(
-                    SyncTaskSupervisor::new(
-                        &inner,
-                        self.room_list_service.clone(),
-                        self.encryption_sync_permit.clone(),
-                    )
-                    .await,
-                );
-                inner.state.set(State::Running);
+                inner
+                    .start(self.room_list_service.clone(), self.encryption_sync_permit.clone())
+                    .await
             }
         }
     }
@@ -457,30 +656,18 @@ impl SyncService {
     /// to call this API when the application exits, although not strictly
     /// necessary.
     #[instrument(skip_all)]
-    pub async fn stop(&self) -> Result<(), Error> {
+    pub async fn stop(&self) {
         let mut inner = self.inner.lock().await;
 
         match inner.state.get() {
             State::Idle | State::Terminated | State::Error => {
                 // No need to stop if we were not running.
-                return Ok(());
+                return;
             }
-            State::Running => (),
+            State::Running | State::Offline => {}
         }
 
-        trace!("pausing sync service");
-
-        // First, request to stop the two underlying syncs; we'll look at the results
-        // later, so that we're in a clean state independently of the request to stop.
-
-        // Remove the supervisor from our inner state and request the tasks to be
-        // shutdown.
-        let supervisor = inner.supervisor.take().ok_or_else(|| {
-            error!("The supervisor was not properly started up");
-            Error::InternalSupervisorError
-        })?;
-
-        supervisor.shutdown().await
+        inner.stop().await
     }
 
     /// Attempt to get a permit to use an `EncryptionSyncService` at a given
@@ -533,11 +720,16 @@ pub struct SyncServiceBuilder {
 
     /// Is the cross-process lock for the crypto store enabled?
     with_cross_process_lock: bool,
+
+    /// Is the offline mode for the [`SyncService`] enabled?
+    ///
+    /// The offline mode is described in the [`State::Offline`] enum variant.
+    with_offline_mode: bool,
 }
 
 impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
-        Self { client, with_cross_process_lock: false }
+        Self { client, with_cross_process_lock: false, with_offline_mode: false }
     }
 
     /// Enables the cross-process lock, if the sync service is being built in a
@@ -555,23 +747,30 @@ impl SyncServiceBuilder {
         self
     }
 
+    /// Enable the "offline" mode for the [`SyncService`].
+    ///
+    /// To learn more about the "offline" mode read the documentation for the
+    /// [`State::Offline`] enum variant.
+    pub fn with_offline_mode(mut self) -> Self {
+        self.with_offline_mode = true;
+        self
+    }
+
     /// Finish setting up the [`SyncService`].
     ///
     /// This creates the underlying sliding syncs, and will *not* start them in
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
+        let Self { client, with_cross_process_lock, with_offline_mode } = self;
+
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        let room_list = RoomListService::new(self.client.clone()).await?;
+        let room_list = RoomListService::new(client.clone()).await?;
 
         let encryption_sync = Arc::new(
-            EncryptionSyncService::new(
-                self.client,
-                None,
-                WithLocking::from(self.with_cross_process_lock),
-            )
-            .await?,
+            EncryptionSyncService::new(client, None, WithLocking::from(with_cross_process_lock))
+                .await?,
         );
 
         let room_list_service = Arc::new(room_list);
@@ -585,12 +784,13 @@ impl SyncServiceBuilder {
                 supervisor: None,
                 encryption_sync_service: encryption_sync,
                 state,
+                with_offline_mode,
             })),
         })
     }
 }
 
-/// Errors for the `SyncService` API.
+/// Errors for the [`SyncService`] API.
 #[derive(Debug, Error)]
 pub enum Error {
     /// An error received from the `RoomListService` API.

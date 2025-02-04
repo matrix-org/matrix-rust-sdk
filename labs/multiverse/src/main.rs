@@ -480,7 +480,7 @@ impl App {
                             }
 
                             Char('s') => self.sync_service.start().await,
-                            Char('S') => self.sync_service.stop().await?,
+                            Char('S') => self.sync_service.stop().await,
 
                             Char('Q') => {
                                 let q = self.client.send_queue();
@@ -565,7 +565,7 @@ impl App {
             }
         });
 
-        self.sync_service.stop().await?;
+        self.sync_service.stop().await;
         self.listen_task.abort();
         for timeline in self.timelines.lock().unwrap().values() {
             timeline.task.abort();

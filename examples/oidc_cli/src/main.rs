@@ -533,7 +533,7 @@ impl OidcCli {
                                     }
                                 }
 
-                                matrix_sdk_ui::sync_service::State::Error => {
+                                matrix_sdk_ui::sync_service::State::Error | matrix_sdk_ui::sync_service::State::Offline => {
                                     num_errors += 1;
                                     num_running = 0;
 
@@ -553,10 +553,7 @@ impl OidcCli {
 
                     _ = stdin.read_line(&mut _unused) => {
                         println!("Stopping loop because of user request");
-
-                        if let Err(err) = sync_service.stop().await {
-                            println!("Error when stopping the sync service: {err}");
-                        }
+                        sync_service.stop().await;
 
                         break;
                     }
