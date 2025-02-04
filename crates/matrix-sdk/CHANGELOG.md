@@ -35,6 +35,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- Improve the performance of `EventCache` (approximately 4.5 times faster).
+  ([#4616](https://github.com/matrix-org/matrix-rust-sdk/pull/4616))
+
 - [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
   `TimelineEvent`, and its field `push_actions` has been made `Option`al (it is set to `None` when
   we couldn't compute the push actions, because we lacked some information).
