@@ -1340,7 +1340,12 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({sort_maps => true}, {
+                    assert_json_snapshot!(
+                        "should_share_with_verified_dehydrated_device",
+                        ruma_response_to_json(keys_query.clone()),
+                    );
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -1394,7 +1399,12 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, false)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({sort_maps => true}, {
+                    assert_json_snapshot!(
+                        "should_not_share_with_unverified_dehydrated_device",
+                        ruma_response_to_json(keys_query.clone()),
+                    );
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -1460,7 +1470,12 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({sort_maps => true}, {
+                    assert_json_snapshot!(
+                        "should_share_with_verified_device_of_pin_violation_user",
+                        ruma_response_to_json(keys_query.clone()),
+                    );
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -1589,7 +1604,12 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({sort_maps => true}, {
+                    assert_json_snapshot!(
+                        "prepare_machine_with_dehydrated_device_of_verification_violation_user",
+                        ruma_response_to_json(keys_query.clone()),
+                    );
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
