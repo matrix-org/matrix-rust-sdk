@@ -73,7 +73,7 @@ mod keys {
 const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
 /// The string used to identify a chunk of type gap, in the `type` field in the
 /// database.
-// const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
+const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 pub struct IndexeddbEventCacheStore {
     pub(crate) inner: IdbDatabase,
     pub(crate) serializer: IndexeddbSerializer,
@@ -150,7 +150,23 @@ impl_event_cache_store!({
                     )
                     .await?;
                 }
-                Update::NewGapChunk { previous: _, new: _, next: _, gap: _ } => todo!(),
+                Update::NewGapChunk { previous, new, next, gap } => {
+                    let previous = previous.as_ref().map(ChunkIdentifier::index);
+                    let new = new.index();
+                    let next = next.as_ref().map(ChunkIdentifier::index);
+
+                    trace!(%room_id,"Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
+
+                    idb_operations::insert_chunk(
+                        &object_store,
+                        &hashed_room_id,
+                        previous,
+                        new,
+                        next,
+                        CHUNK_TYPE_GAP_TYPE_STRING,
+                    )
+                    .await?;
+                }
                 Update::RemoveChunk(_chunk_identifier) => todo!(),
                 Update::PushItems { at: _, items: _ } => todo!(),
                 Update::ReplaceItem { at: _, item: _ } => todo!(),
