@@ -75,7 +75,6 @@ const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
 /// database.
 // const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 pub struct IndexeddbEventCacheStore {
-    // name: String,
     pub(crate) inner: IdbDatabase,
     pub(crate) serializer: IndexeddbSerializer,
 }

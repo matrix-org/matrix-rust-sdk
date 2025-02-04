@@ -48,11 +48,7 @@ impl IndexeddbEventCacheStoreBuilder {
         let serializer = IndexeddbSerializer::new(self.store_cipher);
         let inner = open_and_upgrade_db(&name, &serializer).await?;
 
-        let store = IndexeddbEventCacheStore {
-            // name,
-            inner,
-            serializer,
-        };
+        let store = IndexeddbEventCacheStore { inner, serializer };
         Ok(store)
     }
 }
