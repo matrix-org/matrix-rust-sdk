@@ -20,6 +20,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
+    linked_chunk::{ChunkIdentifier, Position, Update},
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::{
@@ -842,30 +843,47 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
 
     mock_server.sync_joined_room(&client, room_id).await;
 
+    // Let's store events in the event cache _before_ the timeline is created.
+    {
+        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+
+        // The event cache contains 30 events.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: (0..30)
+                            .map(|nth| {
+                                event_factory
+                                    .text_msg("foo")
+                                    .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                                    .into_event()
+                            })
+                            .collect::<Vec<_>>(),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+    }
+
+    // Set up the event cache.
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
-
-    // The event cache contains 30 events.
-    event_cache
-        .add_initial_events(
-            room_id,
-            (0..30)
-                .map(|nth| {
-                    event_factory
-                        .text_msg("foo")
-                        .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
-                        .into_event()
-                })
-                .collect::<Vec<_>>(),
-            None,
-        )
-        .await
-        .unwrap();
+    event_cache.enable_storage().unwrap();
 
     let room = client.get_room(room_id).unwrap();
 
-    // The timeline is created.
+    // Now the timeline is created.
     let timeline = room.timeline().await.unwrap();
+
     let (timeline_initial_items, mut timeline_stream) = timeline.subscribe().await;
 
     // The timeline receives 20 initial values, not 30!
@@ -873,10 +891,7 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
     assert_pending!(timeline_stream);
 
     // To get the other, the timeline needs to paginate.
-
-    let _no_network_pagination =
-        mock_server.mock_room_messages().error500().never().mount_as_scoped().await;
-
+    //
     // Now let's do a backwards pagination of 5 items.
     let hit_end_of_timeline = timeline.paginate_backwards(5).await.unwrap();
 
