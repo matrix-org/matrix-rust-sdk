@@ -54,12 +54,10 @@ use tracing::{
     debug, error, field, field::debug, info, info_span, instrument, trace, warn, Instrument as _,
 };
 
-#[cfg(test)]
-pub(super) use self::observable_items::ObservableItems;
 pub(super) use self::{
     metadata::{RelativePosition, TimelineMetadata},
     observable_items::{
-        AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction,
+        AllRemoteEvents, ObservableItems, ObservableItemsEntry, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
     },
     state::{FullEventMeta, PendingEdit, PendingEditKind, TimelineState},
@@ -70,6 +68,7 @@ use super::{
     event_handler::TimelineEventKind,
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
+    subscriber::TimelineSubscriber,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
     PaginationError, Profile, ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId,
@@ -170,7 +169,7 @@ impl Default for TimelineSettings {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum TimelineFocusKind {
+pub(super) enum TimelineFocusKind {
     Live,
     Event,
     PinnedEvents,
@@ -318,7 +317,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         match &*focus_guard {
             TimelineFocusData::Live => {
                 // Retrieve the cached events, and add them to the timeline.
-                let (events, _) =
+                let (events, _stream) =
                     room_event_cache.subscribe().await.map_err(Error::EventCacheError)?;
 
                 let has_events = !events.is_empty();
@@ -410,7 +409,28 @@ impl<P: RoomDataProvider> TimelineController<P> {
         }
     }
 
-    /// Run a backward pagination (in focused mode) and append the results to
+    /// Run a lazy backwards pagination (in live mode).
+    ///
+    /// It adjusts the `count` value of the `Skip` higher-order stream so that
+    /// more items are pushed front in the timeline.
+    ///
+    /// If no more items are available (i.e. if the `count` is zero), this
+    /// method returns `Some(needs)` where `needs` is the number of events that
+    /// must be unlazily backwards paginated.
+    pub(super) async fn live_lazy_paginate_backwards(&self, num_events: u16) -> Option<usize> {
+        let state = self.state.read().await;
+
+        let (count, needs) = state
+            .meta
+            .subscriber_skip_count
+            .compute_next_when_paginating_backwards(num_events.into());
+
+        state.meta.subscriber_skip_count.update(count, &state.timeline_focus);
+
+        needs
+    }
+
+    /// Run a backwards pagination (in focused mode) and append the results to
     /// the timeline.
     ///
     /// Returns whether we hit the start of the timeline.
@@ -439,7 +459,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         Ok(hit_end_of_timeline)
     }
 
-    /// Run a forward pagination (in focused mode) and append the results to
+    /// Run a forwards pagination (in focused mode) and append the results to
     /// the timeline.
     ///
     /// Returns whether we hit the end of the timeline.
@@ -486,21 +506,21 @@ impl<P: RoomDataProvider> TimelineController<P> {
     }
 
     #[cfg(test)]
-    pub(super) async fn subscribe(
+    pub(super) async fn subscribe_raw(
         &self,
     ) -> (
         Vector<Arc<TimelineItem>>,
         impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
     ) {
         let state = self.state.read().await;
-        (state.items.clone_items(), state.items.subscribe().into_stream())
+
+        state.items.subscribe().into_values_and_stream()
     }
 
-    pub(super) async fn subscribe_batched(
-        &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
+    pub(super) async fn subscribe(&self) -> (Vector<Arc<TimelineItem>>, TimelineSubscriber) {
         let state = self.state.read().await;
-        (state.items.clone_items(), state.items.subscribe().into_batched_stream())
+
+        TimelineSubscriber::new(&state.items, &state.meta.subscriber_skip_count)
     }
 
     pub(super) async fn subscribe_filter_map<U, F>(

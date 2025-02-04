@@ -371,9 +371,11 @@ impl Oidc {
     /// use anyhow::bail;
     /// use futures_util::StreamExt;
     /// use matrix_sdk::{
-    ///     authentication::qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
+    ///     authentication::{
+    ///         oidc::types::registration::VerifiedClientMetadata,
+    ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
+    ///     },
     ///     Client,
-    ///     oidc::types::registration::VerifiedClientMetadata,
     /// };
     /// # fn client_metadata() -> VerifiedClientMetadata { unimplemented!() }
     /// # _ = async {
@@ -717,7 +719,7 @@ impl Oidc {
     /// ```no_run
     /// use futures_util::StreamExt;
     /// use matrix_sdk::Client;
-    /// # fn persist_session(_: &matrix_sdk::oidc::OidcSession) {}
+    /// # fn persist_session(_: &matrix_sdk::authentication::oidc::OidcSession) {}
     /// # _ = async {
     /// let homeserver = "http://example.com";
     /// let client = Client::builder()
@@ -831,9 +833,9 @@ impl Oidc {
     ///
     /// ```no_run
     /// use matrix_sdk::{Client, ServerName};
-    /// use matrix_sdk::oidc::types::client_credentials::ClientCredentials;
-    /// use matrix_sdk::oidc::types::registration::ClientMetadata;
-    /// # use matrix_sdk::oidc::types::registration::VerifiedClientMetadata;
+    /// use matrix_sdk::authentication::oidc::types::client_credentials::ClientCredentials;
+    /// use matrix_sdk::authentication::oidc::types::registration::ClientMetadata;
+    /// # use matrix_sdk::authentication::oidc::types::registration::VerifiedClientMetadata;
     /// # let client_metadata = ClientMetadata::default().validate().unwrap();
     /// # fn persist_client_registration (_: &str, _: &ClientMetadata, _: &ClientCredentials) {}
     /// # _ = async {
@@ -1065,7 +1067,7 @@ impl Oidc {
     /// ```no_run
     /// # use anyhow::anyhow;
     /// use matrix_sdk::{Client};
-    /// # use matrix_sdk::oidc::AuthorizationResponse;
+    /// # use matrix_sdk::authentication::oidc::AuthorizationResponse;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();

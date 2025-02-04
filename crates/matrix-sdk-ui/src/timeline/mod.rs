@@ -16,7 +16,7 @@
 //!
 //! See [`Timeline`] for details.
 
-use std::{fs, path::PathBuf, pin::Pin, sync::Arc, task::Poll};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use algorithms::rfind_event_by_item_id;
 use event_item::{extract_room_msg_edit_content, TimelineItemHandle};
@@ -33,7 +33,7 @@ use matrix_sdk::{
     Client, Result,
 };
 use mime::Mime;
-use pin_project_lite::pin_project;
+use pinned_events_loader::PinnedEventsRoom;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
@@ -52,13 +52,13 @@ use ruma::{
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
+use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
 use self::{
     algorithms::rfind_event_by_id, controller::TimelineController, futures::SendAttachment,
 };
-use crate::timeline::pinned_events_loader::PinnedEventsRoom;
 
 mod algorithms;
 mod builder;
@@ -73,6 +73,7 @@ mod item;
 mod pagination;
 mod pinned_events_loader;
 mod reactions;
+mod subscriber;
 #[cfg(test)]
 mod tests;
 mod to_device;
@@ -275,8 +276,8 @@ impl Timeline {
     pub async fn subscribe(
         &self,
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
-        let (items, stream) = self.controller.subscribe_batched().await;
-        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        let (items, stream) = self.controller.subscribe().await;
+        let stream = TimelineWithDropHandle::new(stream, self.drop_handle.clone());
         (items, stream)
     }
 
@@ -810,7 +811,7 @@ impl Timeline {
         f: impl Fn(Arc<TimelineItem>) -> Option<U>,
     ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>) {
         let (items, stream) = self.controller.subscribe_filter_map(f).await;
-        let stream = TimelineStream::new(stream, self.drop_handle.clone());
+        let stream = TimelineWithDropHandle::new(stream, self.drop_handle.clone());
         (items, stream)
     }
 }
@@ -845,31 +846,6 @@ impl Drop for TimelineDropHandle {
         self.room_key_backup_enabled_join_handle.abort();
         self.room_keys_received_join_handle.abort();
         self.encryption_changes_handle.abort();
-    }
-}
-
-pin_project! {
-    struct TimelineStream<S> {
-        #[pin]
-        inner: S,
-        drop_handle: Arc<TimelineDropHandle>,
-    }
-}
-
-impl<S> TimelineStream<S> {
-    fn new(inner: S, drop_handle: Arc<TimelineDropHandle>) -> Self {
-        Self { inner, drop_handle }
-    }
-}
-
-impl<S: Stream> Stream for TimelineStream<S> {
-    type Item = S::Item;
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        self.project().inner.poll_next(cx)
     }
 }
 

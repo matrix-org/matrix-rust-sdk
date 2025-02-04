@@ -58,7 +58,7 @@ pub(in crate::timeline) struct TimelineState {
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    timeline_focus: TimelineFocusKind,
+    pub timeline_focus: TimelineFocusKind,
 }
 
 impl TimelineState {
@@ -285,15 +285,7 @@ impl TimelineState {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
-        let items = self.items.transaction();
-        let meta = self.meta.clone();
-
-        TimelineStateTransaction {
-            items,
-            previous_meta: &mut self.meta,
-            meta,
-            timeline_focus: self.timeline_focus,
-        }
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus)
     }
 }
 

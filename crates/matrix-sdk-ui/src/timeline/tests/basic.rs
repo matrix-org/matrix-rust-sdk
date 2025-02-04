@@ -461,7 +461,7 @@ async fn test_replace_with_initial_events_when_batched() {
         )
         .await;
 
-    let (items, mut stream) = timeline.controller.subscribe_batched().await;
+    let (items, mut stream) = timeline.controller.subscribe().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");

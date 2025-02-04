@@ -20,7 +20,8 @@ use tracing::trace;
 
 use super::{
     super::{
-        reactions::Reactions, rfind_event_by_id, TimelineItem, TimelineItemKind, TimelineUniqueId,
+        reactions::Reactions, rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem,
+        TimelineItemKind, TimelineUniqueId,
     },
     read_receipts::ReadReceipts,
     state::PendingPollEvents,
@@ -36,6 +37,10 @@ pub(in crate::timeline) struct TimelineMetadata {
     ///
     /// This value is constant over the lifetime of the metadata.
     internal_id_prefix: Option<String>,
+
+    /// The `count` value for the `Skip higher-order stream used by the
+    /// `TimelineSubscriber`. See its documentation to learn more.
+    pub(super) subscriber_skip_count: SkipCount,
 
     /// The hook to call whenever we run into a unable-to-decrypt event.
     ///
@@ -107,6 +112,7 @@ impl TimelineMetadata {
         is_room_encrypted: Option<bool>,
     ) -> Self {
         Self {
+            subscriber_skip_count: SkipCount::new(),
             own_user_id,
             next_internal_id: Default::default(),
             reactions: Default::default(),
@@ -335,11 +341,11 @@ pub(in crate::timeline) struct EventMeta {
     /// +-------+-------------------+----------------------+
     /// | 0     | content of `$ev0` |                      |
     /// | 1     | content of `$ev2` | reaction with `$ev4` |
-    /// | 2     | day divider       |                      |
+    /// | 2     | date divider      |                      |
     /// | 3     | content of `$ev3` |                      |
     /// | 4     | content of `$ev5` |                      |
     ///
-    /// Note the day divider that is a virtual item. Also note `$ev4` which is
+    /// Note the date divider that is a virtual item. Also note `$ev4` which is
     /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in
     /// the timeline.
     ///
