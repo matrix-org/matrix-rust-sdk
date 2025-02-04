@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.10.0] - 2025-02-04
+
 ### Features
 
 - Allow to set and check whether an image is animated via its `ImageInfo`.
