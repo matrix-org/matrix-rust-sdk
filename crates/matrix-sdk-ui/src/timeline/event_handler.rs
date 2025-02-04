@@ -51,7 +51,7 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    algorithms::rfind_event_by_id,
+    algorithms::{rfind_event_by_id, rfind_event_by_item_id},
     controller::{
         Aggregation, AggregationKind, ObservableItemsTransaction, ObservableItemsTransactionEntry,
         PendingEdit, PendingEditKind, TimelineMetadata, TimelineStateTransaction,
@@ -1007,41 +1007,31 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_reaction_redaction(&mut self, reaction_id: OwnedEventId) -> bool {
         let reaction_id = TimelineEventItemId::EventId(reaction_id);
 
-        if let Some(FullReactionKey {
-            item: TimelineEventItemId::EventId(reacted_to_event_id),
-            key,
-            sender,
-        }) = self.meta.reactions.map.remove(&reaction_id)
+        if let Some((target, aggregation)) =
+            self.meta.aggregations.try_remove_aggregation(&reaction_id)
         {
-            let Some((item_pos, item)) = rfind_event_by_id(self.items, &reacted_to_event_id) else {
-                // The remote event wasn't in the timeline.
-
-                // Remove any possibly pending reactions to that event, as this redaction would
-                // affect them.
-                if let Some(aggregations) = self
-                    .meta
-                    .aggregations
-                    .get_mut(&TimelineEventItemId::EventId(reacted_to_event_id))
-                {
-                    if let Some(found) = aggregations
-                        .iter()
-                        .enumerate()
-                        .find_map(|(idx, agg)| (agg.own_id == reaction_id).then_some(idx))
-                    {
-                        aggregations.remove(found);
+            match &aggregation.kind {
+                AggregationKind::Reaction { sender, key, .. } => {
+                    let Some((item_pos, item)) = rfind_event_by_item_id(&self.items, &target)
+                    else {
+                        warn!("missing reacted-to item {target:?}");
+                        return false;
+                    };
+                    let mut reactions = item.content().reactions().clone();
+                    if reactions.remove_reaction(&sender, &key).is_some() {
+                        trace!("Removing reaction");
+                        self.items.replace(item_pos, item.with_reactions(reactions));
+                        self.result.items_updated += 1;
+                        return true;
                     }
                 }
 
-                // We haven't redacted the reaction.
-                return false;
-            };
-
-            let mut reactions = item.content().reactions().clone();
-            if reactions.remove_reaction(&sender, &key).is_some() {
-                trace!("Removing reaction");
-                self.items.replace(item_pos, item.with_reactions(reactions));
-                self.result.items_updated += 1;
-                return true;
+                _ => {
+                    warn!(
+                        "unexpected aggregation kind in `handle_reaction_redaction`: {:?}",
+                        aggregation.kind
+                    );
+                }
             }
         }
 

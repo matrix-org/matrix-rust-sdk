@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 use matrix_sdk::send_queue::SendHandle;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use tracing::warn;
 
 use crate::timeline::{
     PollState, ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItemContent,
@@ -45,7 +46,7 @@ pub(crate) enum AggregationKind {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Aggregation {
-    kind: AggregationKind,
+    pub kind: AggregationKind,
     pub own_id: TimelineEventItemId,
 }
 
@@ -131,22 +132,52 @@ impl Aggregation {
 pub(crate) struct Aggregations {
     /// Mapping of a target event to its list of aggregations.
     related_events: HashMap<TimelineEventItemId, Vec<Aggregation>>,
+
+    /// Mapping of a related event identifier to its target.
+    inverted_map: HashMap<TimelineEventItemId, TimelineEventItemId>,
 }
 
 impl Aggregations {
     pub fn clear(&mut self) {
         self.related_events.clear();
+        self.inverted_map.clear();
     }
 
     pub fn add(&mut self, related_to: OwnedEventId, aggregation: Aggregation) {
+        self.inverted_map
+            .insert(aggregation.own_id.clone(), TimelineEventItemId::EventId(related_to.clone()));
         self.related_events
             .entry(TimelineEventItemId::EventId(related_to))
             .or_default()
             .push(aggregation);
     }
 
-    pub fn get_mut(&mut self, related_to: &TimelineEventItemId) -> Option<&mut Vec<Aggregation>> {
-        self.related_events.get_mut(related_to)
+    /// Is the given id one for a known aggregation to another event?
+    ///
+    /// If so, returns the target event identifier as well as the aggregation.
+    pub fn try_remove_aggregation(
+        &mut self,
+        aggregation_id: &TimelineEventItemId,
+    ) -> Option<(&TimelineEventItemId, Aggregation)> {
+        if let Some(found) = self.inverted_map.get(aggregation_id) {
+            // Find and remove the aggregation in the other mapping.
+            let aggregation = self.related_events.get_mut(found).and_then(|aggregations| {
+                if let Some(idx) = aggregations.iter().position(|agg| agg.own_id == *aggregation_id)
+                {
+                    Some(aggregations.remove(idx))
+                } else {
+                    None
+                }
+            });
+
+            if aggregation.is_none() {
+                warn!("unexpected missing aggregation {aggregation_id:?}: was present in the inverted map, not in the actual map");
+            }
+
+            Some((found, aggregation?))
+        } else {
+            None
+        }
     }
 
     pub fn apply(
