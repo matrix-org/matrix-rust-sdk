@@ -65,6 +65,14 @@ impl RoomPreview {
         invite_details.inviter.and_then(|m| m.try_into().ok())
     }
 
+    /// Forget the room if we had access to it, and it was left or banned.
+    pub async fn forget(&self) -> Result<(), ClientError> {
+        let room =
+            self.client.get_room(&self.inner.room_id).context("missing room for a room preview")?;
+        room.forget().await?;
+        Ok(())
+    }
+
     /// Get the membership details for the current user.
     pub async fn own_membership_details(&self) -> Option<RoomMembershipDetails> {
         let room = self.client.get_room(&self.inner.room_id)?;
