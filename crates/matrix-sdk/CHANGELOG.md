@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- The `MediaRetentionPolicy` can now trigger regular cleanups with its new
+  `cleanup_frequency` setting.
+  ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+
 ## [0.10.0] - 2025-02-04
 
 ### Features
@@ -32,7 +38,6 @@ All notable changes to this project will be documented in this file.
   `MediaRetentionPolicy` and the new `Media` methods `media_retention_policy()`,
   `set_media_retention_policy()`, `clean_up_media_cache()`.
   ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
-  ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 
 ### Refactor
 

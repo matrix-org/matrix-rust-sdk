@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Implement the new method of `EventCacheStoreMedia` for `SqliteEventCacheStore`.
+  ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+
 ## [0.10.0] - 2025-02-04
 
 ### Features
@@ -14,7 +19,6 @@ All notable changes to this project will be documented in this file.
   `EventCacheStore` for `MediaRetentionPolicy`. See the changelog of
   `matrix-sdk-base` for more details.
   ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
-  ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 - The SQLite databases are optimized during the construction of the stores. It
   should improve the performance of the queries.
   ([#4602](https://github.com/matrix-org/matrix-rust-sdk/pull/4602))
