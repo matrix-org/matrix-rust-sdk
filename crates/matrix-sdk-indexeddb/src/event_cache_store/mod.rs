@@ -151,6 +151,9 @@ impl_event_cache_store!({
                     .await?;
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
+                    let serialized = serde_json::to_vec(&gap.prev_token)?;
+                    let prev_token = self.serializer.encode_value(serialized)?;
+
                     let previous = previous.as_ref().map(ChunkIdentifier::index);
                     let new = new.index();
                     let next = next.as_ref().map(ChunkIdentifier::index);
@@ -166,6 +169,9 @@ impl_event_cache_store!({
                         CHUNK_TYPE_GAP_TYPE_STRING,
                     )
                     .await?;
+
+                    idb_operations::insert_gap(&object_store, &hashed_room_id, new, prev_token)
+                        .await?
                 }
                 Update::RemoveChunk(_chunk_identifier) => todo!(),
                 Update::PushItems { at: _, items: _ } => todo!(),

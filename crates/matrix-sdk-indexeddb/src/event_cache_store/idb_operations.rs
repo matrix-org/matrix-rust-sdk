@@ -62,3 +62,12 @@ pub async fn insert_chunk(
 
     Ok(())
 }
+
+pub async fn insert_gap(
+    _store: &IdbObjectStore<'_>,
+    _hashed_room_id: &String,
+    _new: u64,
+    _prev_token: Option<u64>,
+) -> Result<(), web_sys::DomException> {
+    Ok(())
+}
