@@ -50,24 +50,24 @@ impl Default for RoomEvents {
 impl RoomEvents {
     /// Build a new [`RoomEvents`] struct with zero events.
     pub fn new() -> Self {
-        Self::with_initial_chunks(None)
+        Self::with_initial_linked_chunk(None)
     }
 
     /// Build a new [`RoomEvents`] struct with prior chunks knowledge.
     ///
     /// The provided [`LinkedChunk`] must have been built with update history.
-    pub fn with_initial_chunks(
-        chunks: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
+    pub fn with_initial_linked_chunk(
+        linked_chunk: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
     ) -> Self {
-        let mut chunks = chunks.unwrap_or_else(LinkedChunk::new_with_update_history);
+        let mut linked_chunk = linked_chunk.unwrap_or_else(LinkedChunk::new_with_update_history);
 
-        let chunks_updates_as_vectordiffs = chunks
+        let chunks_updates_as_vectordiffs = linked_chunk
             .as_vector()
             // SAFETY: The `LinkedChunk` has been built with `new_with_update_history`, so
             // `as_vector` must return `Some(…)`.
             .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
-        Self { chunks, chunks_updates_as_vectordiffs }
+        Self { chunks: linked_chunk, chunks_updates_as_vectordiffs }
     }
 
     /// Returns whether the room has at least one event.
