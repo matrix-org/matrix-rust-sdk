@@ -291,22 +291,19 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     server.reset().await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 5);
+    assert_eq!(timeline_updates.len(), 4);
 
     // Timeline receives events as before.
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]); // TODO: Remove `RoomEventCacheUpdate::Clear` as it creates double
-                                                           // `VectorDiff::Clear`.
-
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
 
-    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
 
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
 
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
     assert!(value.is_date_divider());
 
     assert_pending!(timeline_stream);

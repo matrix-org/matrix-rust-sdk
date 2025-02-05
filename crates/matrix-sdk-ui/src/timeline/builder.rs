@@ -261,18 +261,6 @@ impl TimelineBuilder {
                             inner.handle_fully_read_marker(event_id).await;
                         }
 
-                        RoomEventCacheUpdate::Clear => {
-                            if !inner.is_live().await {
-                                // Ignore a clear for a timeline not in the live mode; the
-                                // focused-on-event mode doesn't add any new items to the timeline
-                                // anyways.
-                                continue;
-                            }
-
-                            trace!("Clearing the timeline.");
-                            inner.clear().await;
-                        }
-
                         RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
                             trace!("Received new timeline events diffs");
 

@@ -888,9 +888,6 @@ async fn test_lazy_back_pagination() {
     // Only 20 items are broadcasted to the subscriber.
     assert_timeline_stream! {
         [timeline_stream]
-        // Huh?
-        // TODO: understand why
-        clear;
         clear;
 
         // `$ev11`, the 1st item.

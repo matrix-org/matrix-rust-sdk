@@ -133,7 +133,7 @@ impl RoomEventCache {
     /// storage.
     pub async fn clear(&self) -> Result<()> {
         // Clear the linked chunk and persisted storage.
-        self.inner.state.write().await.reset().await?;
+        let updates_as_vector_diffs = self.inner.state.write().await.reset().await?;
 
         // Clear the (temporary) events mappings.
         self.inner.all_events.write().await.clear();
@@ -143,7 +143,10 @@ impl RoomEventCache {
         let _ = self.inner.paginator.set_idle_state(PaginatorState::Initial, None, None);
 
         // Notify observers about the update.
-        let _ = self.inner.sender.send(RoomEventCacheUpdate::Clear);
+        let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+            diffs: updates_as_vector_diffs,
+            origin: EventsOrigin::Sync,
+        });
 
         Ok(())
     }
@@ -377,10 +380,13 @@ impl RoomEventCacheInner {
         let mut state = self.state.write().await;
 
         // Reset the room's state.
-        state.reset().await?;
+        let updates_as_vector_diffs = state.reset().await?;
 
         // Propagate to observers.
-        let _ = self.sender.send(RoomEventCacheUpdate::Clear);
+        let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+            diffs: updates_as_vector_diffs,
+            origin: EventsOrigin::Sync,
+        });
 
         // Push the new events.
         self.append_events_locked(
@@ -732,11 +738,13 @@ mod private {
         }
 
         /// Resets this data structure as if it were brand new.
-        pub async fn reset(&mut self) -> Result<(), EventCacheError> {
+        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        pub async fn reset(&mut self) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
             self.events.reset();
             self.propagate_changes().await?;
             self.waited_for_initial_prev_token = false;
-            Ok(())
+
+            Ok(self.events.updates_as_vector_diffs())
         }
 
         /// Returns a read-only reference to the underlying events.
@@ -750,6 +758,7 @@ mod private {
         /// Returns the output of the given callback, as well as updates to the
         /// linked chunk, as vector diff, so the caller may propagate
         /// such updates, if needs be.
+        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub async fn with_events_mut<O, F: FnOnce(&mut RoomEvents) -> O>(
             &mut self,
             func: F,
@@ -1249,6 +1258,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_clear() {
+        use eyeball_im::VectorDiff;
         use matrix_sdk_base::linked_chunk::LinkedChunkBuilder;
 
         use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
@@ -1341,8 +1351,12 @@ mod tests {
         // After clearing,…
         room_event_cache.clear().await.unwrap();
 
-        //…we get an update that the content has been cleared.
-        assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = stream.recv());
+        //… we get an update that the content has been cleared.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Clear = &diffs[0]);
 
         // The room event cache has forgotten about the events.
         assert!(room_event_cache.event(event_id1).await.is_none());

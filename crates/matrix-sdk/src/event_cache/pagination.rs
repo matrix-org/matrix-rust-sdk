@@ -404,7 +404,7 @@ mod tests {
             assert_matches!(found, PaginationToken::None);
 
             // Reset waited_for_initial_prev_token and event state.
-            pagination.inner.state.write().await.reset().await.unwrap();
+            let _ = pagination.inner.state.write().await.reset().await.unwrap();
 
             // If I wait for a back-pagination token for 0 seconds,
             let before = Instant::now();
@@ -416,7 +416,7 @@ mod tests {
             assert!(waited.as_secs() < 1);
 
             // Reset waited_for_initial_prev_token state.
-            pagination.inner.state.write().await.reset().await.unwrap();
+            let _ = pagination.inner.state.write().await.reset().await.unwrap();
 
             // If I wait for a back-pagination token for 1 second,
             let before = Instant::now();
