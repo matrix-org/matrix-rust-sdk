@@ -20,7 +20,7 @@ use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
 use matrix_sdk::assert_next_matches_with_timeout;
-use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id, events::AnyMessageLikeEventContent, server_name, uint, EventId,
     MilliSecondsSinceUnixEpoch, OwnedEventId,
@@ -113,8 +113,9 @@ async fn test_add_reaction_success() {
     }
 
     // When the remote echo is received from sync,
-    let f = EventFactory::new();
-    timeline.handle_live_event(f.reaction(&event_id, REACTION_KEY).sender(*ALICE)).await;
+    timeline
+        .handle_live_event(timeline.factory.reaction(&event_id, REACTION_KEY).sender(*ALICE))
+        .await;
 
     // The reaction is still present on the item, as a remote echo.
     assert_reaction_is_updated!(stream, &event_id, item_pos, true);
@@ -183,7 +184,7 @@ async fn test_reactions_store_timestamp() {
 async fn test_initial_reaction_timestamp_is_stored() {
     let timeline = TestTimeline::new();
 
-    let f = EventFactory::new().sender(*ALICE);
+    let f = &timeline.factory;
     let message_event_id = EventId::new(server_name!("dummy.server"));
     let reaction_timestamp = MilliSecondsSinceUnixEpoch(uint!(39845));
 
@@ -194,10 +195,11 @@ async fn test_initial_reaction_timestamp_is_stored() {
                 values: vector![
                     // Reaction comes first.
                     f.reaction(&message_event_id, REACTION_KEY)
+                        .sender(*ALICE)
                         .server_ts(reaction_timestamp)
                         .into_event(),
                     // Event comes next.
-                    f.text_msg("A").event_id(&message_event_id).into_event(),
+                    f.text_msg("A").sender(*ALICE).event_id(&message_event_id).into_event(),
                 ],
             }],
             RemoteEventOrigin::Sync,
@@ -235,8 +237,7 @@ async fn test_reinserted_item_keeps_reactions() {
     // This test checks that after deduplicating events, the reactions attached to
     // the deduplicated event are not lost.
     let timeline = TestTimeline::new();
-
-    let f = EventFactory::new().sender(*ALICE);
+    let f = &timeline.factory;
 
     // We receive an initial update with one event and a reaction to this event.
     let reaction_target = event_id!("$1");
