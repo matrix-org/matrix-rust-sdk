@@ -26,7 +26,7 @@ use ruma::{
         },
         PollResponseData,
     },
-    MilliSecondsSinceUnixEpoch, OwnedUserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
 };
 
 use crate::timeline::ReactionsByKeyBySender;
@@ -92,6 +92,7 @@ impl PollState {
         }
     }
 
+    /// Add a response to a poll.
     pub(crate) fn add_response(
         &mut self,
         sender: OwnedUserId,
@@ -99,6 +100,22 @@ impl PollState {
         answers: Vec<String>,
     ) {
         self.response_data.push(ResponseData { sender, timestamp, answers });
+    }
+
+    /// Remove a response from the poll, as identified by its sender and
+    /// timestamp values.
+    pub(crate) fn remove_response(
+        &mut self,
+        sender: &UserId,
+        timestamp: MilliSecondsSinceUnixEpoch,
+    ) {
+        if let Some(idx) = self
+            .response_data
+            .iter()
+            .position(|resp| resp.sender == sender && resp.timestamp == timestamp)
+        {
+            self.response_data.remove(idx);
+        }
     }
 
     /// Marks the poll as ended.

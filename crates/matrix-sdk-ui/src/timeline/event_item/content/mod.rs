@@ -466,23 +466,18 @@ impl TimelineItemContent {
         }
     }
 
-    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
-        let mut cloned = self.clone();
+    pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
+        match self {
+            TimelineItemContent::Message(message) => Some(&mut message.reactions),
+            TimelineItemContent::Sticker(sticker) => Some(&mut sticker.reactions),
+            TimelineItemContent::Poll(poll_state) => Some(&mut poll_state.reactions),
 
-        match &mut cloned {
-            TimelineItemContent::Message(message) => {
-                message.reactions = reactions;
-            }
-            TimelineItemContent::Sticker(sticker) => {
-                sticker.reactions = reactions;
-            }
-            TimelineItemContent::Poll(poll_state) => {
-                poll_state.reactions = reactions;
+            TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
+                // No reactions for redacted messages or UTDs.
+                None
             }
 
-            TimelineItemContent::UnableToDecrypt(..)
-            | TimelineItemContent::RedactedMessage
-            | TimelineItemContent::MembershipChange(..)
+            TimelineItemContent::MembershipChange(..)
             | TimelineItemContent::ProfileChange(..)
             | TimelineItemContent::OtherState(..)
             | TimelineItemContent::FailedToParseMessageLike { .. }
@@ -490,9 +485,16 @@ impl TimelineItemContent {
             | TimelineItemContent::CallInvite
             | TimelineItemContent::CallNotify => {
                 // No reactions for these kind of items.
+                None
             }
         }
+    }
 
+    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
+        let mut cloned = self.clone();
+        if let Some(r) = cloned.reactions_mut() {
+            *r = reactions;
+        }
         cloned
     }
 }

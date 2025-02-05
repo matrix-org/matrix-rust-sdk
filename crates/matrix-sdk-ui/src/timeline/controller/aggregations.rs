@@ -67,7 +67,7 @@ impl Aggregation {
         Self { kind, own_id }
     }
 
-    /// Apply in-place an aggregation to a given [`TimelineItemContent`].
+    /// Apply an aggregation in-place to a given [`TimelineItemContent`].
     ///
     /// Returns an error if the aggregation couldn't be applied.
     pub fn apply(&self, content: &mut TimelineItemContent) -> Result<(), AggregationError> {
@@ -125,6 +125,32 @@ impl Aggregation {
 
         Ok(())
     }
+
+    /// Undo an aggregation in-place to a given [`TimelineItemContent`].
+    ///
+    /// Returns an error if the aggregation couldn't be applied.
+    pub fn unapply(&self, content: &mut TimelineItemContent) -> Result<(), AggregationError> {
+        match &self.kind {
+            AggregationKind::PollResponse { sender, timestamp, .. } => {
+                poll_state_from_item(content)?.remove_response(sender, *timestamp);
+            }
+
+            AggregationKind::PollEnd { .. } => {
+                // Assume we can't undo a poll end event at the moment.
+                return Err(AggregationError::CantUndoPollEnd);
+            }
+
+            AggregationKind::Reaction { key, sender, .. } => {
+                let Some(reactions) = content.reactions_mut() else {
+                    // An item that doesn't hold any reactions.
+                    return Ok(());
+                };
+                reactions.entry(key.clone()).or_default().swap_remove(sender);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Manager for all known existing aggregations to all events in the timeline.
@@ -159,25 +185,22 @@ impl Aggregations {
         &mut self,
         aggregation_id: &TimelineEventItemId,
     ) -> Option<(&TimelineEventItemId, Aggregation)> {
-        if let Some(found) = self.inverted_map.get(aggregation_id) {
-            // Find and remove the aggregation in the other mapping.
-            let aggregation = self.related_events.get_mut(found).and_then(|aggregations| {
-                if let Some(idx) = aggregations.iter().position(|agg| agg.own_id == *aggregation_id)
-                {
-                    Some(aggregations.remove(idx))
-                } else {
-                    None
-                }
-            });
+        let found = self.inverted_map.get(aggregation_id)?;
 
-            if aggregation.is_none() {
-                warn!("unexpected missing aggregation {aggregation_id:?}: was present in the inverted map, not in the actual map");
+        // Find and remove the aggregation in the other mapping.
+        let aggregation = self.related_events.get_mut(found).and_then(|aggregations| {
+            if let Some(idx) = aggregations.iter().position(|agg| agg.own_id == *aggregation_id) {
+                Some(aggregations.remove(idx))
+            } else {
+                None
             }
+        });
 
-            Some((found, aggregation?))
-        } else {
-            None
+        if aggregation.is_none() {
+            warn!("unexpected missing aggregation {aggregation_id:?} (was present in the inverted map, not in the actual map)");
         }
+
+        Some((found, aggregation?))
     }
 
     pub fn apply(
@@ -199,6 +222,9 @@ impl Aggregations {
 pub(crate) enum AggregationError {
     #[error("trying to end a poll twice")]
     PollAlreadyEnded,
+
+    #[error("a poll end can't be unapplied")]
+    CantUndoPollEnd,
 
     #[error("trying to apply an aggregation of one type to an invalid target: expected {expected}, actual {actual}")]
     InvalidType { expected: String, actual: String },

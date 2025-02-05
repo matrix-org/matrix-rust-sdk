@@ -1010,29 +1010,21 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if let Some((target, aggregation)) =
             self.meta.aggregations.try_remove_aggregation(&reaction_id)
         {
-            match &aggregation.kind {
-                AggregationKind::Reaction { sender, key, .. } => {
-                    let Some((item_pos, item)) = rfind_event_by_item_id(&self.items, &target)
-                    else {
-                        warn!("missing reacted-to item {target:?}");
-                        return false;
-                    };
-                    let mut reactions = item.content().reactions().clone();
-                    if reactions.remove_reaction(&sender, &key).is_some() {
-                        trace!("Removing reaction");
-                        self.items.replace(item_pos, item.with_reactions(reactions));
-                        self.result.items_updated += 1;
-                        return true;
-                    }
+            if let Some((item_pos, item)) = rfind_event_by_item_id(&self.items, &target) {
+                let mut content = item.content().clone();
+                if let Err(err) = aggregation.unapply(&mut content) {
+                    warn!("error when unapplying aggregation: {err}");
+                    return false;
                 }
-
-                _ => {
-                    warn!(
-                        "unexpected aggregation kind in `handle_reaction_redaction`: {:?}",
-                        aggregation.kind
-                    );
-                }
+                trace!("removed aggregation");
+                let internal_id = item.internal_id.to_owned();
+                let new_item = item.with_content(content);
+                self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
+                self.result.items_updated += 1;
+            } else {
+                warn!("missing related-to item ({target:?}) for aggregation {reaction_id:?}");
             }
+            return true;
         }
 
         false
