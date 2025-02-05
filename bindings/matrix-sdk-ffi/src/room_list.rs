@@ -593,26 +593,13 @@ impl RoomListItem {
     }
 
     /// Builds a `RoomPreview` from a room list item. This is intended for
-    /// invited or knocked rooms.
-    ///
-    /// An error will be returned if the room is in a state other than invited
-    /// or knocked.
+    /// invited, knocked or banned rooms.
     async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
         // Validate parameters first.
         let server_names: Vec<OwnedServerName> = via
             .into_iter()
             .map(|server| ServerName::parse(server).map_err(ClientError::from))
             .collect::<Result<_, ClientError>>()?;
-
-        // Validate internal room state.
-        let membership = self.membership();
-        if !matches!(membership, Membership::Invited | Membership::Knocked) {
-            return Err(RoomListError::IncorrectRoomMembership {
-                expected: vec![Membership::Invited, Membership::Knocked],
-                actual: membership,
-            }
-            .into());
-        }
 
         // Do the thing.
         let client = self.inner.client();
