@@ -570,13 +570,13 @@ impl<'a> TimelineStateTransaction<'a> {
     /// This method replaces the `is_room_encrypted` value for all timeline
     /// items to its updated version and creates a `VectorDiff::Set` operation
     /// for each item which will be added to this transaction.
-    pub(super) fn update_all_events_is_room_encrypted(&mut self, is_encrypted: Option<bool>) {
+    pub(super) fn mark_all_events_as_encrypted(&mut self) {
         for idx in 0..self.items.len() {
             let item = &self.items[idx];
 
             if let Some(event) = item.as_event() {
                 let mut cloned_event = event.clone();
-                cloned_event.is_room_encrypted = is_encrypted;
+                cloned_event.is_room_encrypted = Some(true);
 
                 // Replace the existing item with a new version with the right encryption flag
                 let item = item.with_kind(cloned_event);
