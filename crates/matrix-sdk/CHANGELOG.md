@@ -12,6 +12,14 @@ All notable changes to this project will be documented in this file.
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 
+### Bug Fixes
+
+- Ensure all known secrets are removed from secret storage when invoking the
+  `Recovery::disable()` method. While the server is not guaranteed to delete
+  these secrets, making an attempt to remove them is considered good practice.
+  Note that all secrets are uploaded to the server in an encrypted form.
+  ([#4629](https://github.com/matrix-org/matrix-rust-sdk/pull/4629))
+
 ## [0.10.0] - 2025-02-04
 
 ### Features

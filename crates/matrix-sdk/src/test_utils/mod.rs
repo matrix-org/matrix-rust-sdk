@@ -247,17 +247,17 @@ macro_rules! assert_next_eq_with_timeout_impl {
 
         assert_eq!(next_value, $expected);
     };
-    ($stream:expr, $expected:expr, $timeout:expr, $($msg:tt)*) => {
+    ($stream:expr, $expected:expr, $timeout:expr, $($msg:tt)*) => {{
         let next_value = tokio::time::timeout(
             $timeout,
-            $stream.next()
+            futures_util::StreamExt::next(&mut $stream)
         )
         .await
         .expect("We should be able to get the next value out of the stream by now")
         .expect("The stream should have given us a new value instead of None");
 
         assert_eq!(next_value, $expected, $($msg)*);
-    };
+    }};
 }
 
 /// Like `assert_let`, but with the possibility to add an optional timeout.
