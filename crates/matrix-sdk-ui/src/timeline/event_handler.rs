@@ -761,14 +761,20 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         if let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) {
             let mut new_content = event_item.content().clone();
-            if let Err(err) = aggregation.apply(&mut new_content) {
-                warn!("error when applying reaction aggregation: {err}");
-            } else {
-                trace!("added reaction");
-                let new_item = event_item.with_content(new_content);
-                self.items
-                    .replace(idx, TimelineItem::new(new_item, event_item.internal_id.to_owned()));
-                self.result.items_updated += 1;
+            match aggregation.apply(&mut new_content) {
+                Ok(true) => {
+                    trace!("added reaction");
+                    let new_item = event_item.with_content(new_content);
+                    self.items.replace(
+                        idx,
+                        TimelineItem::new(new_item, event_item.internal_id.to_owned()),
+                    );
+                    self.result.items_updated += 1;
+                }
+                Ok(false) => {}
+                Err(err) => {
+                    warn!("error when applying reaction aggregation: {err}");
+                }
             }
         }
 
@@ -914,7 +920,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let mut new_content = item.content().clone();
         match aggregation.apply(&mut new_content) {
-            Ok(()) => {
+            Ok(true) => {
                 trace!("adding poll response.");
                 self.items.replace(
                     item_pos,
@@ -922,6 +928,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 );
                 self.result.items_updated += 1;
             }
+            Ok(false) => {}
             Err(err) => {
                 warn!("discarding poll response: {err}");
             }
@@ -943,13 +950,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let mut new_content = item.content().clone();
         match aggregation.apply(&mut new_content) {
-            Ok(()) => {
+            Ok(true) => {
                 trace!("Ending poll.");
                 let new_item = item.with_content(new_content);
                 self.items
                     .replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
                 self.result.items_updated += 1;
             }
+            Ok(false) => {}
             Err(err) => {
                 warn!("discarding poll end: {err}");
             }
@@ -1005,27 +1013,34 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_aggregation_redaction(&mut self, aggregation_id: OwnedEventId) -> bool {
         let aggregation_id = TimelineEventItemId::EventId(aggregation_id);
 
-        if let Some((target, aggregation)) =
+        let Some((target, aggregation)) =
             self.meta.aggregations.try_remove_aggregation(&aggregation_id)
-        {
-            if let Some((item_pos, item)) = rfind_event_by_item_id(&self.items, &target) {
-                let mut content = item.content().clone();
-                if let Err(err) = aggregation.unapply(&mut content) {
-                    warn!("error when unapplying aggregation: {err}");
-                    return false;
+        else {
+            // This wasn't a known aggregation that was redacted.
+            return false;
+        };
+
+        if let Some((item_pos, item)) = rfind_event_by_item_id(&self.items, &target) {
+            let mut content = item.content().clone();
+            match aggregation.unapply(&mut content) {
+                Ok(true) => {
+                    trace!("removed aggregation");
+                    let internal_id = item.internal_id.to_owned();
+                    let new_item = item.with_content(content);
+                    self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
+                    self.result.items_updated += 1;
                 }
-                trace!("removed aggregation");
-                let internal_id = item.internal_id.to_owned();
-                let new_item = item.with_content(content);
-                self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
-                self.result.items_updated += 1;
-            } else {
-                warn!("missing related-to item ({target:?}) for aggregation {aggregation_id:?}");
+                Ok(false) => {}
+                Err(err) => {
+                    warn!("error when unapplying aggregation: {err}");
+                }
             }
-            return true;
+        } else {
+            warn!("missing related-to item ({target:?}) for aggregation {aggregation_id:?}");
         }
 
-        false
+        // In all cases, we noticed this was an aggregation.
+        true
     }
 
     /// Add a new event item in the timeline.

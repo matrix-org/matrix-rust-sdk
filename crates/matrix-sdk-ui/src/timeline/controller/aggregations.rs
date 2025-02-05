@@ -69,8 +69,10 @@ impl Aggregation {
 
     /// Apply an aggregation in-place to a given [`TimelineItemContent`].
     ///
-    /// Returns an error if the aggregation couldn't be applied.
-    pub fn apply(&self, content: &mut TimelineItemContent) -> Result<(), AggregationError> {
+    /// In case of success, returns a boolean indicating whether applying the
+    /// aggregation caused a change in the content. In case of error,
+    /// returns an error detailing why the aggregation couldn't be applied.
+    pub fn apply(&self, content: &mut TimelineItemContent) -> Result<bool, AggregationError> {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, answers } => {
                 poll_state_from_item(content)?.add_response(
@@ -78,6 +80,7 @@ impl Aggregation {
                     *timestamp,
                     answers.clone(),
                 );
+                Ok(true)
             }
 
             AggregationKind::PollEnd { end_date } => {
@@ -85,29 +88,16 @@ impl Aggregation {
                 if !poll_state.end(*end_date) {
                     return Err(AggregationError::PollAlreadyEnded);
                 }
+                Ok(true)
             }
 
             AggregationKind::Reaction { key, sender, timestamp, send_handle } => {
-                let reactions = match content {
-                    TimelineItemContent::Message(message) => &mut message.reactions,
-                    TimelineItemContent::Poll(poll_state) => &mut poll_state.reactions,
-                    TimelineItemContent::Sticker(sticker) => &mut sticker.reactions,
-
-                    TimelineItemContent::RedactedMessage
-                    | TimelineItemContent::UnableToDecrypt(..)
-                    | TimelineItemContent::MembershipChange(..)
-                    | TimelineItemContent::ProfileChange(..)
-                    | TimelineItemContent::OtherState(..)
-                    | TimelineItemContent::FailedToParseMessageLike { .. }
-                    | TimelineItemContent::FailedToParseState { .. }
-                    | TimelineItemContent::CallInvite
-                    | TimelineItemContent::CallNotify => {
-                        // These items don't hold reactions.
-                        return Ok(());
-                    }
+                let Some(reactions) = content.reactions_mut() else {
+                    // These items don't hold reactions.
+                    return Ok(false);
                 };
 
-                let status = match &self.own_id {
+                let new_status = match &self.own_id {
                     TimelineEventItemId::TransactionId(_) => {
                         ReactionStatus::LocalToRemote(send_handle.clone())
                     }
@@ -116,23 +106,44 @@ impl Aggregation {
                     }
                 };
 
-                reactions
-                    .entry(key.clone())
-                    .or_default()
-                    .insert(sender.clone(), ReactionInfo { timestamp: *timestamp, status });
+                let previous_reaction = reactions.entry(key.clone()).or_default().insert(
+                    sender.clone(),
+                    ReactionInfo { timestamp: *timestamp, status: new_status.clone() },
+                );
+
+                let is_same = previous_reaction.is_some_and(|prev| {
+                    prev.timestamp == *timestamp
+                        && match (prev.status, new_status) {
+                            (ReactionStatus::LocalToLocal(_), ReactionStatus::LocalToLocal(_)) => {
+                                true
+                            }
+                            (
+                                ReactionStatus::LocalToRemote(_),
+                                ReactionStatus::LocalToRemote(_),
+                            ) => true,
+                            (
+                                ReactionStatus::RemoteToRemote(_),
+                                ReactionStatus::RemoteToRemote(_),
+                            ) => true,
+                            _ => false,
+                        }
+                });
+
+                Ok(!is_same)
             }
         }
-
-        Ok(())
     }
 
     /// Undo an aggregation in-place to a given [`TimelineItemContent`].
     ///
-    /// Returns an error if the aggregation couldn't be applied.
-    pub fn unapply(&self, content: &mut TimelineItemContent) -> Result<(), AggregationError> {
+    /// In case of success, returns a boolean indicating whether applying the
+    /// aggregation caused a change in the content. In case of error,
+    /// returns an error detailing why the aggregation couldn't be applied.
+    pub fn unapply(&self, content: &mut TimelineItemContent) -> Result<bool, AggregationError> {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, .. } => {
                 poll_state_from_item(content)?.remove_response(sender, *timestamp);
+                Ok(true)
             }
 
             AggregationKind::PollEnd { .. } => {
@@ -143,13 +154,24 @@ impl Aggregation {
             AggregationKind::Reaction { key, sender, .. } => {
                 let Some(reactions) = content.reactions_mut() else {
                     // An item that doesn't hold any reactions.
-                    return Ok(());
+                    return Ok(false);
                 };
-                reactions.entry(key.clone()).or_default().swap_remove(sender);
+
+                let by_user = reactions.get_mut(key);
+                let previous_entry = if let Some(by_user) = by_user {
+                    let prev = by_user.swap_remove(sender);
+                    // If this was the last reaction, remove the entire map for this key.
+                    if by_user.is_empty() {
+                        reactions.swap_remove(key);
+                    }
+                    prev
+                } else {
+                    None
+                };
+
+                Ok(previous_entry.is_some())
             }
         }
-
-        Ok(())
     }
 }
 
@@ -207,14 +229,14 @@ impl Aggregations {
         &self,
         item_id: &TimelineEventItemId,
         content: &mut TimelineItemContent,
-    ) -> Result<bool, AggregationError> {
+    ) -> Result<(), AggregationError> {
         let Some(aggregations) = self.related_events.get(item_id) else {
-            return Ok(false);
+            return Ok(());
         };
         for a in aggregations {
             a.apply(content)?;
         }
-        Ok(true)
+        Ok(())
     }
 }
 
