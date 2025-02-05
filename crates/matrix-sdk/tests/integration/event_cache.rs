@@ -7,6 +7,7 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use futures_util::FutureExt;
 use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::TimelineEvent,
@@ -142,14 +143,14 @@ async fn test_ignored_unignored() {
     // And subscribe to the room,
     let room = client.get_room(room_id).unwrap();
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it contains the two initial events.
     assert_eq!(events.len(), 2);
     assert_event_matches_msg(&events[0], "hey there");
     assert_event_matches_msg(&events[1], "hoy!");
 
-    // And after receiving a new ignored list,
+    // `dexter` is ignored.
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
@@ -164,9 +165,6 @@ async fn test_ignored_unignored() {
         })
         .await;
 
-    // It does receive one update, which notifies about the clear.
-    assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = subscriber.recv());
-
     // Receiving new events still works.
     server
         .mock_sync()
@@ -178,17 +176,26 @@ async fn test_ignored_unignored() {
         })
         .await;
 
-    // We do receive one update,
-    assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
-    );
-    assert_eq!(diffs.len(), 2);
+    // We do receive a clear.
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Clear = &diffs[0]);
+    }
 
-    // Similar to the `RoomEventCacheUpdate::Clear`.
-    assert_let!(VectorDiff::Clear = &diffs[0]);
-    assert_let!(VectorDiff::Append { values: events } = &diffs[1]);
-    assert_eq!(events.len(), 1);
-    assert_event_matches_msg(&events[0], "i don't like this dexter");
+    // We do receive the new event.
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+
+        assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "i don't like this dexter");
+    }
 
     // The other room has been cleared too.
     {
@@ -199,7 +206,7 @@ async fn test_ignored_unignored() {
     }
 
     // That's all, folks!
-    assert!(subscriber.is_empty());
+    assert!(room_stream.is_empty());
 }
 
 /// Small helper for backpagination tests, to wait for things to stabilize.
@@ -208,16 +215,13 @@ async fn wait_for_initial_events(
     room_stream: &mut broadcast::Receiver<RoomEventCacheUpdate>,
 ) {
     if events.is_empty() {
-        assert_let_timeout!(Ok(update) = room_stream.recv());
-        let mut update = update;
+        // Wait for a first update.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = room_stream.recv()
+        );
 
-        // Could be a clear because of the limited timeline.
-        if matches!(update, RoomEventCacheUpdate::Clear) {
-            assert_let_timeout!(Ok(new_update) = room_stream.recv());
-            update = new_update;
-        }
-
-        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { .. });
+        // Read as much updates immediately available as possible.
+        while let Some(Ok(_)) = room_stream.recv().now_or_never() {}
     } else {
         assert_eq!(events.len(), 1);
     }
@@ -617,17 +621,7 @@ async fn test_reset_while_backpaginating() {
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
-    // This is racy: either the initial message has been processed by the event
-    // cache (and no room updates will happen in this case), or it hasn't, and
-    // the stream will return the next message soon.
-    if events.is_empty() {
-        assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = room_stream.recv());
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = room_stream.recv()
-        );
-    } else {
-        assert_eq!(events.len(), 1);
-    }
+    wait_for_initial_events(events, &mut room_stream).await;
 
     // We're going to cause a small race:
     // - a background request to sync will be sent,
@@ -715,30 +709,38 @@ async fn test_reset_while_backpaginating() {
 
     // Assert the updates as diffs.
 
-    // Being cleared from the reset.
-    assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = room_stream.recv());
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        // The clear.
+        assert_matches!(&diffs[0], VectorDiff::Clear);
+    }
 
-    assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
-    );
-    assert_eq!(diffs.len(), 2);
-    // The clear, again.
-    assert_matches!(&diffs[0], VectorDiff::Clear);
-    // The event from the sync.
-    assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
-        assert_eq!(events.len(), 1);
-        assert_event_matches_msg(&events[0], "heyo");
-    });
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        // The event from the sync.
+        assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
+            assert_eq!(events.len(), 1);
+            assert_event_matches_msg(&events[0], "heyo");
+        });
+    }
 
-    assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
-    );
-    assert_eq!(diffs.len(), 1);
-    // The event from the pagination.
-    assert_matches!(&diffs[0], VectorDiff::Insert { index, value: event } => {
-        assert_eq!(*index, 0);
-        assert_event_matches_msg(event, "finally!");
-    });
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        // The event from the pagination.
+        assert_matches!(&diffs[0], VectorDiff::Insert { index, value: event } => {
+            assert_eq!(*index, 0);
+            assert_event_matches_msg(event, "finally!");
+        });
+    }
 
     assert!(room_stream.is_empty());
 }
@@ -854,7 +856,7 @@ async fn test_limited_timeline_resets_pagination() {
         assert_event_matches_msg(&events[0], "hi");
     });
 
-    // And the paginator state delives this as an update, and is internally
+    // And the paginator state delivers this as an update, and is internally
     // consistent with it:
     assert_next_matches_with_timeout!(pagination_status, PaginatorState::Idle);
     assert!(pagination.hit_timeline_start());
@@ -863,7 +865,11 @@ async fn test_limited_timeline_resets_pagination() {
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
 
     // We receive an update about the limited timeline.
-    assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = room_stream.recv());
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Clear = &diffs[0]);
 
     // The paginator state is reset: status set to Initial, hasn't hit the timeline
     // start.
