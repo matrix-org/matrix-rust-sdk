@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId};
 use tracing::warn;
 
 use crate::timeline::{
@@ -179,13 +179,9 @@ impl Aggregations {
         self.inverted_map.clear();
     }
 
-    pub fn add(&mut self, related_to: OwnedEventId, aggregation: Aggregation) {
-        self.inverted_map
-            .insert(aggregation.own_id.clone(), TimelineEventItemId::EventId(related_to.clone()));
-        self.related_events
-            .entry(TimelineEventItemId::EventId(related_to))
-            .or_default()
-            .push(aggregation);
+    pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
+        self.inverted_map.insert(aggregation.own_id.clone(), related_to.clone());
+        self.related_events.entry(related_to).or_default().push(aggregation);
     }
 
     /// Is the given id one for a known aggregation to another event?
@@ -226,6 +222,74 @@ impl Aggregations {
         }
         Ok(())
     }
+
+    /// Mark a target event as being sent (i.e. it transitions from an local
+    /// transaction id to its remote event id counterpart), by updating the
+    /// internal mappings.
+    pub fn mark_target_as_sent(&mut self, txn_id: OwnedTransactionId, event_id: OwnedEventId) {
+        let from = TimelineEventItemId::TransactionId(txn_id);
+        let to = TimelineEventItemId::EventId(event_id);
+
+        // Update the aggregations in the `related_events` field.
+        if let Some(aggregations) = self.related_events.remove(&from) {
+            // Update the inverted mappings (from aggregation's id, to the new target id).
+            for a in &aggregations {
+                if let Some(prev_target) = self.inverted_map.remove(&a.own_id) {
+                    debug_assert_eq!(prev_target, from);
+                    self.inverted_map.insert(a.own_id.clone(), to.clone());
+                }
+            }
+            // Update the direct mapping of target -> aggregations.
+            self.related_events.insert(to.clone(), aggregations);
+        }
+    }
+
+    /// Mark an aggregation event as being sent (i.e. it transitions from an
+    /// local transaction id to its remote event id counterpart), by
+    /// updating the internal mappings.
+    pub fn mark_aggregation_as_sent(
+        &mut self,
+        txn_id: OwnedTransactionId,
+        event_id: OwnedEventId,
+    ) -> MarkAggregationSentResult {
+        let from = TimelineEventItemId::TransactionId(txn_id);
+        let to = TimelineEventItemId::EventId(event_id.clone());
+
+        let Some(target) = self.inverted_map.remove(&from) else {
+            return MarkAggregationSentResult::NotFound;
+        };
+
+        let mut target_and_new_aggregation = MarkAggregationSentResult::MarkedSent { update: None };
+
+        if let Some(aggregations) = self.related_events.get_mut(&target) {
+            if let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from) {
+                found.own_id = to.clone();
+
+                match &mut found.kind {
+                    AggregationKind::PollResponse { .. } | AggregationKind::PollEnd { .. } => {
+                        // Nothing particular to do.
+                    }
+                    AggregationKind::Reaction { reaction_status, .. } => {
+                        // Mark the reaction as becoming remote, and signal that update to the
+                        // caller.
+                        *reaction_status = ReactionStatus::RemoteToRemote(event_id.clone());
+                        target_and_new_aggregation = MarkAggregationSentResult::MarkedSent {
+                            update: Some((target.clone(), found.clone())),
+                        };
+                    }
+                }
+            }
+        }
+
+        self.inverted_map.insert(to, target);
+
+        target_and_new_aggregation
+    }
+}
+
+pub(crate) enum MarkAggregationSentResult {
+    MarkedSent { update: Option<(TimelineEventItemId, Aggregation)> },
+    NotFound,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -754,7 +754,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reaction_status,
             },
         );
-        self.meta.aggregations.add(reacted_to_event_id.clone(), aggregation.clone());
+        self.meta
+            .aggregations
+            .add(TimelineEventItemId::EventId(reacted_to_event_id.clone()), aggregation.clone());
 
         let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) else {
             warn!("couldn't find reaction's target {reacted_to_event_id:?}");
@@ -894,7 +896,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
         );
 
-        self.meta.aggregations.add(start_event_id.clone(), aggregation.clone());
+        self.meta
+            .aggregations
+            .add(TimelineEventItemId::EventId(start_event_id.clone()), aggregation.clone());
 
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
             return;
@@ -924,7 +928,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             self.ctx.flow.timeline_item_id(),
             AggregationKind::PollEnd { end_date: self.ctx.timestamp },
         );
-        self.meta.aggregations.add(start_event_id.clone(), aggregation.clone());
+        self.meta
+            .aggregations
+            .add(TimelineEventItemId::EventId(start_event_id.clone()), aggregation.clone());
 
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
             return;

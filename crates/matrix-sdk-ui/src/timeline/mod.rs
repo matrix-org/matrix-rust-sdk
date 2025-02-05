@@ -72,7 +72,6 @@ pub mod futures;
 mod item;
 mod pagination;
 mod pinned_events_loader;
-mod reactions;
 mod subscriber;
 #[cfg(test)]
 mod tests;

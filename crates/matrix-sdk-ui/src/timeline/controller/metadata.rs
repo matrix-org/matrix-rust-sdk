@@ -20,8 +20,8 @@ use tracing::trace;
 
 use super::{
     super::{
-        reactions::Reactions, rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem,
-        TimelineItemKind, TimelineUniqueId,
+        rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem, TimelineItemKind,
+        TimelineUniqueId,
     },
     read_receipts::ReadReceipts,
     Aggregations, AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
@@ -70,10 +70,6 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// the device has terabytes of RAM.
     next_internal_id: u64,
 
-    /// State helping matching reactions to their associated events, and
-    /// stashing pending reactions.
-    pub reactions: Reactions,
-
     /// Aggregation metadata and pending aggregations.
     pub aggregations: Aggregations,
 
@@ -114,7 +110,6 @@ impl TimelineMetadata {
             subscriber_skip_count: SkipCount::new(),
             own_user_id,
             next_internal_id: Default::default(),
-            reactions: Default::default(),
             aggregations: Default::default(),
             pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
             fully_read_event: Default::default(),
@@ -132,7 +127,6 @@ impl TimelineMetadata {
     pub(super) fn clear(&mut self) {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
-        self.reactions.clear();
         self.aggregations.clear();
         self.pending_edits.clear();
         self.fully_read_event = None;
