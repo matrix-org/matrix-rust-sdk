@@ -52,6 +52,7 @@ use crate::{
 mod keys {
     // Entries in Key-value store
     pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
+    pub const LAST_MEDIA_CLEANUP_TIME: &str = "last_media_cleanup_time";
 
     // Tables
     pub const LINKED_CHUNKS: &str = "linked_chunks";
@@ -77,7 +78,7 @@ const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 pub struct SqliteEventCacheStore {
     store_cipher: Option<Arc<StoreCipher>>,
     pool: SqlitePool,
-    media_service: Arc<MediaService>,
+    media_service: MediaService,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -118,10 +119,11 @@ impl SqliteEventCacheStore {
         };
 
         let media_service = MediaService::new();
-        let media_retention_policy = media_retention_policy(&conn).await?;
-        media_service.restore(media_retention_policy);
+        let media_retention_policy = conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await?;
+        let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
+        media_service.restore(media_retention_policy, last_media_cleanup_time);
 
-        Ok(Self { store_cipher, pool, media_service: Arc::new(media_service) })
+        Ok(Self { store_cipher, pool, media_service })
     }
 
     fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
@@ -715,7 +717,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         &self,
     ) -> Result<Option<MediaRetentionPolicy>, Self::Error> {
         let conn = self.acquire().await?;
-        media_retention_policy(&conn).await
+        conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await
     }
 
     async fn set_media_retention_policy_inner(
@@ -723,10 +725,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         policy: MediaRetentionPolicy,
     ) -> Result<(), Self::Error> {
         let conn = self.acquire().await?;
-
-        let serialized_policy = rmp_serde::to_vec_named(&policy)?;
-        conn.set_kv(keys::MEDIA_RETENTION_POLICY, serialized_policy).await?;
-
+        conn.set_serialized_kv(keys::MEDIA_RETENTION_POLICY, policy).await?;
         Ok(())
     }
 
@@ -954,6 +953,8 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                     }
                 }
 
+                txn.set_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME, current_time)?;
+
                 Ok(removed)
             })
             .await?;
@@ -974,6 +975,11 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         }
 
         Ok(())
+    }
+
+    async fn last_media_cleanup_time_inner(&self) -> Result<Option<SystemTime>, Self::Error> {
+        let conn = self.acquire().await?;
+        conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await
     }
 }
 
@@ -1056,17 +1062,6 @@ fn insert_chunk(
     }
 
     Ok(())
-}
-
-/// Get the persisted [`MediaRetentionPolicy`] with the given connection.
-async fn media_retention_policy(
-    conn: &SqliteAsyncConn,
-) -> Result<Option<MediaRetentionPolicy>, Error> {
-    let Some(bytes) = conn.get_kv(keys::MEDIA_RETENTION_POLICY).await? else {
-        return Ok(None);
-    };
-
-    Ok(Some(rmp_serde::from_slice(&bytes)?))
 }
 
 #[cfg(test)]

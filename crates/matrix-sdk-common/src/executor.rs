@@ -62,6 +62,10 @@ impl<T> JoinHandle<T> {
     pub fn abort(&self) {
         self.abort_handle.abort();
     }
+
+    pub fn is_finished(&self) -> bool {
+        self.abort_handle.is_aborted()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
