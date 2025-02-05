@@ -47,6 +47,7 @@ use ruma::{
             },
             name::RoomNameEventContent,
             redaction::RoomRedactionEventContent,
+            tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
@@ -459,6 +460,18 @@ impl EventFactory {
 
         event.state_key = Some(member.to_string());
 
+        event
+    }
+
+    /// Create a tombstone state event for the room.
+    pub fn room_tombstone(
+        &self,
+        body: impl Into<String>,
+        replacement: &RoomId,
+    ) -> EventBuilder<RoomTombstoneEventContent> {
+        let mut event =
+            self.event(RoomTombstoneEventContent::new(body.into(), replacement.to_owned()));
+        event.state_key = Some("".to_owned());
         event
     }
 
