@@ -1008,7 +1008,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return false;
         };
 
-        if let Some((item_pos, item)) = rfind_event_by_item_id(&self.items, &target) {
+        if let Some((item_pos, item)) = rfind_event_by_item_id(self.items, target) {
             let mut content = item.content().clone();
             match aggregation.unapply(&mut content) {
                 Ok(true) => {

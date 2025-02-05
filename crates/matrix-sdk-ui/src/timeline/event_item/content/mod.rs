@@ -441,7 +441,7 @@ impl TimelineItemContent {
     }
 
     pub fn reactions(&self) -> &ReactionsByKeyBySender {
-        static EMPTY: Lazy<ReactionsByKeyBySender> = Lazy::new(|| Default::default());
+        static EMPTY: Lazy<ReactionsByKeyBySender> = Lazy::new(Default::default);
 
         match self {
             TimelineItemContent::Message(message) => &message.reactions,

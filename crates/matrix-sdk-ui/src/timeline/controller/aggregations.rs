@@ -101,20 +101,18 @@ impl Aggregation {
 
                 let is_same = previous_reaction.is_some_and(|prev| {
                     prev.timestamp == *timestamp
-                        && match (prev.status, reaction_status) {
-                            (ReactionStatus::LocalToLocal(_), ReactionStatus::LocalToLocal(_)) => {
-                                true
-                            }
-                            (
-                                ReactionStatus::LocalToRemote(_),
-                                ReactionStatus::LocalToRemote(_),
-                            ) => true,
-                            (
-                                ReactionStatus::RemoteToRemote(_),
-                                ReactionStatus::RemoteToRemote(_),
-                            ) => true,
-                            _ => false,
-                        }
+                        && matches!(
+                            (prev.status, reaction_status),
+                            (ReactionStatus::LocalToLocal(_), ReactionStatus::LocalToLocal(_))
+                                | (
+                                    ReactionStatus::LocalToRemote(_),
+                                    ReactionStatus::LocalToRemote(_),
+                                )
+                                | (
+                                    ReactionStatus::RemoteToRemote(_),
+                                    ReactionStatus::RemoteToRemote(_),
+                                )
+                        )
                 });
 
                 Ok(!is_same)
@@ -136,7 +134,7 @@ impl Aggregation {
 
             AggregationKind::PollEnd { .. } => {
                 // Assume we can't undo a poll end event at the moment.
-                return Err(AggregationError::CantUndoPollEnd);
+                Err(AggregationError::CantUndoPollEnd)
             }
 
             AggregationKind::Reaction { key, sender, .. } => {
@@ -195,11 +193,10 @@ impl Aggregations {
 
         // Find and remove the aggregation in the other mapping.
         let aggregation = self.related_events.get_mut(found).and_then(|aggregations| {
-            if let Some(idx) = aggregations.iter().position(|agg| agg.own_id == *aggregation_id) {
-                Some(aggregations.remove(idx))
-            } else {
-                None
-            }
+            aggregations
+                .iter()
+                .position(|agg| agg.own_id == *aggregation_id)
+                .map(|idx| aggregations.remove(idx))
         });
 
         if aggregation.is_none() {
@@ -240,7 +237,7 @@ impl Aggregations {
                 }
             }
             // Update the direct mapping of target -> aggregations.
-            self.related_events.insert(to.clone(), aggregations);
+            self.related_events.insert(to, aggregations);
         }
     }
 
@@ -272,7 +269,7 @@ impl Aggregations {
                     AggregationKind::Reaction { reaction_status, .. } => {
                         // Mark the reaction as becoming remote, and signal that update to the
                         // caller.
-                        *reaction_status = ReactionStatus::RemoteToRemote(event_id.clone());
+                        *reaction_status = ReactionStatus::RemoteToRemote(event_id);
                         target_and_new_aggregation = MarkAggregationSentResult::MarkedSent {
                             update: Some((target.clone(), found.clone())),
                         };
