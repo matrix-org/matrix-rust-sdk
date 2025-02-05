@@ -738,6 +738,8 @@ pub enum ReactionStatus {
     /// The handle is missing only in testing contexts.
     LocalToRemote(Option<SendHandle>),
     /// It's a remote reaction to a remote event.
+    ///
+    /// The event id is that of the reaction event (not the target event).
     RemoteToRemote(OwnedEventId),
 }
 

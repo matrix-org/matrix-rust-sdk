@@ -14,7 +14,6 @@
 
 use std::collections::HashMap;
 
-use matrix_sdk::send_queue::SendHandle;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 use tracing::warn;
 
@@ -38,9 +37,7 @@ pub(crate) enum AggregationKind {
         key: String,
         sender: OwnedUserId,
         timestamp: MilliSecondsSinceUnixEpoch,
-        /// For local reactions to remote events, a send handle to manipulate
-        /// the local reaction.
-        send_handle: Option<SendHandle>,
+        reaction_status: ReactionStatus,
     },
 }
 
@@ -91,29 +88,20 @@ impl Aggregation {
                 Ok(true)
             }
 
-            AggregationKind::Reaction { key, sender, timestamp, send_handle } => {
+            AggregationKind::Reaction { key, sender, timestamp, reaction_status } => {
                 let Some(reactions) = content.reactions_mut() else {
                     // These items don't hold reactions.
                     return Ok(false);
                 };
 
-                let new_status = match &self.own_id {
-                    TimelineEventItemId::TransactionId(_) => {
-                        ReactionStatus::LocalToRemote(send_handle.clone())
-                    }
-                    TimelineEventItemId::EventId(event_id) => {
-                        ReactionStatus::RemoteToRemote(event_id.clone())
-                    }
-                };
-
                 let previous_reaction = reactions.entry(key.clone()).or_default().insert(
                     sender.clone(),
-                    ReactionInfo { timestamp: *timestamp, status: new_status.clone() },
+                    ReactionInfo { timestamp: *timestamp, status: reaction_status.clone() },
                 );
 
                 let is_same = previous_reaction.is_some_and(|prev| {
                     prev.timestamp == *timestamp
-                        && match (prev.status, new_status) {
+                        && match (prev.status, reaction_status) {
                             (ReactionStatus::LocalToLocal(_), ReactionStatus::LocalToLocal(_)) => {
                                 true
                             }

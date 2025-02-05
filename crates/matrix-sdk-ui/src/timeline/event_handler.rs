@@ -63,10 +63,9 @@ use super::{
         LocalEventTimelineItem, PollState, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
         TimelineEventItemId,
     },
-    reactions::FullReactionKey,
     traits::RoomDataProvider,
-    EventTimelineItem, InReplyToDetails, OtherState, RepliedToEvent, Sticker, TimelineDetails,
-    TimelineItem, TimelineItemContent,
+    EventTimelineItem, InReplyToDetails, OtherState, ReactionStatus, RepliedToEvent, Sticker,
+    TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -736,63 +735,46 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let reacted_to_event_id = &c.relates_to.event_id;
 
         // Add the aggregation to the manager.
-        let send_handle =
-            as_variant!(&self.ctx.flow, Flow::Local { send_handle, .. } => send_handle.clone())
-                .flatten();
+        let reaction_status = match &self.ctx.flow {
+            Flow::Local { send_handle, .. } => {
+                // This is a local echo for a reaction to a remote event.
+                ReactionStatus::LocalToRemote(send_handle.clone())
+            }
+            Flow::Remote { event_id, .. } => {
+                // This is the remote echo for a reaction to a remote event.
+                ReactionStatus::RemoteToRemote(event_id.clone())
+            }
+        };
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::Reaction {
                 key: c.relates_to.key.clone(),
                 sender: self.ctx.sender.clone(),
                 timestamp: self.ctx.timestamp,
-                send_handle,
+                reaction_status,
             },
         );
         self.meta.aggregations.add(reacted_to_event_id.clone(), aggregation.clone());
 
-        let (reaction_id, _send_handle, old_txn_id) = match &self.ctx.flow {
-            Flow::Local { txn_id, send_handle, .. } => {
-                (TimelineEventItemId::TransactionId(txn_id.clone()), send_handle.clone(), None)
-            }
-            Flow::Remote { event_id, txn_id, .. } => {
-                (TimelineEventItemId::EventId(event_id.clone()), None, txn_id.as_ref())
-            }
+        let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) else {
+            warn!("couldn't find reaction's target {reacted_to_event_id:?}");
+            return;
         };
 
-        if let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) {
-            let mut new_content = event_item.content().clone();
-            match aggregation.apply(&mut new_content) {
-                Ok(true) => {
-                    trace!("added reaction");
-                    let new_item = event_item.with_content(new_content);
-                    self.items.replace(
-                        idx,
-                        TimelineItem::new(new_item, event_item.internal_id.to_owned()),
-                    );
-                    self.result.items_updated += 1;
-                }
-                Ok(false) => {}
-                Err(err) => {
-                    warn!("error when applying reaction aggregation: {err}");
-                }
+        let mut new_content = event_item.content().clone();
+        match aggregation.apply(&mut new_content) {
+            Ok(true) => {
+                trace!("added reaction");
+                let new_item = event_item.with_content(new_content);
+                self.items
+                    .replace(idx, TimelineItem::new(new_item, event_item.internal_id.to_owned()));
+                self.result.items_updated += 1;
+            }
+            Ok(false) => {}
+            Err(err) => {
+                warn!("error when applying reaction aggregation: {err}");
             }
         }
-
-        if let Some(txn_id) = old_txn_id {
-            // Try to remove a local echo of that reaction. It might be missing if the
-            // reaction wasn't sent by this device, or was sent in a previous
-            // session.
-            self.meta.reactions.map.remove(&TimelineEventItemId::TransactionId(txn_id.clone()));
-        }
-
-        self.meta.reactions.map.insert(
-            reaction_id,
-            FullReactionKey {
-                item: TimelineEventItemId::EventId(c.relates_to.event_id),
-                sender: self.ctx.sender.clone(),
-                key: c.relates_to.key,
-            },
-        );
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
