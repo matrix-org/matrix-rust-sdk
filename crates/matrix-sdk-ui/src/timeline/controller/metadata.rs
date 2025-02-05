@@ -14,7 +14,7 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-use matrix_sdk::{locks::RwLock, ring_buffer::RingBuffer};
+use matrix_sdk::ring_buffer::RingBuffer;
 use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
 use tracing::trace;
 
@@ -48,7 +48,7 @@ pub(in crate::timeline) struct TimelineMetadata {
 
     /// A boolean indicating whether the room the timeline is attached to is
     /// actually encrypted or not.
-    pub is_room_encrypted: Arc<RwLock<Option<bool>>>,
+    pub is_room_encrypted: Option<bool>,
 
     /// Matrix room version of the timeline's room, or a sensible default.
     ///
@@ -120,7 +120,7 @@ impl TimelineMetadata {
             room_version,
             unable_to_decrypt_hook,
             internal_id_prefix,
-            is_room_encrypted: Arc::new(RwLock::new(is_room_encrypted)),
+            is_room_encrypted,
         }
     }
 

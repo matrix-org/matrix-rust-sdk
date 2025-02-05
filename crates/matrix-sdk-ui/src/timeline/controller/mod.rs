@@ -378,23 +378,20 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub async fn handle_encryption_state_changes(&self) {
         let mut room_info = self.room_data_provider.room_info();
 
+        if room_info.get().is_encrypted() {
+            // If the room was already encrypted, it won't toggle to unencrypted, so we can
+            // shut down this task early.
+            return;
+        }
+
         while let Some(info) = room_info.next().await {
-            let changed = {
-                let state = self.state.read().await;
-                let mut old_is_room_encrypted = state.meta.is_room_encrypted.write();
-                let is_encrypted_now = info.is_encrypted();
-
-                if *old_is_room_encrypted != Some(is_encrypted_now) {
-                    *old_is_room_encrypted = Some(is_encrypted_now);
-                    true
-                } else {
-                    false
-                }
-            };
-
-            if changed {
+            if info.is_encrypted() {
                 let mut state = self.state.write().await;
-                state.update_all_events_is_room_encrypted();
+                state.meta.is_room_encrypted = Some(true);
+                state.mark_all_events_as_encrypted();
+                // Once the room is encrypted, it cannot switch back to unencrypted, so our work
+                // here is done.
+                break;
             }
         }
     }

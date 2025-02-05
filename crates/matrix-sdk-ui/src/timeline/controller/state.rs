@@ -270,13 +270,11 @@ impl TimelineState {
         txn.commit();
     }
 
-    pub(super) fn update_all_events_is_room_encrypted(&mut self) {
-        let is_room_encrypted = *self.meta.is_room_encrypted.read();
-
+    pub(super) fn mark_all_events_as_encrypted(&mut self) {
         // When this transaction finishes, all items in the timeline will be emitted
-        // again with the updated encryption value
+        // again with the updated encryption value.
         let mut txn = self.transaction();
-        txn.update_all_events_is_room_encrypted(is_room_encrypted);
+        txn.mark_all_events_as_encrypted();
         txn.commit();
     }
 
