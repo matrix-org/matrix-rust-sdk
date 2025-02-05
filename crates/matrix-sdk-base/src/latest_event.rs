@@ -10,7 +10,7 @@ use ruma::{
         relation::RelationType,
         room::{
             member::{MembershipState, SyncRoomMemberEvent},
-            message::SyncRoomMessageEvent,
+            message::{MessageType, SyncRoomMessageEvent},
             power_levels::RoomPowerLevels,
         },
         sticker::SyncStickerEvent,
@@ -67,8 +67,13 @@ pub fn is_suitable_for_latest_event<'a>(
     match event {
         // Suitable - we have an m.room.message that was not redacted or edited
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) => {
-            // Check if this is a replacement for another message. If it is, ignore it
             if let Some(original_message) = message.as_original() {
+                // Don't show incoming verification requests
+                if let MessageType::VerificationRequest(_) = original_message.content.msgtype {
+                    return PossibleLatestEvent::NoUnsupportedMessageLikeType;
+                }
+
+                // Check if this is a replacement for another message. If it is, ignore it
                 let is_replacement =
                     original_message.content.relates_to.as_ref().is_some_and(|relates_to| {
                         if let Some(relation_type) = relates_to.rel_type() {
@@ -586,6 +591,34 @@ mod tests {
         assert_matches!(
             is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::NoUnsupportedMessageLikeType
+        );
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[test]
+    fn test_verification_requests_are_unsuitable() {
+        use ruma::{device_id, events::room::message::KeyVerificationRequestEventContent, user_id};
+
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncRoomMessageEvent::Original(OriginalSyncMessageLikeEvent {
+                content: RoomMessageEventContent::new(MessageType::VerificationRequest(
+                    KeyVerificationRequestEventContent::new(
+                        "body".to_owned(),
+                        vec![],
+                        device_id!("device_id").to_owned(),
+                        user_id!("@user_id:example.com").to_owned(),
+                    ),
+                )),
+                event_id: owned_event_id!("$1"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(123).unwrap()),
+                unsigned: MessageLikeUnsigned::new(),
+            }),
+        ));
+
+        assert_let!(
+            PossibleLatestEvent::NoUnsupportedMessageLikeType =
+                is_suitable_for_latest_event(&event, None)
         );
     }
 
