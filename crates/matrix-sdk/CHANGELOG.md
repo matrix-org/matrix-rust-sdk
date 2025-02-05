@@ -35,6 +35,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**]: The `RoomEventCacheUpdate::Clear` variant has been removed, as
+  it is redundant with the `RoomEventCacheUpdate::UpdateTimelineEvents { diffs:
+  Vec<VectorDiff<_>>, .. }` where `VectorDiff` has its own `Clear` variant.
+  ([#4627](https://github.com/matrix-org/matrix-rust-sdk/pull/4627))
+
 - Improve the performance of `EventCache` (approximately 4.5 times faster).
   ([#4616](https://github.com/matrix-org/matrix-rust-sdk/pull/4616))
 
