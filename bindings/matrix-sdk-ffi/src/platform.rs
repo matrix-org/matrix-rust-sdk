@@ -247,6 +247,9 @@ enum LogTarget {
     MatrixSdkEventCache,
     MatrixSdkBaseEventCache,
     MatrixSdkEventCacheStore,
+
+    MatrixSdkCommonStoreLocks,
+    MatrixSdkBaseStoreAmbiguityMap,
 }
 
 impl LogTarget {
@@ -266,6 +269,9 @@ impl LogTarget {
             LogTarget::MatrixSdkEventCache => "matrix_sdk::event_cache",
             LogTarget::MatrixSdkBaseEventCache => "matrix_sdk_base::event_cache",
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
+
+            LogTarget::MatrixSdkCommonStoreLocks => "matrix_sdk_common::store_locks",
+            LogTarget::MatrixSdkBaseStoreAmbiguityMap => "matrix_sdk_base::store::ambiguity_map",
         }
     }
 }
@@ -285,12 +291,16 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
+    (LogTarget::MatrixSdkCommonStoreLocks, LogLevel::Warn),
+    (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
 ];
 
 const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[
-    LogTarget::Hyper,        // Too verbose
-    LogTarget::MatrixSdk,    // Too generic
-    LogTarget::MatrixSdkFfi, // Too verbose
+    LogTarget::Hyper,                          // Too verbose
+    LogTarget::MatrixSdk,                      // Too generic
+    LogTarget::MatrixSdkFfi,                   // Too verbose
+    LogTarget::MatrixSdkCommonStoreLocks,      // Too verbose
+    LogTarget::MatrixSdkBaseStoreAmbiguityMap, // Too verbose
 ];
 
 #[derive(uniffi::Record)]
@@ -380,6 +390,8 @@ mod tests {
             matrix_sdk::event_cache=info,\
             matrix_sdk_base::event_cache=info,\
             matrix_sdk_sqlite::event_cache_store=info,\
+            matrix_sdk_common::store_locks=warn,\
+            matrix_sdk_base::store::ambiguity_map=warn,\
             super_duper_app=error"
         );
     }
@@ -412,6 +424,8 @@ mod tests {
             matrix_sdk::event_cache=trace,\
             matrix_sdk_base::event_cache=trace,\
             matrix_sdk_sqlite::event_cache_store=trace,\
+            matrix_sdk_common::store_locks=warn,\
+            matrix_sdk_base::store::ambiguity_map=warn,\
             super_duper_app=trace,\
             some_other_span=trace"
         );
