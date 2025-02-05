@@ -5,9 +5,8 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::timer;
-use ruma::OwnedRoomId;
+use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
 use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
 use super::{

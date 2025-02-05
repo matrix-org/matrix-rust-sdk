@@ -35,9 +35,11 @@ use std::{
 use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
-pub use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::{deserialized_responses::TimelineEvent, executor::spawn, timer};
-use ruma::{api::client::error::ErrorKind, assign, OwnedRoomId, RoomId};
+use ruma::{
+    api::client::{error::ErrorKind, sync::sync_events::v5 as http},
+    assign, OwnedRoomId, RoomId,
+};
 use serde::{Deserialize, Serialize};
 use tokio::{
     select,

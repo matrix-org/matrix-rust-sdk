@@ -68,8 +68,7 @@ are **inclusive**) like so:
 
 ```rust
 # use matrix_sdk::sliding_sync::{SlidingSyncList, SlidingSyncMode};
-use matrix_sdk_base::sliding_sync::http;
-use ruma::assign;
+use ruma::{api::client::sync::sync_events::v5 as http, assign};
 
 let list_builder = SlidingSyncList::builder("main_list")
     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))
@@ -326,8 +325,7 @@ whenever a new set of timeline items is received by the server.
 
 ```rust,no_run
 use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode, Version}};
-use matrix_sdk_base::sliding_sync::http;
-use ruma::{assign, events::StateEventType};
+use ruma::{api::client::sync::sync_events::v5 as http, assign, events::StateEventType};
 use tracing::{warn, error, info, debug};
 use futures_util::{pin_mut, StreamExt};
 use url::Url;

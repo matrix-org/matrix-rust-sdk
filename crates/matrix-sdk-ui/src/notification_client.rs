@@ -21,10 +21,9 @@ use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     room::Room, sleep::sleep, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
 };
-use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent, sliding_sync::http, RoomState, StoreError,
-};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
 use ruma::{
+    api::client::sync::sync_events::v5 as http,
     assign,
     directory::RoomTypeFilter,
     events::{
