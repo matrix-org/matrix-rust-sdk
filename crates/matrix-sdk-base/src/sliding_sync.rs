@@ -20,9 +20,11 @@ use std::ops::Deref;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-pub use ruma::api::client::sync::sync_events::v5 as http;
 use ruma::{
-    api::client::sync::sync_events::v3::{self, InvitedRoom, KnockedRoom},
+    api::client::sync::sync_events::{
+        v3::{self, InvitedRoom, KnockedRoom},
+        v5 as http,
+    },
     events::{
         room::member::MembershipState, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent,
@@ -31,7 +33,7 @@ use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
 };
 #[cfg(feature = "e2e-encryption")]
-use ruma::{api::client::sync::sync_events::v5, events::AnyToDeviceEvent, events::StateEventType};
+use ruma::{events::AnyToDeviceEvent, events::StateEventType};
 use tracing::{instrument, trace, warn};
 
 use super::BaseClient;
@@ -65,8 +67,8 @@ impl BaseClient {
     /// Returns whether any change happened.
     pub async fn process_sliding_sync_e2ee(
         &self,
-        to_device: Option<&v5::response::ToDevice>,
-        e2ee: &v5::response::E2EE,
+        to_device: Option<&http::response::ToDevice>,
+        e2ee: &http::response::E2EE,
     ) -> Result<Option<Vec<Raw<AnyToDeviceEvent>>>> {
         if to_device.is_none() && e2ee.is_empty() {
             return Ok(None);

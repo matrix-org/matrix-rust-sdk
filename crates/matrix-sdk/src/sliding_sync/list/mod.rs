@@ -11,8 +11,7 @@ use std::{
 
 use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
-use matrix_sdk_base::sliding_sync::http;
-use ruma::{assign, TransactionId};
+use ruma::{api::client::sync::sync_events::v5 as http, assign, TransactionId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};

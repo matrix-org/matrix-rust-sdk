@@ -66,10 +66,12 @@ use matrix_sdk::{
     event_cache::EventCacheError, timeout::timeout, Client, Error as SlidingSyncError, SlidingSync,
     SlidingSyncList, SlidingSyncMode,
 };
-use matrix_sdk_base::sliding_sync::http;
 pub use room::*;
 pub use room_list::*;
-use ruma::{assign, directory::RoomTypeFilter, events::StateEventType, OwnedRoomId, RoomId, UInt};
+use ruma::{
+    api::client::sync::sync_events::v5 as http, assign, directory::RoomTypeFilter,
+    events::StateEventType, OwnedRoomId, RoomId, UInt,
+};
 pub use state::*;
 use thiserror::Error;
 use tracing::debug;

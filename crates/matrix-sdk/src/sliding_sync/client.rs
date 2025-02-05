@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
 use imbl::Vector;
-use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
+use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider};
 use ruma::{
-    api::client::discovery::get_supported_versions, events::AnyToDeviceEvent, serde::Raw,
+    api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http},
+    events::AnyToDeviceEvent,
+    serde::Raw,
     OwnedRoomId,
 };
 use tracing::error;
