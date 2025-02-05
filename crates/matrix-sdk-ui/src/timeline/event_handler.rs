@@ -959,9 +959,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// Looks for the redacted event in all the timeline event items, and
     /// redacts it.
     ///
-    /// This only applies to *remote* events; for local items being redacted,
-    /// use [`Self::handle_reaction_redaction`].
-    ///
     /// This assumes the redacted event was present in the timeline in the first
     /// place; it will warn if the redacted event has not been found.
     #[instrument(skip_all, fields(redacts_event_id = ?redacted))]
@@ -969,8 +966,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // TODO: Apply local redaction of PollResponse and PollEnd events.
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
 
-        // If it's a reaction that's being redacted, handle it here.
-        if self.handle_reaction_redaction(redacted.clone()) {
+        // If it's an aggregation that's being redacted, handle it here.
+        if self.handle_aggregation_redaction(redacted.clone()) {
             // When we have raw timeline items, we should not return here anymore, as we
             // might need to redact the raw item as well.
             return;
@@ -1000,15 +997,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
     }
 
-    /// Attempts to redact a reaction.
+    /// Attempts to redact an aggregation (e.g. a reaction, a poll response,
+    /// etc.).
     ///
     /// Returns true if it's succeeded.
-    #[instrument(skip_all, fields(redacts = ?reaction_id))]
-    fn handle_reaction_redaction(&mut self, reaction_id: OwnedEventId) -> bool {
-        let reaction_id = TimelineEventItemId::EventId(reaction_id);
+    #[instrument(skip_all, fields(redacts = ?aggregation_id))]
+    fn handle_aggregation_redaction(&mut self, aggregation_id: OwnedEventId) -> bool {
+        let aggregation_id = TimelineEventItemId::EventId(aggregation_id);
 
         if let Some((target, aggregation)) =
-            self.meta.aggregations.try_remove_aggregation(&reaction_id)
+            self.meta.aggregations.try_remove_aggregation(&aggregation_id)
         {
             if let Some((item_pos, item)) = rfind_event_by_item_id(&self.items, &target) {
                 let mut content = item.content().clone();
@@ -1022,7 +1020,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
                 self.result.items_updated += 1;
             } else {
-                warn!("missing related-to item ({target:?}) for aggregation {reaction_id:?}");
+                warn!("missing related-to item ({target:?}) for aggregation {aggregation_id:?}");
             }
             return true;
         }
