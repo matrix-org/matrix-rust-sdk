@@ -19,8 +19,8 @@ use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
-use matrix_sdk::{assert_next_matches_with_timeout, deserialized_responses::TimelineEvent};
-use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_timeline_event, ALICE, BOB};
+use matrix_sdk::assert_next_matches_with_timeout;
+use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
 use ruma::{
     event_id, events::AnyMessageLikeEventContent, server_name, uint, EventId,
     MilliSecondsSinceUnixEpoch, OwnedEventId,
@@ -143,6 +143,7 @@ async fn test_redact_reaction_success() {
     // Will immediately redact it on the item.
     let event = assert_item_update!(stream, &event_id, item_pos);
     assert!(event.content().reactions().get(&REACTION_KEY.to_owned()).is_none());
+
     // And send a redaction request for that reaction.
     {
         let redacted_events = &timeline.data().redacted.read().await;
@@ -152,17 +153,11 @@ async fn test_redact_reaction_success() {
 
     // When that redaction is confirmed by the server,
     timeline
-        .handle_live_event(TimelineEvent::new(sync_timeline_event!({
-            "sender": *ALICE,
-            "type": "m.room.redaction",
-            "event_id": "$idb",
-            "redacts": reaction_id,
-            "origin_server_ts": 12344448,
-            "content": {},
-        })))
+        .handle_live_event(f.redaction(reaction_id).sender(*ALICE).event_id(event_id!("$idb")))
         .await;
 
-    assert!(stream.next().now_or_never().is_none());
+    // Nothing happens, because the reaction was already redacted.
+    assert_pending!(stream);
 }
 
 #[async_test]
