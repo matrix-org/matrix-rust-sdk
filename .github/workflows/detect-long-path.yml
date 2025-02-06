@@ -1,0 +1,36 @@
+# Check if the path of changed file is longer than 260 characters
+# that windows filesystem allows
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+name: Detect long path among changed files
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  long-path:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v45
+      - name: Detect long path
+        env:
+          ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+          MAX_LENGTH: 260
+        run: |
+          for file in ${ALL_CHANGED_FILES}; do
+            if [ ${#file} -gt $MAX_LENGTH ]; then
+              echo "File path is too long. Length: ${#file}"
+              exit 1
+            fi
+          done
+          exit 0

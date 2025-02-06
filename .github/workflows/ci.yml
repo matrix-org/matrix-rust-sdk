@@ -23,6 +23,9 @@ env:
   INSTA_UPDATE: no
 
 jobs:
+  detect-long-path:
+    uses: ./.github/workflows/detect-long-path.yml
+
   xtask:
     uses: ./.github/workflows/xtask.yml
 
