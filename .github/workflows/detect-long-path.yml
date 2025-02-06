@@ -25,7 +25,7 @@ jobs:
       - name: Detect long path
         env:
           ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
-          MAX_LENGTH: 260
+          MAX_LENGTH: 120 # set max length to 120, considering the base path of app project that uses matrix-sdk
         run: |
           for file in ${ALL_CHANGED_FILES}; do
             if [ ${#file} -gt $MAX_LENGTH ]; then
