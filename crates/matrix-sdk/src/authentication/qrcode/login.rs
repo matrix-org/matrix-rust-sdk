@@ -211,6 +211,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
                 .await
                 .map_err(QRCodeLoginError::SessionTokens)?;
 
+            #[cfg(feature = "e2e-encryption")]
             self.client.oidc().enable_cross_process_lock().await?;
 
             // Tell the existing device that we're logged in.

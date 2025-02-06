@@ -186,9 +186,9 @@ use mas_oidc_client::{
         IdToken,
     },
 };
-use matrix_sdk_base::{
-    crypto::types::qr_login::QrCodeData, once_cell::sync::OnceCell, SessionMeta,
-};
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
+use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::get_authentication_issuer;
 use serde::{Deserialize, Serialize};
@@ -198,8 +198,27 @@ use tokio::{spawn, sync::Mutex};
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
+#[cfg(feature = "e2e-encryption")]
+pub use self::cross_process::CrossProcessRefreshLockError;
+#[cfg(feature = "e2e-encryption")]
+use self::cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager};
+pub use self::{
+    auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
+    end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
+};
+use self::{
+    backend::{server::OidcServer, OidcBackend},
+    registrations::{ClientId, OidcRegistrations},
+};
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+use crate::authentication::qrcode::LoginWithQrCode;
+use crate::{
+    authentication::AuthData, client::SessionChange, Client, HttpError, RefreshTokenError, Result,
+};
+
 mod auth_code_builder;
 mod backend;
+#[cfg(feature = "e2e-encryption")]
 mod cross_process;
 mod data_serde;
 mod end_session_builder;
@@ -207,24 +226,9 @@ pub mod registrations;
 #[cfg(test)]
 mod tests;
 
-pub use self::{
-    auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
-    cross_process::CrossProcessRefreshLockError,
-    end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
-};
-use self::{
-    backend::{server::OidcServer, OidcBackend},
-    cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
-    registrations::{ClientId, OidcRegistrations},
-};
-use crate::{
-    authentication::{qrcode::LoginWithQrCode, AuthData},
-    client::SessionChange,
-    Client, HttpError, RefreshTokenError, Result,
-};
-
 pub(crate) struct OidcCtx {
     /// Lock and state when multiple processes may refresh an OIDC session.
+    #[cfg(feature = "e2e-encryption")]
     cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
 
     /// Deferred cross-process lock initializer.
@@ -241,6 +245,7 @@ impl OidcCtx {
     pub(crate) fn new(insecure_discover: bool) -> Self {
         Self {
             insecure_discover,
+            #[cfg(feature = "e2e-encryption")]
             cross_process_token_refresh_manager: Default::default(),
             deferred_cross_process_lock_init: Default::default(),
         }
@@ -284,6 +289,7 @@ impl Oidc {
 
     /// Enable a cross-process store lock on the state store, to coordinate
     /// refreshes across different processes.
+    #[cfg(feature = "e2e-encryption")]
     pub async fn enable_cross_process_refresh_lock(
         &self,
         lock_value: String,
@@ -304,6 +310,7 @@ impl Oidc {
     /// olm machine has been initialized.
     ///
     /// Must be called after `set_session_meta`.
+    #[cfg(feature = "e2e-encryption")]
     async fn deferred_enable_cross_process_refresh_lock(&self) {
         let deferred_init_lock = self.ctx().deferred_cross_process_lock_init.lock().await;
 
@@ -324,9 +331,12 @@ impl Oidc {
 
         let manager = CrossProcessRefreshManager::new(store.clone(), lock);
 
-        // This method is guarded with the `deferred_cross_process_lock_init` lock held,
-        // so this `set` can't be an error.
-        let _ = self.ctx().cross_process_token_refresh_manager.set(manager);
+        #[cfg(feature = "e2e-encryption")]
+        {
+            // This method is guarded with the `deferred_cross_process_lock_init` lock held,
+            // so this `set` can't be an error.
+            let _ = self.ctx().cross_process_token_refresh_manager.set(manager);
+        }
     }
 
     /// The OpenID Connect authentication data.
@@ -953,6 +963,8 @@ impl Oidc {
                 None,
             )
             .await?;
+
+        #[cfg(feature = "e2e-encryption")]
         self.deferred_enable_cross_process_refresh_lock().await;
 
         self.client
@@ -965,6 +977,7 @@ impl Oidc {
         // Initialize the cross-process locking by saving our tokens' hash into the
         // database, if we've enabled the cross-process lock.
 
+        #[cfg(feature = "e2e-encryption")]
         if let Some(cross_process_lock) = self.ctx().cross_process_token_refresh_manager.get() {
             cross_process_lock.restore_session(&tokens).await;
 
@@ -1001,6 +1014,7 @@ impl Oidc {
         Ok(())
     }
 
+    #[cfg(feature = "e2e-encryption")]
     async fn handle_session_hash_mismatch(
         &self,
         guard: &mut CrossProcessRefreshLockGuard,
@@ -1164,6 +1178,7 @@ impl Oidc {
         // At this point the Olm machine has been set up.
 
         // Enable the cross-process lock for refreshes, if needs be.
+        #[cfg(feature = "e2e-encryption")]
         self.enable_cross_process_lock().await.map_err(OidcError::from)?;
 
         #[cfg(feature = "e2e-encryption")]
@@ -1172,6 +1187,7 @@ impl Oidc {
         Ok(())
     }
 
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn enable_cross_process_lock(
         &self,
     ) -> Result<(), CrossProcessRefreshLockError> {
@@ -1296,7 +1312,7 @@ impl Oidc {
         credentials: ClientCredentials,
         client_metadata: VerifiedClientMetadata,
         latest_id_token: Option<IdToken<'static>>,
-        cross_process_lock: Option<CrossProcessRefreshLockGuard>,
+        #[cfg(feature = "e2e-encryption")] cross_process_lock: Option<CrossProcessRefreshLockGuard>,
     ) -> Result<(), OidcError> {
         trace!(
             "Token refresh: attempting to refresh with refresh_token {:x}",
@@ -1342,6 +1358,7 @@ impl Oidc {
             }
         }
 
+        #[cfg(feature = "e2e-encryption")]
         if let Some(mut lock) = cross_process_lock {
             lock.save_in_memory_and_db(&tokens).await?;
         }
@@ -1390,6 +1407,7 @@ impl Oidc {
 
         debug!("no other refresh happening in background, starting.");
 
+        #[cfg(feature = "e2e-encryption")]
         let cross_process_guard =
             if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
                 let mut cross_process_guard = match manager
@@ -1464,6 +1482,7 @@ impl Oidc {
                     credentials,
                     client_metadata,
                     session_tokens.latest_id_token,
+                    #[cfg(feature = "e2e-encryption")]
                     cross_process_guard,
                 )
                 .await
@@ -1532,6 +1551,7 @@ impl Oidc {
                 )
             });
 
+        #[cfg(feature = "e2e-encryption")]
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager.on_logout().await?;
         }
@@ -1728,6 +1748,7 @@ pub enum OidcError {
     Url(url::ParseError),
 
     /// An error occurred caused by the cross-process locks.
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     LockError(#[from] CrossProcessRefreshLockError),
 
