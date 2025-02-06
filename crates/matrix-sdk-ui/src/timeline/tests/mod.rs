@@ -79,6 +79,62 @@ mod shields;
 mod virt;
 
 /// A timeline instance used only for testing purposes in unit tests.
+#[derive(Default)]
+struct TestTimelineBuilder {
+    provider: Option<TestRoomDataProvider>,
+    internal_id_prefix: Option<String>,
+    utd_hook: Option<Arc<UtdHookManager>>,
+    is_room_encrypted: bool,
+    settings: Option<TimelineSettings>,
+}
+
+impl TestTimelineBuilder {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn provider(mut self, provider: TestRoomDataProvider) -> Self {
+        self.provider = Some(provider);
+        self
+    }
+
+    fn internal_id_prefix(mut self, prefix: String) -> Self {
+        self.internal_id_prefix = Some(prefix);
+        self
+    }
+
+    fn unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
+        self.utd_hook = Some(hook);
+        // It only makes sense to have a UTD hook for an encrypted room.
+        self.is_room_encrypted = true;
+        self
+    }
+
+    fn room_encrypted(mut self, encrypted: bool) -> Self {
+        self.is_room_encrypted = encrypted;
+        self
+    }
+
+    fn settings(mut self, settings: TimelineSettings) -> Self {
+        self.settings = Some(settings);
+        self
+    }
+
+    fn build(self) -> TestTimeline {
+        let mut controller = TimelineController::new(
+            self.provider.unwrap_or_default(),
+            TimelineFocus::Live,
+            self.internal_id_prefix,
+            self.utd_hook,
+            self.is_room_encrypted,
+        );
+        if let Some(settings) = self.settings {
+            controller = controller.with_settings(settings);
+        }
+        TestTimeline { controller, factory: EventFactory::new() }
+    }
+}
+
 struct TestTimeline {
     controller: TimelineController<TestRoomDataProvider>,
 
@@ -89,70 +145,12 @@ struct TestTimeline {
 
 impl TestTimeline {
     fn new() -> Self {
-        Self::with_room_data_provider(TestRoomDataProvider::default())
+        TestTimelineBuilder::new().build()
     }
 
     /// Returns the associated inner data from that [`TestTimeline`].
     fn data(&self) -> &TestRoomDataProvider {
         &self.controller.room_data_provider
-    }
-
-    fn with_internal_id_prefix(prefix: String) -> Self {
-        Self {
-            controller: TimelineController::new(
-                TestRoomDataProvider::default(),
-                TimelineFocus::Live,
-                Some(prefix),
-                None,
-                false,
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    fn with_room_data_provider(room_data_provider: TestRoomDataProvider) -> Self {
-        Self {
-            controller: TimelineController::new(
-                room_data_provider,
-                TimelineFocus::Live,
-                None,
-                None,
-                false,
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    fn with_unable_to_decrypt_hook(hook: Arc<UtdHookManager>) -> Self {
-        Self {
-            controller: TimelineController::new(
-                TestRoomDataProvider::default(),
-                TimelineFocus::Live,
-                None,
-                Some(hook),
-                true,
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    // TODO: this is wrong, see also #3850.
-    fn with_is_room_encrypted(encrypted: bool) -> Self {
-        Self {
-            controller: TimelineController::new(
-                TestRoomDataProvider::default(),
-                TimelineFocus::Live,
-                None,
-                None,
-                encrypted,
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    fn with_settings(mut self, settings: TimelineSettings) -> Self {
-        self.controller = self.controller.with_settings(settings);
-        self
     }
 
     async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {

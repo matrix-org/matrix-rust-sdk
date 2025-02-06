@@ -16,7 +16,10 @@ use ruma::{
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
-use crate::timeline::{tests::TestTimeline, EventSendState};
+use crate::timeline::{
+    tests::{TestTimeline, TestTimelineBuilder},
+    EventSendState,
+};
 
 #[async_test]
 async fn test_no_shield_in_unencrypted_room() {
@@ -33,7 +36,7 @@ async fn test_no_shield_in_unencrypted_room() {
 
 #[async_test]
 async fn test_sent_in_clear_shield() {
-    let timeline = TestTimeline::with_is_room_encrypted(true);
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -55,7 +58,7 @@ async fn test_sent_in_clear_shield() {
 /// sure the shield only appears once the remote echo is received.
 async fn test_local_sent_in_clear_shield() {
     // Given an encrypted timeline.
-    let timeline = TestTimeline::with_is_room_encrypted(true);
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
     let mut stream = timeline.subscribe().await;
 
     // When sending an unencrypted event.
@@ -133,7 +136,7 @@ async fn test_local_sent_in_clear_shield() {
 /// sent in clear` red warning.
 async fn test_utd_shield() {
     // Given we are in an encrypted room
-    let timeline = TestTimeline::with_is_room_encrypted(true);
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
