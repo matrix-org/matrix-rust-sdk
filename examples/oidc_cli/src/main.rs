@@ -31,6 +31,7 @@ use axum::{
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oidc::{
+        registrations::ClientId,
         requests::account_management::AccountManagementActionFull,
         types::{
             client_credentials::ClientCredentials,
@@ -215,11 +216,7 @@ impl OidcCli {
         // the JWT.
         let res = oidc.register_client(&issuer, metadata.clone(), None).await?;
 
-        oidc.restore_registered_client(
-            issuer,
-            metadata,
-            ClientCredentials::None { client_id: res.client_id.clone() },
-        );
+        oidc.restore_registered_client(issuer, metadata, ClientId(res.client_id.clone()));
 
         println!("\nRegistered successfully");
 

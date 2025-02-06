@@ -46,15 +46,18 @@
 //!
 //! Registration is only required the first time a client encounters an issuer.
 //!
+//! Note that only public clients are supported by this API, i.e. clients
+//! without credentials.
+//!
 //! If the issuer supports dynamic registration, it can be done by using
 //! [`Oidc::register_client()`]. If dynamic registration is not available, the
-//! homeserver should document how to obtain client credentials.
+//! homeserver should document how to obtain a client ID.
 //!
 //! To make the client aware of being registered successfully,
 //! [`Oidc::restore_registered_client()`] needs to be called next.
 //!
-//! After client registration, the client credentials should be persisted and
-//! reused for every session that interacts with that same issuer.
+//! After client registration, the client ID should be persisted and reused for
+//! every session that interacts with that same issuer.
 //!
 //! # Login
 //!
@@ -78,13 +81,12 @@
 //!
 //! A full OIDC session requires two parts:
 //!
-//! - The client credentials obtained after client registration with the
-//!   corresponding client metadata,
+//! - The client ID obtained after client registration with the corresponding
+//!   client metadata,
 //! - The user session obtained after login.
 //!
-//! Both parts are usually stored separately because the client credentials can
-//! be reused for any session with the same issuer, while the user session is
-//! unique.
+//! Both parts are usually stored separately because the client ID can be reused
+//! for any session with the same issuer, while the user session is unique.
 //!
 //! _Note_ that the type returned by [`Oidc::full_session()`] is not
 //! (de)serializable. This is due to some client credentials methods that
@@ -537,8 +539,11 @@ impl Oidc {
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
-        let credentials = ClientCredentials::None { client_id: registration_response.client_id };
-        self.restore_registered_client(issuer, client_metadata, credentials);
+        self.restore_registered_client(
+            issuer,
+            client_metadata,
+            ClientId(registration_response.client_id),
+        );
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -583,11 +588,7 @@ impl Oidc {
             return false;
         };
 
-        self.restore_registered_client(
-            issuer,
-            oidc_metadata,
-            ClientCredentials::None { client_id: client_id.0 },
-        );
+        self.restore_registered_client(issuer, oidc_metadata, client_id);
 
         true
     }
@@ -888,6 +889,9 @@ impl Oidc {
     /// This should be called after registration or when logging in with a
     /// provider that is already known by the client.
     ///
+    /// Note that this method only supports public clients, i.e. clients with
+    /// no credentials.
+    ///
     /// # Arguments
     ///
     /// * `issuer` - The OpenID Connect Provider we're interacting with.
@@ -895,8 +899,8 @@ impl Oidc {
     /// * `client_metadata` - The [`VerifiedClientMetadata`] that was
     ///   registered.
     ///
-    /// * `client_credentials` - The credentials necessary to authenticate the
-    ///   client with the provider, obtained after registration.
+    /// * `client_id` - The unique identifier to authenticate the client with
+    ///   the provider, obtained after registration.
     ///
     /// # Panic
     ///
@@ -905,11 +909,11 @@ impl Oidc {
         &self,
         issuer: String,
         client_metadata: VerifiedClientMetadata,
-        client_credentials: ClientCredentials,
+        client_id: ClientId,
     ) {
         let data = OidcAuthData {
             issuer,
-            credentials: client_credentials,
+            credentials: ClientCredentials::None { client_id: client_id.0 },
             metadata: client_metadata,
             tokens: Default::default(),
             authorization_data: Default::default(),

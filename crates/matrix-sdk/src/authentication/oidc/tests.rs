@@ -35,9 +35,9 @@ use crate::{test_utils::test_client_builder, Client, Error};
 const CLIENT_ID: &str = "test_client_id";
 const REDIRECT_URI_STRING: &str = "http://matrix.example.com/oidc/callback";
 
-pub fn mock_registered_client_data() -> (ClientCredentials, VerifiedClientMetadata) {
+pub fn mock_registered_client_data() -> (ClientId, VerifiedClientMetadata) {
     (
-        ClientCredentials::None { client_id: CLIENT_ID.to_owned() },
+        ClientId(CLIENT_ID.to_owned()),
         ClientMetadata {
             redirect_uris: Some(vec![Url::parse(REDIRECT_URI_STRING).unwrap()]),
             token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
@@ -49,9 +49,9 @@ pub fn mock_registered_client_data() -> (ClientCredentials, VerifiedClientMetada
 }
 
 pub fn mock_session(tokens: OidcSessionTokens) -> OidcSession {
-    let (credentials, metadata) = mock_registered_client_data();
+    let (client_id, metadata) = mock_registered_client_data();
     OidcSession {
-        credentials,
+        credentials: ClientCredentials::None { client_id: client_id.0 },
         metadata,
         user: UserSession {
             meta: SessionMeta {
@@ -98,11 +98,11 @@ pub async fn mock_environment(
         backend: Arc::new(MockImpl::new().mark_insecure().next_session_tokens(session_tokens)),
     };
 
-    let (client_credentials, client_metadata) = mock_registered_client_data();
+    let (client_id, client_metadata) = mock_registered_client_data();
 
     // The mock backend doesn't support registration so set a static registration.
     let mut static_registrations = HashMap::new();
-    static_registrations.insert(issuer_url, ClientId(client_credentials.client_id().to_owned()));
+    static_registrations.insert(issuer_url, client_id);
 
     let registrations_path = tempdir().unwrap().path().join("oidc").join("registrations.json");
     let registrations =
