@@ -1357,6 +1357,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         applies_to: OwnedTransactionId,
     ) {
         let mut state = self.state.write().await;
+        let mut tr = state.transaction();
 
         let target = TimelineEventItemId::TransactionId(applies_to);
 
@@ -1372,26 +1373,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
             },
         );
 
-        state.meta.aggregations.add(target.clone(), aggregation.clone());
+        tr.meta.aggregations.add(target.clone(), aggregation.clone());
+        find_item_and_apply_aggregation(&mut tr.items, &target, aggregation);
 
-        let Some((item_pos, item)) = rfind_event_by_item_id(&state.items, &target) else {
-            warn!("Local item not found anymore.");
-            return;
-        };
-
-        let mut content = item.content().clone();
-        match aggregation.apply(&mut content) {
-            Ok(true) => {
-                trace!("added local reaction to local echo");
-                let internal_id = item.internal_id.clone();
-                let new_item = item.with_content(content);
-                state.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
-            }
-            Ok(false) => {}
-            Err(err) => {
-                warn!("when applying local reaction to local echo: {err}");
-            }
-        }
+        tr.commit();
     }
 
     /// Handle a single room send queue update.

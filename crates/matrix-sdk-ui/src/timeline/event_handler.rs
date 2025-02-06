@@ -53,8 +53,9 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     algorithms::{rfind_event_by_id, rfind_event_by_item_id},
     controller::{
-        Aggregation, AggregationKind, ObservableItemsTransaction, ObservableItemsTransactionEntry,
-        PendingEdit, PendingEditKind, TimelineMetadata, TimelineStateTransaction,
+        find_item_and_apply_aggregation, Aggregation, AggregationKind, ObservableItemsTransaction,
+        ObservableItemsTransactionEntry, PendingEdit, PendingEditKind, TimelineMetadata,
+        TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -411,23 +412,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
-                        let mut content = TimelineItemContent::Sticker(Sticker {
-                            content,
-                            reactions: Default::default(),
-                        });
-
-                        if let Some(event_id) = self.ctx.flow.event_id() {
-                            // Applying the cache to remote events only because local echoes
-                            // don't have an event ID that could be referenced by responses yet.
-                            if let Err(err) = self.meta.aggregations.apply(
-                                &TimelineEventItemId::EventId(event_id.to_owned()),
-                                &mut content,
-                            ) {
-                                warn!("discarding sticker aggregations: {err}");
-                            }
-                        }
-
-                        self.add_item(content, None);
+                        self.add_item(
+                            TimelineItemContent::Sticker(Sticker {
+                                content,
+                                reactions: Default::default(),
+                            }),
+                            None,
+                        );
                     }
                 }
 
@@ -587,15 +578,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
-        let mut content =
-            TimelineItemContent::message(msg, edit_content, self.items, Default::default());
-        if let Err(err) =
-            self.meta.aggregations.apply(&self.ctx.flow.timeline_item_id(), &mut content)
-        {
-            warn!("discarding message aggregations: {err}");
-        }
-
-        self.add_item(content, edit_json);
+        self.add_item(
+            TimelineItemContent::message(msg, edit_content, self.items, Default::default()),
+            edit_json,
+        );
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -732,7 +718,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// [`crate::timeline::TimelineController::handle_local_echo`].
     #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
-        let reacted_to_event_id = &c.relates_to.event_id;
+        let target = TimelineEventItemId::EventId(c.relates_to.event_id);
 
         // Add the aggregation to the manager.
         let reaction_status = match &self.ctx.flow {
@@ -748,34 +734,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::Reaction {
-                key: c.relates_to.key.clone(),
+                key: c.relates_to.key,
                 sender: self.ctx.sender.clone(),
                 timestamp: self.ctx.timestamp,
                 reaction_status,
             },
         );
-        self.meta
-            .aggregations
-            .add(TimelineEventItemId::EventId(reacted_to_event_id.clone()), aggregation.clone());
 
-        let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) else {
-            warn!("couldn't find reaction's target {reacted_to_event_id:?}");
-            return;
-        };
-
-        let mut new_content = event_item.content().clone();
-        match aggregation.apply(&mut new_content) {
-            Ok(true) => {
-                trace!("added reaction");
-                let new_item = event_item.with_content(new_content);
-                self.items
-                    .replace(idx, TimelineItem::new(new_item, event_item.internal_id.to_owned()));
-                self.result.items_updated += 1;
-            }
-            Ok(false) => {}
-            Err(err) => {
-                warn!("error when applying reaction aggregation: {err}");
-            }
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
+        if find_item_and_apply_aggregation(self.items, &target, aggregation) {
+            self.result.items_updated += 1;
         }
     }
 
@@ -872,21 +840,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .unzip();
 
         let poll_state = PollState::new(c, edit_content, Default::default());
-        let mut content = TimelineItemContent::Poll(poll_state);
-        if let Err(err) =
-            self.meta.aggregations.apply(&self.ctx.flow.timeline_item_id(), &mut content)
-        {
-            warn!("discarding poll aggregations: {err}");
-        }
 
         let edit_json = edit_json.flatten();
 
-        self.add_item(content, edit_json);
+        self.add_item(TimelineItemContent::Poll(poll_state), edit_json);
     }
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
-        let start_event_id = c.relates_to.event_id;
-
+        let target = TimelineEventItemId::EventId(c.relates_to.event_id);
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::PollResponse {
@@ -895,60 +856,21 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 answers: c.poll_response.answers,
             },
         );
-
-        self.meta
-            .aggregations
-            .add(TimelineEventItemId::EventId(start_event_id.clone()), aggregation.clone());
-
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
-            return;
-        };
-
-        let mut new_content = item.content().clone();
-        match aggregation.apply(&mut new_content) {
-            Ok(true) => {
-                trace!("adding poll response.");
-                self.items.replace(
-                    item_pos,
-                    TimelineItem::new(item.with_content(new_content), item.internal_id.clone()),
-                );
-                self.result.items_updated += 1;
-            }
-            Ok(false) => {}
-            Err(err) => {
-                warn!("discarding poll response: {err}");
-            }
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
+        if find_item_and_apply_aggregation(self.items, &target, aggregation) {
+            self.result.items_updated += 1;
         }
     }
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
-        let start_event_id = c.relates_to.event_id;
-
+        let target = TimelineEventItemId::EventId(c.relates_to.event_id);
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::PollEnd { end_date: self.ctx.timestamp },
         );
-        self.meta
-            .aggregations
-            .add(TimelineEventItemId::EventId(start_event_id.clone()), aggregation.clone());
-
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &start_event_id) else {
-            return;
-        };
-
-        let mut new_content = item.content().clone();
-        match aggregation.apply(&mut new_content) {
-            Ok(true) => {
-                trace!("Ending poll.");
-                let new_item = item.with_content(new_content);
-                self.items
-                    .replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
-                self.result.items_updated += 1;
-            }
-            Ok(false) => {}
-            Err(err) => {
-                warn!("discarding poll end: {err}");
-            }
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
+        if find_item_and_apply_aggregation(self.items, &target, aggregation) {
+            self.result.items_updated += 1;
         }
     }
 
@@ -1044,10 +966,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///    timeline item being added here.
     fn add_item(
         &mut self,
-        content: TimelineItemContent,
+        mut content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
     ) {
         self.result.item_added = true;
+
+        // Apply any pending or stashed aggregations.
+        if let Err(err) =
+            self.meta.aggregations.apply(&self.ctx.flow.timeline_item_id(), &mut content)
+        {
+            warn!("discarding aggregations: {err}");
+        }
 
         let sender = self.ctx.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());

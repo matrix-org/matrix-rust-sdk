@@ -40,10 +40,11 @@
 use std::collections::HashMap;
 
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId};
-use tracing::warn;
+use tracing::{trace, warn};
 
+use super::{rfind_event_by_item_id, ObservableItemsTransaction};
 use crate::timeline::{
-    PollState, ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItemContent,
+    PollState, ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItem, TimelineItemContent,
 };
 
 /// Which kind of aggregation (related event) is this?
@@ -366,6 +367,41 @@ impl Aggregations {
         self.inverted_map.insert(to, target);
 
         target_and_new_aggregation
+    }
+}
+
+/// Find an item identified by the target identifier, and apply the aggregation
+/// onto it.
+///
+/// Returns whether the aggregation has been applied or not (so as to increment
+/// a number of updated result, for instance).
+pub(crate) fn find_item_and_apply_aggregation(
+    items: &mut ObservableItemsTransaction<'_>,
+    target: &TimelineEventItemId,
+    aggregation: Aggregation,
+) -> bool {
+    let Some((idx, event_item)) = rfind_event_by_item_id(items, target) else {
+        warn!("couldn't find aggregation's target {target:?}");
+        return false;
+    };
+
+    let mut new_content = event_item.content().clone();
+
+    match aggregation.apply(&mut new_content) {
+        Ok(true) => {
+            trace!("applied aggregation");
+            let new_item = event_item.with_content(new_content);
+            items.replace(idx, TimelineItem::new(new_item, event_item.internal_id.to_owned()));
+            true
+        }
+        Ok(false) => {
+            trace!("applying the aggregation had no effect");
+            false
+        }
+        Err(err) => {
+            warn!("error when applying aggregation: {err}");
+            false
+        }
     }
 }
 
