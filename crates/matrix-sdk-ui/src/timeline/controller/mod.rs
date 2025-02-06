@@ -262,7 +262,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         focus: TimelineFocus,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: Option<bool>,
+        is_room_encrypted: bool,
     ) -> Self {
         let (focus_data, focus_kind) = match focus {
             TimelineFocus::Live => (TimelineFocusData::Live, TimelineFocusKind::Live),
@@ -378,17 +378,23 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub async fn handle_encryption_state_changes(&self) {
         let mut room_info = self.room_data_provider.room_info();
 
+        // Small function helper to help mark as encrypted.
+        let mark_encrypted = || async {
+            let mut state = self.state.write().await;
+            state.meta.is_room_encrypted = true;
+            state.mark_all_events_as_encrypted();
+        };
+
         if room_info.get().is_encrypted() {
             // If the room was already encrypted, it won't toggle to unencrypted, so we can
             // shut down this task early.
+            mark_encrypted().await;
             return;
         }
 
         while let Some(info) = room_info.next().await {
             if info.is_encrypted() {
-                let mut state = self.state.write().await;
-                state.meta.is_room_encrypted = Some(true);
-                state.mark_all_events_as_encrypted();
+                mark_encrypted().await;
                 // Once the room is encrypted, it cannot switch back to unencrypted, so our work
                 // here is done.
                 break;

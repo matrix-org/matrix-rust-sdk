@@ -575,8 +575,12 @@ impl<'a> TimelineStateTransaction<'a> {
             let item = &self.items[idx];
 
             if let Some(event) = item.as_event() {
+                if event.is_room_encrypted {
+                    continue;
+                }
+
                 let mut cloned_event = event.clone();
-                cloned_event.is_room_encrypted = Some(true);
+                cloned_event.is_room_encrypted = true;
 
                 // Replace the existing item with a new version with the right encryption flag
                 let item = item.with_kind(cloned_event);

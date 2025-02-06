@@ -104,7 +104,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 Some(prefix),
                 None,
-                Some(false),
+                false,
             ),
             factory: EventFactory::new(),
         }
@@ -117,7 +117,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 None,
-                Some(false),
+                false,
             ),
             factory: EventFactory::new(),
         }
@@ -130,7 +130,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 Some(hook),
-                Some(true),
+                true,
             ),
             factory: EventFactory::new(),
         }
@@ -144,7 +144,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 None,
-                Some(encrypted),
+                encrypted,
             ),
             factory: EventFactory::new(),
         }

@@ -163,7 +163,7 @@ impl TimelineBuilder {
         let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
-        let is_room_encrypted = room.is_encrypted().await.ok();
+        let is_room_encrypted = room.is_encrypted().await.ok().unwrap_or_default();
 
         let controller = TimelineController::new(
             room,

@@ -48,7 +48,9 @@ pub(in crate::timeline) struct TimelineMetadata {
 
     /// A boolean indicating whether the room the timeline is attached to is
     /// actually encrypted or not.
-    pub is_room_encrypted: Option<bool>,
+    ///
+    /// May be false until we fetch the actual room encryption state.
+    pub is_room_encrypted: bool,
 
     /// Matrix room version of the timeline's room, or a sensible default.
     ///
@@ -104,7 +106,7 @@ impl TimelineMetadata {
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: Option<bool>,
+        is_room_encrypted: bool,
     ) -> Self {
         Self {
             subscriber_skip_count: SkipCount::new(),
