@@ -34,7 +34,6 @@ use matrix_sdk::{
         registrations::ClientId,
         requests::account_management::AccountManagementActionFull,
         types::{
-            client_credentials::ClientCredentials,
             iana::oauth::OAuthClientAuthenticationMethod,
             oidc::ApplicationType,
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
@@ -290,7 +289,7 @@ impl OidcCli {
         println!("Restoring session for {}…", user_session.meta.user_id);
 
         let session = OidcSession {
-            credentials: ClientCredentials::None { client_id: client_credentials.client_id },
+            client_id: ClientId(client_credentials.client_id),
             metadata: client_metadata(),
             user: user_session,
         };

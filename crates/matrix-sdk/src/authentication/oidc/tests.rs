@@ -5,7 +5,6 @@ use assert_matches::assert_matches;
 use mas_oidc_client::{
     requests::authorization_code::AuthorizationValidationData,
     types::{
-        client_credentials::ClientCredentials,
         errors::ClientErrorCode,
         iana::oauth::OAuthClientAuthenticationMethod,
         registration::{ClientMetadata, VerifiedClientMetadata},
@@ -51,7 +50,7 @@ pub fn mock_registered_client_data() -> (ClientId, VerifiedClientMetadata) {
 pub fn mock_session(tokens: OidcSessionTokens) -> OidcSession {
     let (client_id, metadata) = mock_registered_client_data();
     OidcSession {
-        credentials: ClientCredentials::None { client_id: client_id.0 },
+        client_id,
         metadata,
         user: UserSession {
             meta: SessionMeta {
@@ -118,7 +117,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
     assert!(oidc.issuer().is_none());
     assert!(oidc.client_metadata().is_none());
-    assert!(oidc.client_credentials().is_none());
+    assert!(oidc.client_id().is_none());
 
     // When getting the OIDC login URL.
     let authorization_data =
@@ -127,7 +126,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     // Then the client should be configured correctly.
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
-    assert!(oidc.client_credentials().is_some());
+    assert!(oidc.client_id().is_some());
 
     // When completing the login with a valid callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -148,7 +147,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
-    assert!(oidc.client_credentials().is_some());
+    assert!(oidc.client_id().is_some());
 
     // When completing login with a cancellation callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -172,7 +171,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
 
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
-    assert!(oidc.client_credentials().is_some());
+    assert!(oidc.client_id().is_some());
 
     // When completing login with an old/tampered state.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -374,9 +373,7 @@ async fn test_oidc_session() -> anyhow::Result<()> {
 
     let full_session = oidc.full_session().unwrap();
 
-    assert_matches!(full_session.credentials, ClientCredentials::None { client_id } => {
-        assert_eq!(client_id, CLIENT_ID);
-    });
+    assert_eq!(full_session.client_id.0, CLIENT_ID);
     assert_eq!(full_session.metadata, session.metadata);
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
