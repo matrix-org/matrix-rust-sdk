@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+- **breaking**: the `experimental-oidc` Cargo feature has been removed and is no longer required,
+  as its functionality has now been enabled by default.
+  ([#4635](https://github.com/matrix-org/matrix-rust-sdk/pull/4635))
 
 ## [0.10.0] - 2025-02-04
 
