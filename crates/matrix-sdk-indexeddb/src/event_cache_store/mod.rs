@@ -65,6 +65,7 @@ mod keys {
 
     // Tables
     pub const LINKED_CHUNKS: &str = "linked_chunks";
+    pub const GAPS: &str = "gaps";
     // pub const MEDIA: &str = "media";
 }
 
@@ -124,16 +125,17 @@ impl_event_cache_store!({
         // TODO not sure if this should be a String or JsValue (which I assume is a ByteArray)
         let hashed_room_id = self.serializer.encode_key_as_string(keys::LINKED_CHUNKS, room_id);
         let room_id = room_id.to_owned();
-        // let this = self.clone();
-        let tx = self
-            .inner
-            .transaction_on_one_with_mode(keys::LINKED_CHUNKS, IdbTransactionMode::Readwrite)?;
-
-        let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
+                    let tx = self.inner.transaction_on_one_with_mode(
+                        keys::LINKED_CHUNKS,
+                        IdbTransactionMode::Readwrite,
+                    )?;
+
+                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+
                     let previous = previous.as_ref().map(ChunkIdentifier::index);
                     let new = new.index();
                     let next = next.as_ref().map(ChunkIdentifier::index);
@@ -151,14 +153,20 @@ impl_event_cache_store!({
                     .await?;
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    let serialized = serde_json::to_vec(&gap.prev_token)?;
-                    let prev_token = self.serializer.encode_value(serialized)?;
+                    let tx = self.inner.transaction_on_one_with_mode(
+                        keys::LINKED_CHUNKS,
+                        IdbTransactionMode::Readwrite,
+                    )?;
+
+                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+
+                    let prev_token = self.serializer.serialize_value(&gap.prev_token)?;
 
                     let previous = previous.as_ref().map(ChunkIdentifier::index);
                     let new = new.index();
                     let next = next.as_ref().map(ChunkIdentifier::index);
 
-                    trace!(%room_id,"Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
+                    trace!(%room_id,"Inserting new gap (prev={previous:?}, new={new}, next={next:?})");
 
                     idb_operations::insert_chunk(
                         &object_store,
@@ -170,10 +178,26 @@ impl_event_cache_store!({
                     )
                     .await?;
 
-                    idb_operations::insert_gap(&object_store, &hashed_room_id, new, prev_token)
-                        .await?
+                    let tx = self
+                        .inner
+                        .transaction_on_one_with_mode(keys::GAPS, IdbTransactionMode::Readwrite)?;
+
+                    let object_store = tx.object_store(keys::GAPS)?;
+
+                    idb_operations::insert_gap(&object_store, &hashed_room_id, new, &prev_token)?
                 }
-                Update::RemoveChunk(_chunk_identifier) => todo!(),
+                Update::RemoveChunk(id) => {
+                    let tx = self.inner.transaction_on_one_with_mode(
+                        keys::LINKED_CHUNKS,
+                        IdbTransactionMode::Readwrite,
+                    )?;
+
+                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+
+                    trace!("Removing chunk {id:?}");
+
+                    idb_operations::remove_chunk(&object_store, &hashed_room_id, id);
+                }
                 Update::PushItems { at: _, items: _ } => todo!(),
                 Update::ReplaceItem { at: _, item: _ } => todo!(),
                 Update::RemoveItem { at: _ } => todo!(),

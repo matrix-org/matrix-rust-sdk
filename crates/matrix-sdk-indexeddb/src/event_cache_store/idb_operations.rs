@@ -63,11 +63,24 @@ pub async fn insert_chunk(
     Ok(())
 }
 
-pub async fn insert_gap(
-    _store: &IdbObjectStore<'_>,
-    _hashed_room_id: &String,
-    _new: u64,
-    _prev_token: Option<u64>,
+pub fn insert_gap(
+    store: &IdbObjectStore<'_>,
+    hashed_room_id: &String,
+    new: u64,
+    prev_token: &JsValue,
 ) -> Result<(), web_sys::DomException> {
+    let id = format!("{}-{}", hashed_room_id, new);
+    let id = JsValue::from_str(&id);
+    store.add_key_val(&id, prev_token)?;
+
     Ok(())
+}
+
+pub fn remove_chunk(
+    store: &IdbObjectStore<'_>,
+    hashed_room_id: &String,
+    id: u64,
+) -> Resut<(), web_sys::DomException> {
+    // let id = format!("{}-{}", hashed_room_id, new);
+    // let id = JsValue::from_str(&id);
 }
