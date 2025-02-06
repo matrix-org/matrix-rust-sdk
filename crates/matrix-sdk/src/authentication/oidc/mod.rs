@@ -50,20 +50,21 @@
 //! without credentials.
 //!
 //! If the issuer supports dynamic registration, it can be done by using
-//! [`Oidc::register_client()`]. If dynamic registration is not available, the
-//! homeserver should document how to obtain a client ID.
+//! [`Oidc::register_client()`]. After registration, the client ID should be
+//! persisted and reused for every session that interacts with that same issuer.
 //!
-//! To make the client aware of being registered successfully,
-//! [`Oidc::restore_registered_client()`] needs to be called next.
+//! If dynamic registration is not available, the homeserver should document how
+//! to obtain a client ID.
 //!
-//! After client registration, the client ID should be persisted and reused for
-//! every session that interacts with that same issuer.
+//! To provide the client ID and metadata if dynamic registration is not
+//! available, or if the client is already registered with the issuer, call
+//! [`Oidc::restore_registered_client()`].
 //!
 //! # Login
 //!
-//! Before logging in, make sure to call [`Oidc::restore_registered_client()`]
-//! (even after registering the client), as it is the first step to know how to
-//! interact with the issuer.
+//! Before logging in, make sure to register the client or to restore its
+//! registration, as it is the first step to know how to interact with the
+//! issuer.
 //!
 //! With OIDC, logging into a Matrix account is simply logging in with a
 //! predefined scope, part of it declaring the device ID of the session.
@@ -342,8 +343,8 @@ impl Oidc {
 
     /// The OpenID Connect authentication data.
     ///
-    /// Returns `None` if the client registration was not restored with
-    /// [`Oidc::restore_registered_client()`] or
+    /// Returns `None` if the client was not registered or if the registration
+    /// was not restored with [`Oidc::restore_registered_client()`] or
     /// [`Oidc::restore_session()`].
     fn data(&self) -> Option<&OidcAuthData> {
         let data = self.client.inner.auth_ctx.auth_data.get()?;
@@ -541,16 +542,7 @@ impl Oidc {
         }
 
         tracing::info!("Registering this client for OIDC.");
-        let registration_response =
-            self.register_client(&issuer, client_metadata.clone(), None).await?;
-
-        // The format of the credentials changes according to the client metadata that
-        // was sent. Public clients only get a client ID.
-        self.restore_registered_client(
-            issuer,
-            client_metadata,
-            ClientId(registration_response.client_id),
-        );
+        self.register_client(&issuer, client_metadata.clone(), None).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -601,8 +593,8 @@ impl Oidc {
 
     /// The OpenID Connect Provider used for authorization.
     ///
-    /// Returns `None` if the client registration was not restored with
-    /// [`Oidc::restore_registered_client()`] or
+    /// Returns `None` if the client was not registered or if the registration
+    /// was not restored with [`Oidc::restore_registered_client()`] or
     /// [`Oidc::restore_session()`].
     pub fn issuer(&self) -> Option<&str> {
         self.data().map(|data| data.issuer.as_str())
@@ -673,8 +665,8 @@ impl Oidc {
 
     /// The OpenID Connect metadata of this client used during registration.
     ///
-    /// Returns `None` if the client registration was not restored with
-    /// [`Oidc::restore_registered_client()`] or
+    /// Returns `None` if the client was not registered or if the registration
+    /// was not restored with [`Oidc::restore_registered_client()`] or
     /// [`Oidc::restore_session()`].
     pub fn client_metadata(&self) -> Option<&VerifiedClientMetadata> {
         self.data().map(|data| &data.metadata)
@@ -683,8 +675,8 @@ impl Oidc {
     /// The OpenID Connect unique identifier of this client obtained after
     /// registration.
     ///
-    /// Returns `None` if the client registration was not restored with
-    /// [`Oidc::restore_registered_client()`] or
+    /// Returns `None` if the client was not registered or if the registration
+    /// was not restored with [`Oidc::restore_registered_client()`] or
     /// [`Oidc::restore_session()`].
     pub fn client_id(&self) -> Option<&ClientId> {
         self.data().map(|data| &data.client_id)
@@ -811,11 +803,14 @@ impl Oidc {
     ///
     /// This should be called before any authorization request with an unknown
     /// authentication issuer. If the client is already registered with the
-    /// given issuer, it should use [`Oidc::restore_registered_client()`]
-    /// directly.
+    /// given issuer, it should use [`Oidc::restore_registered_client()`].
     ///
-    /// Note that the client should adapt the security measures enabled in its
-    /// metadata according to the capabilities advertised in
+    /// Note that this method only supports public clients, i.e. clients with
+    /// the `token_endpoint_auth_method` field in [`VerifiedClientMetadata`] set
+    /// to `none`.
+    ///
+    /// The client should adapt the security measures enabled in its metadata
+    /// according to the capabilities advertised in
     /// [`Oidc::given_provider_metadata()`].
     ///
     /// # Arguments
@@ -835,6 +830,10 @@ impl Oidc {
     /// The client ID in the response should be persisted for future use and
     /// reused for the same issuer, along with the client metadata sent to the
     /// provider, even for different sessions or user accounts.
+    ///
+    /// # Panic
+    ///
+    /// Panics if authentication data was already set.
     ///
     /// # Example
     ///
@@ -881,16 +880,27 @@ impl Oidc {
             .as_ref()
             .ok_or(OidcError::NoRegistrationSupport)?;
 
-        self.backend
-            .register_client(registration_endpoint, client_metadata, software_statement)
-            .await
+        let registration_response = self
+            .backend
+            .register_client(registration_endpoint, client_metadata.clone(), software_statement)
+            .await?;
+
+        // The format of the credentials changes according to the client metadata that
+        // was sent. Public clients only get a client ID.
+        self.restore_registered_client(
+            issuer.to_owned(),
+            client_metadata,
+            ClientId(registration_response.client_id.clone()),
+        );
+
+        Ok(registration_response)
     }
 
     /// Set the data of a client that is registered with an OpenID Connect
     /// Provider.
     ///
-    /// This should be called after registration or when logging in with a
-    /// provider that is already known by the client.
+    /// This should be called when logging in with a provider that is already
+    /// known by the client.
     ///
     /// Note that this method only supports public clients, i.e. clients with
     /// no credentials.
@@ -1047,7 +1057,7 @@ impl Oidc {
 
     /// Login via OpenID Connect with the Authorization Code flow.
     ///
-    /// This should be called after the registered client has been restored with
+    /// This should be called after [`Oidc::register_client()`] or
     /// [`Oidc::restore_registered_client()`].
     ///
     /// If this is a brand new login, [`Oidc::finish_login()`] must be called

@@ -34,11 +34,8 @@ use super::{
 #[cfg(doc)]
 use crate::authentication::oidc::Oidc;
 use crate::{
-    authentication::{
-        oidc::registrations::ClientId,
-        qrcode::{
-            messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,
-        },
+    authentication::qrcode::{
+        messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,
     },
     Client,
 };
@@ -304,16 +301,7 @@ impl<'a> LoginWithQrCode<'a> {
         let registration_response =
             self.client.oidc().register_client(&issuer, self.client_metadata.clone(), None).await?;
 
-        // Now we need to put the relevant data we got from the regustration response
-        // into the `Client`.
-        // TODO: Why isn't `oidc().register_client()` doing this automatically?
-        self.client.oidc().restore_registered_client(
-            issuer.clone(),
-            self.client_metadata.clone(),
-            ClientId(registration_response.client_id.clone()),
-        );
-
-        // We're now switching to the openidconnect crate, it has a bit of a strange API
+        // We're now switching to the oauth2 crate, it has a bit of a strange API
         // where you need to provide the HTTP client in every call you make.
         let http_client = self.client.inner.http_client.clone();
 
