@@ -40,22 +40,11 @@ markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
-sso-login = ["dep:axum", "dep:rand", "dep:tower"]
+sso-login = ["dep:axum"]
 
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
-experimental-oidc = [
-    "ruma/unstable-msc2967",
-    "ruma/unstable-msc4108",
-    "dep:chrono",
-    "dep:language-tags",
-    "dep:mas-oidc-client",
-    "dep:rand",
-    "dep:sha2",
-    "dep:tower",
-    "dep:openidconnect",
-]
-experimental-widgets = ["dep:language-tags", "dep:uuid"]
+experimental-widgets = ["dep:uuid"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 
@@ -71,7 +60,7 @@ async-trait = { workspace = true }
 axum = { version = "0.8.1", optional = true }
 bytes = "1.9.0"
 bytesize = "1.3.0"
-chrono = { workspace = true, optional = true }
+chrono = { workspace = true }
 event-listener = "5.4.0"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
@@ -83,8 +72,8 @@ http = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
 js_int = "0.2.2"
-language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { version = "0.11.0", default-features = false, optional = true }
+language-tags = { version = "0.3.2" }
+mas-oidc-client = { version = "0.11.0", default-features = false }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-ffi-macros = { workspace = true, optional = true }
@@ -96,24 +85,26 @@ mime2ext = "0.1.53"
 once_cell = { workspace = true }
 percent-encoding = "2.3.1"
 pin-project-lite = { workspace = true }
-rand = { workspace = true , optional = true }
+rand = { workspace = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
     "unstable-msc2965",
+    "unstable-msc2967",
     "unstable-msc3930",
     "unstable-msc3245-v1-compat",
     "unstable-msc2867",
+    "unstable-msc4108",
     "unstable-msc4230",
 ] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true, optional = true }
+sha2 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
-tower = { version = "0.5.2", features = ["util"], optional = true }
+tower = { version = "0.5.2", features = ["util"] }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
@@ -129,7 +120,7 @@ tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
-openidconnect = { version = "4.0.0", optional = true }
+openidconnect = { version = "4.0.0" }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }

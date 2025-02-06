@@ -28,8 +28,6 @@ use tokio::sync::{broadcast, Mutex, OnceCell};
 use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
-#[cfg(feature = "experimental-oidc")]
-use crate::authentication::oidc::OidcCtx;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
@@ -37,9 +35,14 @@ use crate::encryption::EncryptionSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
 use crate::{
-    authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
-    error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData,
-    sliding_sync::VersionBuilder as SlidingSyncVersionBuilder, HttpError, IdParseError,
+    authentication::{oidc::OidcCtx, AuthCtx},
+    client::ClientServerCapabilities,
+    config::RequestConfig,
+    error::RumaApiError,
+    http_client::HttpClient,
+    send_queue::SendQueueData,
+    sliding_sync::VersionBuilder as SlidingSyncVersionBuilder,
+    HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -510,7 +513,6 @@ impl ClientBuilder {
             version
         };
 
-        #[cfg(feature = "experimental-oidc")]
         let allow_insecure_oidc = homeserver.scheme() == "http";
 
         let auth_ctx = Arc::new(AuthCtx {
@@ -520,7 +522,6 @@ impl ClientBuilder {
             auth_data: OnceCell::default(),
             reload_session_callback: OnceCell::default(),
             save_session_callback: OnceCell::default(),
-            #[cfg(feature = "experimental-oidc")]
             oidc: OidcCtx::new(allow_insecure_oidc),
         });
 

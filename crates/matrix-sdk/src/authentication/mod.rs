@@ -21,15 +21,15 @@ use matrix_sdk_base::SessionMeta;
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
 pub mod matrix;
-#[cfg(feature = "experimental-oidc")]
 pub mod oidc;
 
-use self::matrix::{MatrixAuth, MatrixAuthData};
-#[cfg(feature = "experimental-oidc")]
-use self::oidc::{Oidc, OidcAuthData, OidcCtx};
+use self::{
+    matrix::{MatrixAuth, MatrixAuthData},
+    oidc::{Oidc, OidcAuthData, OidcCtx},
+};
 use crate::{Client, RefreshTokenError, SessionChange};
 
-#[cfg(all(feature = "experimental-oidc", feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 
 /// Session tokens, for any kind of authentication.
@@ -37,7 +37,6 @@ pub mod qrcode;
 pub enum SessionTokens {
     /// Tokens for a [`matrix`] session.
     Matrix(matrix::MatrixSessionTokens),
-    #[cfg(feature = "experimental-oidc")]
     /// Tokens for an [`oidc`] session.
     Oidc(oidc::OidcSessionTokens),
 }
@@ -51,7 +50,6 @@ pub(crate) type ReloadSessionCallback =
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.
 pub(crate) struct AuthCtx {
-    #[cfg(feature = "experimental-oidc")]
     pub(crate) oidc: OidcCtx,
 
     /// Whether to try to refresh the access token automatically when an
@@ -93,7 +91,6 @@ pub enum AuthApi {
     Matrix(MatrixAuth),
 
     /// The OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
     Oidc(Oidc),
 }
 
@@ -105,7 +102,6 @@ pub enum AuthSession {
     Matrix(matrix::MatrixSession),
 
     /// A session using the OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
     Oidc(Box<oidc::OidcSession>),
 }
 
@@ -114,7 +110,6 @@ impl AuthSession {
     pub fn meta(&self) -> &SessionMeta {
         match self {
             AuthSession::Matrix(session) => &session.meta,
-            #[cfg(feature = "experimental-oidc")]
             AuthSession::Oidc(session) => &session.user.meta,
         }
     }
@@ -123,7 +118,6 @@ impl AuthSession {
     pub fn into_meta(self) -> SessionMeta {
         match self {
             AuthSession::Matrix(session) => session.meta,
-            #[cfg(feature = "experimental-oidc")]
             AuthSession::Oidc(session) => session.user.meta,
         }
     }
@@ -132,7 +126,6 @@ impl AuthSession {
     pub fn access_token(&self) -> &str {
         match self {
             AuthSession::Matrix(session) => &session.tokens.access_token,
-            #[cfg(feature = "experimental-oidc")]
             AuthSession::Oidc(session) => &session.user.tokens.access_token,
         }
     }
@@ -141,7 +134,6 @@ impl AuthSession {
     pub fn get_refresh_token(&self) -> Option<&str> {
         match self {
             AuthSession::Matrix(session) => session.tokens.refresh_token.as_deref(),
-            #[cfg(feature = "experimental-oidc")]
             AuthSession::Oidc(session) => session.user.tokens.refresh_token.as_deref(),
         }
     }
@@ -153,7 +145,6 @@ impl From<matrix::MatrixSession> for AuthSession {
     }
 }
 
-#[cfg(feature = "experimental-oidc")]
 impl From<oidc::OidcSession> for AuthSession {
     fn from(session: oidc::OidcSession) -> Self {
         Self::Oidc(session.into())
@@ -166,7 +157,6 @@ pub(crate) enum AuthData {
     /// Data for the native Matrix authentication API.
     Matrix(MatrixAuthData),
     /// Data for the OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
     Oidc(OidcAuthData),
 }
 
@@ -178,7 +168,6 @@ impl AuthData {
     pub(crate) fn access_token(&self) -> Option<String> {
         let token = match self {
             Self::Matrix(d) => d.tokens.get().access_token,
-            #[cfg(feature = "experimental-oidc")]
             Self::Oidc(d) => d.tokens.get()?.get().access_token,
         };
 

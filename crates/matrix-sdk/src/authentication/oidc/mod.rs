@@ -27,11 +27,9 @@
 //! limited to the Authorization Code flow. It also uses some OAuth 2.0
 //! extensions.
 //!
-//! # Setup
-//!
-//! To enable support for OpenID Connect on the [`Client`], simply enable the
-//! `experimental-oidc` cargo feature for the `matrix-sdk` crate. Then this
-//! authentication API is available with [`Client::oidc()`].
+//! Support for OpenID Connect on the [`Client`] is always enabled by default
+//! for the `matrix-sdk` crate. Its main API object can be obtained through the
+//! authentication API available with [`Client::oidc()`].
 //!
 //! # Homeserver support
 //!

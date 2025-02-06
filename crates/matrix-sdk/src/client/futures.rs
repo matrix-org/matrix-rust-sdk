@@ -19,7 +19,6 @@ use std::{fmt::Debug, future::IntoFuture};
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
-#[cfg(feature = "experimental-oidc")]
 use mas_oidc_client::{
     error::{
         Error as OidcClientError, ErrorBody as OidcErrorBody, HttpError as OidcHttpError,
@@ -29,14 +28,11 @@ use mas_oidc_client::{
 };
 use matrix_sdk_common::boxed_into_future;
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
-#[cfg(feature = "experimental-oidc")]
-use tracing::error;
-use tracing::trace;
+use tracing::{error, trace};
 
 use super::super::Client;
-#[cfg(feature = "experimental-oidc")]
-use crate::authentication::oidc::OidcError;
 use crate::{
+    authentication::oidc::OidcError,
     config::RequestConfig,
     error::{HttpError, HttpResult},
     RefreshTokenError, TransmissionProgress,
@@ -134,7 +130,6 @@ where
                             client.broadcast_unknown_token(soft_logout);
                         }
 
-                        #[cfg(feature = "experimental-oidc")]
                         RefreshTokenError::Oidc(oidc_error) => {
                             match **oidc_error {
                                 OidcError::Oidc(OidcClientError::TokenRefresh(

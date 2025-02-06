@@ -352,7 +352,6 @@ pub enum Error {
     MultipleSessionCallbacks,
 
     /// An error occurred interacting with the OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
     #[error(transparent)]
     Oidc(#[from] crate::authentication::oidc::OidcError),
 
@@ -559,7 +558,6 @@ pub enum RefreshTokenError {
     MatrixAuth(Arc<HttpError>),
 
     /// An error occurred interacting with the OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
     #[error(transparent)]
     Oidc(#[from] Arc<crate::authentication::oidc::OidcError>),
 }

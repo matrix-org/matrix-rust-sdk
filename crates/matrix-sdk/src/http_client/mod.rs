@@ -257,7 +257,6 @@ async fn response_to_http_response(
     Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }
 
-#[cfg(feature = "experimental-oidc")]
 impl tower::Service<http::Request<Bytes>> for HttpClient {
     type Response = http::Response<Bytes>;
     type Error = tower::BoxError;

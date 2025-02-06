@@ -114,7 +114,6 @@ async fn test_reset_legacy_auth() {
     );
 }
 
-#[cfg(feature = "experimental-oidc")]
 #[async_test]
 async fn test_reset_oidc() {
     use std::sync::{
