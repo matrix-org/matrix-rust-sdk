@@ -16,13 +16,14 @@ use std::{sync::Mutex, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
-use futures_util::{FutureExt as _, StreamExt as _};
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use futures_util::StreamExt as _;
+use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
 use matrix_sdk_ui::timeline::{ReactionStatus, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use serde_json::json;
 use stream_assert::assert_pending;
+use tokio::sync::oneshot;
 use wiremock::ResponseTemplate;
 
 #[async_test]
@@ -54,16 +55,21 @@ async fn test_abort_before_being_sent() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
+    let item_id = {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-    let item = first.as_event().unwrap();
-    let item_id = item.identifier();
-    assert_eq!(item.content().as_message().unwrap().body(), "hello");
+        assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
+        let item = first.as_event().unwrap();
+        assert_eq!(item.content().as_message().unwrap().body(), "hello");
 
-    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
-    assert!(date_divider.is_date_divider());
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
+        assert!(date_divider.is_date_divider());
+
+        assert_pending!(stream);
+
+        item.identifier()
+    };
 
     // Now we try to add two reactions to this message…
 
@@ -78,20 +84,36 @@ async fn test_abort_before_being_sent() {
                 .set_delay(Duration::from_millis(150)),
         )
         .mock_once()
-        .named("send")
+        .named("send for the first reaction")
         .mount()
         .await;
 
-    server.mock_room_redact().ok(event_id!("$3")).mock_once().mount().await;
+    let (tx, rx) = oneshot::channel();
+    let tx = Mutex::new(Some(tx));
 
-    // We add the reaction…
+    server
+        .mock_room_redact()
+        .respond_with(move |_req: &wiremock::Request| {
+            // Notify the main task that we're done with handling the request.
+            let mut tx_guard = tx.lock().unwrap();
+            let tx = tx_guard.take().expect("this endpoint called only once");
+            tx.send(()).unwrap();
+            // Return a response.
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$2" }))
+        })
+        .named("redact for the first reaction")
+        .mock_once()
+        .mount()
+        .await;
+
+    // We add a first reaction…
     timeline.toggle_reaction(&item_id, "👍").await.unwrap();
 
     let user_id = client.user_id().unwrap();
 
-    // First toggle (local echo).
+    // First toggle (adding the local echo for the first reaction).
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
@@ -106,11 +128,12 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // We toggle another reaction at the same time…
+    // We toggle (add) another reaction at the same time…
     timeline.toggle_reaction(&item_id, "🥰").await.unwrap();
 
+    // Second toggle (adding the local echo for the second reaction).
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
@@ -126,7 +149,7 @@ async fn test_abort_before_being_sent() {
             ReactionStatus::LocalToRemote(_)
         );
 
-        assert!(stream.next().now_or_never().is_none());
+        assert_pending!(stream);
     }
 
     // Then we remove the first one; because it was being sent, it should lead to a
@@ -134,7 +157,7 @@ async fn test_abort_before_being_sent() {
     timeline.toggle_reaction(&item_id, "👍").await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
@@ -146,7 +169,7 @@ async fn test_abort_before_being_sent() {
             ReactionStatus::LocalToRemote(_)
         );
 
-        assert!(stream.next().now_or_never().is_none());
+        assert_pending!(stream);
     }
 
     // But because the first one was being sent, this one won't and the local echo
@@ -154,7 +177,7 @@ async fn test_abort_before_being_sent() {
     timeline.toggle_reaction(&item_id, "🥰").await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
@@ -162,14 +185,16 @@ async fn test_abort_before_being_sent() {
         let reactions = item.as_event().unwrap().reactions();
         assert!(reactions.is_empty());
 
-        assert!(stream.next().now_or_never().is_none());
+        assert_pending!(stream);
     }
 
     // In a real-world setup with a background sync, the reaction may flash to the
     // user, because the sync may return the reaction event, and later the
     // redaction of the reaction. In our case, we're done here.
 
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Wait for the redaction to be done in the background.
+    tokio::time::timeout(Duration::from_secs(2), rx).await.expect("timeout").expect("recv error");
+
     assert_pending!(stream);
 }
 
