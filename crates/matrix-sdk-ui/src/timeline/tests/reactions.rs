@@ -67,7 +67,8 @@ macro_rules! assert_item_update {
 macro_rules! assert_reaction_is_updated {
     ($stream:expr, $event_id:expr, $index:expr, $is_remote_echo:literal) => {{
         let event = assert_item_update!($stream, $event_id, $index);
-        let reactions = event.content().reactions().get(&REACTION_KEY.to_owned()).unwrap();
+        let reactions = event.content().reactions();
+        let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
         let reaction = reactions.get(*ALICE).unwrap();
         match reaction.status {
             ReactionStatus::LocalToRemote(_) | ReactionStatus::LocalToLocal(_) => {
@@ -173,7 +174,8 @@ async fn test_reactions_store_timestamp() {
     timeline.toggle_reaction_local(&item_id, REACTION_KEY).await.unwrap();
 
     let event = assert_reaction_is_updated!(stream, &event_id, msg_pos, false);
-    let reactions = event.content().reactions().get(&REACTION_KEY.to_owned()).unwrap();
+    let reactions = event.content().reactions();
+    let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
     let timestamp = reactions.values().next().unwrap().timestamp;
 
     let now = MilliSecondsSinceUnixEpoch::now();

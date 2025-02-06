@@ -657,7 +657,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             rfind_event_by_id(&state.items, &annotated_event_id)
                         {
                             // Re-add the reaction to the mapping.
-                            let mut reactions = item.content().reactions().clone();
+                            let mut reactions = item.content().reactions();
                             reactions
                                 .entry(key.to_owned())
                                 .or_default()
@@ -1014,7 +1014,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         // Replace the local-related state (kind) and the content state.
-        let prev_reactions = prev_item.content().reactions().clone();
+        let prev_reactions = prev_item.content().reactions();
         let new_item = TimelineItem::new(
             prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
                 content,

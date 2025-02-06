@@ -182,7 +182,8 @@ async fn test_toggling_reaction() -> Result<()> {
         // Local echo is added.
         {
             let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
-            let reactions = event.content().reactions().get(&reaction_key).unwrap();
+            let reactions = event.content().reactions();
+            let reactions = reactions.get(&reaction_key).unwrap();
             let reaction = reactions.get(&user_id).unwrap();
             assert_matches!(reaction.status, ReactionStatus::LocalToRemote(..));
         }
@@ -191,7 +192,8 @@ async fn test_toggling_reaction() -> Result<()> {
         {
             let event = assert_event_is_updated!(timeline_updates[1], event_id, message_position);
 
-            let reactions = event.content().reactions().get(&reaction_key).unwrap();
+            let reactions = event.content().reactions();
+            let reactions = reactions.get(&reaction_key).unwrap();
             assert_eq!(reactions.keys().count(), 1);
 
             let reaction = reactions.get(&user_id).unwrap();

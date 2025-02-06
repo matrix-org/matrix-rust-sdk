@@ -18,7 +18,6 @@ use as_variant::as_variant;
 use imbl::Vector;
 use matrix_sdk::crypto::types::events::UtdCause;
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
-use once_cell::sync::Lazy;
 use ruma::{
     events::{
         call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
@@ -440,17 +439,20 @@ impl TimelineItemContent {
         }
     }
 
-    pub fn reactions(&self) -> &ReactionsByKeyBySender {
-        static EMPTY: Lazy<ReactionsByKeyBySender> = Lazy::new(Default::default);
-
+    /// Return the reactions, grouped by key and then by sender, for a given
+    /// content.
+    ///
+    /// Some content kinds can't hold reactions; for these, this function will
+    /// return `None`.
+    pub fn reactions(&self) -> ReactionsByKeyBySender {
         match self {
-            TimelineItemContent::Message(message) => &message.reactions,
-            TimelineItemContent::Sticker(sticker) => &sticker.reactions,
-            TimelineItemContent::Poll(poll_state) => &poll_state.reactions,
+            TimelineItemContent::Message(message) => message.reactions.clone(),
+            TimelineItemContent::Sticker(sticker) => sticker.reactions.clone(),
+            TimelineItemContent::Poll(poll_state) => poll_state.reactions.clone(),
 
             TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
                 // No reactions for redacted messages or UTDs.
-                &EMPTY
+                Default::default()
             }
 
             TimelineItemContent::MembershipChange(..)
@@ -461,11 +463,14 @@ impl TimelineItemContent {
             | TimelineItemContent::CallInvite
             | TimelineItemContent::CallNotify => {
                 // No reactions for these kind of items.
-                &EMPTY
+                Default::default()
             }
         }
     }
 
+    /// Return a mutable handle to the reactions of this item.
+    ///
+    /// See also [`Self::reactions()`] to explain the optional return type.
     pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
         match self {
             TimelineItemContent::Message(message) => Some(&mut message.reactions),
