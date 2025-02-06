@@ -262,7 +262,7 @@ pub enum CrossProcessRefreshLockError {
     DuplicatedLock,
 }
 
-#[cfg(all(test, feature = "e2e-encryption"))]
+#[cfg(all(test, feature = "e2e-encryption", feature = "sqlite"))]
 mod tests {
     use std::sync::Arc;
 
