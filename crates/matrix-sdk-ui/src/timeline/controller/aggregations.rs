@@ -12,6 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! An aggregation manager for the timeline.
+//!
+//! An aggregation is an event that relates to another event: for instance, a
+//! reaction, a poll response, and so on and so forth.
+//!
+//! Because of the sync mechanisms and federation, it can happen that a related
+//! event is received *before* receiving the event it relates to. Those events
+//! must be accounted for, stashed somewhere, and reapplied later, if/when the
+//! related-to event shows up.
+//!
+//! In addition to that, a room's event cache can also decide to move events
+//! around, in its own internal representation (likely because it ran into some
+//! duplicate events). When that happens, a timeline opened on the given room
+//! will see a removal then re-insertion of the given event. If that event was
+//! the target of aggregations, then those aggregations must be re-applied when
+//! the given event is reinserted.
+//!
+//! To satisfy both requirements, the [`Aggregations`] "manager" object provided
+//! by this module will take care of memoizing aggregations, for the entire
+//! lifetime of the timeline (or until it's [`Aggregations::clear()`]'ed by some
+//! caller). Aggregations are saved in memory, and have the same lifetime as
+//! that of a timeline. This makes it possible to apply pending aggregations
+//! to cater for the first use case, and to never lose any aggregations in the
+//! second use case.
+
 use std::collections::HashMap;
 
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId};
@@ -21,32 +46,60 @@ use crate::timeline::{
     PollState, ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItemContent,
 };
 
+/// Which kind of aggregation (related event) is this?
 #[derive(Clone, Debug)]
 pub(crate) enum AggregationKind {
+    /// This is a response to a poll.
     PollResponse {
+        /// Sender of the poll's response.
         sender: OwnedUserId,
+        /// Timestamp at which the response has beens ent.
         timestamp: MilliSecondsSinceUnixEpoch,
+        /// All the answers to the poll sent by the sender.
         answers: Vec<String>,
     },
 
+    /// This is the marker of the end of a poll.
     PollEnd {
+        /// Timestamp at which the poll ends, i.e. all the responses with a
+        /// timestamp prior to this one should be taken into account
+        /// (and all the responses with a timestamp after this one
+        /// should be dropped).
         end_date: MilliSecondsSinceUnixEpoch,
     },
 
+    /// This is a reaction to another event.
     Reaction {
+        /// The reaction "key" displayed by the client, often an emoji.
         key: String,
+        /// Sender of the reaction.
         sender: OwnedUserId,
+        /// Timestamp at which the reaction has been sent.
         timestamp: MilliSecondsSinceUnixEpoch,
+        /// The send status of the reaction this is, with handles to abort it if
+        /// we can, etc.
         reaction_status: ReactionStatus,
     },
 }
 
+/// An aggregation is an event related to another event (for instance a
+/// reaction, a poll's response, etc.).
+///
+/// It can be either a local or a remote echo.
 #[derive(Clone, Debug)]
 pub(crate) struct Aggregation {
+    /// The kind of aggregation this represents.
     pub kind: AggregationKind,
+
+    /// The own timeline identifier for a reaction.
+    ///
+    /// It will be a transaction id when the aggregation is still a local echo,
+    /// and it will transition into an event id when the aggregation is a
+    /// remote echo (i.e. has been received in a sync response):
     pub own_id: TimelineEventItemId,
 }
 
+/// Get the poll state from a given [`TimelineItemContent`].
 fn poll_state_from_item(
     content: &mut TimelineItemContent,
 ) -> Result<&mut PollState, AggregationError> {
@@ -60,6 +113,7 @@ fn poll_state_from_item(
 }
 
 impl Aggregation {
+    /// Create a new [`Aggregation`].
     pub fn new(own_id: TimelineEventItemId, kind: AggregationKind) -> Self {
         Self { kind, own_id }
     }
@@ -67,8 +121,12 @@ impl Aggregation {
     /// Apply an aggregation in-place to a given [`TimelineItemContent`].
     ///
     /// In case of success, returns a boolean indicating whether applying the
-    /// aggregation caused a change in the content. In case of error,
-    /// returns an error detailing why the aggregation couldn't be applied.
+    /// aggregation caused a change in the content. If the aggregation could be
+    /// applied, but it didn't cause any change in the passed
+    /// [`TimelineItemContent`], `Ok(false)` will be returned.
+    ///
+    /// In case of error, returns an error detailing why the aggregation
+    /// couldn't be applied.
     pub fn apply(&self, content: &mut TimelineItemContent) -> Result<bool, AggregationError> {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, answers } => {
@@ -122,9 +180,13 @@ impl Aggregation {
 
     /// Undo an aggregation in-place to a given [`TimelineItemContent`].
     ///
-    /// In case of success, returns a boolean indicating whether applying the
-    /// aggregation caused a change in the content. In case of error,
-    /// returns an error detailing why the aggregation couldn't be applied.
+    /// In case of success, returns a boolean indicating whether unapplying the
+    /// aggregation caused a change in the content. If the aggregation could be
+    /// unapplied, but it didn't cause any change in the passed
+    /// [`TimelineItemContent`], `Ok(false)` will be returned.
+    ///
+    /// In case of error, returns an error detailing why the aggregation
+    /// couldn't be applied.
     pub fn unapply(&self, content: &mut TimelineItemContent) -> Result<bool, AggregationError> {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, .. } => {
@@ -172,11 +234,14 @@ pub(crate) struct Aggregations {
 }
 
 impl Aggregations {
+    /// Clear all the known aggregations from all the mappings.
     pub fn clear(&mut self) {
         self.related_events.clear();
         self.inverted_map.clear();
     }
 
+    /// Add a given aggregation that relates to the [`TimelineItemContent`]
+    /// identified by the given [`TimelineEventItemId`].
     pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
         self.inverted_map.insert(aggregation.own_id.clone(), related_to.clone());
         self.related_events.entry(related_to).or_default().push(aggregation);
@@ -192,20 +257,35 @@ impl Aggregations {
         let found = self.inverted_map.get(aggregation_id)?;
 
         // Find and remove the aggregation in the other mapping.
-        let aggregation = self.related_events.get_mut(found).and_then(|aggregations| {
-            aggregations
+        let aggregation = if let Some(aggregations) = self.related_events.get_mut(found) {
+            let removed = aggregations
                 .iter()
                 .position(|agg| agg.own_id == *aggregation_id)
-                .map(|idx| aggregations.remove(idx))
-        });
+                .map(|idx| aggregations.remove(idx));
+
+            // If this was the last aggregation, remove the entry in the `related_events`
+            // mapping.
+            if aggregations.is_empty() {
+                self.related_events.remove(found);
+            }
+
+            removed
+        } else {
+            None
+        };
 
         if aggregation.is_none() {
-            warn!("unexpected missing aggregation {aggregation_id:?} (was present in the inverted map, not in the actual map)");
+            warn!("incorrect internal state: {aggregation_id:?} was present in the inverted map, not in related-to map.");
         }
 
         Some((found, aggregation?))
     }
 
+    /// Apply all the aggregations to a [`TimelineItemContent`].
+    ///
+    /// Will return an error at the first aggregation that couldn't be applied;
+    /// see [`Aggregation::apply`] which explains under which conditions it can
+    /// happen.
     pub fn apply(
         &self,
         item_id: &TimelineEventItemId,
@@ -237,13 +317,18 @@ impl Aggregations {
                 }
             }
             // Update the direct mapping of target -> aggregations.
-            self.related_events.insert(to, aggregations);
+            self.related_events.entry(to).or_default().extend(aggregations);
         }
     }
 
     /// Mark an aggregation event as being sent (i.e. it transitions from an
     /// local transaction id to its remote event id counterpart), by
     /// updating the internal mappings.
+    ///
+    /// When an aggregation has been marked as sent, it may need to be reapplied
+    /// to the corresponding [`TimelineItemContent`]; in this case, a
+    /// [`MarkAggregationSentResult::MarkedSent`] result with a set `update`
+    /// will be returned, and must be applied.
     pub fn mark_aggregation_as_sent(
         &mut self,
         txn_id: OwnedTransactionId,
@@ -284,8 +369,14 @@ impl Aggregations {
     }
 }
 
+/// The result of marking an aggregation as sent.
 pub(crate) enum MarkAggregationSentResult {
+    /// The aggregation has been found, and marked as sent.
+    ///
+    /// Optionally, it can include an [`Aggregation`] `update` to the matching
+    /// [`TimelineItemContent`] item identified by the [`TimelineEventItemId`].
     MarkedSent { update: Option<(TimelineEventItemId, Aggregation)> },
+    /// The aggregation was unknown to the aggregations manager, aka not found.
     NotFound,
 }
 

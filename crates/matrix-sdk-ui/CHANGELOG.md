@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+### Features
+
+### Refactor
+
+- [**breaking**] Reactions on a given timeline item have been moved from
+  [`EventTimelineItem::reactions()`] to [`TimelineItemContent::reactions()`]; they're thus available
+  from an [`EventTimelineItem`] by calling `.content().reactions()`. They're also returned by
+  ownership (cloned) instead of by reference.
+  ([#4576](https://github.com/matrix-org/matrix-rust-sdk/pull/4576))
+
 ## [0.10.0] - 2025-02-04
 
 ### Bug Fixes
