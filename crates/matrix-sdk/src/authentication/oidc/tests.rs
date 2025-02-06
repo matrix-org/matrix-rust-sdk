@@ -24,27 +24,27 @@ use wiremock::{
 };
 
 use super::{
-    backend::mock::{MockImpl, AUTHORIZATION_URL, ISSUER_URL},
+    backend::mock::{MockImpl, AUTHORIZATION_URL, CLIENT_ID, ISSUER_URL},
     registrations::{ClientId, OidcRegistrations},
     AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc, OidcError, OidcSession,
     OidcSessionTokens, RedirectUriQueryParseError, UserSession,
 };
 use crate::{test_utils::test_client_builder, Client, Error};
 
-const CLIENT_ID: &str = "test_client_id";
 const REDIRECT_URI_STRING: &str = "http://matrix.example.com/oidc/callback";
 
+pub fn mock_client_metadata() -> VerifiedClientMetadata {
+    ClientMetadata {
+        redirect_uris: Some(vec![Url::parse(REDIRECT_URI_STRING).unwrap()]),
+        token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+        ..ClientMetadata::default()
+    }
+    .validate()
+    .expect("validate client metadata")
+}
+
 pub fn mock_registered_client_data() -> (ClientId, VerifiedClientMetadata) {
-    (
-        ClientId(CLIENT_ID.to_owned()),
-        ClientMetadata {
-            redirect_uris: Some(vec![Url::parse(REDIRECT_URI_STRING).unwrap()]),
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-            ..ClientMetadata::default()
-        }
-        .validate()
-        .expect("validate client metadata"),
-    )
+    (ClientId(CLIENT_ID.to_owned()), mock_client_metadata())
 }
 
 pub fn mock_session(tokens: OidcSessionTokens) -> OidcSession {
@@ -448,4 +448,29 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[async_test]
+async fn test_register_client() {
+    let client = test_client_builder(Some("https://example.org".to_owned())).build().await.unwrap();
+    let client_metadata = mock_client_metadata();
+
+    // Server doesn't support registration, it fails.
+    let backend = Arc::new(MockImpl::new().registration_endpoint(None));
+    let oidc = Oidc { client: client.clone(), backend };
+
+    let result = oidc.register_client(ISSUER_URL, client_metadata.clone(), None).await;
+    assert_matches!(result, Err(OidcError::NoRegistrationSupport));
+
+    // Server supports registration, it succeeds.
+    let backend = Arc::new(MockImpl::new());
+    let oidc = Oidc { client: client.clone(), backend };
+
+    let response = oidc.register_client(ISSUER_URL, client_metadata.clone(), None).await.unwrap();
+    assert_eq!(response.client_id, CLIENT_ID);
+
+    let auth_data = oidc.data().unwrap();
+    assert_eq!(auth_data.issuer, ISSUER_URL);
+    assert_eq!(auth_data.client_id.0, response.client_id);
+    assert_eq!(auth_data.metadata, client_metadata);
 }
