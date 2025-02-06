@@ -196,7 +196,8 @@ impl_event_cache_store!({
 
                     trace!("Removing chunk {id:?}");
 
-                    idb_operations::remove_chunk(&object_store, &hashed_room_id, id);
+                    idb_operations::remove_chunk(&object_store, &hashed_room_id, id.index())
+                        .await?;
                 }
                 Update::PushItems { at: _, items: _ } => todo!(),
                 Update::ReplaceItem { at: _, item: _ } => todo!(),
