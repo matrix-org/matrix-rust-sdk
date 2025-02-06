@@ -78,9 +78,8 @@ pub struct EventTimelineItem {
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
     ///
-    /// When `None` it is unknown if the room is encrypted and the item won't
-    /// return a ShieldState.
-    pub(super) is_room_encrypted: Option<bool>,
+    /// May be false when we don't know about the room encryption status yet.
+    pub(super) is_room_encrypted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -120,7 +119,6 @@ impl EventTimelineItem {
         kind: EventTimelineItemKind,
         is_room_encrypted: bool,
     ) -> Self {
-        let is_room_encrypted = Some(is_room_encrypted);
         Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted }
     }
 
@@ -211,7 +209,7 @@ impl EventTimelineItem {
             TimelineDetails::Unavailable
         };
 
-        Some(Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted: None })
+        Some(Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted: false })
     }
 
     /// Check whether this item is a local echo.
@@ -398,7 +396,7 @@ impl EventTimelineItem {
     /// Gets the [`ShieldState`] which can be used to decorate messages in the
     /// recommended way.
     pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
-        if self.is_room_encrypted != Some(true) || self.is_local_echo() {
+        if !self.is_room_encrypted || self.is_local_echo() {
             return None;
         }
 

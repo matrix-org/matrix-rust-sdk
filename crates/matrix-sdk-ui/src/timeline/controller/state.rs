@@ -64,7 +64,7 @@ impl TimelineState {
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: Option<bool>,
+        is_room_encrypted: bool,
     ) -> Self {
         Self {
             items: ObservableItems::new(),
