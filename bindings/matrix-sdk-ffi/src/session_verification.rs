@@ -14,7 +14,7 @@ use ruma::UserId;
 use tracing::error;
 
 use super::RUNTIME;
-use crate::{error::ClientError, utils::Timestamp};
+use crate::{client::UserProfile, error::ClientError, utils::Timestamp};
 
 #[derive(uniffi::Object)]
 pub struct SessionVerificationEmoji {
@@ -40,10 +40,9 @@ pub enum SessionVerificationData {
 }
 
 /// Details about the incoming verification request
-#[derive(Debug, uniffi::Record)]
+#[derive(uniffi::Record)]
 pub struct SessionVerificationRequestDetails {
-    sender_id: String,
-    sender_display_name: Option<String>,
+    sender_profile: UserProfile,
     flow_id: String,
     device_id: String,
     device_display_name: Option<String>,
@@ -246,15 +245,18 @@ impl SessionVerificationController {
             return;
         };
 
-        let Ok(user_profile) = self.account.fetch_user_profile_of(sender).await else {
+        let Ok(sender_profile) = self.account.fetch_user_profile_of(sender).await else {
             error!("Failed fetching user profile for verification request");
             return;
         };
 
         if let Some(delegate) = &*self.delegate.read().unwrap() {
             delegate.did_receive_verification_request(SessionVerificationRequestDetails {
-                sender_id: request.other_user_id().into(),
-                sender_display_name: user_profile.displayname,
+                sender_profile: UserProfile {
+                    user_id: request.other_user_id().to_string(),
+                    display_name: sender_profile.displayname,
+                    avatar_url: sender_profile.avatar_url.as_ref().map(|url| url.to_string()),
+                },
                 flow_id: request.flow_id().into(),
                 device_id: other_device_data.device_id().into(),
                 device_display_name: other_device_data.display_name().map(str::to_string),
