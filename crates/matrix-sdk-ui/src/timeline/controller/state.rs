@@ -166,7 +166,7 @@ impl TimelineState {
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut date_divider_adjuster, content)
+            .handle_event(&mut date_divider_adjuster, content, None)
             .await;
 
         txn.adjust_date_dividers(date_divider_adjuster);

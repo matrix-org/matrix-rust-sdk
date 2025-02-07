@@ -416,6 +416,7 @@ mod observable_items_tests {
                     original_json: None,
                     latest_edit_json: None,
                     origin: RemoteEventOrigin::Sync,
+                    session_id: None,
                 }),
                 false,
             ),

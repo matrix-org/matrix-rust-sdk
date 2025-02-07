@@ -540,6 +540,15 @@ impl TimelineEventKind {
             TimelineEventKind::PlainText { event } => event,
         }
     }
+
+    /// The Megolm session ID that was used to send this event, if it is a UTD.
+    pub fn session_id(&self) -> Option<String> {
+        match self {
+            TimelineEventKind::Decrypted(_decrypted_room_event) => None,
+            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.clone(),
+            TimelineEventKind::PlainText { .. } => None,
+        }
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

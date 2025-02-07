@@ -368,6 +368,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         mut self,
         date_divider_adjuster: &mut DateDividerAdjuster,
         event_kind: TimelineEventKind,
+        session_id: Option<String>,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
@@ -406,7 +407,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     if should_add {
-                        self.handle_room_message(c, relations);
+                        self.handle_room_message(c, relations, session_id);
                     }
                 }
 
@@ -418,6 +419,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                 reactions: Default::default(),
                             }),
                             None,
+                            session_id,
                         );
                     }
                 }
@@ -430,7 +432,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     UnstablePollStartEventContent::New(c),
                 ) => {
                     if should_add {
-                        self.handle_poll_start(c, relations)
+                        self.handle_poll_start(c, relations, session_id)
                     }
                 }
 
@@ -440,13 +442,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::CallInvite(_) => {
                     if should_add {
-                        self.add_item(TimelineItemContent::CallInvite, None);
+                        self.add_item(TimelineItemContent::CallInvite, None, session_id);
                     }
                 }
 
                 AnyMessageLikeEventContent::CallNotify(_) => {
                     if should_add {
-                        self.add_item(TimelineItemContent::CallNotify, None)
+                        self.add_item(TimelineItemContent::CallNotify, None, session_id)
                     }
                 }
 
@@ -462,7 +464,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineEventKind::UnableToDecrypt { content, utd_cause } => {
                 // TODO: Handle replacements if the replaced event is also UTD
                 if should_add {
-                    self.add_item(TimelineItemContent::unable_to_decrypt(content, utd_cause), None);
+                    self.add_item(
+                        TimelineItemContent::unable_to_decrypt(content, utd_cause),
+                        None,
+                        session_id,
+                    );
                 }
 
                 // Let the hook know that we ran into an unable-to-decrypt that is added to the
@@ -477,7 +483,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction && should_add {
-                    self.add_item(TimelineItemContent::RedactedMessage, None);
+                    self.add_item(TimelineItemContent::RedactedMessage, None, session_id);
                 }
             }
 
@@ -487,7 +493,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
                 if should_add {
-                    self.add_item(TimelineItemContent::room_member(user_id, content, sender), None);
+                    self.add_item(
+                        TimelineItemContent::room_member(user_id, content, sender),
+                        None,
+                        session_id,
+                    );
                 }
             }
 
@@ -498,6 +508,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.add_item(
                         TimelineItemContent::OtherState(OtherState { state_key, content }),
                         None,
+                        session_id,
                     );
                 }
             }
@@ -507,6 +518,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.add_item(
                         TimelineItemContent::FailedToParseMessageLike { event_type, error },
                         None,
+                        session_id,
                     );
                 }
             }
@@ -516,6 +528,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.add_item(
                         TimelineItemContent::FailedToParseState { event_type, state_key, error },
                         None,
+                        session_id,
                     );
                 }
             }
@@ -549,6 +562,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         msg: RoomMessageEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        session_id: Option<String>,
     ) {
         // Always remove the pending edit, if there's any. The reason is that if
         // there's an edit in the relations mapping, we want to prefer it over any
@@ -581,6 +595,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         self.add_item(
             TimelineItemContent::message(msg, edit_content, self.items, Default::default()),
             edit_json,
+            session_id,
         );
     }
 
@@ -812,6 +827,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         c: NewUnstablePollStartEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        session_id: Option<String>,
     ) {
         // Always remove the pending edit, if there's any. The reason is that if
         // there's an edit in the relations mapping, we want to prefer it over any
@@ -843,7 +859,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
-        self.add_item(TimelineItemContent::Poll(poll_state), edit_json);
+        self.add_item(TimelineItemContent::Poll(poll_state), edit_json, session_id);
     }
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
@@ -968,6 +984,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         mut content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
+        session_id: Option<String>,
     ) {
         self.result.item_added = true;
 
@@ -1016,6 +1033,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     original_json: Some(raw_event.clone()),
                     latest_edit_json: edit_json,
                     origin,
+                    session_id,
                 }
                 .into()
             }

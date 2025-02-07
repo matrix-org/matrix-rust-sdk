@@ -660,6 +660,7 @@ mod tests {
             original_json: None,
             latest_edit_json: None,
             origin: crate::timeline::event_item::RemoteEventOrigin::Sync,
+            session_id: None,
         });
         EventTimelineItem::new(
             owned_user_id!("@alice:example.org"),
