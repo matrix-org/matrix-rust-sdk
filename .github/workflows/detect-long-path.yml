@@ -2,9 +2,7 @@
 # that windows filesystem allows
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
+  pull_request: # focus on the changed files in current PR
     branches: [ main ]
 
 name: Detect long path among changed files
@@ -24,7 +22,7 @@ jobs:
         uses: tj-actions/changed-files@v45
       - name: Detect long path
         env:
-          ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+          ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }} # ignore the deleted files
           MAX_LENGTH: 120 # set max length to 120, considering the base path of app project that uses matrix-sdk
         run: |
           for file in ${ALL_CHANGED_FILES}; do
