@@ -23,7 +23,6 @@ use matrix_sdk::{
         MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
         MediaThumbnailSettings,
     },
-    reqwest::StatusCode,
     ruma::{
         api::client::{
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
@@ -42,7 +41,7 @@ use matrix_sdk::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
-    AuthApi, AuthSession, Client as MatrixClient, HttpError, SessionChange, SessionTokens,
+    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient,
@@ -52,7 +51,7 @@ use mime::Mime;
 use ruma::{
     api::client::{
         alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo,
-        uiaa::UserIdentifier,
+        error::ErrorKind, uiaa::UserIdentifier,
     },
     events::{
         ignored_user_list::IgnoredUserListEventContent,
@@ -1067,11 +1066,12 @@ impl Client {
         let room_alias = RoomAliasId::parse(&room_alias)?;
         match self.inner.resolve_room_alias(&room_alias).await {
             Ok(response) => Ok(Some(response.into())),
-            Err(HttpError::Reqwest(http_error)) => match http_error.status() {
-                Some(StatusCode::NOT_FOUND) => Ok(None),
-                _ => Err(http_error.into()),
+            Err(error) => match error.client_api_error_kind() {
+                // The room alias wasn't found, so we return None.
+                Some(ErrorKind::NotFound) => Ok(None),
+                // In any other case we just return the error, mapped.
+                _ => Err(error.into()),
             },
-            Err(error) => Err(error.into()),
         }
     }
 
