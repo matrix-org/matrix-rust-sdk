@@ -17,6 +17,7 @@
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use events::Gap;
+use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     linked_chunk::ChunkContent,
@@ -519,6 +520,20 @@ fn chunk_debug_string(content: &ChunkContent<TimelineEvent, Gap>) -> String {
     }
 }
 
+/// Internal type to represent the output of
+/// `RoomEventCacheState::load_more_events_backwards`.
+#[derive(Debug)]
+pub(super) enum LoadMoreEventsBackwardsOutcome {
+    /// A gap has been inserted.
+    Gap,
+
+    /// The start of the timeline has been reached.
+    StartOfTimeline,
+
+    /// Events have been inserted.
+    Events(Vec<TimelineEvent>, Vec<VectorDiff<TimelineEvent>>),
+}
+
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::sync::Arc;
@@ -527,14 +542,14 @@ mod private {
     use matrix_sdk_base::{
         deserialized_responses::{TimelineEvent, TimelineEventKind},
         event_cache::{store::EventCacheStoreLock, Event},
-        linked_chunk::{LinkedChunkBuilder, Update},
+        linked_chunk::{ChunkContent, LinkedChunkBuilder, Update},
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedEventId, OwnedRoomId};
     use tracing::{error, instrument, trace};
 
-    use super::events::RoomEvents;
+    use super::{events::RoomEvents, LoadMoreEventsBackwardsOutcome};
     use crate::event_cache::{deduplicator::Deduplicator, EventCacheError};
 
     /// State for a single room's event cache.
@@ -659,6 +674,92 @@ mod private {
             Ok((events, duplicated_event_ids, all_duplicates))
         }
 
+        /// Load more events backwards if the last chunk is **not** a gap.
+        ///
+        /// Return `Ok(Some((events, reached_start), _))` if events have been
+        /// inserted, `Ok(None)` if a gap has been inserted or if the
+        /// store is disabled.
+        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        pub(in super::super) async fn load_more_events_backwards(
+            &mut self,
+        ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
+            let Some(store) = self.store.get() else {
+                // No store: no events to insert. Pretend the caller has to act as if a gap was
+                // present.
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap);
+            };
+
+            let first_chunk = self
+                .events
+                .chunks()
+                .next()
+                // SAFETY: A `LinkedChunk` is never empty, it always contains at least one chunk.
+                .expect("The `LinkedChunk` in `RoomEvents` cannot be empty");
+
+            // The first chunk is a gap. Don't load more events! The gap must be resolved.
+            if first_chunk.is_gap() {
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap);
+            }
+
+            // Because `first_chunk` is `not `Send`, get this information before the
+            // `.await` point, so that this `Future` can implement `Send`.
+            let first_chunk_identifier = first_chunk.identifier();
+
+            let room_id = &self.room;
+            let store = store.lock().await?;
+
+            // The first chunk is not a gap, we can load its previous chunk.
+            let new_first_chunk =
+                match store.load_previous_chunk(room_id, first_chunk_identifier).await {
+                    Ok(Some(new_first_chunk)) => {
+                        // All good, let's continue with this chunk.
+                        new_first_chunk
+                    }
+                    Ok(None) => {
+                        // No previous chunk: no events to insert. Better, it means we've reached
+                        // the start of the timeline!
+                        return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                    }
+                    Err(err) => {
+                        error!("error when loading the previous chunk of a linked chunk: {err}");
+
+                        // Clear storage for this room.
+                        store.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await?;
+
+                        // Return the error.
+                        return Err(err.into());
+                    }
+                };
+
+            let events = match &new_first_chunk.content {
+                ChunkContent::Gap(_) => None,
+                ChunkContent::Items(events) => Some(events.clone()),
+            };
+
+            if let Err(err) = self.events.insert_new_chunk_as_first(new_first_chunk) {
+                error!("error when inserting the previous chunk into its linked chunk: {err}");
+
+                // Clear storage for this room.
+                store.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await?;
+
+                // Return the error.
+                return Err(err.into());
+            };
+
+            // ⚠️ Let's not propagate the updates to the store! We already have these data
+            // in the store! Let's drain them.
+            let _ = self.events.updates().take();
+
+            // However, we want to get updates as `VectorDiff`s.
+            let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
+
+            Ok(match events {
+                None => LoadMoreEventsBackwardsOutcome::Gap,
+                Some(events) => {
+                    LoadMoreEventsBackwardsOutcome::Events(events, updates_as_vector_diffs)
+                }
+            })
+        }
         /// Removes the bundled relations from an event, if they were present.
         ///
         /// Only replaces the present if it contained bundled relations.
