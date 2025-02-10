@@ -18,7 +18,6 @@
 use std::{collections::BTreeSet, fmt, sync::Mutex};
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use tracing::warn;
 
 use super::room::events::{Event, RoomEvents};
 
@@ -50,26 +49,51 @@ impl Deduplicator {
     /// Create a new `Deduplicator` with no prior knowledge of known events.
     #[cfg(test)]
     pub fn new() -> Self {
-        Self::with_initial_events(std::iter::empty())
+        Self::with_initial_events(core::iter::empty())
     }
 
     /// Create a new `Deduplicator` filled with initial events.
     ///
     /// This won't detect duplicates in the initial events, only learn about
     /// those events.
-    pub fn with_initial_events<'a>(events: impl Iterator<Item = &'a Event>) -> Self {
-        let mut bloom_filter = GrowableBloomBuilder::new()
-            .estimated_insertions(Self::APPROXIMATED_MAXIMUM_NUMBER_OF_EVENTS)
-            .desired_error_ratio(Self::DESIRED_FALSE_POSITIVE_RATE)
-            .build();
-        for e in events {
-            let Some(event_id) = e.event_id() else {
-                warn!("initial event in deduplicator had no event id");
-                continue;
-            };
-            bloom_filter.insert(event_id);
+    pub fn with_initial_events<'a, I>(events: I) -> Self
+    where
+        I: Iterator<Item = &'a Event>,
+    {
+        let this = Self {
+            bloom_filter: Mutex::new(
+                GrowableBloomBuilder::new()
+                    .estimated_insertions(Self::APPROXIMATED_MAXIMUM_NUMBER_OF_EVENTS)
+                    .desired_error_ratio(Self::DESIRED_FALSE_POSITIVE_RATE)
+                    .build(),
+            ),
+        };
+
+        this.learn(events);
+
+        this
+    }
+
+    /// Learn about all events in `new_events`.
+    ///
+    /// Contrary to [`Self::scan_and_learn`], this method doesn't scan for
+    /// duplicated events; it only learns a set of new events. This is useful
+    /// when it is certain that events aren't duplicated, and it is required to
+    /// rebuild incrementally a new `Self`.
+    pub fn learn<'a, I>(&self, new_events: I)
+    where
+        I: Iterator<Item = &'a Event>,
+    {
+        let mut new_events = new_events.peekable();
+
+        // If there is at least one event, it is worth taking the lock.
+        if new_events.peek().is_some() {
+            let mut bloom_filter = self.bloom_filter.lock().unwrap();
+
+            for event_id in new_events.filter_map(|event| event.event_id()) {
+                bloom_filter.insert(&event_id);
+            }
         }
-        Self { bloom_filter: Mutex::new(bloom_filter) }
     }
 
     /// Scan a collection of events and detect duplications.
@@ -154,6 +178,8 @@ pub enum Decoration<I> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::once;
+
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::event_factory::EventFactory;
@@ -167,6 +193,43 @@ mod tests {
             .sender(user_id!("@mnt_io:matrix.org"))
             .event_id(event_id)
             .into_event()
+    }
+
+    #[test]
+    fn test_learn_only() {
+        let event_id_0 = owned_event_id!("$ev0");
+        let event_id_1 = owned_event_id!("$ev1");
+        let event_id_2 = owned_event_id!("$ev2");
+
+        let event_0 = sync_timeline_event(&event_id_0);
+        let event_1 = sync_timeline_event(&event_id_1);
+        let event_2 = sync_timeline_event(&event_id_2);
+
+        let deduplicator = Deduplicator::with_initial_events(once(&event_2));
+        let mut existing_events = RoomEvents::new();
+
+        deduplicator.learn(once(&event_0));
+
+        // `RoomEvents` is used to check false-positive from the bloom filter. `event_0`
+        // and `event_2` are going to be detected as positive (duplicated), so
+        // `RoomEvents` will be used. We need to insert `event_0` and `event_2` in it
+        // too.
+        existing_events.push_events([event_0.clone(), event_2.clone()]);
+
+        // `event_0` and `event_2` are already known by `Deduplicator`. Let's scan and
+        // see.
+        let mut events =
+            deduplicator.scan_and_learn([event_0, event_1, event_2].into_iter(), &existing_events);
+        assert_let!(Some(Decoration::Duplicated(event)) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_0));
+
+        assert_let!(Some(Decoration::Unique(event)) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_1));
+
+        assert_let!(Some(Decoration::Duplicated(event)) = events.next());
+        assert_eq!(event.event_id(), Some(event_id_2));
+
+        assert!(events.next().is_none());
     }
 
     #[test]
