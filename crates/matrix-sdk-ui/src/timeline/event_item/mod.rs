@@ -681,7 +681,7 @@ pub struct Profile {
 /// [`sync_events`][ruma::api::client::sync::sync_events].
 #[derive(Clone, Debug)]
 pub enum TimelineDetails<T> {
-    /// The details are not available yet, and have not been request from the
+    /// The details are not available yet, and have not been requested from the
     /// server.
     Unavailable,
 
