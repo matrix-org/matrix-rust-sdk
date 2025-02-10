@@ -29,7 +29,7 @@ use matrix_sdk_base::{
         },
         Event, Gap,
     },
-    linked_chunk::{ChunkContent, ChunkIdentifier, RawChunk, Update},
+    linked_chunk::{ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, RawChunk, Update},
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -570,7 +570,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
-    async fn reload_linked_chunk(
+    async fn load_all_chunks(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
@@ -609,6 +609,21 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?;
 
         Ok(result)
+    }
+
+    async fn load_last_chunk(
+        &self,
+        _room_id: &RoomId,
+    ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
+        todo!()
+    }
+
+    async fn load_previous_chunk(
+        &self,
+        _room_id: &RoomId,
+        _before_chunk_identifier: ChunkIdentifier,
+    ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
+        todo!()
     }
 
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
@@ -1279,7 +1294,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 3);
 
@@ -1330,7 +1345,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1375,7 +1390,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1424,7 +1439,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 2);
 
@@ -1497,7 +1512,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1542,7 +1557,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1601,7 +1616,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1648,7 +1663,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let mut chunks = store.load_all_chunks(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1699,7 +1714,7 @@ mod tests {
             .await
             .unwrap();
 
-        let chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let chunks = store.load_all_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
     }
 
@@ -1753,7 +1768,7 @@ mod tests {
             .unwrap();
 
         // Check chunks from room 1.
-        let mut chunks_room1 = store.reload_linked_chunk(room1).await.unwrap();
+        let mut chunks_room1 = store.load_all_chunks(room1).await.unwrap();
         assert_eq!(chunks_room1.len(), 1);
 
         let c = chunks_room1.remove(0);
@@ -1764,7 +1779,7 @@ mod tests {
         });
 
         // Check chunks from room 2.
-        let mut chunks_room2 = store.reload_linked_chunk(room2).await.unwrap();
+        let mut chunks_room2 = store.load_all_chunks(room2).await.unwrap();
         assert_eq!(chunks_room2.len(), 1);
 
         let c = chunks_room2.remove(0);
@@ -1809,7 +1824,7 @@ mod tests {
         // If the updates have been handled transactionally, then no new chunks should
         // have been added; failure of the second update leads to the first one being
         // rolled back.
-        let chunks = store.reload_linked_chunk(room_id).await.unwrap();
+        let chunks = store.load_all_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
     }
 

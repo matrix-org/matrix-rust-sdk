@@ -17,7 +17,7 @@
 
 use ruma::{OwnedRoomId, RoomId};
 
-use super::{ChunkContent, RawChunk};
+use super::{ChunkContent, ChunkIdentifierGenerator, RawChunk};
 use crate::linked_chunk::{ChunkIdentifier, Position, Update};
 
 /// A row of the [`RelationalLinkedChunk::chunks`].
@@ -314,89 +314,66 @@ where
     Gap: Clone,
     Item: Clone,
 {
-    /// Reloads the chunks.
+    /// Loads all the chunks.
     ///
     /// Return an error result if the data was malformed in the struct, with a
     /// string message explaining details about the error.
-    pub fn reload_chunks(&self, room_id: &RoomId) -> Result<Vec<RawChunk<Item, Gap>>, String> {
-        let mut result = Vec::new();
+    #[doc(hidden)]
+    pub fn load_all_chunks(&self, room_id: &RoomId) -> Result<Vec<RawChunk<Item, Gap>>, String> {
+        self.chunks
+            .iter()
+            .filter(|chunk| chunk.room_id == room_id)
+            .map(|chunk_row| load_raw_chunk(self, chunk_row, room_id))
+            .collect::<Result<Vec<_>, String>>()
+    }
 
-        for chunk_row in self.chunks.iter().filter(|chunk| chunk.room_id == room_id) {
-            // Find all items that correspond to the chunk.
-            let mut items = self
-                .items
-                .iter()
-                .filter(|row| {
-                    row.room_id == room_id && row.position.chunk_identifier() == chunk_row.chunk
-                })
-                .peekable();
-
-            // Look at the first chunk item type, to reconstruct the chunk at hand.
-            let Some(first) = items.peek() else {
-                // The only possibility is that we created an empty items chunk; mark it as
-                // such, and continue.
-                result.push(RawChunk {
-                    content: ChunkContent::Items(Vec::new()),
-                    previous: chunk_row.previous_chunk,
-                    identifier: chunk_row.chunk,
-                    next: chunk_row.next_chunk,
-                });
-                continue;
-            };
-
-            match &first.item {
-                Either::Item(_) => {
-                    // Collect all the related items.
-                    let mut collected_items = Vec::new();
-                    for row in items {
-                        match &row.item {
-                            Either::Item(item) => {
-                                collected_items.push((item.clone(), row.position.index()))
-                            }
-                            Either::Gap(_) => {
-                                return Err(format!(
-                                    "unexpected gap in items chunk {}",
-                                    chunk_row.chunk.index()
-                                ));
-                            }
-                        }
-                    }
-
-                    // Sort them by their position.
-                    collected_items.sort_unstable_by_key(|(_item, index)| *index);
-
-                    result.push(RawChunk {
-                        content: ChunkContent::Items(
-                            collected_items.into_iter().map(|(item, _index)| item).collect(),
-                        ),
-                        previous: chunk_row.previous_chunk,
-                        identifier: chunk_row.chunk,
-                        next: chunk_row.next_chunk,
-                    });
-                }
-
-                Either::Gap(gap) => {
-                    assert!(items.next().is_some(), "we just peeked the gap");
-
-                    // We shouldn't have more than one item row for this chunk.
-                    if items.next().is_some() {
-                        return Err(format!(
-                            "there shouldn't be more than one item row attached in gap chunk {}",
-                            chunk_row.chunk.index()
-                        ));
-                    }
-
-                    result.push(RawChunk {
-                        content: ChunkContent::Gap(gap.clone()),
-                        previous: chunk_row.previous_chunk,
-                        identifier: chunk_row.chunk,
-                        next: chunk_row.next_chunk,
-                    });
-                }
+    pub fn load_last_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(Option<RawChunk<Item, Gap>>, ChunkIdentifierGenerator), String> {
+        // Find the latest chunk identifier to generate a `ChunkIdentifierGenerator`.
+        let chunk_identifier_generator = match self
+            .chunks
+            .iter()
+            .filter_map(|chunk_row| (chunk_row.room_id == room_id).then_some(chunk_row.chunk))
+            .max()
+        {
+            Some(last_chunk_identifier) => {
+                ChunkIdentifierGenerator::new_from_previous_chunk_identifier(last_chunk_identifier)
             }
-        }
+            None => ChunkIdentifierGenerator::new_from_scratch(),
+        };
 
-        Ok(result)
+        // Find the last chunk.
+        let Some(chunk_row) = self
+            .chunks
+            .iter()
+            .find(|chunk_row| chunk_row.room_id == room_id && chunk_row.next_chunk.is_none())
+        else {
+            // Chunk is not found.
+            return Ok((None, chunk_identifier_generator));
+        };
+
+        // Build the chunk.
+        load_raw_chunk(self, chunk_row, room_id)
+            .map(|raw_chunk| (Some(raw_chunk), chunk_identifier_generator))
+    }
+
+    pub fn load_previous_chunk(
+        &self,
+        room_id: &RoomId,
+        before_chunk_identifier: ChunkIdentifier,
+    ) -> Result<Option<RawChunk<Item, Gap>>, String> {
+        // Find the chunk before the chunk identified by `before_chunk_identifier`.
+        let Some(chunk_row) = self.chunks.iter().find(|chunk_row| {
+            chunk_row.room_id == room_id && chunk_row.next_chunk == Some(before_chunk_identifier)
+        }) else {
+            // Chunk is not found.
+            return Ok(None);
+        };
+
+        // Build the chunk.
+        load_raw_chunk(self, chunk_row, room_id).map(Some)
     }
 }
 
@@ -404,6 +381,89 @@ impl<Item, Gap> Default for RelationalLinkedChunk<Item, Gap> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn load_raw_chunk<Item, Gap>(
+    relational_linked_chunk: &RelationalLinkedChunk<Item, Gap>,
+    chunk_row: &ChunkRow,
+    room_id: &RoomId,
+) -> Result<RawChunk<Item, Gap>, String>
+where
+    Item: Clone,
+    Gap: Clone,
+{
+    // Find all items that correspond to the chunk.
+    let mut items = relational_linked_chunk
+        .items
+        .iter()
+        .filter(|item_row| {
+            item_row.room_id == room_id && item_row.position.chunk_identifier() == chunk_row.chunk
+        })
+        .peekable();
+
+    let Some(first_item) = items.peek() else {
+        // No item. It means it is a chunk of kind `Items` and that it is empty!
+        return Ok(RawChunk {
+            content: ChunkContent::Items(Vec::new()),
+            previous: chunk_row.previous_chunk,
+            identifier: chunk_row.chunk,
+            next: chunk_row.next_chunk,
+        });
+    };
+
+    Ok(match first_item.item {
+        // This is a chunk of kind `Items`.
+        Either::Item(_) => {
+            // Collect all the items.
+            let mut collected_items = Vec::new();
+
+            for item_row in items {
+                match &item_row.item {
+                    Either::Item(item_value) => {
+                        collected_items.push((item_value.clone(), item_row.position.index()))
+                    }
+
+                    Either::Gap(_) => {
+                        return Err(format!(
+                            "unexpected gap in items chunk {}",
+                            chunk_row.chunk.index()
+                        ));
+                    }
+                }
+            }
+
+            // Sort them by their position.
+            collected_items.sort_unstable_by_key(|(_item, index)| *index);
+
+            RawChunk {
+                content: ChunkContent::Items(
+                    collected_items.into_iter().map(|(item, _index)| item).collect(),
+                ),
+                previous: chunk_row.previous_chunk,
+                identifier: chunk_row.chunk,
+                next: chunk_row.next_chunk,
+            }
+        }
+
+        Either::Gap(ref gap) => {
+            assert!(items.next().is_some(), "we just peeked the gap");
+
+            // We shouldn't have more than one item row for this chunk.
+            if items.next().is_some() {
+                return Err(format!(
+                    "there shouldn't be more than one item row attached in gap chunk {}",
+                    chunk_row.chunk.index()
+                ));
+            }
+
+            RawChunk {
+                content: ChunkContent::Gap(gap.clone()),
+                previous: chunk_row.previous_chunk,
+                identifier: chunk_row.chunk,
+                next: chunk_row.next_chunk,
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -900,17 +960,17 @@ mod tests {
     }
 
     #[test]
-    fn test_reload_empty_linked_chunk() {
+    fn test_load_empty_linked_chunk() {
         let room_id = room_id!("!r0:matrix.org");
 
         // When I reload the linked chunk components from an empty store,
         let relational_linked_chunk = RelationalLinkedChunk::<char, char>::new();
-        let result = relational_linked_chunk.reload_chunks(room_id).unwrap();
+        let result = relational_linked_chunk.load_all_chunks(room_id).unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
-    fn test_reload_linked_chunk_with_empty_items() {
+    fn test_load_all_chunks_with_empty_items() {
         let room_id = room_id!("!r0:matrix.org");
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, char>::new();
@@ -922,7 +982,7 @@ mod tests {
         );
 
         // It correctly gets reloaded as such.
-        let raws = relational_linked_chunk.reload_chunks(room_id).unwrap();
+        let raws = relational_linked_chunk.load_all_chunks(room_id).unwrap();
         let lc = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws)
             .build()
             .expect("building succeeds")
@@ -957,7 +1017,7 @@ mod tests {
             ],
         );
 
-        let raws = relational_linked_chunk.reload_chunks(room_id).unwrap();
+        let raws = relational_linked_chunk.load_all_chunks(room_id).unwrap();
         let lc = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws)
             .build()
             .expect("building succeeds")
