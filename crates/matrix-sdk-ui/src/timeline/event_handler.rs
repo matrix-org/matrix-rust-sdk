@@ -946,7 +946,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             }
         } else {
-            warn!("missing related-to item ({target:?}) for aggregation {aggregation_id:?}");
+            info!("missing related-to item ({target:?}) for aggregation {aggregation_id:?}");
         }
 
         // In all cases, we noticed this was an aggregation.
