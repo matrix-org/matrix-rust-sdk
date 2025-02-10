@@ -17,7 +17,11 @@
 use std::{fmt, sync::Arc};
 
 use imbl::{vector, Vector};
-use matrix_sdk::{deserialized_responses::TimelineEvent, Room};
+use matrix_sdk::{
+    crypto::types::events::UtdCause,
+    deserialized_responses::{TimelineEvent, TimelineEventKind},
+    Room,
+};
 use ruma::{
     assign,
     events::{
@@ -44,7 +48,8 @@ use crate::{
     timeline::{
         event_item::{EventTimelineItem, Profile, TimelineDetails},
         traits::RoomDataProvider,
-        Error as TimelineError, ReactionsByKeyBySender, TimelineItem,
+        EncryptedMessage, Error as TimelineError, PollState, ReactionsByKeyBySender, Sticker,
+        TimelineItem,
     },
     DEFAULT_SANITIZER_MODE,
 };
@@ -373,20 +378,67 @@ impl RepliedToEvent {
 
         debug!(event_type = %event.event_type(), "got deserialized event");
 
-        let Some(AnyMessageLikeEventContent::RoomMessage(c)) = event.original_content() else {
-            warn!("can't get details, event is redacted or not a RoomMessage");
-            return Err(TimelineError::UnsupportedEvent);
+        let content = match event.original_content() {
+            Some(content) => match content {
+                AnyMessageLikeEventContent::RoomMessage(c) => {
+                    // Assume we're not interested in reactions in this context: this is
+                    // information for an embedded (replied-to) event, that will usually not
+                    // include detailed information like reactions.
+                    let reactions = ReactionsByKeyBySender::default();
+
+                    TimelineItemContent::Message(Message::from_event(
+                        c,
+                        extract_room_msg_edit_content(event.relations()),
+                        &vector![],
+                        reactions,
+                    ))
+                }
+
+                AnyMessageLikeEventContent::Sticker(content) => {
+                    // Assume we're not interested in reactions in this context. (See above an
+                    // explanation as to why that's the case.)
+                    let reactions = ReactionsByKeyBySender::default();
+                    TimelineItemContent::Sticker(Sticker { content, reactions })
+                }
+
+                AnyMessageLikeEventContent::RoomEncrypted(content) => {
+                    let utd_cause = match &timeline_event.kind {
+                        TimelineEventKind::UnableToDecrypt { utd_info, .. } => UtdCause::determine(
+                            timeline_event.raw(),
+                            room_data_provider.crypto_context_info().await,
+                            utd_info,
+                        ),
+                        _ => UtdCause::Unknown,
+                    };
+
+                    TimelineItemContent::UnableToDecrypt(EncryptedMessage::from_content(
+                        content, utd_cause,
+                    ))
+                }
+
+                AnyMessageLikeEventContent::UnstablePollStart(
+                    UnstablePollStartEventContent::New(content),
+                ) => {
+                    // Assume we're not interested in reactions in this context. (See above an
+                    // explanation as to why that's the case.)
+                    let reactions = ReactionsByKeyBySender::default();
+                    // TODO: could we provide the bundled edit here?
+                    let poll_state = PollState::new(content, None, reactions);
+                    TimelineItemContent::Poll(poll_state)
+                }
+
+                _ => {
+                    warn!("unsupported event type");
+                    return Err(TimelineError::UnsupportedEvent);
+                }
+            },
+
+            None => {
+                // Redacted message.
+                TimelineItemContent::RedactedMessage
+            }
         };
 
-        // Assume we're not interested in reactions in this context.
-        let reactions = Default::default();
-
-        let content = TimelineItemContent::Message(Message::from_event(
-            c,
-            extract_room_msg_edit_content(event.relations()),
-            &vector![],
-            reactions,
-        ));
         let sender = event.sender().to_owned();
         let sender_profile = TimelineDetails::from_initial_value(
             room_data_provider.profile_from_user_id(&sender).await,
