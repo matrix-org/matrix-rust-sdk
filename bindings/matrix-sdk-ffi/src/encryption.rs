@@ -478,15 +478,6 @@ impl UserIdentity {
         Ok(self.inner.pin().await?)
     }
 
-    /// Remove the requirement for this identity to be verified.
-    ///
-    /// If an identity was previously verified and is not anymore it will be
-    /// reported to the user. In order to remove this notice users have to
-    /// verify again or to withdraw the verification requirement.
-    pub(crate) async fn withdraw_verification(&self) -> Result<(), ClientError> {
-        Ok(self.inner.withdraw_verification().await?)
-    }
-
     /// Get the public part of the Master key of this user identity.
     ///
     /// The public part of the Master key is usually used to uniquely identify
@@ -503,6 +494,28 @@ impl UserIdentity {
     /// be verified as well for the identity to be considered to be verified.
     pub fn is_verified(&self) -> bool {
         self.inner.is_verified()
+    }
+
+    /// True if we verified this identity at some point in the past.
+    ///
+    /// To reset this latch back to `false`, one must call
+    /// [`UserIdentity::withdraw_verification()`].
+    pub fn was_previously_verified(&self) -> bool {
+        self.inner.was_previously_verified()
+    }
+
+    /// Remove the requirement for this identity to be verified.
+    ///
+    /// If an identity was previously verified and is not anymore it will be
+    /// reported to the user. In order to remove this notice users have to
+    /// verify again or to withdraw the verification requirement.
+    pub(crate) async fn withdraw_verification(&self) -> Result<(), ClientError> {
+        Ok(self.inner.withdraw_verification().await?)
+    }
+
+    /// Was this identity previously verified, and is no longer?
+    pub fn has_verification_violation(&self) -> bool {
+        self.inner.has_verification_violation()
     }
 }
 
