@@ -4,8 +4,10 @@
 use matrix_sdk_base::store::StoreError;
 #[cfg(feature = "event-cache-store")]
 use matrix_sdk_store_encryption::StoreCipher;
-use std::sync::Arc;
+
 #[cfg(feature = "event-cache-store")]
+use std::sync::Arc;
+
 use thiserror::Error;
 
 #[cfg(feature = "e2e-encryption")]
@@ -30,11 +32,11 @@ pub use state_store::{
 
 /// Create a [`IndexeddbStateStore`] and a [`IndexeddbCryptoStore`] that use the
 /// same name and passphrase.
-#[cfg(all(feature = "e2e-encryption", feature = "state-store"))]
+#[cfg(all(feature = "e2e-encryption", feature = "state-store", feature = "event-cache-store"))]
 pub async fn open_stores_with_name(
     name: &str,
     passphrase: Option<&str>,
-) -> Result<(IndexeddbStateStore, IndexeddbCryptoStore), OpenStoreError> {
+) -> Result<(IndexeddbStateStore, IndexeddbCryptoStore, IndexeddbEventCacheStore), OpenStoreError> {
     let mut builder = IndexeddbStateStore::builder().name(name.to_owned());
     if let Some(passphrase) = passphrase {
         builder = builder.passphrase(passphrase.to_owned());
@@ -45,7 +47,9 @@ pub async fn open_stores_with_name(
         IndexeddbCryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone())
             .await?;
 
-    Ok((state_store, crypto_store))
+    let event_cache_store = open_event_cache_store(name, state_store.store_cipher.clone()).await?;
+
+    Ok((state_store, crypto_store, event_cache_store))
 }
 
 /// Create an [`IndexeddbStateStore`].
@@ -67,9 +71,6 @@ pub async fn open_state_store(
 }
 
 /// Create an ['IndexeddbEventCacheStore']
-///
-/// If a `passphrase` is given, the store will be encrypted using a key derived
-/// from that passphrase.
 #[cfg(feature = "event-cache-store")]
 pub async fn open_event_cache_store(
     name: &str,

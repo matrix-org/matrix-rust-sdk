@@ -60,6 +60,7 @@ pub use error::IndexeddbEventCacheStoreError;
 
 mod keys {
     pub const CORE: &str = "core";
+    pub const EVENTS: &str = "events";
     // Entries in Key-value store
     // pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
 
@@ -199,13 +200,32 @@ impl_event_cache_store!({
                     idb_operations::remove_chunk(&object_store, &hashed_room_id, id.index())
                         .await?;
                 }
-                Update::PushItems { at: _, items: _ } => todo!(),
-                Update::ReplaceItem { at: _, item: _ } => todo!(),
-                Update::RemoveItem { at: _ } => todo!(),
-                Update::DetachLastItems { at: _ } => todo!(),
-                Update::StartReattachItems => todo!(),
-                Update::EndReattachItems => todo!(),
-                Update::Clear => todo!(),
+                Update::PushItems { at, items } => {
+                    let chunk_id = at.chunk_identifier().index();
+
+                    trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
+
+                    let tx = self.inner.transaction_on_one_with_mode(
+                        keys::EVENTS,
+                        IdbTransactionMode::Readwrite,
+                    )?;
+
+                    let object_store = tx.object_store(keys::EVENTS)?;
+
+                    for (i, event) in items.into_iter().enumerate() {
+                        let event_id = format!("{}-{}", chunk_id, i);
+                        let event_id = JsValue::from_str(&event_id);
+                        let event = self.serializer.serialize_value(&event)?;
+
+                        object_store.add_key_val(&event_id, &event)?;
+                    }
+                }
+                Update::ReplaceItem { at: _, item: _ } => {}
+                Update::RemoveItem { at: _ } => {}
+                Update::DetachLastItems { at: _ } => {}
+                Update::StartReattachItems => {}
+                Update::EndReattachItems => {}
+                Update::Clear => {}
             }
         }
 

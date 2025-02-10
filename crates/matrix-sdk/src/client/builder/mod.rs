@@ -621,29 +621,22 @@ async fn build_indexeddb_store_config(
 
     #[cfg(feature = "e2e-encryption")]
     let store_config = {
-        let (state_store, crypto_store) =
+        let (state_store, crypto_store, event_cache_store) =
             matrix_sdk_indexeddb::open_stores_with_name(name, passphrase).await?;
         StoreConfig::new(cross_process_store_locks_holder_name)
             .state_store(state_store)
             .crypto_store(crypto_store)
+            .event_cache_store(event_cache_store)
     };
 
     #[cfg(not(feature = "e2e-encryption"))]
     let store_config = {
         let state_store = matrix_sdk_indexeddb::open_state_store(name, passphrase).await?;
-        StoreConfig::new(cross_process_store_locks_holder_name).state_store(state_store)
+        let event_cache_store = matrix_sdk_indexeddb::open_event_cache_store(name, None).await?;
+        StoreConfig::new(cross_process_store_locks_holder_name)
+            .state_store(state_store)
+            .event_cache_store(event_cache_store)
     };
-
-    let store_config = {
-        let event_cache_store =
-            matrix_sdk_indexeddb::open_event_cache_store(name, passphrase).await?;
-        store_config.event_cache_store(event_cache_store)
-    };
-
-    // let store_config = {
-    //     tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
-    //     store_config.event_cache_store(matrix_sdk_base::event_cache::store::MemoryStore::new())
-    // };
 
     Ok(store_config)
 }
