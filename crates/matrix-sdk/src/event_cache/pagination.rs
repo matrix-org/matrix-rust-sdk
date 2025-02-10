@@ -14,7 +14,12 @@
 
 //! A sub-object for running pagination tasks on a given room.
 
-use std::{future::Future, ops::ControlFlow, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    ops::{ControlFlow, Not},
+    sync::Arc,
+    time::Duration,
+};
 
 use eyeball::Subscriber;
 use matrix_sdk_base::timeout::timeout;
@@ -25,7 +30,7 @@ use super::{
     paginator::{PaginationResult, PaginatorState},
     room::{
         events::{Gap, RoomEvents},
-        RoomEventCacheInner,
+        LoadMoreEventsBackwardsOutcome, RoomEventCacheInner,
     },
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
 };
@@ -120,6 +125,46 @@ impl RoomPagination {
 
     async fn run_backwards_impl(&self, batch_size: u16) -> Result<Option<BackPaginationOutcome>> {
         const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
+
+        // First off, remember that's the `RoomEvents` might be partially loaded
+        // (because not all events are fully loaded).
+        //
+        // Knowing that, if all gaps have been resolved in the linked chunk, let's try
+        // to load more events from the storage!
+        if self.get_or_wait_for_token(None).await.has_more().not() {
+            let mut state = self.inner.state.write().await;
+
+            // Try to load one chunk backwards. If it returns events, no need to reach the
+            // network!
+            match state.load_more_events_backwards().await? {
+                LoadMoreEventsBackwardsOutcome::Gap => {
+                    // continue, let's resolve this gap!
+                }
+
+                LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
+                    return Ok(Some(BackPaginationOutcome { reached_start: true, events: vec![] }))
+                }
+
+                LoadMoreEventsBackwardsOutcome::Events(events, sync_timeline_events_diffs) => {
+                    if !sync_timeline_events_diffs.is_empty() {
+                        let _ =
+                            self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                                diffs: sync_timeline_events_diffs,
+                                origin: EventsOrigin::Pagination,
+                            });
+                    }
+
+                    return Ok(Some(BackPaginationOutcome {
+                        reached_start: false,
+                        // This is a backwards pagination. `BackPaginationOutcome` expects events to
+                        // be in “reverse order”.
+                        events: events.into_iter().rev().collect(),
+                    }));
+                }
+            }
+        }
+
+        // There is at least one gap that must be resolved. Let's reach the network!
 
         let prev_token = self.get_or_wait_for_token(Some(DEFAULT_WAIT_FOR_TOKEN_DURATION)).await;
 
@@ -378,6 +423,12 @@ pub enum PaginationToken {
     /// We've hit one end of the timeline (either the start or the actual end),
     /// so there's no need to continue paginating.
     HitEnd,
+}
+
+impl PaginationToken {
+    fn has_more(&self) -> bool {
+        matches!(self, Self::HasMore(_))
+    }
 }
 
 impl From<Option<String>> for PaginationToken {
