@@ -266,7 +266,23 @@ impl_event_cache_store!({
 
                     object_store.delete(&event_id_js_value)?;
                 }
-                Update::DetachLastItems { at: _ } => {}
+                Update::DetachLastItems { at } => {
+                    let chunk_id = at.chunk_identifier().index();
+                    let index = at.index();
+
+                    trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
+
+                    let tx = self.inner.transaction_on_one_with_mode(
+                        keys::EVENTS,
+                        IdbTransactionMode::Readwrite,
+                    )?;
+
+                    let object_store = tx.object_store(keys::EVENTS)?;
+
+                    let event = object_store
+                        .get_key(&JsValue::from_str(&format!("{}-{}", chunk_id, index)))?
+                        .await?;
+                }
                 Update::StartReattachItems => {}
                 Update::EndReattachItems => {}
                 Update::Clear => {}
