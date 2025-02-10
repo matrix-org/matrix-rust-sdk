@@ -38,6 +38,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    linked_chunk::LinkedChunkBuilderError,
     store_locks::LockStoreError,
     sync::RoomUpdates,
 };
@@ -109,6 +110,12 @@ pub enum EventCacheError {
     /// times where we try to use the client.
     #[error("The owning client of the event cache has been dropped.")]
     ClientDropped,
+
+    /// An error happening when interacting with the [`LinkedChunkBuilder`].
+    ///
+    /// [`LinkedChunkBuilder`]: matrix_sdk_common::linked_chunk::LinkedChunkBuilder
+    #[error(transparent)]
+    LinkedChunkBuilder(#[from] LinkedChunkBuilderError),
 }
 
 /// A result using the [`EventCacheError`].
