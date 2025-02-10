@@ -500,7 +500,7 @@ mod tests {
     use ruma::room_id;
 
     use super::{ChunkIdentifier as CId, *};
-    use crate::linked_chunk::LinkedChunkBuilder;
+    use crate::linked_chunk::LinkedChunkBuilderTest;
 
     #[test]
     fn test_new_items_chunk() {
@@ -1012,7 +1012,7 @@ mod tests {
 
         // It correctly gets reloaded as such.
         let raws = relational_linked_chunk.load_all_chunks(room_id).unwrap();
-        let lc = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws)
+        let lc = LinkedChunkBuilderTest::<3, _, _>::from_raw_parts(raws)
             .build()
             .expect("building succeeds")
             .expect("this leads to a non-empty linked chunk");
@@ -1047,7 +1047,7 @@ mod tests {
         );
 
         let raws = relational_linked_chunk.load_all_chunks(room_id).unwrap();
-        let lc = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws)
+        let lc = LinkedChunkBuilderTest::<3, _, _>::from_raw_parts(raws)
             .build()
             .expect("building succeeds")
             .expect("this leads to a non-empty linked chunk");
