@@ -279,9 +279,8 @@ impl_event_cache_store!({
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let event = object_store
-                        .get_key(&JsValue::from_str(&format!("{}-{}", chunk_id, index)))?
-                        .await?;
+                    // We need to remove ALL the items >= index
+                    // But since we are on no sql, we can't do a range query
                 }
                 Update::StartReattachItems => {}
                 Update::EndReattachItems => {}
