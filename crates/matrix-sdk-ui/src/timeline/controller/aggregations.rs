@@ -92,7 +92,7 @@ pub(crate) struct Aggregation {
     /// The kind of aggregation this represents.
     pub kind: AggregationKind,
 
-    /// The own timeline identifier for a reaction.
+    /// The own timeline identifier for an aggregation.
     ///
     /// It will be a transaction id when the aggregation is still a local echo,
     /// and it will transition into an event id when the aggregation is a
@@ -251,6 +251,9 @@ impl Aggregations {
     /// Is the given id one for a known aggregation to another event?
     ///
     /// If so, returns the target event identifier as well as the aggregation.
+    /// The aggregation must be unapplied on the corresponding timeline
+    /// item.
+    #[must_use]
     pub fn try_remove_aggregation(
         &mut self,
         aggregation_id: &TimelineEventItemId,
