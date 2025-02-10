@@ -4,11 +4,10 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
-    SyncResponseBuilder, ALICE, BOB, CAROL,
+    async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
@@ -31,24 +30,16 @@ use wiremock::{
     Mock, Request, ResponseTemplate,
 };
 
-use crate::mock_sync;
-
 #[async_test]
 async fn test_in_reply_to_details() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
@@ -61,15 +52,16 @@ async fn test_in_reply_to_details() {
     // Add an event and a reply to that event to the timeline
     let event_id_1 = event_id!("$event1");
     let f = EventFactory::new();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("hello").sender(*ALICE).event_id(event_id_1))
-            .add_timeline_event(f.text_msg("hello to you too").reply_to(event_id_1).sender(*BOB)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").sender(*ALICE).event_id(event_id_1))
+                .add_timeline_event(
+                    f.text_msg("hello to you too").reply_to(event_id_1).sender(*BOB),
+                ),
+        )
+        .await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
     assert_eq!(timeline_updates.len(), 3);
@@ -87,16 +79,15 @@ async fn test_in_reply_to_details() {
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
     assert!(date_divider.is_date_divider());
 
-    // Add an reply to an unknown event to the timeline
+    // Add an reply to an unknown event to the timeline.
     let event_id_2 = event_id!("$event2");
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("you were right").reply_to(event_id_2).sender(*BOB)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("you were right").reply_to(event_id_2).sender(*BOB)),
+        )
+        .await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
     assert_eq!(timeline_updates.len(), 2);
@@ -113,20 +104,19 @@ async fn test_in_reply_to_details() {
     let unique_id = third.unique_id().to_owned();
 
     // Set up fetching the replied-to event to fail
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event2"))
+    let scoped_room_event = Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/event/\$event2"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_NOT_FOUND",
             "error": "Event not found.",
         })))
         .expect(1)
-        .mount(&server)
+        .mount_as_scoped(server.server())
         .await;
 
     // Fetch details remotely if we can't find them locally.
     timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
-    server.reset().await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
     assert_eq!(timeline_updates.len(), 2);
@@ -141,21 +131,19 @@ async fn test_in_reply_to_details() {
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
     assert_eq!(*third.unique_id(), unique_id);
 
-    // Set up fetching the replied-to event to succeed
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event2"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(
-                f.text_msg("Alice is gonna arrive soon")
-                    .sender(*CAROL)
-                    .room(room_id)
-                    .event_id(event_id_2)
-                    .into_raw_timeline(),
-            ),
-        )
-        .expect(1)
-        .mount(&server)
+    // Set up fetching the replied-to event to succeed.
+    drop(scoped_room_event);
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f
+            .text_msg("Alice is gonna arrive soon")
+            .sender(*CAROL)
+            .room(room_id)
+            .event_id(event_id_2)
+            .into())
+        .mock_once()
+        .mount()
         .await;
 
     timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
@@ -178,33 +166,24 @@ async fn test_in_reply_to_details() {
 
 #[async_test]
 async fn test_transfer_in_reply_to_details_to_re_received_item() {
-    let f = EventFactory::new();
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let f = EventFactory::new();
 
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
 
     // Given a reply to an event that's not itself in the timeline...
     let event_id_1 = event_id!("$event1");
     let reply_event = f.text_msg("Reply").sender(&BOB).reply_to(event_id_1).into_raw_sync();
-    sync_builder
-        .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event.clone()));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event.clone()))
+        .await;
 
     let items = timeline.items().await;
     assert_eq!(items.len(), 2); // date divider, reply
@@ -214,21 +193,12 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
     // ... when we fetch the reply details for that item
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event1"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(
-                f.text_msg("Original Message")
-                    .sender(&ALICE)
-                    .room(room_id)
-                    .event_id(event_id_1)
-                    .into_raw_timeline()
-                    .json(),
-            ),
-        )
-        .expect(1)
-        .mount(&server)
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("Original Message").sender(&ALICE).room(room_id).event_id(event_id_1).into())
+        .mock_once()
+        .mount()
         .await;
 
     timeline.fetch_details_for_event(event_item.event_id().unwrap()).await.unwrap();
@@ -241,11 +211,10 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
-    // ... and then we re-receive the reply event
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    // ... and then we re-receive the reply event.
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event))
+        .await;
 
     // ... the replied-to event details should remain from when we fetched them
     let items = timeline.items().await;
@@ -258,35 +227,28 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
 
 #[async_test]
 async fn test_send_reply() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let event_id_from_bob = event_id!("$event_from_bob");
     let f = EventFactory::new();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
-            f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob),
-        ),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob),
+            ),
+        )
+        .await;
 
     let event_from_bob =
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
@@ -296,11 +258,9 @@ async fn test_send_reply() {
     timeline.clear().await;
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
-    mock_encryption_state(&server, false).await;
-
     // Now, let's reply to a message sent by `BOB`.
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -319,7 +279,7 @@ async fn test_send_reply() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let replied_to_info = event_from_bob.replied_to_info().unwrap();
@@ -342,6 +302,7 @@ async fn test_send_reply() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
+
     // Right now, we don't pass along the replied-to event to the event handler,
     // so it's not available if the timeline got cleared. Not critical, but
     // there's notable room for improvement here.
@@ -358,48 +319,40 @@ async fn test_send_reply() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
+
     // Same as above.
     //
     // let replied_to_event =
     // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) =>
     // ev); assert_eq!(replied_to_event.sender(), *BOB);
-
-    server.verify().await;
 }
 
 #[async_test]
 async fn test_send_reply_to_self() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let event_id_from_self = event_id!("$event_from_self");
     let f = EventFactory::new();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
-            f.text_msg("Hello from self")
-                .sender(client.user_id().expect("Client must have a user ID"))
-                .event_id(event_id_from_self),
-        ),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello from self")
+                    .sender(client.user_id().expect("Client must have a user ID"))
+                    .event_id(event_id_from_self),
+            ),
+        )
+        .await;
 
     let event_from_self =
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
@@ -409,11 +362,9 @@ async fn test_send_reply_to_self() {
     timeline.clear().await;
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
-    mock_encryption_state(&server, false).await;
-
     // Now, let's reply to a message sent by the current user.
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -429,7 +380,7 @@ async fn test_send_reply_to_self() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let replied_to_info = event_from_self.replied_to_info().unwrap();
@@ -461,26 +412,18 @@ async fn test_send_reply_to_self() {
     assert_eq!(reply_message.body(), "Replying to self");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_self);
-
-    server.verify().await;
 }
 
 #[async_test]
 async fn test_send_reply_to_threaded() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
@@ -489,31 +432,22 @@ async fn test_send_reply_to_threaded() {
 
     let event_id_1 = event_id!("$event1");
     let f = EventFactory::new();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
-            f.text_msg("Hello, World!")
-                .sender(&BOB)
-                .event_id(event_id_1)
-                .in_thread(&thread_root, &thread_root),
-        ),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello, World!")
+                    .sender(&BOB)
+                    .event_id(event_id_1)
+                    .in_thread(&thread_root, &thread_root),
+            ),
+        )
+        .await;
 
     let hello_world_item =
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
-    mock_encryption_state(&server, false).await;
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" })),
-        )
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_room_send().ok(event_id!("$reply_event")).mock_once().mount().await;
 
     let replied_to_info = hello_world_item.replied_to_info().unwrap();
     timeline
@@ -559,41 +493,32 @@ async fn test_send_reply_to_threaded() {
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *BOB);
-
-    server.verify().await;
 }
 
 #[async_test]
 async fn test_send_reply_with_event_id() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let event_id_from_bob = event_id!("$event_from_bob");
     let f = EventFactory::new();
-    let raw_event_from_bob =
-        f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob).into_raw_sync();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(raw_event_from_bob.clone()),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let bob_event =
+        f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob).into_event();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(bob_event.raw().clone()),
+        )
+        .await;
 
     let event_from_bob =
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
@@ -604,11 +529,9 @@ async fn test_send_reply_with_event_id() {
     timeline.clear().await;
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
-    mock_encryption_state(&server, false).await;
-
     // Now, let's reply to a message sent by `BOB`.
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -627,20 +550,13 @@ async fn test_send_reply_with_event_id() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     // Since we assume we can't use the timeline item directly in this use case, the
     // API will fetch the event from the server directly so we need to mock the
     // response.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(raw_event_from_bob.json()))
-        .expect(1)
-        .named("event_1")
-        .mount(&server)
-        .await;
+    server.mock_room_event().ok(bob_event).named("event_1").mock_once().mount().await;
 
     let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
@@ -671,8 +587,6 @@ async fn test_send_reply_with_event_id() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-
-    server.verify().await;
 }
 
 #[async_test]
@@ -681,48 +595,39 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     // the timeline. The event id will go through a process where the event is
     // fetched and the content will be extracted and deserialised to be used in
     // the reply.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let redacted_event_id_from_bob = event_id!("$event_from_bob");
     let f = EventFactory::new();
-    let raw_redacted_event_from_bob = f
+    let event_from_bob = f
         .redacted(&BOB, RedactedReactionEventContent::new())
         .event_id(redacted_event_id_from_bob)
-        .into_raw_sync();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(raw_redacted_event_from_bob.clone()),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+        .into_event();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(event_from_bob.raw().clone()),
+        )
+        .await;
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
     timeline.clear().await;
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
-    mock_encryption_state(&server, false).await;
-
     // Now, let's reply to a message sent by `BOB`.
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -741,20 +646,13 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     // Since we assume we can't use the timeline item directly in this use case, the
     // API will fetch the event from the server directly so we need to mock the
     // response.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(raw_redacted_event_from_bob.json()))
-        .expect(1)
-        .named("event_1")
-        .mount(&server)
-        .await;
+    server.mock_room_event().ok(event_from_bob).mock_once().named("event_1").mount().await;
 
     let replied_to_info =
         timeline.replied_to_info_from_event_id(redacted_event_id_from_bob).await.unwrap();
@@ -786,6 +684,4 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, redacted_event_id_from_bob);
-
-    server.verify().await;
 }
