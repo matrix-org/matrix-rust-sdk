@@ -21,7 +21,7 @@ use tracing::error;
 
 use super::{
     Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, Ends, LinkedChunk,
-    ObservableUpdates, RawChunk,
+    ObservableUpdates, RawChunk, Update,
 };
 
 /// A temporary chunk representation in the [`LinkedChunkBuilder`].
@@ -274,10 +274,179 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
         }
         this
     }
+
+    pub fn from_last_chunk(
+        chunk: Option<RawChunk<Item, Gap>>,
+        chunk_identifier_generator: ChunkIdentifierGenerator,
+    ) -> Result<Option<LinkedChunk<CAP, Item, Gap>>, LinkedChunkBuilderError> {
+        let Some(mut chunk) = chunk else {
+            return Ok(None);
+        };
+
+        // Check consistency before creating the `LinkedChunk`.
+        {
+            // The number of items is not too large.
+            if let ChunkContent::Items(items) = &chunk.content {
+                if items.len() > CAP {
+                    return Err(LinkedChunkBuilderError::ChunkTooLarge { id: chunk.identifier });
+                }
+            }
+
+            // Chunk has no next chunk.
+            if chunk.next.is_some() {
+                return Err(LinkedChunkBuilderError::ChunkIsNotLast { id: chunk.identifier });
+            }
+        }
+
+        // Create the `LinkedChunk` from a single chunk.
+        {
+            // This is the only chunk. Pretend it has no previous chunk if any.
+            chunk.previous = None;
+
+            // Transform the `RawChunk` into a `Chunk`.
+            let chunk_ptr = Chunk::new_leaked(chunk.identifier, chunk.content);
+
+            Ok(Some(LinkedChunk {
+                links: Ends { first: chunk_ptr, last: None },
+                chunk_identifier_generator,
+                updates: Some(ObservableUpdates::new()),
+                marker: PhantomData,
+            }))
+        }
+    }
+
+    pub fn insert_new_first_chunk(
+        linked_chunk: &mut LinkedChunk<CAP, Item, Gap>,
+        new_first_chunk: RawChunk<Item, Gap>,
+    ) -> Result<&Chunk<CAP, Item, Gap>, LinkedChunkBuilderError>
+    where
+        Item: Clone,
+        Gap: Clone,
+    {
+        // Check `LinkedChunk` is going to be consistent after the insertion.
+        {
+            // The number of items is not too large.
+            if let ChunkContent::Items(items) = &new_first_chunk.content {
+                if items.len() > CAP {
+                    return Err(LinkedChunkBuilderError::ChunkTooLarge {
+                        id: new_first_chunk.identifier,
+                    });
+                }
+            }
+
+            // New chunk has no previous chunk.
+            if new_first_chunk.previous.is_some() {
+                return Err(LinkedChunkBuilderError::ChunkIsNotFirst {
+                    id: new_first_chunk.identifier,
+                });
+            }
+
+            let expected_next_chunk = linked_chunk.links.first_chunk().identifier();
+
+            // New chunk has a next chunk.
+            let Some(next_chunk) = new_first_chunk.next else {
+                return Err(LinkedChunkBuilderError::MissingNextChunk {
+                    id: new_first_chunk.identifier,
+                });
+            };
+
+            // New chunk has a next chunk, and it is the first chunk of the `LinkedChunk`.
+            if next_chunk != expected_next_chunk {
+                return Err(LinkedChunkBuilderError::CannotConnectTwoChunks {
+                    new_chunk: next_chunk,
+                    with_chunk: expected_next_chunk,
+                });
+            }
+
+            // Alright. It's not possible to have a cycle within the chunks or
+            // multiple connected components here. All checks are made.
+        }
+
+        // Insert the new first chunk.
+        {
+            // Transform the `RawChunk` into a `Chunk`.
+            let new_first_chunk =
+                Chunk::new_leaked(new_first_chunk.identifier, new_first_chunk.content);
+
+            let links = &mut linked_chunk.links;
+
+            debug_assert!(
+                links.first_chunk().previous.is_none(),
+                "The first chunk is supposed to not have a previous chunk"
+            );
+
+            // Link one way: `new_first_chunk` becomes the previous chunk of the first
+            // chunk.
+            links.first_chunk_mut().previous = Some(new_first_chunk);
+
+            // Remember the pointer to the `first_chunk`.
+            let old_first_chunk = links.first;
+
+            // `new_first_chunk` becomes the new first chunk.
+            links.first = new_first_chunk;
+
+            // Link the other way: `old_first_chunk` becomes the next chunk of the first
+            // chunk.
+            links.first_chunk_mut().next = Some(old_first_chunk);
+
+            debug_assert!(
+                links.first_chunk().previous.is_none(),
+                "The new first chunk is supposed to not have a previous chunk"
+            );
+
+            // Update the last chunk. If it's `Some(_)`, no need to update the last chunk
+            // pointer. If it's `None`, it means we had only one chunk; now we have two, the
+            // last chunk is the `old_first_chunk`.
+            if links.last.is_none() {
+                links.last = Some(old_first_chunk);
+            }
+        }
+
+        // Emit the updates.
+        if let Some(updates) = linked_chunk.updates.as_mut() {
+            let first_chunk = linked_chunk.links.first_chunk();
+
+            let previous = first_chunk.previous().map(Chunk::identifier);
+            let new = first_chunk.identifier();
+            let next = first_chunk.next().map(Chunk::identifier);
+
+            match first_chunk.content() {
+                ChunkContent::Gap(gap) => {
+                    updates.push(Update::NewGapChunk { previous, new, next, gap: gap.clone() });
+                }
+
+                ChunkContent::Items(items) => {
+                    updates.push(Update::NewItemsChunk { previous, new, next });
+                    updates.push(Update::PushItems {
+                        at: first_chunk.first_position(),
+                        items: items.clone(),
+                    });
+                }
+            }
+        }
+
+        Ok(linked_chunk.links.first_chunk())
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum LinkedChunkBuilderError {
+    #[error("chunk with id {} has a previous chunk, it is supposed to be the first chunk", id.index())]
+    ChunkIsNotFirst { id: ChunkIdentifier },
+
+    #[error("chunk with id {} has a next chunk, it is supposed to be the last chunk", id.index())]
+    ChunkIsNotLast { id: ChunkIdentifier },
+
+    #[error("chunk with id {} is supposed to have a next chunk", id.index())]
+    MissingNextChunk { id: ChunkIdentifier },
+
+    #[error(
+        "chunk with id {} cannot be connected to chunk with id {} because the identifiers do not match",
+        new_chunk.index(),
+        with_chunk.index()
+    )]
+    CannotConnectTwoChunks { new_chunk: ChunkIdentifier, with_chunk: ChunkIdentifier },
+
     #[error("chunk with id {} is too large", id.index())]
     ChunkTooLarge { id: ChunkIdentifier },
 

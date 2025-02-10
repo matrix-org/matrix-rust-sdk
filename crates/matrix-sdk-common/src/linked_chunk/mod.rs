@@ -157,6 +157,11 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
         unsafe { self.first.as_ref() }
     }
 
+    /// Get the first chunk, as a mutable reference.
+    fn first_chunk_mut(&mut self) -> &mut Chunk<CAP, Item, Gap> {
+        unsafe { self.first.as_mut() }
+    }
+
     /// Get the latest chunk, as an immutable reference.
     fn latest_chunk(&self) -> &Chunk<CAP, Item, Gap> {
         unsafe { self.last.unwrap_or(self.first).as_ref() }
