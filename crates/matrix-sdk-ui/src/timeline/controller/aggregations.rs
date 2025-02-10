@@ -121,36 +121,38 @@ impl Aggregation {
 
     /// Apply an aggregation in-place to a given [`TimelineItemContent`].
     ///
-    /// In case of success, returns a boolean indicating whether applying the
-    /// aggregation caused a change in the content. If the aggregation could be
-    /// applied, but it didn't cause any change in the passed
-    /// [`TimelineItemContent`], `Ok(false)` will be returned.
+    /// In case of success, returns an enum indicating whether the applied
+    /// aggregation had an effect on the content; if it updated it, then the
+    /// caller has the responsibility to reflect that change.
     ///
     /// In case of error, returns an error detailing why the aggregation
     /// couldn't be applied.
-    pub fn apply(&self, content: &mut TimelineItemContent) -> Result<bool, AggregationError> {
+    pub fn apply(&self, content: &mut TimelineItemContent) -> ApplyAggregationResult {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, answers } => {
-                poll_state_from_item(content)?.add_response(
-                    sender.clone(),
-                    *timestamp,
-                    answers.clone(),
-                );
-                Ok(true)
+                let state = match poll_state_from_item(content) {
+                    Ok(state) => state,
+                    Err(err) => return ApplyAggregationResult::Error(err),
+                };
+                state.add_response(sender.clone(), *timestamp, answers.clone());
+                ApplyAggregationResult::UpdatedItem
             }
 
             AggregationKind::PollEnd { end_date } => {
-                let poll_state = poll_state_from_item(content)?;
+                let poll_state = match poll_state_from_item(content) {
+                    Ok(state) => state,
+                    Err(err) => return ApplyAggregationResult::Error(err),
+                };
                 if !poll_state.end(*end_date) {
-                    return Err(AggregationError::PollAlreadyEnded);
+                    return ApplyAggregationResult::Error(AggregationError::PollAlreadyEnded);
                 }
-                Ok(true)
+                ApplyAggregationResult::UpdatedItem
             }
 
             AggregationKind::Reaction { key, sender, timestamp, reaction_status } => {
                 let Some(reactions) = content.reactions_mut() else {
                     // These items don't hold reactions.
-                    return Ok(false);
+                    return ApplyAggregationResult::LeftItemIntact;
                 };
 
                 let previous_reaction = reactions.entry(key.clone()).or_default().insert(
@@ -174,36 +176,43 @@ impl Aggregation {
                         )
                 });
 
-                Ok(!is_same)
+                if is_same {
+                    ApplyAggregationResult::LeftItemIntact
+                } else {
+                    ApplyAggregationResult::UpdatedItem
+                }
             }
         }
     }
 
     /// Undo an aggregation in-place to a given [`TimelineItemContent`].
     ///
-    /// In case of success, returns a boolean indicating whether unapplying the
-    /// aggregation caused a change in the content. If the aggregation could be
-    /// unapplied, but it didn't cause any change in the passed
-    /// [`TimelineItemContent`], `Ok(false)` will be returned.
+    /// In case of success, returns an enum indicating whether unapplying the
+    /// aggregation had an effect on the content; if it updated it, then the
+    /// caller has the responsibility to reflect that change.
     ///
     /// In case of error, returns an error detailing why the aggregation
-    /// couldn't be applied.
-    pub fn unapply(&self, content: &mut TimelineItemContent) -> Result<bool, AggregationError> {
+    /// couldn't be unapplied.
+    pub fn unapply(&self, content: &mut TimelineItemContent) -> ApplyAggregationResult {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, .. } => {
-                poll_state_from_item(content)?.remove_response(sender, *timestamp);
-                Ok(true)
+                let state = match poll_state_from_item(content) {
+                    Ok(state) => state,
+                    Err(err) => return ApplyAggregationResult::Error(err),
+                };
+                state.remove_response(sender, *timestamp);
+                ApplyAggregationResult::UpdatedItem
             }
 
             AggregationKind::PollEnd { .. } => {
                 // Assume we can't undo a poll end event at the moment.
-                Err(AggregationError::CantUndoPollEnd)
+                ApplyAggregationResult::Error(AggregationError::CantUndoPollEnd)
             }
 
             AggregationKind::Reaction { key, sender, .. } => {
                 let Some(reactions) = content.reactions_mut() else {
                     // An item that doesn't hold any reactions.
-                    return Ok(false);
+                    return ApplyAggregationResult::LeftItemIntact;
                 };
 
                 let by_user = reactions.get_mut(key);
@@ -218,7 +227,11 @@ impl Aggregation {
                     None
                 };
 
-                Ok(previous_entry.is_some())
+                if previous_entry.is_some() {
+                    ApplyAggregationResult::UpdatedItem
+                } else {
+                    ApplyAggregationResult::LeftItemIntact
+                }
             }
         }
     }
@@ -299,7 +312,9 @@ impl Aggregations {
             return Ok(());
         };
         for a in aggregations {
-            a.apply(content)?;
+            if let ApplyAggregationResult::Error(err) = a.apply(content) {
+                return Err(err);
+            }
         }
         Ok(())
     }
@@ -391,17 +406,17 @@ pub(crate) fn find_item_and_apply_aggregation(
     let mut new_content = event_item.content().clone();
 
     match aggregation.apply(&mut new_content) {
-        Ok(true) => {
+        ApplyAggregationResult::UpdatedItem => {
             trace!("applied aggregation");
             let new_item = event_item.with_content(new_content);
             items.replace(idx, TimelineItem::new(new_item, event_item.internal_id.to_owned()));
             true
         }
-        Ok(false) => {
+        ApplyAggregationResult::LeftItemIntact => {
             trace!("applying the aggregation had no effect");
             false
         }
-        Err(err) => {
+        ApplyAggregationResult::Error(err) => {
             warn!("error when applying aggregation: {err}");
             false
         }
@@ -417,6 +432,19 @@ pub(crate) enum MarkAggregationSentResult {
     MarkedSent { update: Option<(TimelineEventItemId, Aggregation)> },
     /// The aggregation was unknown to the aggregations manager, aka not found.
     NotFound,
+}
+
+/// The result of applying (or unapplying) an aggregation onto a timeline item.
+pub(crate) enum ApplyAggregationResult {
+    /// The item has been updated after applying the aggregation.
+    UpdatedItem,
+
+    /// The item hasn't been modified after applying the aggregation, because it
+    /// was likely already applied prior to this.
+    LeftItemIntact,
+
+    /// An error happened while applying the aggregation.
+    Error(AggregationError),
 }
 
 #[derive(Debug, thiserror::Error)]

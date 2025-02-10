@@ -53,9 +53,9 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     algorithms::{rfind_event_by_id, rfind_event_by_item_id},
     controller::{
-        find_item_and_apply_aggregation, Aggregation, AggregationKind, ObservableItemsTransaction,
-        ObservableItemsTransactionEntry, PendingEdit, PendingEditKind, TimelineMetadata,
-        TimelineStateTransaction,
+        find_item_and_apply_aggregation, Aggregation, AggregationKind, ApplyAggregationResult,
+        ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
+        TimelineMetadata, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -933,15 +933,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if let Some((item_pos, item)) = rfind_event_by_item_id(self.items, target) {
             let mut content = item.content().clone();
             match aggregation.unapply(&mut content) {
-                Ok(true) => {
+                ApplyAggregationResult::UpdatedItem => {
                     trace!("removed aggregation");
                     let internal_id = item.internal_id.to_owned();
                     let new_item = item.with_content(content);
                     self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
                     self.result.items_updated += 1;
                 }
-                Ok(false) => {}
-                Err(err) => {
+                ApplyAggregationResult::LeftItemIntact => {}
+                ApplyAggregationResult::Error(err) => {
                     warn!("error when unapplying aggregation: {err}");
                 }
             }

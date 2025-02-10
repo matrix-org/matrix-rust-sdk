@@ -867,7 +867,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             {
                                 let mut content = item.content().clone();
                                 match aggregation.apply(&mut content) {
-                                    Ok(true) => {
+                                    ApplyAggregationResult::UpdatedItem => {
                                         trace!("reapplied aggregation in the event");
                                         let internal_id = item.internal_id.to_owned();
                                         let new_item = item.with_content(content);
@@ -877,8 +877,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
                                         );
                                         txn.commit();
                                     }
-                                    Ok(false) => {}
-                                    Err(err) => {
+                                    ApplyAggregationResult::LeftItemIntact => {}
+                                    ApplyAggregationResult::Error(err) => {
                                         warn!("when reapplying aggregation just marked as sent: {err}");
                                     }
                                 }
@@ -961,14 +961,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             let mut content = item.content().clone();
             match aggregation.unapply(&mut content) {
-                Ok(true) => {
+                ApplyAggregationResult::UpdatedItem => {
                     trace!("removed local reaction to local echo");
                     let internal_id = item.internal_id.clone();
                     let new_item = item.with_content(content);
                     state.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
                 }
-                Ok(false) => {}
-                Err(err) => {
+                ApplyAggregationResult::LeftItemIntact => {}
+                ApplyAggregationResult::Error(err) => {
                     warn!("when undoing local aggregation: {err}");
                 }
             }
