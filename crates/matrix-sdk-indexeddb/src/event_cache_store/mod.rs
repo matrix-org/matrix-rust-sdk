@@ -222,7 +222,32 @@ impl_event_cache_store!({
                         object_store.add_key_val(&event_id_js_value, &value)?;
                     }
                 }
-                Update::ReplaceItem { at: _, item: _ } => {}
+                Update::ReplaceItem { at, item } => {
+                    let chunk_id = at.chunk_identifier().index();
+                    let index = at.index();
+
+                    trace!(%room_id, "replacing item @ {chunk_id}:{index}");
+
+                    let tx = self.inner.transaction_on_one_with_mode(
+                        keys::EVENTS,
+                        IdbTransactionMode::Readwrite,
+                    )?;
+
+                    let object_store = tx.object_store(keys::EVENTS)?;
+
+                    let event_id = format!("{}-{}", chunk_id, index);
+
+                    let value = serde_json::json!({
+                        "id": event_id,
+                        "content": item,
+                        "room_id": room_id.to_string(),
+                        "position": index
+                    });
+
+                    let value = self.serializer.serialize_value(&value)?;
+
+                    object_store.put_key_val(&JsValue::from_str(&event_id), &value)?;
+                }
                 Update::RemoveItem { at: _ } => {}
                 Update::DetachLastItems { at: _ } => {}
                 Update::StartReattachItems => {}
