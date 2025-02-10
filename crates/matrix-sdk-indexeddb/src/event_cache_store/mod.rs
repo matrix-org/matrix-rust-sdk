@@ -197,8 +197,15 @@ impl_event_cache_store!({
 
                     trace!("Removing chunk {id:?}");
 
+                    // Remove the chunk itself
                     idb_operations::remove_chunk(&object_store, &hashed_room_id, id.index())
                         .await?;
+
+                    // Now remove the events (if any) linked to the chunk
+                    // What is the max events a LinkedChunk holds so I can iterate through all the possible values
+                    // [1..MAX_LINKED_CHUNK_EVENTS].forEach(|i| {
+                    // Do  the deletion of all the events for the chunk
+                    //})
                 }
                 Update::PushItems { at, items } => {
                     let chunk_id = at.chunk_identifier().index();
