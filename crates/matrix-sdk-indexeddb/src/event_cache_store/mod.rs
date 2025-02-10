@@ -214,10 +214,12 @@ impl_event_cache_store!({
 
                     for (i, event) in items.into_iter().enumerate() {
                         let event_id = format!("{}-{}", chunk_id, i);
-                        let event_id = JsValue::from_str(&event_id);
-                        let event = self.serializer.serialize_value(&event)?;
-
-                        object_store.add_key_val(&event_id, &event)?;
+                        let event_id_js_value = JsValue::from_str(&event_id);
+                        let index = at.index() + i;
+                        // Can the ID be encrypted when inserting?
+                        let value = serde_json::json!({ "id": event_id, "content": event, "room_id": room_id.to_string(), "position": index });
+                        let value = self.serializer.serialize_value(&value)?;
+                        object_store.add_key_val(&event_id_js_value, &value)?;
                     }
                 }
                 Update::ReplaceItem { at: _, item: _ } => {}
