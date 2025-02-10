@@ -22,8 +22,8 @@ use matrix_sdk_common::{
         VerificationState,
     },
     linked_chunk::{
-        ChunkContent, ChunkIdentifier as CId, LinkedChunk, LinkedChunkBuilder, Position, RawChunk,
-        Update,
+        ChunkContent, ChunkIdentifier as CId, LinkedChunk, LinkedChunkBuilderTest, Position,
+        RawChunk, Update,
     },
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
@@ -129,7 +129,7 @@ pub trait EventCacheStoreIntegrationTests {
 }
 
 fn rebuild_linked_chunk(raws: Vec<RawChunk<Event, Gap>>) -> Option<LinkedChunk<3, Event, Gap>> {
-    LinkedChunkBuilder::from_raw_parts(raws).build().unwrap()
+    LinkedChunkBuilderTest::from_raw_parts(raws).build().unwrap()
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
