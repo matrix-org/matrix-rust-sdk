@@ -44,7 +44,7 @@ use crate::{
     timeline::{
         event_item::{EventTimelineItem, Profile, TimelineDetails},
         traits::RoomDataProvider,
-        Error as TimelineError, TimelineItem,
+        Error as TimelineError, ReactionsByKeyBySender, TimelineItem,
     },
     DEFAULT_SANITIZER_MODE,
 };
@@ -58,6 +58,7 @@ pub struct Message {
     pub(in crate::timeline) thread_root: Option<OwnedEventId>,
     pub(in crate::timeline) edited: bool,
     pub(in crate::timeline) mentions: Option<Mentions>,
+    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
 }
 
 impl Message {
@@ -66,6 +67,7 @@ impl Message {
         c: RoomMessageEventContent,
         edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
+        reactions: ReactionsByKeyBySender,
     ) -> Self {
         let mut thread_root = None;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
@@ -87,8 +89,14 @@ impl Message {
         let mut msgtype = c.msgtype;
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
 
-        let mut ret =
-            Self { msgtype, in_reply_to, thread_root, edited: false, mentions: c.mentions };
+        let mut ret = Self {
+            msgtype,
+            in_reply_to,
+            thread_root,
+            edited: false,
+            mentions: c.mentions,
+            reactions,
+        };
 
         if let Some(edit) = edit {
             ret.apply_edit(edit);
@@ -264,7 +272,7 @@ fn make_relates_to(
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, thread_root, edited, mentions: _ } = self;
+        let Self { msgtype: _, in_reply_to, thread_root, edited, reactions: _, mentions: _ } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message")
@@ -361,10 +369,14 @@ impl RepliedToEvent {
             return Err(TimelineError::UnsupportedEvent);
         };
 
+        // Assume we're not interested in reactions in this context.
+        let reactions = Default::default();
+
         let content = TimelineItemContent::Message(Message::from_event(
             c,
             extract_room_msg_edit_content(event.relations()),
             &vector![],
+            reactions,
         ));
         let sender = event.sender().to_owned();
         let sender_profile = TimelineDetails::from_initial_value(

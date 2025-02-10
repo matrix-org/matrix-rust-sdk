@@ -433,7 +433,7 @@ impl<'a> TimelineStateTransaction<'a> {
         if let Some(event_meta) = self.items.all_remote_events().get(event_index) {
             // Fetch the `timeline_item_index` associated to the remote event.
             if let Some(timeline_item_index) = event_meta.timeline_item_index {
-                let _removed_timeline_item = self.items.remove(timeline_item_index);
+                let _ = self.items.remove(timeline_item_index);
             }
 
             // Now we can remove the remote event.

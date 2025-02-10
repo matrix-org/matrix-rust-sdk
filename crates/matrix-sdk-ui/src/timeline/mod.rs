@@ -72,7 +72,6 @@ pub mod futures;
 mod item;
 mod pagination;
 mod pinned_events_loader;
-mod reactions;
 mod subscriber;
 #[cfg(test)]
 mod tests;
@@ -400,10 +399,13 @@ impl Timeline {
                     original_message,
                 )) = message_like_event
                 {
+                    // We don't have access to reactions here.
+                    let reactions = Default::default();
                     ReplyContent::Message(Message::from_event(
                         original_message.content.clone(),
                         extract_room_msg_edit_content(message_like_event.relations()),
                         &self.items().await,
+                        reactions,
                     ))
                 } else {
                     ReplyContent::Raw(raw_sync_event)

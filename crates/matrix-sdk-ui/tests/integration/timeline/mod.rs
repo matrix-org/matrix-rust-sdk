@@ -130,7 +130,7 @@ async fn test_reaction() {
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
-    assert_eq!(event_item.reactions().len(), 0);
+    assert_eq!(event_item.content().reactions().len(), 0);
 
     // Then the reaction is taken into account.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[2]);
@@ -138,8 +138,8 @@ async fn test_reaction() {
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
-    assert_eq!(event_item.reactions().len(), 1);
-    let group = &event_item.reactions()["👍"];
+    assert_eq!(event_item.content().reactions().len(), 1);
+    let group = &event_item.content().reactions()["👍"];
     assert_eq!(group.len(), 1);
     let senders: Vec<_> = group.keys().collect();
     assert_eq!(senders.as_slice(), [user_id!("@bob:example.org")]);
@@ -170,7 +170,7 @@ async fn test_reaction() {
     let event_item = updated_message.as_event().unwrap();
     assert_let!(TimelineItemContent::Message(msg) = event_item.content());
     assert!(!msg.is_edited());
-    assert_eq!(event_item.reactions().len(), 0);
+    assert_eq!(event_item.content().reactions().len(), 0);
 
     assert_pending!(timeline_stream);
 }

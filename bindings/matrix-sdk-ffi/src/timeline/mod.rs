@@ -1040,6 +1040,7 @@ pub struct EventTimelineItem {
 impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
     fn from(item: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
         let reactions = item
+            .content()
             .reactions()
             .iter()
             .map(|(k, v)| Reaction {

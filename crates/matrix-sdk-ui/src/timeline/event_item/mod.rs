@@ -45,7 +45,6 @@ mod remote;
 pub(super) use self::{
     content::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
-        ResponseData,
     },
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
@@ -71,8 +70,6 @@ pub struct EventTimelineItem {
     pub(super) sender: OwnedUserId,
     /// The sender's profile of the event.
     pub(super) sender_profile: TimelineDetails<Profile>,
-    /// All bundled reactions about the event.
-    pub(super) reactions: ReactionsByKeyBySender,
     /// The timestamp of the event.
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -121,11 +118,10 @@ impl EventTimelineItem {
         timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
         kind: EventTimelineItemKind,
-        reactions: ReactionsByKeyBySender,
         is_room_encrypted: bool,
     ) -> Self {
         let is_room_encrypted = Some(is_room_encrypted);
-        Self { sender, sender_profile, timestamp, content, reactions, kind, is_room_encrypted }
+        Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted }
     }
 
     /// If the supplied low-level [`TimelineEvent`] is suitable for use as the
@@ -175,10 +171,6 @@ impl EventTimelineItem {
         let content =
             TimelineItemContent::from_latest_event_content(event, room_power_levels_info)?;
 
-        // We don't currently bundle any reactions with the main event. This could
-        // conceivably be wanted in the message preview in future.
-        let reactions = ReactionsByKeyBySender::default();
-
         // The message preview probably never needs read receipts.
         let read_receipts = IndexMap::new();
 
@@ -219,15 +211,7 @@ impl EventTimelineItem {
             TimelineDetails::Unavailable
         };
 
-        Some(Self {
-            sender,
-            sender_profile,
-            timestamp,
-            content,
-            kind,
-            reactions,
-            is_room_encrypted: None,
-        })
+        Some(Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted: None })
     }
 
     /// Check whether this item is a local echo.
@@ -330,11 +314,6 @@ impl EventTimelineItem {
     /// Get the content of this item.
     pub fn content(&self) -> &TimelineItemContent {
         &self.content
-    }
-
-    /// Get the reactions of this item.
-    pub fn reactions(&self) -> &ReactionsByKeyBySender {
-        &self.reactions
     }
 
     /// Get the read receipts of this item.
@@ -504,11 +483,6 @@ impl EventTimelineItem {
         Self { kind: kind.into(), ..self.clone() }
     }
 
-    /// Clone the current event item, and update its `reactions`.
-    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
-        Self { reactions, ..self.clone() }
-    }
-
     /// Clone the current event item, and update its content.
     pub(super) fn with_content(&self, new_content: TimelineItemContent) -> Self {
         let mut new = self.clone();
@@ -562,7 +536,6 @@ impl EventTimelineItem {
             content,
             kind,
             is_room_encrypted: self.is_room_encrypted,
-            reactions: ReactionsByKeyBySender::default(),
         }
     }
 
@@ -765,6 +738,8 @@ pub enum ReactionStatus {
     /// The handle is missing only in testing contexts.
     LocalToRemote(Option<SendHandle>),
     /// It's a remote reaction to a remote event.
+    ///
+    /// The event id is that of the reaction event (not the target event).
     RemoteToRemote(OwnedEventId),
 }
 
