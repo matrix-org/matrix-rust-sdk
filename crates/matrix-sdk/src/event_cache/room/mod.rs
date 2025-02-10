@@ -575,7 +575,7 @@ mod private {
             locked: &EventCacheStoreLockGuard<'_>,
         ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, EventCacheError>
         {
-            let raw_chunks = locked.reload_linked_chunk(room).await?;
+            let raw_chunks = locked.load_all_chunks(room).await?;
 
             let mut builder = LinkedChunkBuilder::from_raw_parts(raw_chunks.clone());
 
@@ -1174,7 +1174,7 @@ mod tests {
             .await
             .unwrap();
 
-        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let raws = event_cache_store.load_all_chunks(room_id).await.unwrap();
         let linked_chunk =
             LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
 
@@ -1264,7 +1264,7 @@ mod tests {
         }
 
         // The one in storage does not.
-        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let raws = event_cache_store.load_all_chunks(room_id).await.unwrap();
         let linked_chunk =
             LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
 
@@ -1396,7 +1396,7 @@ mod tests {
         assert!(items.is_empty());
 
         // The event cache store too.
-        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let raws = event_cache_store.load_all_chunks(room_id).await.unwrap();
         let linked_chunk = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap();
 
         // Note: while the event cache store could return `None` here, clearing it will
@@ -1559,7 +1559,7 @@ mod tests {
 
         // Storage doesn't contain anything. It would also be valid that it contains a
         // single initial empty items chunk.
-        let raw_chunks = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let raw_chunks = event_cache_store.load_all_chunks(room_id).await.unwrap();
         assert!(raw_chunks.is_empty());
     }
 
