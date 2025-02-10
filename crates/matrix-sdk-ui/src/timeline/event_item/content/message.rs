@@ -37,7 +37,7 @@ use ruma::{
     serde::Raw,
     OwnedEventId, OwnedUserId, UserId,
 };
-use tracing::{error, trace};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::TimelineItemContent;
 use crate::{
@@ -354,18 +354,27 @@ impl RepliedToEvent {
         Self::try_from_timeline_event(timeline_event, room_data_provider).await
     }
 
+    #[instrument(skip_all)]
     pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,
     ) -> Result<Self, TimelineError> {
         let event = match timeline_event.raw().deserialize() {
             Ok(AnySyncTimelineEvent::MessageLike(event)) => event,
-            _ => {
+            Ok(_) => {
+                warn!("can't get details, event isn't a message-like event");
+                return Err(TimelineError::UnsupportedEvent);
+            }
+            Err(err) => {
+                warn!("can't get details, event couldn't be deserialized: {err}");
                 return Err(TimelineError::UnsupportedEvent);
             }
         };
 
+        debug!(event_type = %event.event_type(), "got deserialized event");
+
         let Some(AnyMessageLikeEventContent::RoomMessage(c)) = event.original_content() else {
+            warn!("can't get details, event is redacted or not a RoomMessage");
             return Err(TimelineError::UnsupportedEvent);
         };
 
