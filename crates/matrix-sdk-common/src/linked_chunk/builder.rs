@@ -80,7 +80,7 @@ impl LinkedChunkBuilder {
     pub fn insert_new_first_chunk<const CAP: usize, Item, Gap>(
         linked_chunk: &mut LinkedChunk<CAP, Item, Gap>,
         new_first_chunk: RawChunk<Item, Gap>,
-    ) -> Result<&Chunk<CAP, Item, Gap>, LinkedChunkBuilderError>
+    ) -> Result<(), LinkedChunkBuilderError>
     where
         Item: Clone,
         Gap: Clone,
@@ -187,7 +187,7 @@ impl LinkedChunkBuilder {
             }
         }
 
-        Ok(linked_chunk.links.first_chunk())
+        Ok(())
     }
 }
 

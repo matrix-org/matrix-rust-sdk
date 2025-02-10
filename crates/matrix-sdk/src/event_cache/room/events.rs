@@ -16,7 +16,11 @@ use std::cmp::Ordering;
 
 use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
-use matrix_sdk_base::{apply_redaction, event_cache::store::DEFAULT_CHUNK_CAPACITY};
+use matrix_sdk_base::{
+    apply_redaction,
+    event_cache::store::DEFAULT_CHUNK_CAPACITY,
+    linked_chunk::{ChunkContent, LinkedChunkBuilder, LinkedChunkBuilderError, RawChunk},
+};
 use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, IterBackward, LinkedChunk,
     ObservableUpdates, Position,
@@ -404,6 +408,19 @@ impl RoomEvents {
             result.push(line);
         }
         result
+    }
+}
+
+// Private implementations, implementation specific.
+impl RoomEvents {
+    pub(super) fn insert_new_chunk_as_first(
+        &mut self,
+        mut raw_new_first_chunk: RawChunk<Event, Gap>,
+    ) -> Result<(), LinkedChunkBuilderError> {
+        // Pretend there is no previous chunk.
+        raw_new_first_chunk.previous = None;
+
+        LinkedChunkBuilder::insert_new_first_chunk(&mut self.chunks, raw_new_first_chunk)
     }
 }
 
