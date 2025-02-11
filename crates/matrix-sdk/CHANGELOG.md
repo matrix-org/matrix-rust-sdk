@@ -18,7 +18,9 @@ All notable changes to this project will be documented in this file.
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
-- The HTTP client only allows TLS 1.2 or newer, as recommended by BCP 195.
+- [**breaking**] The HTTP client only allows TLS 1.2 or newer, as recommended by
+  [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
+  ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
 
 ### Bug Fixes
 
