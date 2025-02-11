@@ -22,6 +22,8 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::time::SystemTime;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
+#[cfg(not(test))]
+use tracing::warn;
 
 use crate::{
     error::{Error, Result},
@@ -134,6 +136,24 @@ pub(crate) trait SqliteAsyncConnExt {
     /// [the size of the WAL file can keep increasing]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
     async fn set_journal_size_limit(&self) -> Result<()> {
         self.execute_batch("PRAGMA journal_size_limit = 10000000;").await.map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Defragment the database and free space on the filesystem.
+    ///
+    /// Only returns an error in tests, otherwise the error is only logged.
+    async fn vacuum(&self) -> Result<()> {
+        if let Err(error) = self.execute_batch("VACUUM").await {
+            // Since this is an optimisation step, do not propagate the error
+            // but log it.
+            #[cfg(not(test))]
+            warn!("Failed to vacuum database: {error}");
+
+            // We want to know if there is an error with this step during tests.
+            #[cfg(test)]
+            return Err(error.into());
+        }
+
         Ok(())
     }
 }

@@ -336,7 +336,7 @@ impl SqliteStateStore {
             // Defragment the DB and optimize its size on the filesystem.
             // This should have been run in the migration for version 7, to reduce the size
             // of the DB as we removed the media cache.
-            conn.execute_batch("VACUUM").await?;
+            conn.vacuum().await?;
             conn.set_kv("version", vec![12]).await?;
         }
 
