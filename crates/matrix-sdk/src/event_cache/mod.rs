@@ -664,8 +664,6 @@ pub struct BackPaginationOutcome {
     /// Events are presented in reverse order: the first element of the vec,
     /// if present, is the most "recent" event from the chunk (or
     /// technically, the last one in the topological ordering).
-    ///
-    /// Note: they're not deduplicated (TODO: smart reconciliation).
     pub events: Vec<TimelineEvent>,
 }
 
