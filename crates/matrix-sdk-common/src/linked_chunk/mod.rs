@@ -2228,6 +2228,290 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_items_at_last_chunk() -> Result<(), Error> {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(1),
+                    next: None,
+                },
+                PushItems { at: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e', 'f'] },
+            ]
+        );
+
+        // Insert inside the last chunk.
+        let position_of_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
+
+        // Insert 4 elements, so that it overflows the chunk capacity. It's important to
+        // see whether chunks are correctly updated and linked.
+        linked_chunk.insert_items_at(['w', 'x', 'y', 'z'], position_of_e)?;
+
+        assert_items_eq!(
+            linked_chunk,
+            ['a', 'b', 'c'] ['d', 'w', 'x'] ['y', 'z', 'e'] ['f']
+        );
+        assert_eq!(linked_chunk.num_items(), 10);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                DetachLastItems { at: Position(ChunkIdentifier(1), 1) },
+                PushItems { at: Position(ChunkIdentifier(1), 1), items: vec!['w', 'x'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(1)),
+                    new: ChunkIdentifier(2),
+                    next: None,
+                },
+                PushItems { at: Position(ChunkIdentifier(2), 0), items: vec!['y', 'z'] },
+                StartReattachItems,
+                PushItems { at: Position(ChunkIdentifier(2), 2), items: vec!['e'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(2)),
+                    new: ChunkIdentifier(3),
+                    next: None,
+                },
+                PushItems { at: Position(ChunkIdentifier(3), 0), items: vec!['f'] },
+                EndReattachItems,
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_items_at_first_chunk() -> Result<(), Error> {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(1),
+                    next: None,
+                },
+                PushItems { at: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e', 'f'] },
+            ]
+        );
+
+        // Insert inside the first chunk.
+        let position_of_a = linked_chunk.item_position(|item| *item == 'a').unwrap();
+        linked_chunk.insert_items_at(['l', 'm', 'n', 'o'], position_of_a)?;
+
+        assert_items_eq!(
+            linked_chunk,
+            ['l', 'm', 'n'] ['o', 'a', 'b'] ['c'] ['d', 'e', 'f']
+        );
+        assert_eq!(linked_chunk.num_items(), 10);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                DetachLastItems { at: Position(ChunkIdentifier(0), 0) },
+                PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['l', 'm', 'n'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(2),
+                    next: Some(ChunkIdentifier(1)),
+                },
+                PushItems { at: Position(ChunkIdentifier(2), 0), items: vec!['o'] },
+                StartReattachItems,
+                PushItems { at: Position(ChunkIdentifier(2), 1), items: vec!['a', 'b'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(2)),
+                    new: ChunkIdentifier(3),
+                    next: Some(ChunkIdentifier(1)),
+                },
+                PushItems { at: Position(ChunkIdentifier(3), 0), items: vec!['c'] },
+                EndReattachItems,
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_items_at_middle_chunk() -> Result<(), Error> {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h']);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(1),
+                    next: None,
+                },
+                PushItems { at: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e', 'f'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(1)),
+                    new: ChunkIdentifier(2),
+                    next: None,
+                },
+                PushItems { at: Position(ChunkIdentifier(2), 0), items: vec!['g', 'h'] },
+            ]
+        );
+
+        let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
+        linked_chunk.insert_items_at(['r', 's'], position_of_d)?;
+
+        assert_items_eq!(
+            linked_chunk,
+            ['a', 'b', 'c'] ['r', 's', 'd'] ['e', 'f'] ['g', 'h']
+        );
+        assert_eq!(linked_chunk.num_items(), 10);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                DetachLastItems { at: Position(ChunkIdentifier(1), 0) },
+                PushItems { at: Position(ChunkIdentifier(1), 0), items: vec!['r', 's'] },
+                StartReattachItems,
+                PushItems { at: Position(ChunkIdentifier(1), 2), items: vec!['d'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(1)),
+                    new: ChunkIdentifier(3),
+                    next: Some(ChunkIdentifier(2)),
+                },
+                PushItems { at: Position(ChunkIdentifier(3), 0), items: vec!['e', 'f'] },
+                EndReattachItems,
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_items_at_end_of_chunk() -> Result<(), Error> {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e']);
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e']);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(1),
+                    next: None,
+                },
+                PushItems { at: Position(ChunkIdentifier(1), 0), items: vec!['d', 'e'] },
+            ]
+        );
+
+        // Insert at the end of a chunk.
+        let position_of_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
+        let position_after_e =
+            Position(position_of_e.chunk_identifier(), position_of_e.index() + 1);
+
+        linked_chunk.insert_items_at(['p', 'q'], position_after_e)?;
+        assert_items_eq!(
+            linked_chunk,
+            ['a', 'b', 'c'] ['d', 'e', 'p'] ['q']
+        );
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                PushItems { at: Position(ChunkIdentifier(1), 2), items: vec!['p'] },
+                NewItemsChunk {
+                    previous: Some(ChunkIdentifier(1)),
+                    new: ChunkIdentifier(2),
+                    next: None
+                },
+                PushItems { at: Position(ChunkIdentifier(2), 0), items: vec!['q'] }
+            ]
+        );
+        assert_eq!(linked_chunk.num_items(), 7);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_items_at_errs() -> Result<(), Error> {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        linked_chunk.push_items_back(['a', 'b', 'c']);
+        linked_chunk.push_gap_back(());
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [-]);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a', 'b', 'c'] },
+                NewGapChunk {
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(1),
+                    next: None,
+                    gap: (),
+                },
+            ]
+        );
+
+        // Insert in a chunk that does not exist.
+        {
+            assert_matches!(
+                linked_chunk.insert_items_at(['u', 'v'], Position(ChunkIdentifier(128), 0)),
+                Err(Error::InvalidChunkIdentifier { identifier: ChunkIdentifier(128) })
+            );
+            assert!(linked_chunk.updates().unwrap().take().is_empty());
+        }
+
+        // Insert in a chunk that exists, but at an item that does not exist.
+        {
+            assert_matches!(
+                linked_chunk.insert_items_at(['u', 'v'], Position(ChunkIdentifier(0), 128)),
+                Err(Error::InvalidItemIndex { index: 128 })
+            );
+            assert!(linked_chunk.updates().unwrap().take().is_empty());
+        }
+
+        // Insert in a gap.
+        {
+            assert_matches!(
+                linked_chunk.insert_items_at(['u', 'v'], Position(ChunkIdentifier(1), 0)),
+                Err(Error::ChunkIsAGap { identifier: ChunkIdentifier(1) })
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_remove_item_at() -> Result<(), Error> {
         use super::Update::*;
 
