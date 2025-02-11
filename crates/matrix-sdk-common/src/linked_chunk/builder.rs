@@ -115,7 +115,7 @@ impl LinkedChunkBuilder {
             // New chunk has a next chunk, and it is the first chunk of the `LinkedChunk`.
             if next_chunk != expected_next_chunk {
                 return Err(LinkedChunkBuilderError::CannotConnectTwoChunks {
-                    new_chunk: next_chunk,
+                    new_chunk: new_first_chunk.identifier,
                     with_chunk: expected_next_chunk,
                 });
             }
@@ -219,9 +219,10 @@ mod tests {
     use assert_matches::assert_matches;
 
     use super::{
-        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkBuilder,
-        LinkedChunkBuilderError, RawChunk,
+        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunk, LinkedChunkBuilder,
+        LinkedChunkBuilderError, RawChunk, Update,
     };
+    use crate::linked_chunk::Position;
 
     #[test]
     fn test_from_last_chunk_err_too_much_items() {
@@ -313,6 +314,201 @@ mod tests {
             // It has updates enabled.
             assert!(linked_chunk.updates().is_some());
         });
+    }
+
+    #[test]
+    fn test_insert_new_first_chunk_err_too_much_items() {
+        let new_first_chunk = RawChunk {
+            previous: None,
+            identifier: ChunkIdentifier::new(0),
+            next: None,
+            content: ChunkContent::Items(vec!['a', 'b', 'c']),
+        };
+
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
+
+        let result = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk);
+
+        assert_matches!(result, Err(LinkedChunkBuilderError::ChunkTooLarge { id }) => {
+            assert_eq!(id, 0);
+        });
+    }
+
+    #[test]
+    fn test_insert_new_first_chunk_err_is_not_first() {
+        let new_first_chunk = RawChunk {
+            previous: Some(ChunkIdentifier::new(42)),
+            identifier: ChunkIdentifier::new(0),
+            next: None,
+            content: ChunkContent::Gap(()),
+        };
+
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
+
+        let result = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk);
+
+        assert_matches!(result, Err(LinkedChunkBuilderError::ChunkIsNotFirst { id }) => {
+            assert_eq!(id, 0);
+        });
+    }
+
+    #[test]
+    fn test_insert_new_first_chunk_err_missing_next_chunk() {
+        let new_first_chunk = RawChunk {
+            previous: None,
+            identifier: ChunkIdentifier::new(0),
+            next: None,
+            content: ChunkContent::Gap(()),
+        };
+
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
+
+        let result = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk);
+
+        assert_matches!(result, Err(LinkedChunkBuilderError::MissingNextChunk { id }) => {
+            assert_eq!(id, 0);
+        });
+    }
+
+    #[test]
+    fn test_insert_new_first_chunk_err_cannot_connect_two_chunks() {
+        let new_first_chunk = RawChunk {
+            previous: None,
+            identifier: ChunkIdentifier::new(1),
+            next: Some(ChunkIdentifier::new(42)),
+            content: ChunkContent::Gap(()),
+        };
+
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
+        linked_chunk.push_gap_back(());
+
+        let result = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk);
+
+        assert_matches!(result, Err(LinkedChunkBuilderError::CannotConnectTwoChunks { new_chunk, with_chunk }) => {
+            assert_eq!(new_chunk, 1);
+            assert_eq!(with_chunk, 0);
+        });
+    }
+
+    #[test]
+    fn test_insert_new_first_chunk_gap() {
+        let new_first_chunk = RawChunk {
+            previous: None,
+            identifier: ChunkIdentifier::new(1),
+            next: Some(ChunkIdentifier::new(0)),
+            content: ChunkContent::Gap(()),
+        };
+
+        let mut linked_chunk = LinkedChunk::<5, char, ()>::new_with_update_history();
+        linked_chunk.push_items_back(vec!['a', 'b']);
+
+        // Drain initial updates.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk).unwrap();
+
+        // Iterate forwards to ensure forwards links are okay.
+        {
+            let mut chunks = linked_chunk.chunks();
+
+            assert_matches!(chunks.next(), Some(chunk) => {
+                assert_eq!(chunk.identifier(), 1);
+                assert!(chunk.is_gap());
+            });
+            assert_matches!(chunks.next(), Some(chunk) => {
+                assert_eq!(chunk.identifier(), 0);
+                assert!(chunk.is_items());
+            });
+            assert!(chunks.next().is_none());
+        }
+
+        // Iterate backwards to ensure backwards links are okay.
+        {
+            let mut rchunks = linked_chunk.rchunks();
+
+            assert_eq!(rchunks.next().unwrap().identifier(), 0);
+            assert_eq!(rchunks.next().unwrap().identifier(), 1);
+            assert!(rchunks.next().is_none());
+        }
+
+        // Check updates.
+        {
+            let updates = linked_chunk.updates().unwrap().take();
+
+            assert_eq!(updates.len(), 1);
+            assert_eq!(
+                updates,
+                [Update::NewGapChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(1),
+                    next: Some(ChunkIdentifier::new(0)),
+                    gap: (),
+                }]
+            );
+        }
+    }
+
+    #[test]
+    fn test_insert_new_first_chunk_items() {
+        let new_first_chunk = RawChunk {
+            previous: None,
+            identifier: ChunkIdentifier::new(1),
+            next: Some(ChunkIdentifier::new(0)),
+            content: ChunkContent::Items(vec!['c', 'd']),
+        };
+
+        let mut linked_chunk = LinkedChunk::<5, char, ()>::new_with_update_history();
+        linked_chunk.push_items_back(vec!['a', 'b']);
+
+        // Drain initial updates.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk).unwrap();
+
+        // Iterate forwards to ensure forwards links are okay.
+        {
+            let mut chunks = linked_chunk.chunks();
+
+            assert_matches!(chunks.next(), Some(chunk) => {
+                assert_eq!(chunk.identifier(), 1);
+                assert!(chunk.is_items());
+            });
+            assert_matches!(chunks.next(), Some(chunk) => {
+                assert_eq!(chunk.identifier(), 0);
+                assert!(chunk.is_items());
+            });
+            assert!(chunks.next().is_none());
+        }
+
+        // Iterate backwards to ensure backwards links are okay.
+        {
+            let mut rchunks = linked_chunk.rchunks();
+
+            assert_eq!(rchunks.next().unwrap().identifier(), 0);
+            assert_eq!(rchunks.next().unwrap().identifier(), 1);
+            assert!(rchunks.next().is_none());
+        }
+
+        // Check updates.
+        {
+            let updates = linked_chunk.updates().unwrap().take();
+
+            assert_eq!(updates.len(), 2);
+            assert_eq!(
+                updates,
+                [
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(1),
+                        next: Some(ChunkIdentifier::new(0)),
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec!['c', 'd']
+                    }
+                ]
+            );
+        }
     }
 }
 
