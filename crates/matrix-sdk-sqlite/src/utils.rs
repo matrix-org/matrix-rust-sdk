@@ -22,8 +22,6 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::time::SystemTime;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
-#[cfg(not(test))]
-use tracing::warn;
 
 use crate::{
     error::{Error, Result},
@@ -146,11 +144,11 @@ pub(crate) trait SqliteAsyncConnExt {
         if let Err(error) = self.execute_batch("VACUUM").await {
             // Since this is an optimisation step, do not propagate the error
             // but log it.
-            #[cfg(not(test))]
-            warn!("Failed to vacuum database: {error}");
+            #[cfg(not(any(test, debug_assertions)))]
+            tracing::warn!("Failed to vacuum database: {error}");
 
             // We want to know if there is an error with this step during tests.
-            #[cfg(test)]
+            #[cfg(any(test, debug_assertions))]
             return Err(error.into());
         }
 
