@@ -3093,26 +3093,36 @@ mod tests {
 
     #[test]
     fn test_replace_item() {
-        let mut linked_chunk = LinkedChunk::<3, char, ()>::new();
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
 
         linked_chunk.push_items_back(['a', 'b', 'c']);
         linked_chunk.push_gap_back(());
         // Sanity check.
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [-]);
 
+        // Drain previous updates.
+        let _ = linked_chunk.updates().unwrap().take();
+
         // Replace item in bounds.
-        linked_chunk.replace_item_at(Position(ChunkIdentifier::new(0), 1), 'B').unwrap();
+        linked_chunk.replace_item_at(Position(ChunkIdentifier(0), 1), 'B').unwrap();
         assert_items_eq!(linked_chunk, ['a', 'B', 'c'] [-]);
+
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[ReplaceItem { at: Position(ChunkIdentifier(0), 1), item: 'B' }]
+        );
 
         // Attempt to replace out-of-bounds.
         assert_matches!(
-            linked_chunk.replace_item_at(Position(ChunkIdentifier::new(0), 3), 'Z'),
+            linked_chunk.replace_item_at(Position(ChunkIdentifier(0), 3), 'Z'),
             Err(Error::InvalidItemIndex { index: 3 })
         );
 
         // Attempt to replace gap.
         assert_matches!(
-            linked_chunk.replace_item_at(Position(ChunkIdentifier::new(1), 0), 'Z'),
+            linked_chunk.replace_item_at(Position(ChunkIdentifier(1), 0), 'Z'),
             Err(Error::ChunkIsAGap { .. })
         );
     }
