@@ -396,8 +396,6 @@ impl<'a> TimelineStateTransaction<'a> {
             },
         };
 
-        let is_own_event = sender == room_data_provider.own_user_id();
-
         let event_meta = FullEventMeta {
             event_id: &event_id,
             sender: Some(&sender),
@@ -414,7 +412,6 @@ impl<'a> TimelineStateTransaction<'a> {
             sender,
             sender_profile,
             timestamp,
-            is_own_event,
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
