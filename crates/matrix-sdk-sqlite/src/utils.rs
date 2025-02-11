@@ -136,6 +136,24 @@ pub(crate) trait SqliteAsyncConnExt {
         self.execute_batch("PRAGMA journal_size_limit = 10000000;").await.map_err(Error::from)?;
         Ok(())
     }
+
+    /// Defragment the database and free space on the filesystem.
+    ///
+    /// Only returns an error in tests, otherwise the error is only logged.
+    async fn vacuum(&self) -> Result<()> {
+        if let Err(error) = self.execute_batch("VACUUM").await {
+            // Since this is an optimisation step, do not propagate the error
+            // but log it.
+            #[cfg(not(any(test, debug_assertions)))]
+            tracing::warn!("Failed to vacuum database: {error}");
+
+            // We want to know if there is an error with this step during tests.
+            #[cfg(any(test, debug_assertions))]
+            return Err(error.into());
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]

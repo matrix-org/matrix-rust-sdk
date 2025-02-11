@@ -109,17 +109,18 @@ async fn test_publishing_room_alias() -> anyhow::Result<()> {
     let canonical_alias = room.canonical_alias();
     assert!(canonical_alias.is_none());
 
-    // We update the canonical alias now
-    room.privacy_settings()
-        .update_canonical_alias(Some(room_alias.clone()), vec![alt_alias.clone()])
-        .await?;
-
     // Wait until we receive the canonical alias event through sync
     let (tx, mut rx) = unbounded_channel();
     let handle = room.add_event_handler(move |_: Raw<SyncRoomCanonicalAliasEvent>| {
         let _ = tx.send(());
         async {}
     });
+
+    // We update the canonical alias now
+    room.privacy_settings()
+        .update_canonical_alias(Some(room_alias.clone()), vec![alt_alias.clone()])
+        .await?;
+
     let _ = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await?;
     client.remove_event_handler(handle);
 

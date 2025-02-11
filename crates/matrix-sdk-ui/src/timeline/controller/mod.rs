@@ -71,8 +71,8 @@ use super::{
     subscriber::TimelineSubscriber,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
-    PaginationError, Profile, ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId,
-    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
+    PaginationError, Profile, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus,
+    TimelineItem, TimelineItemContent, TimelineItemKind,
 };
 use crate::{
     timeline::{
@@ -80,17 +80,19 @@ use crate::{
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        reactions::FullReactionKey,
         TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
 
+mod aggregations;
 mod metadata;
 mod observable_items;
 mod read_receipts;
 mod state;
 mod state_transaction;
+
+pub(super) use aggregations::*;
 
 /// Data associated to the current timeline focus.
 #[derive(Debug)]
@@ -260,7 +262,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         focus: TimelineFocus,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: Option<bool>,
+        is_room_encrypted: bool,
     ) -> Self {
         let (focus_data, focus_kind) = match focus {
             TimelineFocus::Live => (TimelineFocusData::Live, TimelineFocusKind::Live),
@@ -376,23 +378,26 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub async fn handle_encryption_state_changes(&self) {
         let mut room_info = self.room_data_provider.room_info();
 
+        // Small function helper to help mark as encrypted.
+        let mark_encrypted = || async {
+            let mut state = self.state.write().await;
+            state.meta.is_room_encrypted = true;
+            state.mark_all_events_as_encrypted();
+        };
+
+        if room_info.get().is_encrypted() {
+            // If the room was already encrypted, it won't toggle to unencrypted, so we can
+            // shut down this task early.
+            mark_encrypted().await;
+            return;
+        }
+
         while let Some(info) = room_info.next().await {
-            let changed = {
-                let state = self.state.read().await;
-                let mut old_is_room_encrypted = state.meta.is_room_encrypted.write();
-                let is_encrypted_now = info.is_encrypted();
-
-                if *old_is_room_encrypted != Some(is_encrypted_now) {
-                    *old_is_room_encrypted = Some(is_encrypted_now);
-                    true
-                } else {
-                    false
-                }
-            };
-
-            if changed {
-                let mut state = self.state.write().await;
-                state.update_all_events_is_room_encrypted();
+            if info.is_encrypted() {
+                mark_encrypted().await;
+                // Once the room is encrypted, it cannot switch back to unencrypted, so our work
+                // here is done.
+                break;
             }
         }
     }
@@ -552,6 +557,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let user_id = self.room_data_provider.own_user_id();
         let prev_status = item
+            .content()
             .reactions()
             .get(key)
             .and_then(|group| group.get(user_id))
@@ -631,7 +637,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     return Ok(false);
                 };
 
-                let mut reactions = item.reactions().clone();
+                let mut reactions = item.content().reactions().clone();
                 let reaction_info = reactions.remove_reaction(user_id, key);
 
                 if reaction_info.is_some() {
@@ -654,7 +660,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             rfind_event_by_id(&state.items, &annotated_event_id)
                         {
                             // Re-add the reaction to the mapping.
-                            let mut reactions = item.reactions().clone();
+                            let mut reactions = item.content().reactions();
                             reactions
                                 .entry(key.to_owned())
                                 .or_default()
@@ -845,31 +851,49 @@ impl<P: RoomDataProvider> TimelineController<P> {
         });
 
         let Some((idx, item)) = result else {
-            // Event isn't found as a proper item. Try to find it as a reaction?
-            if let Some((event_id, reaction_key)) = new_event_id.zip(
-                txn.meta.reactions.map.get(&TimelineEventItemId::TransactionId(txn_id.to_owned())),
-            ) {
-                match &reaction_key.item {
-                    TimelineEventItemId::TransactionId(_) => {
-                        error!("unexpected remote reaction to local echo")
-                    }
-                    TimelineEventItemId::EventId(reacted_to_event_id) => {
-                        if let Some((item_pos, event_item)) =
-                            rfind_event_by_id(&txn.items, reacted_to_event_id)
-                        {
-                            let mut reactions = event_item.reactions().clone();
-                            if let Some(entry) = reactions
-                                .get_mut(&reaction_key.key)
-                                .and_then(|by_user| by_user.get_mut(&reaction_key.sender))
+            // Event wasn't found as a standalone item.
+            //
+            // If it was just sent, try to find if it matches a corresponding aggregation,
+            // and mark it as sent in that case.
+            if let Some(new_event_id) = new_event_id {
+                match txn
+                    .meta
+                    .aggregations
+                    .mark_aggregation_as_sent(txn_id.to_owned(), new_event_id.to_owned())
+                {
+                    MarkAggregationSentResult::MarkedSent { update } => {
+                        trace!("marked aggregation as sent");
+
+                        if let Some((target, aggregation)) = update {
+                            if let Some((item_pos, item)) =
+                                rfind_event_by_item_id(&txn.items, &target)
                             {
-                                trace!("updated reaction status to sent");
-                                entry.status = ReactionStatus::RemoteToRemote(event_id.to_owned());
-                                txn.items.replace(item_pos, event_item.with_reactions(reactions));
-                                txn.commit();
-                                return;
+                                let mut content = item.content().clone();
+                                match aggregation.apply(&mut content) {
+                                    ApplyAggregationResult::UpdatedItem => {
+                                        trace!("reapplied aggregation in the event");
+                                        let internal_id = item.internal_id.to_owned();
+                                        let new_item = item.with_content(content);
+                                        txn.items.replace(
+                                            item_pos,
+                                            TimelineItem::new(new_item, internal_id),
+                                        );
+                                        txn.commit();
+                                    }
+                                    ApplyAggregationResult::LeftItemIntact => {}
+                                    ApplyAggregationResult::Error(err) => {
+                                        warn!("when reapplying aggregation just marked as sent: {err}");
+                                    }
+                                }
                             }
                         }
+
+                        // Early return: we've found the event to mark as sent, it was an
+                        // aggregation.
+                        return;
                     }
+
+                    MarkAggregationSentResult::NotFound => {}
                 }
             }
 
@@ -878,7 +902,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         let Some(local_item) = item.as_local() else {
-            warn!("We looked for a local item, but it transitioned to remote??");
+            warn!("We looked for a local item, but it transitioned to remote.");
             return;
         };
 
@@ -888,25 +912,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
-        // If the event had local reactions, upgrade the mapping from reaction to
-        // events, to indicate that the event is now remote.
+        // If the event has just been marked as sent, update the aggregations mapping to
+        // take that into account.
         if let Some(new_event_id) = new_event_id {
-            let reactions = item.reactions();
-            for (_key, by_user) in reactions.iter() {
-                for (_user_id, info) in by_user.iter() {
-                    if let ReactionStatus::LocalToLocal(Some(reaction_handle)) = &info.status {
-                        let reaction_txn_id = reaction_handle.transaction_id().to_owned();
-                        if let Some(found) = txn
-                            .meta
-                            .reactions
-                            .map
-                            .get_mut(&TimelineEventItemId::TransactionId(reaction_txn_id))
-                        {
-                            found.item = TimelineEventItemId::EventId(new_event_id.to_owned());
-                        }
-                    }
-                }
-            }
+            txn.meta.aggregations.mark_target_as_sent(txn_id.to_owned(), new_event_id.to_owned());
         }
 
         let new_item = item.with_inner_kind(local_item.with_send_state(send_state));
@@ -934,41 +943,42 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             txn.commit();
 
-            debug!("Discarded local echo");
+            debug!("discarded local echo");
             return true;
         }
 
-        // Look if this was a local reaction echo.
-        if let Some(full_key) =
-            state.meta.reactions.map.remove(&TimelineEventItemId::TransactionId(txn_id.to_owned()))
-        {
-            let item = match &full_key.item {
-                TimelineEventItemId::TransactionId(txn_id) => {
-                    rfind_event_item(&state.items, |item| item.transaction_id() == Some(txn_id))
-                }
-                TimelineEventItemId::EventId(event_id) => rfind_event_by_id(&state.items, event_id),
-            };
+        // Avoid multiple mutable and immutable borrows of the lock guard by explicitly
+        // dereferencing it once.
+        let state = &mut *state;
 
-            let Some((idx, item)) = item else {
-                warn!("missing reacted-to item for a reaction");
+        // Look if this was a local aggregation.
+        if let Some((target, aggregation)) = state
+            .meta
+            .aggregations
+            .try_remove_aggregation(&TimelineEventItemId::TransactionId(txn_id.to_owned()))
+        {
+            let Some((item_pos, item)) = rfind_event_by_item_id(&state.items, target) else {
+                warn!("missing target item for a local aggregation");
                 return false;
             };
 
-            let mut reactions = item.reactions().clone();
-            if reactions.remove_reaction(&full_key.sender, &full_key.key).is_some() {
-                let updated_item = item.with_reactions(reactions);
-                state.items.replace(idx, updated_item);
-            } else {
-                warn!(
-                    "missing reaction {} for sender {} on timeline item",
-                    full_key.key, full_key.sender
-                );
+            let mut content = item.content().clone();
+            match aggregation.unapply(&mut content) {
+                ApplyAggregationResult::UpdatedItem => {
+                    trace!("removed local reaction to local echo");
+                    let internal_id = item.internal_id.clone();
+                    let new_item = item.with_content(content);
+                    state.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
+                }
+                ApplyAggregationResult::LeftItemIntact => {}
+                ApplyAggregationResult::Error(err) => {
+                    warn!("when undoing local aggregation: {err}");
+                }
             }
 
             return true;
         }
 
-        debug!("Can't find local echo to discard");
         false
     }
 
@@ -1007,10 +1017,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         // Replace the local-related state (kind) and the content state.
+        let prev_reactions = prev_item.content().reactions();
         let new_item = TimelineItem::new(
-            prev_item
-                .with_kind(ti_kind)
-                .with_content(TimelineItemContent::message(content, None, &txn.items)),
+            prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
+                content,
+                None,
+                &txn.items,
+                prev_reactions,
+            )),
             prev_item.internal_id.to_owned(),
         );
 
@@ -1346,39 +1360,26 @@ impl<P: RoomDataProvider> TimelineController<P> {
         applies_to: OwnedTransactionId,
     ) {
         let mut state = self.state.write().await;
+        let mut tr = state.transaction();
 
-        let Some((item_pos, item)) =
-            rfind_event_item(&state.items, |item| item.transaction_id() == Some(&applies_to))
-        else {
-            warn!("Local item not found anymore.");
-            return;
-        };
-
-        let user_id = self.room_data_provider.own_user_id();
+        let target = TimelineEventItemId::TransactionId(applies_to);
 
         let reaction_txn_id = send_handle.transaction_id().to_owned();
-        let reaction_info = ReactionInfo {
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-            status: ReactionStatus::LocalToLocal(Some(send_handle)),
-        };
-
-        let mut reactions = item.reactions().clone();
-        let by_user = reactions.entry(reaction_key.clone()).or_default();
-        by_user.insert(user_id.to_owned(), reaction_info);
-
-        trace!("Adding local reaction to local echo");
-        let new_item = item.with_reactions(reactions);
-        state.items.replace(item_pos, new_item);
-
-        // Add it to the reaction map, so we can discard it later if needs be.
-        state.meta.reactions.map.insert(
+        let reaction_status = ReactionStatus::LocalToLocal(Some(send_handle));
+        let aggregation = Aggregation::new(
             TimelineEventItemId::TransactionId(reaction_txn_id),
-            FullReactionKey {
-                item: TimelineEventItemId::TransactionId(applies_to),
-                key: reaction_key,
-                sender: user_id.to_owned(),
+            AggregationKind::Reaction {
+                key: reaction_key.clone(),
+                sender: self.room_data_provider.own_user_id().to_owned(),
+                timestamp: MilliSecondsSinceUnixEpoch::now(),
+                reaction_status,
             },
         );
+
+        tr.meta.aggregations.add(target.clone(), aggregation.clone());
+        find_item_and_apply_aggregation(&mut tr.items, &target, aggregation);
+
+        tr.commit();
     }
 
     /// Handle a single room send queue update.

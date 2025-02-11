@@ -48,7 +48,9 @@ use tokio::time::sleep;
 
 use super::TestTimeline;
 use crate::{
-    timeline::{EncryptedMessage, TimelineDetails, TimelineItemContent},
+    timeline::{
+        tests::TestTimelineBuilder, EncryptedMessage, TimelineDetails, TimelineItemContent,
+    },
     unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
 
@@ -84,7 +86,7 @@ async fn test_retry_message_decryption() {
     let client = test_client_builder(None).build().await.unwrap();
     let utd_hook = Arc::new(UtdHookManager::new(hook.clone(), client));
 
-    let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
+    let timeline = TestTimelineBuilder::new().unable_to_decrypt_hook(utd_hook.clone()).build();
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -185,7 +187,7 @@ async fn test_false_positive_late_decryption_regression() {
     let utd_hook =
         Arc::new(UtdHookManager::new(hook.clone(), client).with_max_delay(Duration::from_secs(1)));
 
-    let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
+    let timeline = TestTimelineBuilder::new().unable_to_decrypt_hook(utd_hook.clone()).build();
 
     let f = &timeline.factory;
     timeline

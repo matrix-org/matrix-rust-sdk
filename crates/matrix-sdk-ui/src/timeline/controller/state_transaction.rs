@@ -433,7 +433,7 @@ impl<'a> TimelineStateTransaction<'a> {
         if let Some(event_meta) = self.items.all_remote_events().get(event_index) {
             // Fetch the `timeline_item_index` associated to the remote event.
             if let Some(timeline_item_index) = event_meta.timeline_item_index {
-                let _removed_timeline_item = self.items.remove(timeline_item_index);
+                let _ = self.items.remove(timeline_item_index);
             }
 
             // Now we can remove the remote event.
@@ -570,13 +570,17 @@ impl<'a> TimelineStateTransaction<'a> {
     /// This method replaces the `is_room_encrypted` value for all timeline
     /// items to its updated version and creates a `VectorDiff::Set` operation
     /// for each item which will be added to this transaction.
-    pub(super) fn update_all_events_is_room_encrypted(&mut self, is_encrypted: Option<bool>) {
+    pub(super) fn mark_all_events_as_encrypted(&mut self) {
         for idx in 0..self.items.len() {
             let item = &self.items[idx];
 
             if let Some(event) = item.as_event() {
+                if event.is_room_encrypted {
+                    continue;
+                }
+
                 let mut cloned_event = event.clone();
-                cloned_event.is_room_encrypted = is_encrypted;
+                cloned_event.is_room_encrypted = true;
 
                 // Replace the existing item with a new version with the right encryption flag
                 let item = item.with_kind(cloned_event);
