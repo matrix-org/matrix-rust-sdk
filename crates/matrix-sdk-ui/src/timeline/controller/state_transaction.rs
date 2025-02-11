@@ -278,7 +278,14 @@ impl<'a> TimelineStateTransaction<'a> {
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    TimelineEventKind::from_event(event, &raw, room_data_provider, utd_info).await,
+                    TimelineEventKind::from_event(
+                        event,
+                        &raw,
+                        room_data_provider,
+                        utd_info,
+                        &self.meta,
+                    )
+                    .await,
                     should_add,
                 )
             }
