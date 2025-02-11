@@ -320,13 +320,11 @@ impl_event_cache_store!({
                     let object_store = tx.object_store(keys::EVENTS)?;
 
                     for (i, event) in items.into_iter().enumerate() {
-                        let event_id = format!("{}-{}", chunk_id, i);
-                        let event_id_js_value = JsValue::from_str(&event_id);
                         let index = at.index() + i;
                         // Can the ID be encrypted when inserting?
-                        let value = serde_json::json!({ "id": event_id, "content": event, "room_id": room_id.to_string(), "position": index });
+                        let value = serde_json::json!({ "id": format!("{room_id}-{chunk_id}-{index}"), "content": event, "room_id": room_id.to_string(), "position": index });
                         let value = self.serializer.serialize_value(&value)?;
-                        object_store.add_key_val(&event_id_js_value, &value)?;
+                        object_store.add_val(&value)?;
                     }
                 }
                 Update::ReplaceItem { at, item } => {
