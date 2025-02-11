@@ -137,6 +137,11 @@ pub(super) struct TimelineEventContext {
 
 #[derive(Clone, Debug)]
 pub(super) enum TimelineEventKind {
+    AddItem {
+        content: TimelineItemContent,
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
+    },
+
     /// The common case: a message-like item.
     Message {
         content: AnyMessageLikeEventContent,
@@ -144,16 +149,23 @@ pub(super) enum TimelineEventKind {
     },
 
     /// An encrypted event that could not be decrypted
-    UnableToDecrypt { content: RoomEncryptedEventContent, utd_cause: UtdCause },
+    UnableToDecrypt {
+        content: RoomEncryptedEventContent,
+        utd_cause: UtdCause,
+    },
 
     /// Some remote event that was redacted a priori, i.e. we never had the
     /// original content, so we'll just display a dummy redacted timeline
     /// item.
-    RedactedMessage { event_type: MessageLikeEventType },
+    RedactedMessage {
+        event_type: MessageLikeEventType,
+    },
 
     /// We're redacting a remote event that we may or may not know about (i.e.
     /// the redacted event *may* have a corresponding timeline item).
-    Redaction { redacts: OwnedEventId },
+    Redaction {
+        redacts: OwnedEventId,
+    },
 
     /// A timeline event for a room membership update.
     RoomMember {
@@ -163,12 +175,18 @@ pub(super) enum TimelineEventKind {
     },
 
     /// A state update that's not a [`Self::RoomMember`] event.
-    OtherState { state_key: String, content: AnyOtherFullStateEventContent },
+    OtherState {
+        state_key: String,
+        content: AnyOtherFullStateEventContent,
+    },
 
     /// If the timeline is configured to display events that failed to parse, a
     /// special item indicating a message-like event that couldn't be
     /// deserialized.
-    FailedToParseMessageLike { event_type: MessageLikeEventType, error: Arc<serde_json::Error> },
+    FailedToParseMessageLike {
+        event_type: MessageLikeEventType,
+        error: Arc<serde_json::Error>,
+    },
 
     /// If the timeline is configured to display events that failed to parse, a
     /// special item indicating a state event that couldn't be deserialized.
@@ -391,6 +409,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let should_add = self.ctx.should_add_new_items;
 
         match event_kind {
+            TimelineEventKind::AddItem { content, edit_json } => {
+                if should_add {
+                    self.add_item(content, edit_json);
+                }
+            }
+
             TimelineEventKind::Message { content, relations } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => {
                     self.handle_reaction(c);
