@@ -64,7 +64,6 @@ pub(super) use self::{
 };
 use super::{
     algorithms::{rfind_event_by_id, rfind_event_item},
-    event_handler::TimelineEventKind,
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
@@ -781,7 +780,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(super) async fn handle_local_event(
         &self,
         txn_id: OwnedTransactionId,
-        content: TimelineEventKind,
+        content: AnyMessageLikeEventContent,
         send_handle: Option<SendHandle>,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
@@ -1204,12 +1203,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     }
                 };
 
-                self.handle_local_event(
-                    echo.transaction_id.clone(),
-                    TimelineEventKind::Message { content, relations: Default::default() },
-                    Some(send_handle),
-                )
-                .await;
+                self.handle_local_event(echo.transaction_id.clone(), content, Some(send_handle))
+                    .await;
 
                 if let Some(send_error) = send_error {
                     self.update_event_send_state(
