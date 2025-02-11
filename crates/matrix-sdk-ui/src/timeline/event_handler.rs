@@ -123,7 +123,6 @@ pub(super) struct TimelineEventContext {
     pub(super) sender_profile: Option<Profile>,
     /// The event's `origin_server_ts` field (or creation time for local echo).
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
-    pub(super) is_own_event: bool,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
     pub(super) flow: Flow,
@@ -1087,7 +1086,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     event_id: event_id.clone(),
                     transaction_id: txn_id.clone(),
                     read_receipts: self.ctx.read_receipts.clone(),
-                    is_own: self.ctx.is_own_event,
+                    is_own: self.ctx.sender == self.meta.own_user_id,
                     is_highlighted: self.ctx.is_highlighted,
                     encryption_info: encryption_info.clone(),
                     original_json: Some(raw_event.clone()),
