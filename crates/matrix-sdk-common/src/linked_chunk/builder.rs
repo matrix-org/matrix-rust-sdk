@@ -213,6 +213,109 @@ pub enum LinkedChunkBuilderError {
     ChunkTooLarge { id: ChunkIdentifier },
 }
 
+#[cfg(test)]
+mod tests {
+
+    use assert_matches::assert_matches;
+
+    use super::{
+        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkBuilder,
+        LinkedChunkBuilderError, RawChunk,
+    };
+
+    #[test]
+    fn test_from_last_chunk_err_too_much_items() {
+        let last_chunk = RawChunk {
+            previous: None,
+            identifier: ChunkIdentifier::new(0),
+            next: None,
+            content: ChunkContent::Items(vec!['a', 'b', 'c']),
+        };
+        let chunk_identifier_generator =
+            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(ChunkIdentifier::new(0));
+
+        let maybe_linked_chunk = LinkedChunkBuilder::from_last_chunk::<2, char, ()>(
+            Some(last_chunk),
+            chunk_identifier_generator,
+        );
+
+        assert_matches!(
+            maybe_linked_chunk,
+            Err(LinkedChunkBuilderError::ChunkTooLarge { id }) => {
+                assert_eq!(id, 0);
+            }
+        );
+    }
+
+    #[test]
+    fn test_from_last_chunk_err_is_not_last_chunk() {
+        let last_chunk = RawChunk {
+            previous: None,
+            identifier: ChunkIdentifier::new(0),
+            next: Some(ChunkIdentifier::new(42)),
+            content: ChunkContent::Items(vec!['a']),
+        };
+        let chunk_identifier_generator =
+            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(ChunkIdentifier::new(0));
+
+        let maybe_linked_chunk = LinkedChunkBuilder::from_last_chunk::<2, char, ()>(
+            Some(last_chunk),
+            chunk_identifier_generator,
+        );
+
+        assert_matches!(
+            maybe_linked_chunk,
+            Err(LinkedChunkBuilderError::ChunkIsNotLast { id }) => {
+                assert_eq!(id, 0);
+            }
+        );
+    }
+
+    #[test]
+    fn test_from_last_chunk_none() {
+        let chunk_identifier_generator =
+            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(ChunkIdentifier::new(0));
+
+        let maybe_linked_chunk =
+            LinkedChunkBuilder::from_last_chunk::<2, char, ()>(None, chunk_identifier_generator)
+                .unwrap();
+
+        assert!(maybe_linked_chunk.is_none());
+    }
+
+    #[test]
+    fn test_from_last_chunk() {
+        let last_chunk = RawChunk {
+            previous: Some(ChunkIdentifier::new(42)),
+            identifier: ChunkIdentifier::new(0),
+            next: None,
+            content: ChunkContent::Items(vec!['a']),
+        };
+        let chunk_identifier_generator =
+            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(ChunkIdentifier::new(0));
+
+        let maybe_linked_chunk = LinkedChunkBuilder::from_last_chunk::<2, char, ()>(
+            Some(last_chunk),
+            chunk_identifier_generator,
+        )
+        .unwrap();
+
+        assert_matches!(maybe_linked_chunk, Some(mut linked_chunk) => {
+            let mut chunks = linked_chunk.chunks();
+
+            assert_matches!(chunks.next(), Some(chunk) => {
+                assert_eq!(chunk.identifier(), 0);
+                // The chunk's previous has been set to `None`
+                assert!(chunk.previous().is_none());
+            });
+            assert!(chunks.next().is_none());
+
+            // It has updates enabled.
+            assert!(linked_chunk.updates().is_some());
+        });
+    }
+}
+
 /// A temporary chunk representation in the [`LinkedChunkBuilderTest`].
 ///
 /// Instead of using linking the chunks with pointers, this uses
@@ -480,7 +583,7 @@ pub enum LinkedChunkBuilderTestError {
 }
 
 #[cfg(test)]
-mod tests {
+mod linked_builder_test_tests {
     use assert_matches::assert_matches;
 
     use super::{ChunkIdentifier, LinkedChunkBuilderTest, LinkedChunkBuilderTestError};
