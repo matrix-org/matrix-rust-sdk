@@ -11,7 +11,7 @@ use matrix_sdk::{
     Account,
 };
 use ruma::UserId;
-use tracing::error;
+use tracing::{error, warn};
 
 use super::RUNTIME;
 use crate::{client::UserProfile, error::ClientError, utils::Timestamp};
@@ -235,6 +235,15 @@ impl SessionVerificationController {
         sender: &UserId,
         flow_id: impl AsRef<str>,
     ) {
+        if sender != self.user_identity.user_id() {
+            if let Some(status) = self.encryption.cross_signing_status().await {
+                if !status.is_complete() {
+                    warn!("Cannot verify other users until our own device's cross-signing status is complete: {:?}", status);
+                    return;
+                }
+            }
+        }
+
         let Some(request) = self.encryption.get_verification_request(sender, flow_id).await else {
             error!("Failed retrieving verification request");
             return;
