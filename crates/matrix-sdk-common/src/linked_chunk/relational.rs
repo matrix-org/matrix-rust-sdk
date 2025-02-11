@@ -468,6 +468,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use ruma::room_id;
 
     use super::{ChunkIdentifier as CId, *};
@@ -1111,5 +1112,142 @@ mod tests {
         assert_eq!(*events.next().unwrap(), 'e');
         assert_eq!(*events.next().unwrap(), 'f');
         assert!(events.next().is_none());
+    }
+
+    #[test]
+    fn test_load_last_chunk() {
+        let room_id = room_id!("!r0:matrix.org");
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
+
+        // Case #1: no last chunk.
+        {
+            let (last_chunk, chunk_identifier_generator) =
+                relational_linked_chunk.load_last_chunk(room_id).unwrap();
+
+            assert!(last_chunk.is_none());
+            assert_eq!(chunk_identifier_generator.current(), 0);
+        }
+
+        // Case #2: only one chunk is present.
+        {
+            relational_linked_chunk.apply_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                    Update::PushItems { at: Position::new(CId::new(42), 0), items: vec!['a', 'b'] },
+                ],
+            );
+
+            let (last_chunk, chunk_identifier_generator) =
+                relational_linked_chunk.load_last_chunk(room_id).unwrap();
+
+            assert_matches!(last_chunk, Some(last_chunk) => {
+                assert_eq!(last_chunk.identifier, 42);
+                assert!(last_chunk.previous.is_none());
+                assert!(last_chunk.next.is_none());
+                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 2);
+                    assert_eq!(items, &['a', 'b']);
+                });
+            });
+            assert_eq!(chunk_identifier_generator.current(), 42);
+        }
+
+        // Case #3: more chunks are present.
+        {
+            relational_linked_chunk.apply_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: Some(CId::new(42)),
+                        new: CId::new(7),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(CId::new(7), 0),
+                        items: vec!['c', 'd', 'e'],
+                    },
+                ],
+            );
+
+            let (last_chunk, chunk_identifier_generator) =
+                relational_linked_chunk.load_last_chunk(room_id).unwrap();
+
+            assert_matches!(last_chunk, Some(last_chunk) => {
+                assert_eq!(last_chunk.identifier, 7);
+                assert_matches!(last_chunk.previous, Some(previous) => {
+                    assert_eq!(previous, 42);
+                });
+                assert!(last_chunk.next.is_none());
+                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 3);
+                    assert_eq!(items, &['c', 'd', 'e']);
+                });
+            });
+            assert_eq!(chunk_identifier_generator.current(), 42);
+        }
+    }
+
+    #[test]
+    fn test_load_previous_chunk() {
+        let room_id = room_id!("!r0:matrix.org");
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
+
+        // Case #1: no chunk at all, equivalent to having an inexistent
+        // `before_chunk_identifier`.
+        {
+            let previous_chunk =
+                relational_linked_chunk.load_previous_chunk(room_id, CId::new(153)).unwrap();
+
+            assert!(previous_chunk.is_none());
+        }
+
+        // Case #2: there is one chunk only: we request the previous on this
+        // one, it doesn't exist.
+        {
+            relational_linked_chunk.apply_updates(
+                room_id,
+                vec![Update::NewItemsChunk { previous: None, new: CId::new(42), next: None }],
+            );
+
+            let previous_chunk =
+                relational_linked_chunk.load_previous_chunk(room_id, CId::new(42)).unwrap();
+
+            assert!(previous_chunk.is_none());
+        }
+
+        // Case #3: there is two chunks.
+        {
+            relational_linked_chunk.apply_updates(
+                room_id,
+                vec![
+                    // new chunk before the one that exists.
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: CId::new(7),
+                        next: Some(CId::new(42)),
+                    },
+                    Update::PushItems {
+                        at: Position::new(CId::new(7), 0),
+                        items: vec!['a', 'b', 'c'],
+                    },
+                ],
+            );
+
+            let previous_chunk =
+                relational_linked_chunk.load_previous_chunk(room_id, CId::new(42)).unwrap();
+
+            assert_matches!(previous_chunk, Some(previous_chunk) => {
+                assert_eq!(previous_chunk.identifier, 7);
+                assert!(previous_chunk.previous.is_none());
+                assert_matches!(previous_chunk.next, Some(next) => {
+                    assert_eq!(next, 42);
+                });
+                assert_matches!(previous_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 3);
+                    assert_eq!(items, &['a', 'b', 'c']);
+                });
+            });
+        }
     }
 }
