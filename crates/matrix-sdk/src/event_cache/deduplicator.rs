@@ -210,14 +210,15 @@ mod tests {
 
         deduplicator.learn(once(&event_0));
 
-        // `RoomEvents` is used to check false-positive from the bloom filter. `event_0`
-        // and `event_2` are going to be detected as positive (duplicated), so
-        // `RoomEvents` will be used. We need to insert `event_0` and `event_2` in it
-        // too.
+        // We need to push the events inside `RoomEvents` too. Why? When we are going to
+        // call `scan_and_learn`, `Deduplicator` will find that `event_0` and `event_2`
+        // are duplicated. Good! However, a bloom filter has false-positives, so
+        // `Deduplicator` will check the duplicates are really duplicates by using
+        // `RoomEvents`. If events are absent from `RoomEvents`, `Deduplicator` will
+        // understand they are false positives. For this test, we want them to be
+        // detected as duplicates. We need to push the events inside `RoomEvents.`
         existing_events.push_events([event_0.clone(), event_2.clone()]);
 
-        // `event_0` and `event_2` are already known by `Deduplicator`. Let's scan and
-        // see.
         let mut events =
             deduplicator.scan_and_learn([event_0, event_1, event_2].into_iter(), &existing_events);
         assert_let!(Some(Decoration::Duplicated(event)) = events.next());
