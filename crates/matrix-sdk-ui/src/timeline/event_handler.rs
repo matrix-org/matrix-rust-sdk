@@ -36,7 +36,6 @@ use ruma::{
         receipt::Receipt,
         relation::Replacement,
         room::{
-            encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
             message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
@@ -148,12 +147,6 @@ pub(super) enum TimelineEventKind {
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     },
 
-    /// An encrypted event that could not be decrypted
-    UnableToDecrypt {
-        content: RoomEncryptedEventContent,
-        utd_cause: UtdCause,
-    },
-
     /// Some remote event that was redacted a priori, i.e. we never had the
     /// original content, so we'll just display a dummy redacted timeline
     /// item.
@@ -198,8 +191,10 @@ impl TimelineEventKind {
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
+        meta: &TimelineMetadata,
     ) -> Self {
         let room_version = room_data_provider.room_version();
+
         match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(&room_version).map(ToOwned::to_owned) {
@@ -208,6 +203,7 @@ impl TimelineEventKind {
                     Self::RedactedMessage { event_type: ev.event_type() }
                 }
             }
+
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(AnyMessageLikeEventContent::RoomEncrypted(content)) => {
                     // An event which is still encrypted.
@@ -217,7 +213,27 @@ impl TimelineEventKind {
                             room_data_provider.crypto_context_info().await,
                             &unable_to_decrypt_info,
                         );
-                        Self::UnableToDecrypt { content, utd_cause }
+
+                        // Let the hook know that we ran into an unable-to-decrypt that is added to
+                        // the timeline.
+                        if let Some(hook) = meta.unable_to_decrypt_hook.as_ref() {
+                            hook.on_utd(
+                                ev.event_id(),
+                                utd_cause,
+                                ev.origin_server_ts(),
+                                ev.sender(),
+                            )
+                            .await;
+                        }
+
+                        Self::AddItem {
+                            content: TimelineItemContent::MsgLike(
+                                MsgLikeContent::unable_to_decrypt(EncryptedMessage::from_content(
+                                    content, utd_cause,
+                                )),
+                            ),
+                            edit_json: None,
+                        }
                     } else {
                         // If we get here, it means that some part of the code has created a
                         // `TimelineEvent` containing an `m.room.encrypted` event
@@ -233,6 +249,7 @@ impl TimelineEventKind {
                 Some(content) => Self::Message { content, relations: ev.relations() },
                 None => Self::RedactedMessage { event_type: ev.event_type() },
             },
+
             AnySyncTimelineEvent::State(ev) => match ev {
                 AnySyncStateEvent::RoomMember(ev) => match ev {
                     SyncStateEvent::Original(ev) => Self::RoomMember {
@@ -482,27 +499,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     );
                 }
             },
-
-            TimelineEventKind::UnableToDecrypt { content, utd_cause } => {
-                // TODO: Handle replacements if the replaced event is also UTD
-                if should_add {
-                    self.add_item(
-                        TimelineItemContent::MsgLike(MsgLikeContent::unable_to_decrypt(
-                            EncryptedMessage::from_content(content, utd_cause),
-                        )),
-                        None,
-                    );
-                }
-
-                // Let the hook know that we ran into an unable-to-decrypt that is added to the
-                // timeline.
-                if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
-                    if let Some(event_id) = &self.ctx.flow.event_id() {
-                        hook.on_utd(event_id, utd_cause, self.ctx.timestamp, &self.ctx.sender)
-                            .await;
-                    }
-                }
-            }
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction && should_add {
