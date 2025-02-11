@@ -321,8 +321,6 @@ pub(crate) struct FullEventMeta<'a> {
     pub visible: bool,
     /// The sender of the event.
     pub sender: Option<&'a UserId>,
-    /// Whether this event was sent by our own user.
-    pub is_own_event: bool,
     /// The timestamp of the event.
     pub timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
