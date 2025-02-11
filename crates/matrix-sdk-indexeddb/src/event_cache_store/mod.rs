@@ -51,6 +51,8 @@ use ruma::{
     RoomId,
 };
 
+use serde::Deserialize;
+use serde::Serialize;
 use tracing::trace;
 use wasm_bindgen::JsValue;
 use web_sys::IdbTransactionMode;
@@ -108,6 +110,14 @@ macro_rules! impl_event_cache_store {
     };
 }
 
+#[derive(Serialize, Deserialize)]
+struct Chunk {
+    id: String,
+    previous: Option<u64>,
+    next: Option<u64>,
+    type_str: String,
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 macro_rules! impl_state_store {
     ({ $($body:tt)* }) => {
@@ -123,10 +133,6 @@ impl_event_cache_store!({
         room_id: &RoomId,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
-        // TODO not sure if this should be a String or JsValue (which I assume is a ByteArray)
-        let hashed_room_id = self.serializer.encode_key_as_string(keys::LINKED_CHUNKS, room_id);
-        let room_id = room_id.to_owned();
-
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
@@ -141,17 +147,62 @@ impl_event_cache_store!({
                     let new = new.index();
                     let next = next.as_ref().map(ChunkIdentifier::index);
 
-                    trace!(%room_id,"Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
+                    trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
 
-                    idb_operations::insert_chunk(
-                        &object_store,
-                        &hashed_room_id,
+                    let chunk = Chunk {
+                        id: format!("{room_id}-{new}"),
                         previous,
-                        new,
                         next,
-                        CHUNK_TYPE_EVENT_TYPE_STRING,
-                    )
-                    .await?;
+                        type_str: CHUNK_TYPE_EVENT_TYPE_STRING.to_owned(),
+                    };
+
+                    let serialized_value = self.serializer.serialize_value(&chunk)?;
+
+                    object_store.add_val(&serialized_value)?;
+
+                    // Update previous if there
+                    if let Some(previous) = previous {
+                        let previous_id = self
+                            .serializer
+                            .encode_key_as_string(&room_id.to_string(), previous.to_string());
+                        let previous_chunk_js_value =
+                            object_store.get_owned(&previous_id)?.await?.unwrap();
+
+                        let previous_chunk: Chunk =
+                            self.serializer.deserialize_value(previous_chunk_js_value)?;
+
+                        let updated_previous_chunk = Chunk {
+                            id: previous_id,
+                            previous: previous_chunk.previous,
+                            next: Some(new),
+                            type_str: previous_chunk.type_str,
+                        };
+                        let updated_previous_value =
+                            self.serializer.serialize_value(&updated_previous_chunk)?;
+                        object_store.put_val(&updated_previous_value)?;
+                    }
+
+                    // update next if there
+                    if let Some(next) = next {
+                        let next_id = self
+                            .serializer
+                            .encode_key_as_string(&room_id.to_string(), next.to_string());
+                        // TODO unsafe unwrap()?
+                        let next_chunk_js_value = object_store.get_owned(&next_id)?.await?.unwrap();
+                        let next_chunk: Chunk =
+                            self.serializer.deserialize_value(next_chunk_js_value)?;
+
+                        let updated_next_chunk = Chunk {
+                            id: next_chunk.id,
+                            previous: Some(new),
+                            next: next_chunk.next,
+                            type_str: next_chunk.type_str,
+                        };
+                        let updated_next_value =
+                            self.serializer.serialize_value(&updated_next_chunk)?;
+
+                        object_store.put_val(&updated_next_value)?;
+                    }
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
                     let tx = self.inner.transaction_on_one_with_mode(
@@ -161,7 +212,7 @@ impl_event_cache_store!({
 
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-                    let prev_token = self.serializer.serialize_value(&gap.prev_token)?;
+                    // let prev_token = self.serializer.serialize_value(&gap.prev_token)?;
 
                     let previous = previous.as_ref().map(ChunkIdentifier::index);
                     let new = new.index();
@@ -169,15 +220,16 @@ impl_event_cache_store!({
 
                     trace!(%room_id,"Inserting new gap (prev={previous:?}, new={new}, next={next:?})");
 
-                    idb_operations::insert_chunk(
-                        &object_store,
-                        &hashed_room_id,
+                    let chunk = Chunk {
+                        id: format!("{room_id}-{new}"),
                         previous,
-                        new,
                         next,
-                        CHUNK_TYPE_GAP_TYPE_STRING,
-                    )
-                    .await?;
+                        type_str: CHUNK_TYPE_GAP_TYPE_STRING.to_owned(),
+                    };
+
+                    let serialized_value = self.serializer.serialize_value(&chunk)?;
+
+                    object_store.add_val(&serialized_value)?;
 
                     let tx = self
                         .inner
@@ -185,7 +237,14 @@ impl_event_cache_store!({
 
                     let object_store = tx.object_store(keys::GAPS)?;
 
-                    idb_operations::insert_gap(&object_store, &hashed_room_id, new, &prev_token)?
+                    let gap = serde_json::json!({
+                        "id": format!("{room_id}-{new}"),
+                        "prev_token": gap.prev_token
+                    });
+
+                    let serialized_gap = self.serializer.serialize_value(&gap)?;
+
+                    object_store.add_val(&serialized_gap)?;
                 }
                 Update::RemoveChunk(id) => {
                     let tx = self.inner.transaction_on_one_with_mode(
@@ -195,17 +254,58 @@ impl_event_cache_store!({
 
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
+                    let id = self
+                        .serializer
+                        .encode_key_as_string(&room_id.to_string(), &id.index().to_string());
+
                     trace!("Removing chunk {id:?}");
 
                     // Remove the chunk itself
-                    idb_operations::remove_chunk(&object_store, &hashed_room_id, id.index())
-                        .await?;
+                    let chunk_to_delete_js_value = object_store.get_owned(id)?.await?.unwrap();
+                    let chunk_to_delete: Chunk =
+                        self.serializer.deserialize_value(chunk_to_delete_js_value)?;
 
-                    // Now remove the events (if any) linked to the chunk
-                    // What is the max events a LinkedChunk holds so I can iterate through all the possible values
-                    // [1..MAX_LINKED_CHUNK_EVENTS].forEach(|i| {
-                    // Do  the deletion of all the events for the chunk
-                    //})
+                    if let Some(previous) = chunk_to_delete.previous {
+                        let previous_id = self
+                            .serializer
+                            .encode_key_as_string(&room_id.to_string(), previous.to_string());
+                        let previous_chunk_js_value =
+                            object_store.get_owned(&previous_id)?.await?.unwrap();
+                        let previous_chunk: Chunk =
+                            self.serializer.deserialize_value(previous_chunk_js_value)?;
+
+                        let updated_previous_chunk = Chunk {
+                            id: previous_id,
+                            previous: previous_chunk.previous,
+                            next: chunk_to_delete.next,
+                            type_str: previous_chunk.type_str,
+                        };
+                        let updated_previous_value =
+                            self.serializer.serialize_value(&updated_previous_chunk)?;
+                        object_store.put_val(&updated_previous_value)?;
+                    }
+
+                    if let Some(next) = chunk_to_delete.next {
+                        let next_id = self
+                            .serializer
+                            .encode_key_as_string(&room_id.to_string(), next.to_string());
+                        let next_chunk_js_value = object_store.get_owned(&next_id)?.await?.unwrap();
+                        let next_chunk: Chunk =
+                            self.serializer.deserialize_value(next_chunk_js_value)?;
+
+                        let updated_next_chunk = Chunk {
+                            id: next_id,
+                            previous: chunk_to_delete.previous,
+                            next: next_chunk.next,
+                            type_str: next_chunk.type_str,
+                        };
+                        let updated_next_value =
+                            self.serializer.serialize_value(&updated_next_chunk)?;
+
+                        object_store.put_val(&updated_next_value)?;
+                    }
+
+                    object_store.delete_owned(id)?;
                 }
                 Update::PushItems { at, items } => {
                     let chunk_id = at.chunk_identifier().index();
@@ -286,8 +386,10 @@ impl_event_cache_store!({
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    // We need to remove ALL the items >= index
-                    // But since we are on no sql, we can't do a range query
+                    let key_range =
+                        self.serializer.encode_to_range(keys::EVENTS, chunk_id.to_string())?;
+
+                    object_store.get_all_with_key(&key_range)?.for_each(|entry| {});
                 }
                 Update::StartReattachItems => {}
                 Update::EndReattachItems => {}

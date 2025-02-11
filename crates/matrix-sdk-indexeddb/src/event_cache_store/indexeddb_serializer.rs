@@ -24,7 +24,7 @@ use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::JsValue;
-// use web_sys::IdbKeyRange;
+use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;
 
 use crate::{safe_encode::SafeEncode, IndexeddbEventCacheStoreError};
@@ -86,25 +86,25 @@ impl IndexeddbSerializer {
         }
     }
 
-    // pub fn encode_to_range<T>(
-    //     &self,
-    //     table_name: &str,
-    //     key: T,
-    // ) -> Result<IdbKeyRange, IndexeddbEventCacheStoreError>
-    // where
-    //     T: SafeEncode,
-    // {
-    //     match &self.store_cipher {
-    //         Some(cipher) => key.encode_to_range_secure(table_name, cipher),
-    //         None => key.encode_to_range(),
-    //     }
-    //     .map_err(|e| IndexeddbEventCacheStoreError::DomException {
-    //         code: 0,
-    //         name: "IdbKeyRangeMakeError".to_owned(),
-    //         message: e,
-    //     })
-    // }
-    //
+    pub fn encode_to_range<T>(
+        &self,
+        table_name: &str,
+        key: T,
+    ) -> Result<IdbKeyRange, IndexeddbEventCacheStoreError>
+    where
+        T: SafeEncode,
+    {
+        match &self.store_cipher {
+            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
+            None => key.encode_to_range(),
+        }
+        .map_err(|e| IndexeddbEventCacheStoreError::DomException {
+            code: 0,
+            name: "IdbKeyRangeMakeError".to_owned(),
+            message: e,
+        })
+    }
+
     /// Encode the value for storage as a value in indexeddb.
     ///
     /// A thin wrapper around [`IndexeddbSerializer::maybe_encrypt_value`]:
