@@ -754,7 +754,7 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
 
-        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+        let (events, mut stream) = room_event_cache.subscribe().await;
 
         assert!(events.is_empty());
 
@@ -912,7 +912,7 @@ mod tests {
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (initial_events, _) = room_event_cache.subscribe().await.unwrap();
+        let (initial_events, _) = room_event_cache.subscribe().await;
         // `add_initial_events` had an effect.
         assert_eq!(initial_events.len(), 1);
     }

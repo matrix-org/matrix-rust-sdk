@@ -77,11 +77,11 @@ impl RoomEventCache {
 
     /// Subscribe to this room updates, after getting the initial list of
     /// events.
-    pub async fn subscribe(&self) -> Result<(Vec<TimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
+    pub async fn subscribe(&self) -> (Vec<TimelineEvent>, Receiver<RoomEventCacheUpdate>) {
         let state = self.inner.state.read().await;
         let events = state.events().events().map(|(_position, item)| item.clone()).collect();
 
-        Ok((events, self.inner.sender.subscribe()))
+        (events, self.inner.sender.subscribe())
     }
 
     /// Return a [`RoomPagination`] API object useful for running
@@ -1218,7 +1218,7 @@ mod tests {
 
         // The in-memory linked chunk keeps the bundled relation.
         {
-            let (events, _) = room_event_cache.subscribe().await.unwrap();
+            let (events, _) = room_event_cache.subscribe().await;
 
             assert_eq!(events.len(), 1);
 
@@ -1336,7 +1336,7 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
+        let (items, mut stream) = room_event_cache.subscribe().await;
 
         // The rooms knows about the cached events.
         assert!(room_event_cache.event(event_id1).await.is_some());
@@ -1361,7 +1361,7 @@ mod tests {
         // The room event cache has forgotten about the events.
         assert!(room_event_cache.event(event_id1).await.is_none());
 
-        let (items, _) = room_event_cache.subscribe().await.unwrap();
+        let (items, _) = room_event_cache.subscribe().await;
         assert!(items.is_empty());
 
         // The event cache store too.
@@ -1451,7 +1451,7 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+        let (items, _stream) = room_event_cache.subscribe().await;
 
         // The reloaded room must contain the two events.
         assert_eq!(items.len(), 2);
@@ -1470,7 +1470,7 @@ mod tests {
         // when subscribing, to check that the items correspond to their new
         // positions. The duplicated item is removed (so it's not the first
         // element anymore), and it's added to the back of the list.
-        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+        let (items, _stream) = room_event_cache.subscribe().await;
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].event_id().unwrap(), event_id1);
         assert_eq!(items[1].event_id().unwrap(), event_id2);
@@ -1520,7 +1520,7 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+        let (items, _stream) = room_event_cache.subscribe().await;
 
         // Because the persisted content was invalid, the room store is reset: there are
         // no events in the cache.
