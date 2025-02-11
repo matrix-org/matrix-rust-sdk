@@ -42,7 +42,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
-        MessageLikeEventType, StateEventType, SyncStateEvent,
+        MessageLikeEventType, SyncStateEvent,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -179,22 +179,6 @@ pub(super) enum TimelineEventKind {
         state_key: String,
         content: AnyOtherFullStateEventContent,
     },
-
-    /// If the timeline is configured to display events that failed to parse, a
-    /// special item indicating a message-like event that couldn't be
-    /// deserialized.
-    FailedToParseMessageLike {
-        event_type: MessageLikeEventType,
-        error: Arc<serde_json::Error>,
-    },
-
-    /// If the timeline is configured to display events that failed to parse, a
-    /// special item indicating a state event that couldn't be deserialized.
-    FailedToParseState {
-        event_type: StateEventType,
-        state_key: String,
-        error: Arc<serde_json::Error>,
-    },
 }
 
 impl TimelineEventKind {
@@ -279,21 +263,35 @@ impl TimelineEventKind {
     ) -> Self {
         let error = Arc::new(error);
         match event {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
-            }
-            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
-            }
-            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => Self::AddItem {
+                content: TimelineItemContent::FailedToParseMessageLike {
+                    event_type: ev.content.event_type,
+                    error,
+                },
+                edit_json: None,
             },
-            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
+            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => Self::AddItem {
+                content: TimelineItemContent::FailedToParseMessageLike {
+                    event_type: ev.content.event_type,
+                    error,
+                },
+                edit_json: None,
+            },
+            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::AddItem {
+                content: TimelineItemContent::FailedToParseState {
+                    event_type: ev.content.event_type,
+                    state_key: ev.state_key,
+                    error,
+                },
+                edit_json: None,
+            },
+            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::AddItem {
+                content: TimelineItemContent::FailedToParseState {
+                    event_type: ev.content.event_type,
+                    state_key: ev.state_key,
+                    error,
+                },
+                edit_json: None,
             },
         }
     }
@@ -528,24 +526,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 if should_add {
                     self.add_item(
                         TimelineItemContent::OtherState(OtherState { state_key, content }),
-                        None,
-                    );
-                }
-            }
-
-            TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
-                if should_add {
-                    self.add_item(
-                        TimelineItemContent::FailedToParseMessageLike { event_type, error },
-                        None,
-                    );
-                }
-            }
-
-            TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
-                if should_add {
-                    self.add_item(
-                        TimelineItemContent::FailedToParseState { event_type, state_key, error },
                         None,
                     );
                 }
