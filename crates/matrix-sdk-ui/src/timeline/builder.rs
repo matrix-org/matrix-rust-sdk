@@ -160,7 +160,7 @@ impl TimelineBuilder {
         event_cache.subscribe()?;
 
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
-        let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
+        let (_, mut event_subscriber) = room_event_cache.subscribe().await;
 
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
         let is_room_encrypted = room.is_encrypted().await.ok().unwrap_or_default();
@@ -241,15 +241,14 @@ impl TimelineBuilder {
                             //
                             // If we can't get a handle on the room cache's events, just clear the
                             // current timeline.
-                            match room_event_cache.subscribe().await {
-                                Ok((events, _)) => {
-                                    inner.replace_with_initial_remote_events(events.into_iter(), RemoteEventOrigin::Sync).await;
-                                }
-                                Err(err) => {
-                                    warn!("Error when re-inserting initial events into the timeline: {err}");
-                                    inner.clear().await;
-                                }
-                            }
+                            let (initial_events, _stream) = room_event_cache.subscribe().await;
+
+                            inner
+                                .replace_with_initial_remote_events(
+                                    initial_events.into_iter(),
+                                    RemoteEventOrigin::Sync,
+                                )
+                                .await;
 
                             continue;
                         }
@@ -264,13 +263,15 @@ impl TimelineBuilder {
                         RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
                             trace!("Received new timeline events diffs");
 
-                            inner.handle_remote_events_with_diffs(
-                                diffs,
-                                match origin {
-                                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                                    EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
-                                }
-                            ).await;
+                            inner
+                                .handle_remote_events_with_diffs(
+                                    diffs,
+                                    match origin {
+                                        EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                        EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                                    },
+                                )
+                                .await;
                         }
 
                         RoomEventCacheUpdate::AddEphemeralEvents { events } => {

@@ -789,7 +789,7 @@ impl App {
                             Handle::current().block_on(async {
                                 let (room_event_cache, _drop_handles) =
                                     room.event_cache().await.unwrap();
-                                let (events, _) = room_event_cache.subscribe().await.unwrap();
+                                let (events, _) = room_event_cache.subscribe().await;
                                 events
                             })
                         });

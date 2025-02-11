@@ -69,7 +69,7 @@ async fn test_event_cache_receives_events() {
 
     // If I create a room event subscriber,
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut subscriber) = room_event_cache.subscribe().await;
 
     // Then at first it's empty, and the subscriber doesn't yield anything.
     assert!(events.is_empty());
@@ -143,7 +143,7 @@ async fn test_ignored_unignored() {
     // And subscribe to the room,
     let room = client.get_room(room_id).unwrap();
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
 
     // Then at first it contains the two initial events.
     assert_eq!(events.len(), 2);
@@ -201,7 +201,7 @@ async fn test_ignored_unignored() {
     {
         let room = client.get_room(other_room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (events, _) = room_event_cache.subscribe().await.unwrap();
+        let (events, _) = room_event_cache.subscribe().await;
         assert!(events.is_empty());
     }
 
@@ -256,7 +256,7 @@ async fn test_backpaginate_once() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
 
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
@@ -341,7 +341,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
 
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
@@ -437,7 +437,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     assert!(room_stream.is_empty());
 
     // And next time I'll open the room, I'll get the events in the right order.
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, room_stream) = room_event_cache.subscribe().await;
 
     assert_event_matches_msg(&events[0], "oh well");
     assert_event_matches_msg(&events[1], "hello");
@@ -479,7 +479,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
 
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
@@ -577,7 +577,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     });
 
     // And next time I'll open the room, I'll get the events in the right order.
-    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, room_stream) = room_event_cache.subscribe().await;
 
     assert_event_matches_msg(&events[0], "oh well");
     assert_event_matches_msg(&events[1], "hello");
@@ -619,7 +619,7 @@ async fn test_reset_while_backpaginating() {
     let (room_event_cache, _drop_handles) =
         client.get_room(room_id).unwrap().event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
 
     wait_for_initial_events(events, &mut room_stream).await;
 
@@ -763,7 +763,7 @@ async fn test_backpaginating_without_token() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
 
     assert!(events.is_empty());
     assert!(room_stream.is_empty());
@@ -821,7 +821,7 @@ async fn test_limited_timeline_resets_pagination() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
 
     assert!(events.is_empty());
     assert!(room_stream.is_empty());
@@ -908,7 +908,7 @@ async fn test_limited_timeline_with_storage() {
         )
         .await;
 
-    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
 
     // This is racy: either the sync has been handled, or it hasn't yet.
     if initial_events.is_empty() {
@@ -980,7 +980,7 @@ async fn test_limited_timeline_without_storage() {
         )
         .await;
 
-    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
 
     // This is racy: either the sync has been handled, or it hasn't yet.
     if initial_events.is_empty() {
@@ -1115,7 +1115,7 @@ async fn test_backpaginate_with_no_initial_events() {
     pagination.run_backwards(20, once).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
-    let (events, _stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, _stream) = room_event_cache.subscribe().await;
 
     assert_eq!(events.len(), 3, "{events:?}");
     assert_event_matches_msg(&events[0], "oh well");
@@ -1150,7 +1150,7 @@ async fn test_backpaginate_replace_empty_gap() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut stream) = room_event_cache.subscribe().await;
     wait_for_initial_events(events, &mut stream).await;
 
     // The first back-pagination will return a previous-batch token, but no events.
@@ -1178,7 +1178,7 @@ async fn test_backpaginate_replace_empty_gap() {
     pagination.run_backwards(20, once).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
-    let (events, _stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, _stream) = room_event_cache.subscribe().await;
 
     assert_event_matches_msg(&events[0], "hello");
     assert_event_matches_msg(&events[1], "world");
@@ -1219,7 +1219,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut stream) = room_event_cache.subscribe().await;
 
     if events.is_empty() {
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
@@ -1259,7 +1259,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     let outcome = pagination.run_backwards(20, once).await.unwrap();
     assert!(outcome.reached_start);
 
-    let (events, stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, stream) = room_event_cache.subscribe().await;
     assert_event_matches_msg(&events[0], "hello");
     assert_event_matches_msg(&events[1], "world");
     assert_event_matches_msg(&events[2], "sup");
@@ -1296,7 +1296,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut stream) = room_event_cache.subscribe().await;
 
     if events.is_empty() {
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
@@ -1391,7 +1391,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
-    let (events, stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, stream) = room_event_cache.subscribe().await;
     assert_event_matches_msg(&events[0], "hello");
     assert_event_matches_msg(&events[1], "world");
     assert_event_matches_msg(&events[2], "sup");
@@ -1428,7 +1428,7 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut stream) = room_event_cache.subscribe().await;
     if events.is_empty() {
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = stream.recv());
     }
@@ -1492,7 +1492,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     // Wait for the first event.
-    let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    let (events, mut subscriber) = room_event_cache.subscribe().await;
     if events.is_empty() {
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
@@ -1554,7 +1554,7 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
     let room_id = room_id!("!omelette:fromage.fr");
     let room = server.sync_joined_room(&client, room_id).await;
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    let (_events, mut subscriber) = room_event_cache.subscribe().await;
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
