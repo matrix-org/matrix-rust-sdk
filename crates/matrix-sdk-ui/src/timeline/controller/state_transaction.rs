@@ -333,7 +333,7 @@ impl<'a> TimelineStateTransaction<'a> {
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    TimelineEventKind::failed_to_parse(event, e),
+                    Some(TimelineEventKind::failed_to_parse(event, e)),
                     true,
                 ),
 
@@ -442,7 +442,13 @@ impl<'a> TimelineStateTransaction<'a> {
         };
 
         // Handle the event to create or update a timeline item.
-        TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
+        if let Some(event_kind) = event_kind {
+            TimelineEventHandler::new(self, ctx)
+                .handle_event(date_divider_adjuster, event_kind)
+                .await
+        } else {
+            HandleEventResult::default()
+        }
     }
 
     /// Remove one timeline item by its `event_index`.

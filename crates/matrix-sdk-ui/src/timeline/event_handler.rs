@@ -147,13 +147,6 @@ pub(super) enum TimelineEventKind {
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     },
 
-    /// Some remote event that was redacted a priori, i.e. we never had the
-    /// original content, so we'll just display a dummy redacted timeline
-    /// item.
-    RedactedMessage {
-        event_type: MessageLikeEventType,
-    },
-
     /// We're redacting a remote event that we may or may not know about (i.e.
     /// the redacted event *may* have a corresponding timeline item).
     Redaction {
@@ -192,15 +185,23 @@ impl TimelineEventKind {
         room_data_provider: &P,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
         meta: &TimelineMetadata,
-    ) -> Self {
+    ) -> Option<Self> {
         let room_version = room_data_provider.room_version();
 
-        match event {
+        let redacted_message_or_none = |event_type: MessageLikeEventType| {
+            (event_type != MessageLikeEventType::Reaction)
+                .then_some(TimelineItemContent::MsgLike(MsgLikeContent::redacted()))
+        };
+
+        Some(match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(&room_version).map(ToOwned::to_owned) {
                     Self::Redaction { redacts }
                 } else {
-                    Self::RedactedMessage { event_type: ev.event_type() }
+                    Self::AddItem {
+                        content: redacted_message_or_none(ev.event_type())?,
+                        edit_json: None,
+                    }
                 }
             }
 
@@ -247,7 +248,10 @@ impl TimelineEventKind {
                     }
                 }
                 Some(content) => Self::Message { content, relations: ev.relations() },
-                None => Self::RedactedMessage { event_type: ev.event_type() },
+                None => Self::AddItem {
+                    content: redacted_message_or_none(ev.event_type())?,
+                    edit_json: None,
+                },
             },
 
             AnySyncTimelineEvent::State(ev) => match ev {
@@ -271,7 +275,7 @@ impl TimelineEventKind {
                     content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
                 },
             },
-        }
+        })
     }
 
     pub(super) fn failed_to_parse(
@@ -499,12 +503,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     );
                 }
             },
-
-            TimelineEventKind::RedactedMessage { event_type } => {
-                if event_type != MessageLikeEventType::Reaction && should_add {
-                    self.add_item(TimelineItemContent::MsgLike(MsgLikeContent::redacted()), None);
-                }
-            }
 
             TimelineEventKind::Redaction { redacts } => {
                 self.handle_redaction(redacts);
