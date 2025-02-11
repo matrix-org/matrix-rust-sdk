@@ -36,8 +36,6 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri, RoomId};
 use rusqlite::{params_from_iter, OptionalExtension, Transaction, TransactionBehavior};
 use tokio::fs;
-#[cfg(not(test))]
-use tracing::warn;
 use tracing::{debug, trace};
 
 use crate::{
@@ -959,19 +957,10 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
             })
             .await?;
 
-        // If we removed media, use the VACUUM command to defragment the
-        // database and free space on the filesystem.
+        // If we removed media, defragment the database and free space on the
+        // filesystem.
         if removed {
-            if let Err(error) = conn.execute("VACUUM", ()).await {
-                // Since this is an optimisation step, do not propagate the error
-                // but log it.
-                #[cfg(not(test))]
-                warn!("Failed to vacuum database: {error}");
-
-                // We want to know if there is an error with this step during tests.
-                #[cfg(test)]
-                return Err(error.into());
-            }
+            conn.vacuum().await?;
         }
 
         Ok(())
