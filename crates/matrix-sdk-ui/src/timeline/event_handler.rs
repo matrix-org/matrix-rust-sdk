@@ -154,6 +154,11 @@ pub(super) enum TimelineEventKind {
 }
 
 impl TimelineEventKind {
+    /// Create a new [`TimelineEventKind::AddItem`] with no edit json.
+    fn add_item(content: TimelineItemContent) -> Self {
+        Self::AddItem { content, edit_json: None }
+    }
+
     /// Creates a new `TimelineEventKind`.
     ///
     /// # Arguments
@@ -184,10 +189,7 @@ impl TimelineEventKind {
                 if let Some(redacts) = ev.redacts(&room_version).map(ToOwned::to_owned) {
                     Self::Redaction { redacts }
                 } else {
-                    Self::AddItem {
-                        content: redacted_message_or_none(ev.event_type())?,
-                        edit_json: None,
-                    }
+                    Self::add_item(redacted_message_or_none(ev.event_type())?)
                 }
             }
 
@@ -213,14 +215,11 @@ impl TimelineEventKind {
                             .await;
                         }
 
-                        Self::AddItem {
-                            content: TimelineItemContent::MsgLike(
-                                MsgLikeContent::unable_to_decrypt(EncryptedMessage::from_content(
-                                    content, utd_cause,
-                                )),
-                            ),
-                            edit_json: None,
-                        }
+                        Self::add_item(TimelineItemContent::MsgLike(
+                            MsgLikeContent::unable_to_decrypt(EncryptedMessage::from_content(
+                                content, utd_cause,
+                            )),
+                        ))
                     } else {
                         // If we get here, it means that some part of the code has created a
                         // `TimelineEvent` containing an `m.room.encrypted` event
@@ -234,41 +233,33 @@ impl TimelineEventKind {
                     }
                 }
                 Some(content) => Self::Message { content, relations: ev.relations() },
-                None => Self::AddItem {
-                    content: redacted_message_or_none(ev.event_type())?,
-                    edit_json: None,
-                },
+                None => Self::add_item(redacted_message_or_none(ev.event_type())?),
             },
 
             AnySyncTimelineEvent::State(ev) => match ev {
                 AnySyncStateEvent::RoomMember(ev) => match ev {
-                    SyncStateEvent::Original(ev) => Self::AddItem {
-                        content: TimelineItemContent::room_member(
+                    SyncStateEvent::Original(ev) => {
+                        Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
                             FullStateEventContent::Original {
                                 content: ev.content,
                                 prev_content: ev.unsigned.prev_content,
                             },
                             ev.sender,
-                        ),
-                        edit_json: None,
-                    },
-                    SyncStateEvent::Redacted(ev) => Self::AddItem {
-                        content: TimelineItemContent::room_member(
+                        ))
+                    }
+                    SyncStateEvent::Redacted(ev) => {
+                        Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
                             FullStateEventContent::Redacted(ev.content),
                             ev.sender,
-                        ),
-                        edit_json: None,
-                    },
+                        ))
+                    }
                 },
-                ev => Self::AddItem {
-                    content: TimelineItemContent::OtherState(OtherState {
-                        state_key: ev.state_key().to_owned(),
-                        content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
-                    }),
-                    edit_json: None,
-                },
+                ev => Self::add_item(TimelineItemContent::OtherState(OtherState {
+                    state_key: ev.state_key().to_owned(),
+                    content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
+                })),
             },
         })
     }
@@ -279,36 +270,32 @@ impl TimelineEventKind {
     ) -> Self {
         let error = Arc::new(error);
         match event {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => Self::AddItem {
-                content: TimelineItemContent::FailedToParseMessageLike {
+            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
+                Self::add_item(TimelineItemContent::FailedToParseMessageLike {
                     event_type: ev.content.event_type,
                     error,
-                },
-                edit_json: None,
-            },
-            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => Self::AddItem {
-                content: TimelineItemContent::FailedToParseMessageLike {
+                })
+            }
+            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
+                Self::add_item(TimelineItemContent::FailedToParseMessageLike {
                     event_type: ev.content.event_type,
                     error,
-                },
-                edit_json: None,
-            },
-            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::AddItem {
-                content: TimelineItemContent::FailedToParseState {
+                })
+            }
+            SyncTimelineEventWithoutContent::OriginalState(ev) => {
+                Self::add_item(TimelineItemContent::FailedToParseState {
                     event_type: ev.content.event_type,
                     state_key: ev.state_key,
                     error,
-                },
-                edit_json: None,
-            },
-            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::AddItem {
-                content: TimelineItemContent::FailedToParseState {
+                })
+            }
+            SyncTimelineEventWithoutContent::RedactedState(ev) => {
+                Self::add_item(TimelineItemContent::FailedToParseState {
                     event_type: ev.content.event_type,
                     state_key: ev.state_key,
                     error,
-                },
-                edit_json: None,
-            },
+                })
+            }
         }
     }
 }
