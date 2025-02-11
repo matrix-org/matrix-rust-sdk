@@ -59,7 +59,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub room_version: RoomVersionId,
 
     /// The own [`OwnedUserId`] of the client who opened the timeline.
-    own_user_id: OwnedUserId,
+    pub(crate) own_user_id: OwnedUserId,
 
     // **** DYNAMIC FIELDS ****
     /// The next internal identifier for timeline items, used for both local and

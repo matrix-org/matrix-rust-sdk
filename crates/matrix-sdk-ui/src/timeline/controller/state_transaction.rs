@@ -337,11 +337,9 @@ impl<'a> TimelineStateTransaction<'a> {
                     let event_id = event.event_id();
                     warn!(%event_type, %event_id, "Failed to deserialize timeline event: {e}");
 
-                    let is_own_event = event.sender() == room_data_provider.own_user_id();
                     let event_meta = FullEventMeta {
                         event_id,
                         sender: Some(event.sender()),
-                        is_own_event,
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
@@ -372,15 +370,12 @@ impl<'a> TimelineStateTransaction<'a> {
 
                     if let Some(event_id) = &event_id {
                         let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
-                        let is_own_event =
-                            sender.as_ref().is_some_and(|s| s == room_data_provider.own_user_id());
                         let timestamp: Option<MilliSecondsSinceUnixEpoch> =
                             raw.get_field("origin_server_ts").ok().flatten();
 
                         let event_meta = FullEventMeta {
                             event_id,
                             sender: sender.as_deref(),
-                            is_own_event,
                             timestamp,
                             visible: false,
                         };
@@ -406,7 +401,6 @@ impl<'a> TimelineStateTransaction<'a> {
         let event_meta = FullEventMeta {
             event_id: &event_id,
             sender: Some(&sender),
-            is_own_event,
             timestamp: Some(timestamp),
             visible: should_add,
         };

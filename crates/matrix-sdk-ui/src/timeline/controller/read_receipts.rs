@@ -556,7 +556,7 @@ impl TimelineStateTransaction<'_> {
     /// "implicit" read receipt, compared to the "explicit" ones sent by the
     /// client.
     pub(super) fn maybe_add_implicit_read_receipt(&mut self, event_meta: FullEventMeta<'_>) {
-        let FullEventMeta { event_id, sender, is_own_event, timestamp, .. } = event_meta;
+        let FullEventMeta { event_id, sender, timestamp, .. } = event_meta;
 
         let (Some(user_id), Some(timestamp)) = (sender, timestamp) else {
             // We cannot add a read receipt if we do not know the user or the timestamp.
@@ -568,6 +568,7 @@ impl TimelineStateTransaction<'_> {
         let full_receipt =
             FullReceipt { event_id, user_id, receipt_type: ReceiptType::Read, receipt: &receipt };
 
+        let is_own_event = sender.is_some_and(|sender| sender == self.meta.own_user_id);
         self.meta.read_receipts.maybe_update_read_receipt(
             full_receipt,
             is_own_event,
