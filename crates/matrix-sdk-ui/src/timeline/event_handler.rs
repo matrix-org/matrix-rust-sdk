@@ -35,9 +35,8 @@ use ruma::{
         reaction::ReactionEventContent,
         receipt::Receipt,
         relation::Replacement,
-        room::{
-            member::RoomMemberEventContent,
-            message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
+        room::message::{
+            Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
@@ -152,19 +151,6 @@ pub(super) enum TimelineEventKind {
     Redaction {
         redacts: OwnedEventId,
     },
-
-    /// A timeline event for a room membership update.
-    RoomMember {
-        user_id: OwnedUserId,
-        content: FullStateEventContent<RoomMemberEventContent>,
-        sender: OwnedUserId,
-    },
-
-    /// A state update that's not a [`Self::RoomMember`] event.
-    OtherState {
-        state_key: String,
-        content: AnyOtherFullStateEventContent,
-    },
 }
 
 impl TimelineEventKind {
@@ -256,23 +242,32 @@ impl TimelineEventKind {
 
             AnySyncTimelineEvent::State(ev) => match ev {
                 AnySyncStateEvent::RoomMember(ev) => match ev {
-                    SyncStateEvent::Original(ev) => Self::RoomMember {
-                        user_id: ev.state_key,
-                        content: FullStateEventContent::Original {
-                            content: ev.content,
-                            prev_content: ev.unsigned.prev_content,
-                        },
-                        sender: ev.sender,
+                    SyncStateEvent::Original(ev) => Self::AddItem {
+                        content: TimelineItemContent::room_member(
+                            ev.state_key,
+                            FullStateEventContent::Original {
+                                content: ev.content,
+                                prev_content: ev.unsigned.prev_content,
+                            },
+                            ev.sender,
+                        ),
+                        edit_json: None,
                     },
-                    SyncStateEvent::Redacted(ev) => Self::RoomMember {
-                        user_id: ev.state_key,
-                        content: FullStateEventContent::Redacted(ev.content),
-                        sender: ev.sender,
+                    SyncStateEvent::Redacted(ev) => Self::AddItem {
+                        content: TimelineItemContent::room_member(
+                            ev.state_key,
+                            FullStateEventContent::Redacted(ev.content),
+                            ev.sender,
+                        ),
+                        edit_json: None,
                     },
                 },
-                ev => Self::OtherState {
-                    state_key: ev.state_key().to_owned(),
-                    content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
+                ev => Self::AddItem {
+                    content: TimelineItemContent::OtherState(OtherState {
+                        state_key: ev.state_key().to_owned(),
+                        content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
+                    }),
+                    edit_json: None,
                 },
             },
         })
@@ -506,23 +501,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::Redaction { redacts } => {
                 self.handle_redaction(redacts);
-            }
-
-            TimelineEventKind::RoomMember { user_id, content, sender } => {
-                if should_add {
-                    self.add_item(TimelineItemContent::room_member(user_id, content, sender), None);
-                }
-            }
-
-            TimelineEventKind::OtherState { state_key, content } => {
-                // Update room encryption if a `m.room.encryption` event is found in the
-                // timeline
-                if should_add {
-                    self.add_item(
-                        TimelineItemContent::OtherState(OtherState { state_key, content }),
-                        None,
-                    );
-                }
             }
         }
 
