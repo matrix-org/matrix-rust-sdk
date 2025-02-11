@@ -17,6 +17,8 @@ mod idb_operations;
 mod indexeddb_serializer;
 mod migrations;
 
+use std::future::IntoFuture;
+
 use crate::event_cache_store::indexeddb_serializer::IndexeddbSerializer;
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
@@ -322,9 +324,16 @@ impl_event_cache_store!({
                     for (i, event) in items.into_iter().enumerate() {
                         let index = at.index() + i;
                         // Can the ID be encrypted when inserting?
-                        let value = serde_json::json!({ "id": format!("{room_id}-{chunk_id}-{index}"), "content": event, "room_id": room_id.to_string(), "position": index });
+                        let value = serde_json::json!({
+                            "id": format!("{room_id}-{chunk_id}-{index}"),
+                            "content": event,
+                            "room_id": room_id.to_string(),
+                            "position": index
+                        });
+
                         let value = self.serializer.serialize_value(&value)?;
-                        object_store.add_val(&value)?;
+
+                        object_store.add_val(&value)?.into_future().await?;
                     }
                 }
                 Update::ReplaceItem { at, item } => {
@@ -387,7 +396,7 @@ impl_event_cache_store!({
                     let key_range =
                         self.serializer.encode_to_range(keys::EVENTS, chunk_id.to_string())?;
 
-                    object_store.get_all_with_key(&key_range)?.for_each(|entry| {});
+                    // object_store.get_all_with_key(&key_range)?.for_each(|entry| {});
                 }
                 Update::StartReattachItems => {}
                 Update::EndReattachItems => {}
