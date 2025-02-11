@@ -1678,6 +1678,7 @@ impl OlmMachine {
                     .collect(),
             },
             verification_state,
+            session_id: session.session_id().to_owned(),
         })
     }
 

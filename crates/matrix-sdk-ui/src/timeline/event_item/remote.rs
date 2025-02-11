@@ -66,7 +66,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// Where we got this event from: A sync response or pagination.
     pub origin: RemoteEventOrigin,
 
-    /// The megolm session ID used to send this event, if it is UTD.
+    /// The megolm session ID used to send this event, if it was encrypted.
     pub session_id: Option<String>,
 }
 
