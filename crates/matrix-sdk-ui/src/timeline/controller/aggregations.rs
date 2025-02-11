@@ -399,7 +399,7 @@ pub(crate) fn find_item_and_apply_aggregation(
     aggregation: Aggregation,
 ) -> bool {
     let Some((idx, event_item)) = rfind_event_by_item_id(items, target) else {
-        warn!("couldn't find aggregation's target {target:?}");
+        trace!("couldn't find aggregation's target {target:?}");
         return false;
     };
 
