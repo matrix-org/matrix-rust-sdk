@@ -17,10 +17,17 @@ use ruma::{
     events::{
         reaction::RedactedReactionEventContent,
         relation::InReplyTo,
-        room::message::{ForwardThread, Relation, RoomMessageEventContentWithoutRelation},
+        room::{
+            encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+            },
+            message::{ForwardThread, Relation, RoomMessageEventContentWithoutRelation},
+            ImageInfo,
+        },
+        sticker::{StickerEventContent, StickerMediaSource},
         Mentions,
     },
-    owned_event_id, room_id,
+    owned_event_id, owned_mxc_uri, room_id,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -186,6 +193,291 @@ async fn test_in_reply_to_details() {
         assert_eq!(*third.unique_id(), third_unique_id);
 
         assert_pending!(timeline_stream);
+    }
+}
+
+#[async_test]
+async fn test_fetch_details_utd() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().encrypted().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // Add an encrypted event and a reply to that event to the timeline.
+    let f = EventFactory::new();
+
+    let replied_to_event_id = event_id!("$original");
+    let response_event_id = event_id!("$response");
+    let encrypted = EncryptedEventScheme::MegolmV1AesSha2(
+        MegolmV1AesSha2ContentInit {
+            ciphertext: "\
+                AwgAEtABWuWeRLintqVP5ez5kki8sDsX7zSq++9AJo9lELGTDjNKzbF8sowUgg0DaGoP\
+                dgWyBmuUxT2bMggwM0fAevtu4XcFtWUx1c/sj1vhekrng9snmXpz4a30N8jhQ7N4WoIg\
+                /G5wsPKtOITjUHeon7EKjTPFU7xoYXmxbjDL/9R4hGQdRqogs1hj0ZnWRxNCvr3ahq24\
+                E0j8WyBrQXOb2PIHVNfV/9eW8AB744UQXn8FJpmQO8c0Us3YorXtIFrwAtvI3FknD7Lj\
+                eeYFpR9oeyZKuzo2Wzp7eiEZt0Lm+xb7Lfp9yY52RhAO7JLlCM4oPff2yXHpUmcjdGsi\
+                9Zc9Z92hiILkZoKOSGccYQoLjYlfL8rVsIVvl4tDDQ"
+                .to_owned(),
+            sender_key: "sKSGv2uD9zUncgL6GiLedvuky3fjVcEz9qVKZkpzN14".to_owned(),
+            device_id: "PNQBRWYIJL".into(),
+            session_id: "HSRlM67FgLYl0J0l1luflfGwpnFcLKHnNoRqUuIhQ5Q".into(),
+        }
+        .into(),
+    );
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f
+            .event(RoomEncryptedEventContent::new(encrypted, None))
+            .sender(*ALICE)
+            .event_id(replied_to_event_id)
+            .into_utd_sync_timeline_event())
+        .mock_once()
+        .mount()
+        .await;
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("UTD, can you rageshake?")
+                    .reply_to(replied_to_event_id)
+                    .sender(*BOB)
+                    .event_id(response_event_id),
+            ),
+        )
+        .await;
+
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
+
+        // We get the reply, but with no details.
+        assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
+        let second_event = second.as_event().unwrap();
+        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, replied_to_event_id);
+        assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
+
+        // Good old date divider.
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
+        assert!(date_divider.is_date_divider());
+    }
+
+    // Now fetch details.
+    timeline.fetch_details_for_event(response_event_id).await.unwrap();
+
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
+
+        // First it's set to pending, because we're starting the request…
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+
+        // …then it's filled as the request succeeds.
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
+        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+
+        // The replied-to event is available, and is a UTD.
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+        assert_eq!(replied_to.sender(), *ALICE);
+        assert_matches!(replied_to.content(), TimelineItemContent::UnableToDecrypt(_));
+    }
+}
+
+#[async_test]
+async fn test_fetch_details_poll() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // Add an encrypted event and a reply to that event to the timeline.
+    let f = EventFactory::new();
+
+    let replied_to_event_id = event_id!("$original");
+    let response_event_id = event_id!("$response");
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f
+            .poll_start(
+                "What is the best color? A. Red, B. Blue, C. Green",
+                "What is the best color?",
+                vec!["Red", "Blue", "Green"],
+            )
+            .sender(*ALICE)
+            .event_id(replied_to_event_id)
+            .into())
+        .mock_once()
+        .mount()
+        .await;
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("wow, that's a tough one!")
+                    .reply_to(replied_to_event_id)
+                    .sender(*BOB)
+                    .event_id(response_event_id),
+            ),
+        )
+        .await;
+
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
+
+        // We get the reply, but with no details.
+        assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
+        let second_event = second.as_event().unwrap();
+        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, replied_to_event_id);
+        assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
+
+        // Good old date divider.
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
+        assert!(date_divider.is_date_divider());
+    }
+
+    // Now fetch details.
+    timeline.fetch_details_for_event(response_event_id).await.unwrap();
+
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
+
+        // First it's set to pending, because we're starting the request…
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+
+        // …then it's filled as the request succeeds.
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
+        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+
+        // The replied-to event is available, and is the poll.
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+        assert_eq!(replied_to.sender(), *ALICE);
+        assert_let!(TimelineItemContent::Poll(poll_state) = replied_to.content());
+        assert_eq!(
+            poll_state.fallback_text().unwrap(),
+            "What is the best color? A. Red, B. Blue, C. Green"
+        );
+    }
+}
+
+#[async_test]
+async fn test_fetch_details_sticker() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // Add a sticker event and a reply to that event to the timeline.
+    let f = EventFactory::new();
+
+    let replied_to_event_id = event_id!("$original");
+    let response_event_id = event_id!("$response");
+    let media_src = owned_mxc_uri!("mxc://example.com/1");
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f
+            .event(StickerEventContent::new(
+                "sticker!".to_owned(),
+                ImageInfo::new(),
+                media_src.clone(),
+            ))
+            .sender(*ALICE)
+            .event_id(replied_to_event_id)
+            .into())
+        .mock_once()
+        .mount()
+        .await;
+
+    let media_src = owned_mxc_uri!("mxc://example.com/1");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("gorgious")
+                    .reply_to(replied_to_event_id)
+                    .sender(*BOB)
+                    .event_id(response_event_id),
+            ),
+        )
+        .await;
+
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
+
+        // We get the reply.
+        assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
+        let second_event = second.as_event().unwrap();
+        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, replied_to_event_id);
+        assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
+
+        // Good old date divider.
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
+        assert!(date_divider.is_date_divider());
+    }
+
+    // Now fetch details.
+    timeline.fetch_details_for_event(response_event_id).await.unwrap();
+
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
+
+        // First it's set to pending, because we're starting the request…
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+
+        // …then it's filled as the request succeeds.
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
+        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+
+        // The replied-to event is available, and is a sticker.
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+        assert_eq!(replied_to.sender(), *ALICE);
+        assert_let!(TimelineItemContent::Sticker(sticker) = replied_to.content());
+        assert_eq!(sticker.content().body, "sticker!");
+        assert_matches!(&sticker.content().source, StickerMediaSource::Plain(src) => {
+            assert_eq!(*src, media_src);
+        });
     }
 }
 
