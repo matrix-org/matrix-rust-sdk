@@ -1565,8 +1565,7 @@ impl Session {
                         },
                     issuer,
                 } = api.user_session().context("Missing session")?;
-                let client_id =
-                    api.client_id().context("OIDC client credentials are missing.")?.0.clone();
+                let client_id = api.client_id().context("OIDC client ID is missing.")?.0.clone();
                 let client_metadata =
                     api.client_metadata().context("OIDC client metadata is missing.")?.clone();
                 let oidc_data = OidcSessionData {
