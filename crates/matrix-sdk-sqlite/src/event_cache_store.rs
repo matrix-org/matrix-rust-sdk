@@ -1948,6 +1948,172 @@ mod tests {
         let duplicates = store.filter_duplicated_events(room_id, Vec::new()).await.unwrap();
         assert!(duplicates.is_empty());
     }
+
+    #[async_test]
+    async fn test_load_last_chunk() {
+        let room_id = room_id!("!r0:matrix.org");
+        let event = |msg: &str| make_test_event(room_id, msg);
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        // Case #1: no last chunk.
+        {
+            let (last_chunk, chunk_identifier_generator) =
+                store.load_last_chunk(room_id).await.unwrap();
+
+            assert!(last_chunk.is_none());
+            assert_eq!(chunk_identifier_generator.current(), 0);
+        }
+
+        // Case #2: only one chunk is present.
+        {
+            store
+                .handle_linked_chunk_updates(
+                    room_id,
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(42),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(42), 0),
+                            items: vec![event("saucisse de morteau"), event("comté")],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+
+            let (last_chunk, chunk_identifier_generator) =
+                store.load_last_chunk(room_id).await.unwrap();
+
+            assert_matches!(last_chunk, Some(last_chunk) => {
+                assert_eq!(last_chunk.identifier, 42);
+                assert!(last_chunk.previous.is_none());
+                assert!(last_chunk.next.is_none());
+                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 2);
+                    check_test_event(&items[0], "saucisse de morteau");
+                    check_test_event(&items[1], "comté");
+                });
+            });
+            assert_eq!(chunk_identifier_generator.current(), 42);
+        }
+
+        // Case #3: more chunks are present.
+        {
+            store
+                .handle_linked_chunk_updates(
+                    room_id,
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: Some(ChunkIdentifier::new(42)),
+                            new: ChunkIdentifier::new(7),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(7), 0),
+                            items: vec![event("fondue"), event("gruyère"), event("mont d'or")],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+
+            let (last_chunk, chunk_identifier_generator) =
+                store.load_last_chunk(room_id).await.unwrap();
+
+            assert_matches!(last_chunk, Some(last_chunk) => {
+                assert_eq!(last_chunk.identifier, 7);
+                assert_matches!(last_chunk.previous, Some(previous) => {
+                    assert_eq!(previous, 42);
+                });
+                assert!(last_chunk.next.is_none());
+                assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 3);
+                    check_test_event(&items[0], "fondue");
+                    check_test_event(&items[1], "gruyère");
+                    check_test_event(&items[2], "mont d'or");
+                });
+            });
+            assert_eq!(chunk_identifier_generator.current(), 42);
+        }
+    }
+
+    #[async_test]
+    async fn test_load_previous_chunk() {
+        let room_id = room_id!("!r0:matrix.org");
+        let event = |msg: &str| make_test_event(room_id, msg);
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        // Case #1: no chunk at all, equivalent to having an inexistent
+        // `before_chunk_identifier`.
+        {
+            let previous_chunk =
+                store.load_previous_chunk(room_id, ChunkIdentifier::new(153)).await.unwrap();
+
+            assert!(previous_chunk.is_none());
+        }
+
+        // Case #2: there is one chunk only: we request the previous on this
+        // one, it doesn't exist.
+        {
+            store
+                .handle_linked_chunk_updates(
+                    room_id,
+                    vec![Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    }],
+                )
+                .await
+                .unwrap();
+
+            let previous_chunk =
+                store.load_previous_chunk(room_id, ChunkIdentifier::new(42)).await.unwrap();
+
+            assert!(previous_chunk.is_none());
+        }
+
+        // Case #3: there is two chunks.
+        {
+            store
+                .handle_linked_chunk_updates(
+                    room_id,
+                    vec![
+                        // new chunk before the one that exists.
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(7),
+                            next: Some(ChunkIdentifier::new(42)),
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(7), 0),
+                            items: vec![event("brigand du jorat"), event("morbier")],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+
+            let previous_chunk =
+                store.load_previous_chunk(room_id, ChunkIdentifier::new(42)).await.unwrap();
+
+            assert_matches!(previous_chunk, Some(previous_chunk) => {
+                assert_eq!(previous_chunk.identifier, 7);
+                assert!(previous_chunk.previous.is_none());
+                assert_matches!(previous_chunk.next, Some(next) => {
+                    assert_eq!(next, 42);
+                });
+                assert_matches!(previous_chunk.content, ChunkContent::Items(items) => {
+                    assert_eq!(items.len(), 2);
+                    check_test_event(&items[0], "brigand du jorat");
+                    check_test_event(&items[1], "morbier");
+                });
+            });
+        }
+    }
 }
 
 #[cfg(test)]
