@@ -22,7 +22,7 @@ use ruma::{
     events::{
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
         relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
-        AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -147,7 +147,7 @@ impl TimelineState {
         date_divider_mode: DateDividerMode,
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
-        content: TimelineEventKind,
+        content: AnyMessageLikeEventContent,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -165,7 +165,10 @@ impl TimelineState {
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut date_divider_adjuster, content)
+            .handle_event(
+                &mut date_divider_adjuster,
+                TimelineEventKind::Message { content, relations: Default::default() },
+            )
             .await;
 
         txn.adjust_date_dividers(date_divider_adjuster);
