@@ -31,6 +31,22 @@ use wiremock::{
 };
 
 #[async_test]
+async fn test_in_reply_to_details_when_event_doesnt_exist() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    // The event doesn't exist.
+    assert_matches!(
+        timeline.fetch_details_for_event(event_id!("$fakeevent")).await,
+        Err(TimelineError::EventNotInTimeline(_))
+    );
+}
+
+#[async_test]
 async fn test_in_reply_to_details() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -43,65 +59,66 @@ async fn test_in_reply_to_details() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    // The event doesn't exist.
-    assert_matches!(
-        timeline.fetch_details_for_event(event_id!("$fakeevent")).await,
-        Err(TimelineError::EventNotInTimeline(_))
-    );
-
     // Add an event and a reply to that event to the timeline
-    let event_id_1 = event_id!("$event1");
+    let eid1 = event_id!("$event1");
     let f = EventFactory::new();
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(*ALICE).event_id(event_id_1))
-                .add_timeline_event(
-                    f.text_msg("hello to you too").reply_to(event_id_1).sender(*BOB),
-                ),
+                .add_timeline_event(f.text_msg("hello").sender(*ALICE).event_id(eid1))
+                .add_timeline_event(f.text_msg("hello to you too").reply_to(eid1).sender(*BOB)),
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 3);
 
-    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-    assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
+        // We get the original message.
+        assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
+        assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
-    assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[1]);
-    let second_event = second.as_event().unwrap();
-    assert_let!(TimelineItemContent::Message(message) = second_event.content());
-    let in_reply_to = message.in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, event_id!("$event1"));
-    assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
+        // We get the reply.
+        assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[1]);
+        let second_event = second.as_event().unwrap();
+        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, eid1);
+        assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
-    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
-    assert!(date_divider.is_date_divider());
+        // Good old date divider.
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
+        assert!(date_divider.is_date_divider());
+    }
 
     // Add an reply to an unknown event to the timeline.
-    let event_id_2 = event_id!("$event2");
+    let eid2 = event_id!("$event2");
+    let eid3 = event_id!("$event3");
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("you were right").reply_to(event_id_2).sender(*BOB)),
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("you were right").reply_to(eid2).sender(*BOB).event_id(eid3),
+            ),
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
+    let third_unique_id = {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::Set { value: _read_receipt_update, .. } = &timeline_updates[0]);
+        assert_let!(VectorDiff::Set { value: _read_receipt_update, .. } = &timeline_updates[0]);
 
-    assert_let!(VectorDiff::PushBack { value: third } = &timeline_updates[1]);
-    let third_event = third.as_event().unwrap();
-    assert_let!(TimelineItemContent::Message(message) = third_event.content());
-    let in_reply_to = message.in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, event_id_2);
-    assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
+        assert_let!(VectorDiff::PushBack { value: third } = &timeline_updates[1]);
+        let third_event = third.as_event().unwrap();
+        assert_let!(TimelineItemContent::Message(message) = third_event.content());
+        let in_reply_to = message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, eid2);
+        assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
-    let unique_id = third.unique_id().to_owned();
+        third.unique_id().clone()
+    };
 
     // Set up fetching the replied-to event to fail
     let scoped_room_event = Mock::given(method("GET"))
@@ -116,20 +133,24 @@ async fn test_in_reply_to_details() {
         .await;
 
     // Fetch details remotely if we can't find them locally.
-    timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
+    timeline.fetch_details_for_event(eid3).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-    assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
-    assert_eq!(*third.unique_id(), unique_id);
+        // First it's set to pending, because we're starting the request…
+        assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
+        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_eq!(*third.unique_id(), third_unique_id);
 
-    assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-    assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
-    assert_eq!(*third.unique_id(), unique_id);
+        // …then it's marked as an error when the request fails.
+        assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
+        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
+        assert_eq!(*third.unique_id(), third_unique_id);
+    }
 
     // Set up fetching the replied-to event to succeed.
     drop(scoped_room_event);
@@ -140,28 +161,32 @@ async fn test_in_reply_to_details() {
             .text_msg("Alice is gonna arrive soon")
             .sender(*CAROL)
             .room(room_id)
-            .event_id(event_id_2)
+            .event_id(eid2)
             .into())
         .mock_once()
         .mount()
         .await;
 
-    timeline.fetch_details_for_event(third_event.event_id().unwrap()).await.unwrap();
+    timeline.fetch_details_for_event(eid3).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-    assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
-    assert_eq!(*third.unique_id(), unique_id);
+        // First it's set to pending, because we're starting the request…
+        assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
+        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_eq!(*third.unique_id(), third_unique_id);
 
-    assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-    assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-    assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
-    assert_eq!(*third.unique_id(), unique_id);
+        // …then it's filled when the request succeeds.
+        assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
+        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
+        assert_eq!(*third.unique_id(), third_unique_id);
 
-    assert_pending!(timeline_stream);
+        assert_pending!(timeline_stream);
+    }
 }
 
 #[async_test]
