@@ -164,10 +164,10 @@ impl EventCacheStore for MemoryStore {
                 break;
             }
 
-            if let Some(event_id_a) = event.event_id() {
+            if let Some(known_event_id) = event.event_id() {
                 // This event exists in the store event!
                 if let Some(position) =
-                    events.iter().position(|event_id_b| &event_id_a == event_id_b)
+                    events.iter().position(|new_event_id| &known_event_id == new_event_id)
                 {
                     duplicated_events.push(events.remove(position));
                 }
