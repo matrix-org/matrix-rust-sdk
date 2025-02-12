@@ -16,7 +16,7 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use events::Gap;
+use events::{deduplicated_all_new_events, Gap};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     linked_chunk::ChunkContent,
@@ -31,7 +31,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     Notify, RwLock,
 };
-use tracing::{debug, trace, warn};
+use tracing::{trace, warn};
 
 use super::{
     paginator::{Paginator, PaginatorState},
@@ -429,37 +429,27 @@ impl RoomEventCacheInner {
         let sync_timeline_events_diffs = {
             let (_, sync_timeline_events_diffs) = state
                 .with_events_mut(|room_events| {
+                    let (events, duplicated_event_ids) = room_events
+                        .collect_valid_and_duplicated_events(
+                            sync_timeline_events.clone().into_iter(),
+                        );
+
+                    if deduplicated_all_new_events(events.len(), duplicated_event_ids.len()) {
+                        // Nothing to do!
+                        return;
+                    }
+
                     if let Some(prev_token) = &prev_batch {
                         room_events.push_gap(Gap { prev_token: prev_token.clone() });
                     }
 
-                    let added_unique_events = room_events.push_events(sync_timeline_events.clone());
+                    // Remove the _old_ duplicated events!
+                    //
+                    // We don't have to worry the removals can change the position of the existing
+                    // events, because we are pushing all _new_ `events` at the back.
+                    room_events.remove_events(duplicated_event_ids);
 
-                    if !added_unique_events {
-                        debug!(
-                            "not storing previous batch token, because we deduplicated all new sync events"
-                        );
-
-                        if let Some(prev_token) = &prev_batch {
-                            // Note: there can't be any race with another task touching the linked
-                            // chunk at this point, because we're using `with_events_mut` which
-                            // guards access to the data.
-                            trace!("removing gap we just inserted");
-
-                                // Find the gap that had the previous-batch token we inserted above.
-                            let prev_gap_id = room_events
-                                .rchunks()
-                                .find_map(|c| {
-                                    let gap = as_variant::as_variant!(c.content(), ChunkContent::Gap)?;
-                                    (gap.prev_token == *prev_token).then_some(c.identifier())
-                                })
-                                .expect("we just inserted the gap beforehand");
-
-                            room_events
-                                .replace_gap_at([], prev_gap_id)
-                                .expect("we obtained the valid position beforehand");
-                        }
-                    }
+                    room_events.push_events(sync_timeline_events.clone());
 
                     room_events.on_new_events(&self.room_version, sync_timeline_events.iter());
                 })
