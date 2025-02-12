@@ -447,7 +447,7 @@ impl RoomEventCacheInner {
                     //
                     // We don't have to worry the removals can change the position of the existing
                     // events, because we are pushing all _new_ `events` at the back.
-                    room_events.remove_events(duplicated_event_ids);
+                    room_events.remove_events_by_id(duplicated_event_ids);
 
                     room_events.push_events(sync_timeline_events.clone());
 
