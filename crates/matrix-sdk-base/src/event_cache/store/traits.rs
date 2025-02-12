@@ -19,7 +19,7 @@ use matrix_sdk_common::{
     linked_chunk::{RawChunk, Update},
     AsyncTraitDeps,
 };
-use ruma::{MxcUri, RoomId};
+use ruma::{MxcUri, OwnedEventId, RoomId};
 
 use super::{
     media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
@@ -79,6 +79,14 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// This will empty and remove all the linked chunks stored previously,
     /// using the above [`Self::handle_linked_chunk_updates`] methods.
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error>;
+
+    /// Given a set of event ID, remove the unique events and return the
+    /// duplicated events.
+    async fn filter_duplicated_events(
+        &self,
+        room_id: &RoomId,
+        events: Vec<OwnedEventId>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -245,6 +253,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
         self.0.clear_all_rooms_chunks().await.map_err(Into::into)
+    }
+
+    async fn filter_duplicated_events(
+        &self,
+        room_id: &RoomId,
+        events: Vec<OwnedEventId>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        self.0.filter_duplicated_events(room_id, events).await.map_err(Into::into)
     }
 
     async fn add_media_content(
