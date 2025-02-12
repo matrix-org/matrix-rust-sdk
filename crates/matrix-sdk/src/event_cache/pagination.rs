@@ -29,7 +29,7 @@ use super::{
     },
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
 };
-use crate::event_cache::room::events::deduplicated_all_new_events;
+use crate::event_cache::RoomEventCacheState;
 
 /// An API object to run pagination queries on a [`super::RoomEventCache`].
 ///
@@ -168,27 +168,31 @@ impl RoomPagination {
         // The new prev token from this pagination.
         let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
 
+        // Note: The chunk could be empty.
+        //
+        // If there's any event, they are presented in reverse order (i.e. the first one
+        // should be prepended first).
+
+        let sync_events = events
+            .iter()
+            // Reverse the order of the events as `/messages` has been called with `dir=b`
+            // (backward). The `RoomEvents` API expects the first event to be the oldest.
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let (new_events, duplicated_event_ids) =
+            state.collect_valid_and_duplicated_events(sync_events.clone().into_iter());
+
+        let all_deduplicated = RoomEventCacheState::deduplicated_all_new_events(
+            events.len(),
+            duplicated_event_ids.len(),
+        );
+
         let (backpagination_outcome, sync_timeline_events_diffs) = state
             .with_events_mut(move |room_events| {
-                // Note: The chunk could be empty.
-                //
-                // If there's any event, they are presented in reverse order (i.e. the first one
-                // should be prepended first).
 
-                let sync_events = events
-                    .iter()
-                    // Reverse the order of the events as `/messages` has been called with `dir=b`
-                    // (backward). The `RoomEvents` API expects the first event to be the oldest.
-                    .rev()
-                    .cloned()
-                    .collect::<Vec<_>>();
-
-                let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
-
-                let (new_events, duplicated_event_ids) = room_events.collect_valid_and_duplicated_events(sync_events.clone().into_iter());
-
-                let all_deduplicated = deduplicated_all_new_events(events.len(), duplicated_event_ids.len());
-
+        let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
                 // First, insert events.
                 let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
                     // There is a prior gap, let's replace it by new events!
