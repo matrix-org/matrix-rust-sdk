@@ -61,14 +61,11 @@ impl Deduplicator {
     /// Find duplicates in the given collection of events, and return both
     /// valid events (those with an event id) as well as the event ids of
     /// duplicate events.
-    pub async fn filter_duplicate_events<I>(
+    pub async fn filter_duplicate_events(
         &self,
-        events: I,
+        events: Vec<Event>,
         room_events: &RoomEvents,
-    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError>
-    where
-        I: Iterator<Item = Event>,
-    {
+    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError> {
         match self {
             Deduplicator::InMemory(dedup) => Ok(dedup.filter_duplicate_events(events, room_events)),
             Deduplicator::PersistentStore(dedup) => dedup.filter_duplicate_events(events).await,
@@ -89,28 +86,24 @@ pub struct StoreDeduplicator {
 }
 
 impl StoreDeduplicator {
-    async fn filter_duplicate_events<I>(
+    async fn filter_duplicate_events(
         &self,
-        events: I,
-    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError>
-    where
-        I: Iterator<Item = Event>,
-    {
+        mut events: Vec<Event>,
+    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError> {
         let store = self.store.lock().await?;
 
         // Collect event ids as we "validate" events (i.e. check they have a valid event
         // id.)
         let mut event_ids = Vec::new();
-        let events = events
-            .filter_map(|event| {
-                if let Some(event_id) = event.event_id() {
-                    event_ids.push(event_id);
-                    Some(event)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+
+        events.retain(|event| {
+            if let Some(event_id) = event.event_id() {
+                event_ids.push(event_id);
+                true
+            } else {
+                false
+            }
+        });
 
         // Let the store do its magic ✨
         let duplicates = store.filter_duplicated_events(&self.room_id, event_ids).await?;
@@ -157,18 +150,15 @@ impl BloomFilterDeduplicator {
     /// Find duplicates in the given collection of events, and return both
     /// valid events (those with an event id) as well as the event ids of
     /// duplicate events.
-    fn filter_duplicate_events<'a, I>(
-        &'a self,
-        events: I,
-        room_events: &'a RoomEvents,
-    ) -> (Vec<Event>, Vec<OwnedEventId>)
-    where
-        I: Iterator<Item = Event> + 'a,
-    {
+    fn filter_duplicate_events(
+        &self,
+        events: Vec<Event>,
+        room_events: &RoomEvents,
+    ) -> (Vec<Event>, Vec<OwnedEventId>) {
         let mut duplicated_event_ids = Vec::new();
 
         let events = self
-            .scan_and_learn(events, room_events)
+            .scan_and_learn(events.into_iter(), room_events)
             .filter_map(|decorated_event| match decorated_event {
                 Decoration::Unique(event) => Some(event),
                 Decoration::Duplicated(event) => {
