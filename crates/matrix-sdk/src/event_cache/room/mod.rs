@@ -424,9 +424,8 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        let (events, duplicated_event_ids, all_duplicates) = state
-            .collect_valid_and_duplicated_events(sync_timeline_events.clone().into_iter())
-            .await?;
+        let (events, duplicated_event_ids, all_duplicates) =
+            state.collect_valid_and_duplicated_events(sync_timeline_events.clone()).await?;
 
         let sync_timeline_events_diffs = if all_duplicates {
             // No new events, thus no need to change the room events.
@@ -658,13 +657,10 @@ mod private {
         /// possibly misplace them. And we should not be missing
         /// events either: the already-known events would have their own
         /// previous-batch token (it might already be consumed).
-        pub async fn collect_valid_and_duplicated_events<'a, I>(
-            &'a mut self,
-            events: I,
-        ) -> Result<(Vec<Event>, Vec<OwnedEventId>, bool), EventCacheError>
-        where
-            I: Iterator<Item = Event> + 'a,
-        {
+        pub async fn collect_valid_and_duplicated_events(
+            &mut self,
+            events: Vec<Event>,
+        ) -> Result<(Vec<Event>, Vec<OwnedEventId>, bool), EventCacheError> {
             let (events, duplicated_event_ids) =
                 self.deduplicator.filter_duplicate_events(events, &self.events).await?;
 
