@@ -205,7 +205,7 @@ impl RoomPagination {
                         // We don't have to worry the removals can change the position of the existing
                         // events, because we are replacing a gap: its identifier will not change
                         // because of the removals.
-                        room_events.remove_events(duplicated_event_ids);
+                        room_events.remove_events_by_id(duplicated_event_ids);
 
                         // Replace the gap with the events we just deduplicated.
                         room_events.replace_gap_at(new_events.clone(), gap_id)
@@ -237,7 +237,7 @@ impl RoomPagination {
                     // We don't have to worry the removals can change the position of the existing
                     // events, because we are replacing a gap: its identifier will not change
                     // because of the removals.
-                    room_events.remove_events(duplicated_event_ids);
+                    room_events.remove_events_by_id(duplicated_event_ids);
 
                     room_events.push_events(new_events.clone());
 

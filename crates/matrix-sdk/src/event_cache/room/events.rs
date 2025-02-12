@@ -246,6 +246,33 @@ impl RoomEvents {
         Ok(next_pos)
     }
 
+    /// Remove some events from the linked chunk.
+    ///
+    /// This method iterates over all event IDs in `event_ids` and removes the
+    /// associated event (if it exists) from `Self::chunks`.
+    pub fn remove_events_by_id(&mut self, event_ids: Vec<OwnedEventId>) {
+        for event_id in event_ids {
+            let Some(event_position) = self.revents().find_map(|(position, event)| {
+                (event.event_id().as_ref() == Some(&event_id)).then_some(position)
+            }) else {
+                error!(?event_id, "Cannot find the event to remove");
+
+                continue;
+            };
+
+            self.chunks
+                .remove_item_at(
+                    event_position,
+                    // If removing an event results in an empty chunk, the empty chunk is removed
+                    // because nothing is going to be inserted in it apparently, otherwise the
+                    // `Self::remove_events_and_update_insert_position` method would have been
+                    // used.
+                    EmptyChunk::Remove,
+                )
+                .expect("Failed to remove an event we have just found");
+        }
+    }
+
     /// Search for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, predicate: P) -> Option<ChunkIdentifier>
     where
@@ -385,37 +412,6 @@ pub(in crate::event_cache) fn deduplicated_all_new_events(
 
 // Private implementations, implementation specific.
 impl RoomEvents {
-    /// Remove some events from `Self::chunks`.
-    ///
-    /// This method iterates over all event IDs in `event_ids` and removes the
-    /// associated event (if it exists) from `Self::chunks`.
-    ///
-    /// This is used to remove duplicated events, see
-    /// [`Self::filter_duplicated_events`].
-    // TODO: make public, rename to `remove_events_by_ids`
-    pub fn remove_events(&mut self, event_ids: Vec<OwnedEventId>) {
-        for event_id in event_ids {
-            let Some(event_position) = self.revents().find_map(|(position, event)| {
-                (event.event_id().as_ref() == Some(&event_id)).then_some(position)
-            }) else {
-                error!(?event_id, "Cannot find the event to remove");
-
-                continue;
-            };
-
-            self.chunks
-                .remove_item_at(
-                    event_position,
-                    // If removing an event results in an empty chunk, the empty chunk is removed
-                    // because nothing is going to be inserted in it apparently, otherwise the
-                    // `Self::remove_events_and_update_insert_position` method would have been
-                    // used.
-                    EmptyChunk::Remove,
-                )
-                .expect("Failed to remove an event we have just found");
-        }
-    }
-
     /// Remove all events from `Self::chunks` and update a fix [`Position`].
     ///
     /// This method iterates over all event IDs in `event_ids` and removes the
@@ -771,7 +767,7 @@ mod tests {
         assert_eq!(room_events.chunks().count(), 3);
 
         // Remove some events.
-        room_events.remove_events(vec![event_id_1, event_id_3]);
+        room_events.remove_events_by_id(vec![event_id_1, event_id_3]);
 
         assert_events_eq!(
             room_events.events(),
@@ -782,7 +778,7 @@ mod tests {
         );
 
         // Ensure chunks are removed once empty.
-        room_events.remove_events(vec![event_id_2]);
+        room_events.remove_events_by_id(vec![event_id_2]);
 
         assert_events_eq!(
             room_events.events(),
@@ -804,7 +800,7 @@ mod tests {
 
         // Remove one undefined event.
         // No error is expected.
-        room_events.remove_events(vec![event_id_0]);
+        room_events.remove_events_by_id(vec![event_id_0]);
 
         assert_events_eq!(room_events.events(), []);
 
