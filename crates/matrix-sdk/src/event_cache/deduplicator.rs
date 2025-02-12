@@ -31,17 +31,17 @@ use super::room::events::{Event, RoomEvents};
 /// positive or not
 ///
 /// [bloom filter]: https://en.wikipedia.org/wiki/Bloom_filter
-pub struct Deduplicator {
+pub struct BloomFilterDeduplicator {
     bloom_filter: Mutex<GrowableBloom>,
 }
 
-impl fmt::Debug for Deduplicator {
+impl fmt::Debug for BloomFilterDeduplicator {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("Deduplicator").finish_non_exhaustive()
     }
 }
 
-impl Deduplicator {
+impl BloomFilterDeduplicator {
     // Note: don't use too high numbers here, or the amount of allocated memory will
     // explode. See https://github.com/matrix-org/matrix-rust-sdk/pull/4231 for details.
     const APPROXIMATED_MAXIMUM_NUMBER_OF_EVENTS: usize = 1_000;
@@ -179,7 +179,7 @@ mod tests {
         let event_1 = sync_timeline_event(&event_id_1);
         let event_2 = sync_timeline_event(&event_id_2);
 
-        let deduplicator = Deduplicator::new();
+        let deduplicator = BloomFilterDeduplicator::new();
         let existing_events = RoomEvents::new();
 
         let mut events =
@@ -205,7 +205,7 @@ mod tests {
         let event_0 = sync_timeline_event(&event_id_0);
         let event_1 = sync_timeline_event(&event_id_1);
 
-        let deduplicator = Deduplicator::new();
+        let deduplicator = BloomFilterDeduplicator::new();
         let existing_events = RoomEvents::new();
 
         let mut events = deduplicator.scan_and_learn(
@@ -240,7 +240,7 @@ mod tests {
         let event_1 = sync_timeline_event(&event_id_1);
         let event_2 = sync_timeline_event(&event_id_2);
 
-        let deduplicator = Deduplicator::new();
+        let deduplicator = BloomFilterDeduplicator::new();
         let mut existing_events = RoomEvents::new();
 
         // Simulate `event_1` is inserted inside `existing_events`.
@@ -305,7 +305,7 @@ mod tests {
         let mut dedups = Vec::with_capacity(num_rooms);
 
         for _ in 0..num_rooms {
-            let dedup = Deduplicator::new();
+            let dedup = BloomFilterDeduplicator::new();
             let existing_events = RoomEvents::new();
 
             for i in 0..num_events {
