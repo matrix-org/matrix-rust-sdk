@@ -181,7 +181,7 @@ impl RoomPagination {
             .collect::<Vec<_>>();
 
         let (new_events, duplicated_event_ids, all_deduplicated) =
-            state.collect_valid_and_duplicated_events(sync_events.clone().into_iter());
+            state.collect_valid_and_duplicated_events(sync_events.clone().into_iter()).await?;
 
         let (backpagination_outcome, sync_timeline_events_diffs) = state
             .with_events_mut(move |room_events| {
