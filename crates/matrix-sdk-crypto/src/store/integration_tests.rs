@@ -1219,7 +1219,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn test_dehydration_pickle_key_saving() {
-                let (_account, store) = get_loaded_store("dehydration_key_saving").await;
+                let (_account, store) = get_loaded_store("dehydration_pickle_key_saving").await;
 
                 let restored = store.load_dehydrated_device_pickle_key().await.unwrap();
                 assert!(restored.is_none(), "Initially no pickle key should be present");
@@ -1246,7 +1246,7 @@ macro_rules! cryptostore_integration_tests {
 
              #[async_test]
             async fn test_delete_dehydration_pickle_key() {
-                let (_account, store) = get_loaded_store("dehydration_key_saving").await;
+                let (_account, store) = get_loaded_store("delete_dehydration_pickle_key").await;
 
                 let dehydrated_device_pickle_key = DehydratedDeviceKey::new().unwrap();
 
