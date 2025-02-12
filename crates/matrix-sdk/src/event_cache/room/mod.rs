@@ -16,7 +16,7 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use events::{deduplicated_all_new_events, Gap};
+use events::Gap;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     linked_chunk::ChunkContent,
@@ -424,29 +424,26 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        // Add the previous back-pagination token (if present), followed by the timeline
-        // events themselves.
-        let sync_timeline_events_diffs = {
+        let (events, duplicated_event_ids) =
+            state.collect_valid_and_duplicated_events(sync_timeline_events.clone().into_iter());
+
+        let sync_timeline_events_diffs = if !RoomEventCacheState::deduplicated_all_new_events(
+            events.len(),
+            duplicated_event_ids.len(),
+        ) {
+            // Add the previous back-pagination token (if present), followed by the timeline
+            // events themselves.
             let (_, sync_timeline_events_diffs) = state
                 .with_events_mut(|room_events| {
-                    let (events, duplicated_event_ids) = room_events
-                        .collect_valid_and_duplicated_events(
-                            sync_timeline_events.clone().into_iter(),
-                        );
-
-                    if deduplicated_all_new_events(events.len(), duplicated_event_ids.len()) {
-                        // Nothing to do!
-                        return;
-                    }
-
                     if let Some(prev_token) = &prev_batch {
                         room_events.push_gap(Gap { prev_token: prev_token.clone() });
                     }
 
                     // Remove the _old_ duplicated events!
                     //
-                    // We don't have to worry the removals can change the position of the existing
-                    // events, because we are pushing all _new_ `events` at the back.
+                    // We don't have to worry the removals can change the position of the
+                    // existing events, because we are pushing all _new_
+                    // `events` at the back.
                     room_events.remove_events_by_id(duplicated_event_ids);
 
                     room_events.push_events(sync_timeline_events.clone());
@@ -467,6 +464,9 @@ impl RoomEventCacheInner {
             }
 
             sync_timeline_events_diffs
+        } else {
+            // No new events, thus no need to change the room events.
+            vec![]
         };
 
         // Now that all events have been added, we can trigger the
@@ -539,11 +539,14 @@ mod private {
         linked_chunk::{LinkedChunk, LinkedChunkBuilder, RawChunk, Update},
     };
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, OwnedRoomId, RoomId};
-    use tracing::{error, instrument, trace};
+    use ruma::{serde::Raw, OwnedEventId, OwnedRoomId, RoomId};
+    use tracing::{debug, error, instrument, trace, warn};
 
     use super::{chunk_debug_string, events::RoomEvents};
-    use crate::event_cache::EventCacheError;
+    use crate::event_cache::{
+        deduplicator::{Decoration, Deduplicator},
+        EventCacheError,
+    };
 
     /// State for a single room's event cache.
     ///
@@ -561,6 +564,9 @@ mod private {
 
         /// The events of the room.
         events: RoomEvents,
+
+        /// The events deduplicator instance to help finding duplicates.
+        deduplicator: Deduplicator,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -622,7 +628,79 @@ mod private {
                 RoomEvents::default()
             };
 
-            Ok(Self { room, store, events, waited_for_initial_prev_token: false })
+            let deduplicator =
+                Deduplicator::with_initial_events(events.events().map(|(_pos, event)| event));
+
+            Ok(Self { room, store, events, deduplicator, waited_for_initial_prev_token: false })
+        }
+
+        /// Deduplicate `events` considering all events in `Self::chunks`.
+        ///
+        /// The returned tuple contains (i) all events with an ID, and (ii) the
+        /// duplicated events (by ID).
+        pub fn collect_valid_and_duplicated_events<'a, I>(
+            &'a mut self,
+            events: I,
+        ) -> (Vec<Event>, Vec<OwnedEventId>)
+        where
+            I: Iterator<Item = Event> + 'a,
+        {
+            let mut duplicated_event_ids = Vec::new();
+
+            let events = self
+                .deduplicator
+                .scan_and_learn(events, &self.events)
+                .filter_map(|decorated_event| match decorated_event {
+                    Decoration::Unique(event) => Some(event),
+                    Decoration::Duplicated(event) => {
+                        debug!(event_id = ?event.event_id(), "Found a duplicated event");
+
+                        duplicated_event_ids.push(
+                            event
+                                .event_id()
+                                // SAFETY: An event with no ID is decorated as
+                                // `Decoration::Invalid`. Thus, it's
+                                // safe to unwrap the `Option<OwnedEventId>` here.
+                                .expect("The event has no ID"),
+                        );
+
+                        // Keep the new event!
+                        Some(event)
+                    }
+                    Decoration::Invalid(event) => {
+                        warn!(?event, "Found an event with no ID");
+                        None
+                    }
+                })
+                .collect();
+
+            (events, duplicated_event_ids)
+        }
+
+        /// Whenever we add new events to the linked chunk, did we *at least add
+        /// one*, and all the added events were already known
+        /// (deduplicated)?
+        ///
+        /// This is useful to know whether we need to store a previous-batch
+        /// token (gap) we received from a server-side request (sync or
+        /// back-pagination), or if we should *not* store it.
+        ///
+        /// Since there can be empty back-paginations with a previous-batch
+        /// token (that is, they don't contain any events), we need to
+        /// make sure that there is *at least* one new event that has
+        /// been added. Otherwise, we might conclude something wrong
+        /// because a subsequent back-pagination might
+        /// return non-duplicated events.
+        ///
+        /// If we had already seen all the duplicated events that we're trying
+        /// to add, then it would be wasteful to store a previous-batch
+        /// token, or even touch the linked chunk: we would repeat
+        /// back-paginations for events that we have already seen, and
+        /// possibly misplace them. And we should not be missing
+        /// events either: the already-known events would have their own
+        /// previous-batch token (it might already be consumed).
+        pub fn deduplicated_all_new_events(num_new_unique: usize, num_duplicated: usize) -> bool {
+            num_new_unique > 0 && num_new_unique == num_duplicated
         }
 
         /// Removes the bundled relations from an event, if they were present.

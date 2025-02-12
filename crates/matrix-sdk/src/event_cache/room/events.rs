@@ -25,12 +25,9 @@ use ruma::{
     events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType},
     OwnedEventId, RoomVersionId,
 };
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{error, instrument, trace, warn};
 
-use super::{
-    super::deduplicator::{Decoration, Deduplicator},
-    chunk_debug_string,
-};
+use super::chunk_debug_string;
 
 /// This type represents all events of a single room.
 #[derive(Debug)]
@@ -42,9 +39,6 @@ pub struct RoomEvents {
     ///
     /// [`Update`]: matrix_sdk_base::linked_chunk::Update
     chunks_updates_as_vectordiffs: AsVector<Event, Gap>,
-
-    /// The events deduplicator instance to help finding duplicates.
-    deduplicator: Deduplicator,
 }
 
 impl Default for RoomEvents {
@@ -73,11 +67,7 @@ impl RoomEvents {
             // `as_vector` must return `Some(…)`.
             .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
-        // Let the deduplicator know about initial events.
-        let deduplicator =
-            Deduplicator::with_initial_events(chunks.items().map(|(_pos, event)| event));
-
-        Self { chunks, chunks_updates_as_vectordiffs, deduplicator }
+        Self { chunks, chunks_updates_as_vectordiffs }
     }
 
     /// Returns whether the room has at least one event.
@@ -404,50 +394,6 @@ impl RoomEvents {
         self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 
-    /// Deduplicate `events` considering all events in `Self::chunks`.
-    ///
-    /// The returned tuple contains (i) all events with an ID, and (ii) the
-    /// duplicated events (by ID).
-    // TODO: temporarily public, need to move one layer above.
-    pub fn collect_valid_and_duplicated_events<'a, I>(
-        &'a mut self,
-        events: I,
-    ) -> (Vec<Event>, Vec<OwnedEventId>)
-    where
-        I: Iterator<Item = Event> + 'a,
-    {
-        let mut duplicated_event_ids = Vec::new();
-
-        let events = self
-            .deduplicator
-            .scan_and_learn(events, self)
-            .filter_map(|decorated_event| match decorated_event {
-                Decoration::Unique(event) => Some(event),
-                Decoration::Duplicated(event) => {
-                    debug!(event_id = ?event.event_id(), "Found a duplicated event");
-
-                    duplicated_event_ids.push(
-                        event
-                            .event_id()
-                            // SAFETY: An event with no ID is decorated as `Decoration::Invalid`.
-                            // Thus, it's safe to unwrap the `Option<OwnedEventId>` here.
-                            .expect("The event has no ID"),
-                    );
-
-                    // Keep the new event!
-                    Some(event)
-                }
-                Decoration::Invalid(event) => {
-                    warn!(?event, "Found an event with no ID");
-
-                    None
-                }
-            })
-            .collect();
-
-        (events, duplicated_event_ids)
-    }
-
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
     pub fn debug_string(&self) -> Vec<String> {
@@ -459,33 +405,6 @@ impl RoomEvents {
         }
         result
     }
-}
-
-/// Whenever we add new events to the linked chunk, did we *at least add one*,
-/// and all the added events were already known (deduplicated)?
-///
-/// This is useful to know whether we need to store a previous-batch token (gap)
-/// we received from a server-side request (sync or back-pagination), or if we
-/// should *not* store it.
-///
-/// Since there can be empty back-paginations with a previous-batch token (that
-/// is, they don't contain any events), we need to make sure that there is *at
-/// least* one new event that has been added. Otherwise, we might conclude
-/// something wrong because a subsequent back-pagination might
-/// return non-duplicated events.
-///
-/// If we had already seen all the duplicated events that we're trying to add,
-/// then it would be wasteful to store a previous-batch token, or even touch the
-/// linked chunk: we would repeat back-paginations for events that we have
-/// already seen, and possibly misplace them. And we should not be missing
-/// events either: the already-known events would have their own previous-batch
-/// token (it might already be consumed).
-// TODO: temporarily pub
-pub(in crate::event_cache) fn deduplicated_all_new_events(
-    num_new_unique: usize,
-    num_duplicated: usize,
-) -> bool {
-    num_new_unique > 0 && num_new_unique == num_duplicated
 }
 
 #[cfg(test)]
