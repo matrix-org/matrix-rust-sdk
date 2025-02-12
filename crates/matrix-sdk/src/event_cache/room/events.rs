@@ -273,6 +273,84 @@ impl RoomEvents {
         }
     }
 
+    /// Remove all events from `Self::chunks` and update a fix [`Position`].
+    ///
+    /// This method iterates over all event IDs in `event_ids` and removes the
+    /// associated event (if it exists) from `Self::chunks`, exactly like
+    /// [`Self::remove_events`]. The difference is that it will maintain a
+    /// [`Position`] according to the removals. This is useful for example if
+    /// one needs to insert events at a particular position, but it first
+    /// collects events that must be removed before the insertions (e.g.
+    /// duplicated events). One has to remove events, but also to maintain the
+    /// `Position` to its correct initial _target_. Let's see a practical
+    /// example:
+    ///
+    /// ```text
+    /// // Pseudo-code.
+    ///
+    /// let room_events = room_events(['a', 'b', 'c']);
+    /// let position = position_of('b' in room_events);
+    /// room_events.remove_events(['a'])
+    ///
+    /// // `position` no longer targets 'b', it now targets 'c', because all
+    /// // items have shifted to the left once. Instead, let's do:
+    ///
+    /// let room_events = room_events(['a', 'b', 'c']);
+    /// let position = position_of('b' in room_events);
+    /// room_events.remove_events_and_update_insert_position(['a'], &mut position)
+    ///
+    /// // `position` has been updated to still target 'b'.
+    /// ```
+    pub fn remove_events_and_update_insert_position(
+        &mut self,
+        event_ids: Vec<OwnedEventId>,
+        position: &mut Position,
+    ) {
+        for event_id in event_ids {
+            let Some(event_position) = self.revents().find_map(|(position, event)| {
+                (event.event_id().as_ref() == Some(&event_id)).then_some(position)
+            }) else {
+                error!(?event_id, "Cannot find the event to remove");
+
+                continue;
+            };
+
+            self.chunks
+                .remove_item_at(
+                    event_position,
+                    // If removing an event results in an empty chunk, the empty chunk is kept
+                    // because maybe something is going to be inserted in it!
+                    EmptyChunk::Keep,
+                )
+                .expect("Failed to remove an event we have just found");
+
+            // A `Position` is composed of a `ChunkIdentifier` and an index.
+            // The `ChunkIdentifier` is stable, i.e. it won't change if an
+            // event is removed in another chunk. It means we only need to
+            // update `position` if the removal happened in **the same
+            // chunk**.
+            if event_position.chunk_identifier() == position.chunk_identifier() {
+                // Now we can compare the position indices.
+                match event_position.index().cmp(&position.index()) {
+                    // `event_position`'s index < `position`'s index
+                    Ordering::Less => {
+                        // An event has been removed _before_ the new
+                        // events: `position` needs to be shifted to the
+                        // left by 1.
+                        position.decrement_index();
+                    }
+
+                    // `event_position`'s index >= `position`'s index
+                    Ordering::Equal | Ordering::Greater => {
+                        // An event has been removed at the _same_ position of
+                        // or _after_ the new events: `position` does _NOT_ need
+                        // to be modified.
+                    }
+                }
+            }
+        }
+    }
+
     /// Search for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, predicate: P) -> Option<ChunkIdentifier>
     where
@@ -408,91 +486,6 @@ pub(in crate::event_cache) fn deduplicated_all_new_events(
     num_duplicated: usize,
 ) -> bool {
     num_new_unique > 0 && num_new_unique == num_duplicated
-}
-
-// Private implementations, implementation specific.
-impl RoomEvents {
-    /// Remove all events from `Self::chunks` and update a fix [`Position`].
-    ///
-    /// This method iterates over all event IDs in `event_ids` and removes the
-    /// associated event (if it exists) from `Self::chunks`, exactly like
-    /// [`Self::remove_events`]. The difference is that it will maintain a
-    /// [`Position`] according to the removals. This is useful for example if
-    /// one needs to insert events at a particular position, but it first
-    /// collects events that must be removed before the insertions (e.g.
-    /// duplicated events). One has to remove events, but also to maintain the
-    /// `Position` to its correct initial _target_. Let's see a practical
-    /// example:
-    ///
-    /// ```text
-    /// // Pseudo-code.
-    ///
-    /// let room_events = room_events(['a', 'b', 'c']);
-    /// let position = position_of('b' in room_events);
-    /// room_events.remove_events(['a'])
-    ///
-    /// // `position` no longer targets 'b', it now targets 'c', because all
-    /// // items have shifted to the left once. Instead, let's do:
-    ///
-    /// let room_events = room_events(['a', 'b', 'c']);
-    /// let position = position_of('b' in room_events);
-    /// room_events.remove_events_and_update_insert_position(['a'], &mut position)
-    ///
-    /// // `position` has been updated to still target 'b'.
-    /// ```
-    ///
-    /// This is used to remove duplicated events, see
-    /// [`Self::filter_duplicated_events`].
-    // TODO: temporarily public
-    pub(in crate::event_cache) fn remove_events_and_update_insert_position(
-        &mut self,
-        event_ids: Vec<OwnedEventId>,
-        position: &mut Position,
-    ) {
-        for event_id in event_ids {
-            let Some(event_position) = self.revents().find_map(|(position, event)| {
-                (event.event_id().as_ref() == Some(&event_id)).then_some(position)
-            }) else {
-                error!(?event_id, "Cannot find the event to remove");
-
-                continue;
-            };
-
-            self.chunks
-                .remove_item_at(
-                    event_position,
-                    // If removing an event results in an empty chunk, the empty chunk is kept
-                    // because maybe something is going to be inserted in it!
-                    EmptyChunk::Keep,
-                )
-                .expect("Failed to remove an event we have just found");
-
-            // A `Position` is composed of a `ChunkIdentifier` and an index.
-            // The `ChunkIdentifier` is stable, i.e. it won't change if an
-            // event is removed in another chunk. It means we only need to
-            // update `position` if the removal happened in **the same
-            // chunk**.
-            if event_position.chunk_identifier() == position.chunk_identifier() {
-                // Now we can compare the position indices.
-                match event_position.index().cmp(&position.index()) {
-                    // `event_position`'s index < `position`'s index
-                    Ordering::Less => {
-                        // An event has been removed _before_ the new
-                        // events: `position` needs to be shifted to the
-                        // left by 1.
-                        position.decrement_index();
-                    }
-
-                    // `event_position`'s index >= `position`'s index
-                    Ordering::Equal | Ordering::Greater => {
-                        // An event has been removed at the _same_ position of
-                        // or _after_ the new events: `position` does _NOT_ need
-                        // to be modified.
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
