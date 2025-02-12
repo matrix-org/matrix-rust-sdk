@@ -29,7 +29,6 @@ use super::{
     },
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
 };
-use crate::event_cache::RoomEventCacheState;
 
 /// An API object to run pagination queries on a [`super::RoomEventCache`].
 ///
@@ -181,13 +180,8 @@ impl RoomPagination {
             .cloned()
             .collect::<Vec<_>>();
 
-        let (new_events, duplicated_event_ids) =
+        let (new_events, duplicated_event_ids, all_deduplicated) =
             state.collect_valid_and_duplicated_events(sync_events.clone().into_iter());
-
-        let all_deduplicated = RoomEventCacheState::deduplicated_all_new_events(
-            events.len(),
-            duplicated_event_ids.len(),
-        );
 
         let (backpagination_outcome, sync_timeline_events_diffs) = state
             .with_events_mut(move |room_events| {
