@@ -415,4 +415,12 @@ impl RoomDataProvider for TestRoomDataProvider {
         let info = RoomInfo::new(*DEFAULT_TEST_ROOM_ID, RoomState::Joined);
         SharedObservable::new(info).subscribe()
     }
+
+    async fn get_encryption_info(
+        &self,
+        _session_id: &str,
+        _sender: &UserId,
+    ) -> Option<matrix_sdk::deserialized_responses::EncryptionInfo> {
+        None
+    }
 }

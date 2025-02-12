@@ -32,10 +32,13 @@ use futures_util::{
 use http::StatusCode;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub use identity_status_changes::IdentityStatusChanges;
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{DecryptionSettings, RoomEventDecryptionResult};
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::{
+    crypto::{DecryptionSettings, RoomEventDecryptionResult},
+    deserialized_responses::EncryptionInfo,
+};
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
@@ -1306,6 +1309,23 @@ impl Room {
 
         event.push_actions = self.event_push_actions(event.raw()).await?;
         Ok(event)
+    }
+
+    /// Fetches the [`EncryptionInfo`] for the supplied session_id.
+    ///
+    /// This may be used when we receive an update for a session, and we want to
+    /// reflect the changes in messages we have received that were encrypted
+    /// with that session, e.g. to remove a warning shield because a device is
+    /// now verified.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn get_encryption_info(
+        &self,
+        session_id: &str,
+        sender: &UserId,
+    ) -> Option<EncryptionInfo> {
+        let machine = self.client.olm_machine().await;
+        let machine = machine.as_ref()?;
+        machine.get_session_encryption_info(self.room_id(), session_id, sender).await.ok()
     }
 
     /// Forces the currently active room key, which is used to encrypt messages,
