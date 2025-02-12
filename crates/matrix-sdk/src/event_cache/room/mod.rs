@@ -540,13 +540,10 @@ mod private {
     };
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedEventId, OwnedRoomId, RoomId};
-    use tracing::{debug, error, instrument, trace, warn};
+    use tracing::{error, instrument, trace};
 
     use super::{chunk_debug_string, events::RoomEvents};
-    use crate::event_cache::{
-        deduplicator::{BloomFilterDeduplicator, Decoration},
-        EventCacheError,
-    };
+    use crate::event_cache::{deduplicator::BloomFilterDeduplicator, EventCacheError};
 
     /// State for a single room's event cache.
     ///
@@ -668,34 +665,8 @@ mod private {
         where
             I: Iterator<Item = Event> + 'a,
         {
-            let mut duplicated_event_ids = Vec::new();
-
-            let events = self
-                .deduplicator
-                .scan_and_learn(events, &self.events)
-                .filter_map(|decorated_event| match decorated_event {
-                    Decoration::Unique(event) => Some(event),
-                    Decoration::Duplicated(event) => {
-                        debug!(event_id = ?event.event_id(), "Found a duplicated event");
-
-                        duplicated_event_ids.push(
-                            event
-                                .event_id()
-                                // SAFETY: An event with no ID is decorated as
-                                // `Decoration::Invalid`. Thus, it's
-                                // safe to unwrap the `Option<OwnedEventId>` here.
-                                .expect("The event has no ID"),
-                        );
-
-                        // Keep the new event!
-                        Some(event)
-                    }
-                    Decoration::Invalid(event) => {
-                        warn!(?event, "Found an event with no ID");
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
+            let (events, duplicated_event_ids) =
+                self.deduplicator.filter_duplicate_events(events, &self.events);
 
             let all_duplicates = !events.is_empty() && events.len() == duplicated_event_ids.len();
 
