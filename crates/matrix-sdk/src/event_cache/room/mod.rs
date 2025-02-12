@@ -544,7 +544,7 @@ mod private {
 
     use super::{chunk_debug_string, events::RoomEvents};
     use crate::event_cache::{
-        deduplicator::{Decoration, Deduplicator},
+        deduplicator::{BloomFilterDeduplicator, Decoration},
         EventCacheError,
     };
 
@@ -566,7 +566,7 @@ mod private {
         events: RoomEvents,
 
         /// The events deduplicator instance to help finding duplicates.
-        deduplicator: Deduplicator,
+        deduplicator: BloomFilterDeduplicator,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -628,8 +628,9 @@ mod private {
                 RoomEvents::default()
             };
 
-            let deduplicator =
-                Deduplicator::with_initial_events(events.events().map(|(_pos, event)| event));
+            let deduplicator = BloomFilterDeduplicator::with_initial_events(
+                events.events().map(|(_pos, event)| event),
+            );
 
             Ok(Self { room, store, events, deduplicator, waited_for_initial_prev_token: false })
         }
