@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -32,7 +34,7 @@ use super::{
     ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
     TimelineSettings,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::TimelineItem};
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// A vector transaction over the items themselves. Holds temporary state
@@ -439,6 +441,14 @@ impl<'a> TimelineStateTransaction<'a> {
             // Now we can remove the remote event.
             self.items.remove_remote_event(event_index);
         }
+    }
+
+    pub(super) fn replace(
+        &mut self,
+        timeline_item_index: usize,
+        timeline_item: Arc<TimelineItem>,
+    ) -> Arc<TimelineItem> {
+        self.items.replace(timeline_item_index, timeline_item)
     }
 
     pub(super) fn clear(&mut self) {
