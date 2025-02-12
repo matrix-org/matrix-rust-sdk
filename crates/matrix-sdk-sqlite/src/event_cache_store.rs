@@ -14,7 +14,7 @@
 
 //! A sqlite-based backend for the [`EventCacheStore`].
 
-use std::{borrow::Cow, fmt, path::Path, sync::Arc};
+use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
@@ -33,8 +33,8 @@ use matrix_sdk_base::{
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri, RoomId};
-use rusqlite::{params_from_iter, OptionalExtension, Transaction, TransactionBehavior};
+use ruma::{time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId};
+use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::fs;
 use tracing::{debug, trace};
 
@@ -620,6 +620,69 @@ impl EventCacheStore for SqliteEventCacheStore {
             })
             .await?;
         Ok(())
+    }
+
+    async fn filter_duplicated_events(
+        &self,
+        room_id: &RoomId,
+        events: Vec<OwnedEventId>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        // Select all events that exist in the store, i.e. the duplicates.
+        let room_id = room_id.to_owned();
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, &room_id);
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(events, None, move |txn, events| {
+                    let query = format!(
+                        "SELECT event_id FROM events WHERE room_id = ? AND event_id IN ({})",
+                        repeat_vars(events.len()),
+                    );
+                    let parameters = params_from_iter(
+                        // parameter for `room_id = ?`
+                        once(
+                            hashed_room_id
+                                .to_sql()
+                                // SAFETY: it cannot fail since `Key::to_sql` never fails
+                                .unwrap(),
+                        )
+                        // parameters for `event_id IN (…)`
+                        .chain(events.iter().map(|event| {
+                            event
+                                .as_str()
+                                .to_sql()
+                                // SAFETY: it cannot fail since `str::to_sql` never fails
+                                .unwrap()
+                        })),
+                    );
+
+                    let mut duplicated_events = Vec::new();
+
+                    for duplicated_event in txn
+                        .prepare(&query)?
+                        .query_map(parameters, |row| row.get::<_, Option<String>>(0))?
+                    {
+                        let duplicated_event = duplicated_event?;
+
+                        let Some(duplicated_event) = duplicated_event else {
+                            // Event ID is malformed, let's skip it.
+                            continue;
+                        };
+
+                        let Ok(duplicated_event) = EventId::parse(duplicated_event) else {
+                            // Normally unreachable, but the event ID has been stored even if it is
+                            // malformed, let's skip it.
+                            continue;
+                        };
+
+                        duplicated_events.push(duplicated_event);
+                    }
+
+                    Ok(duplicated_events)
+                })
+            })
+            .await
     }
 
     async fn add_media_content(
