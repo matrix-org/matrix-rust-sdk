@@ -18,7 +18,8 @@
 use std::{collections::BTreeSet, fmt, sync::Mutex};
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use tracing::warn;
+use ruma::OwnedEventId;
+use tracing::{debug, warn};
 
 use super::room::events::{Event, RoomEvents};
 
@@ -72,6 +73,48 @@ impl BloomFilterDeduplicator {
         Self { bloom_filter: Mutex::new(bloom_filter) }
     }
 
+    /// Find duplicates in the given collection of events, and return both
+    /// valid events (those with an event id) as well as the event ids of
+    /// duplicate events.
+    pub fn filter_duplicate_events<'a, I>(
+        &'a self,
+        events: I,
+        room_events: &'a RoomEvents,
+    ) -> (Vec<Event>, Vec<OwnedEventId>)
+    where
+        I: Iterator<Item = Event> + 'a,
+    {
+        let mut duplicated_event_ids = Vec::new();
+
+        let events = self
+            .scan_and_learn(events, room_events)
+            .filter_map(|decorated_event| match decorated_event {
+                Decoration::Unique(event) => Some(event),
+                Decoration::Duplicated(event) => {
+                    debug!(event_id = ?event.event_id(), "Found a duplicated event");
+
+                    duplicated_event_ids.push(
+                        event
+                            .event_id()
+                            // SAFETY: An event with no ID is decorated as
+                            // `Decoration::Invalid`. Thus, it's
+                            // safe to unwrap the `Option<OwnedEventId>` here.
+                            .expect("The event has no ID"),
+                    );
+
+                    // Keep the new event!
+                    Some(event)
+                }
+                Decoration::Invalid(event) => {
+                    warn!(?event, "Found an event with no ID");
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        (events, duplicated_event_ids)
+    }
+
     /// Scan a collection of events and detect duplications.
     ///
     /// This method takes a collection of events `new_events_to_scan` and
@@ -82,7 +125,7 @@ impl BloomFilterDeduplicator {
     /// Each scanned event will update `Self`'s internal state.
     ///
     /// `existing_events` represents all events of a room that already exist.
-    pub fn scan_and_learn<'a, I>(
+    fn scan_and_learn<'a, I>(
         &'a self,
         new_events_to_scan: I,
         existing_events: &'a RoomEvents,
