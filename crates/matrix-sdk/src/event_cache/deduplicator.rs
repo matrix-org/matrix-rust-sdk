@@ -18,12 +18,109 @@
 use std::{collections::BTreeSet, fmt, sync::Mutex};
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use ruma::OwnedEventId;
+use matrix_sdk_base::event_cache::store::EventCacheStoreLock;
+use ruma::{OwnedEventId, OwnedRoomId};
 use tracing::{debug, warn};
 
-use super::room::events::{Event, RoomEvents};
+use super::{
+    room::events::{Event, RoomEvents},
+    EventCacheError,
+};
 
-/// `Deduplicator` is an efficient type to find duplicated events.
+pub enum Deduplicator {
+    InMemory(BloomFilterDeduplicator),
+    PersistentStore(StoreDeduplicator),
+}
+
+impl Deduplicator {
+    /// Create an empty deduplicator instance that uses an internal Bloom
+    /// filter.
+    ///
+    /// Such a deduplicator is stateful, with no initial known events, and it
+    /// will learn over time by using a Bloom filter which events are
+    /// duplicates or not.
+    ///
+    /// When the persistent storage is enabled by default, this constructor
+    /// (and the associated variant) will be removed.
+    pub fn new_memory_based() -> Self {
+        Self::InMemory(BloomFilterDeduplicator::new())
+    }
+
+    /// Create new store-based deduplicator that will run queries against the
+    /// store to find if any event is deduplicated or not.
+    ///
+    /// This deduplicator is stateless.
+    ///
+    /// When the persistent storage is enabled by default, this will become the
+    /// default, and [`Deduplicator`] will be replaced with
+    /// [`StoreDeduplicator`].
+    pub fn new_store_based(room_id: OwnedRoomId, store: EventCacheStoreLock) -> Self {
+        Self::PersistentStore(StoreDeduplicator { room_id, store })
+    }
+
+    /// Find duplicates in the given collection of events, and return both
+    /// valid events (those with an event id) as well as the event ids of
+    /// duplicate events.
+    pub async fn filter_duplicate_events<I>(
+        &self,
+        events: I,
+        room_events: &RoomEvents,
+    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError>
+    where
+        I: Iterator<Item = Event>,
+    {
+        match self {
+            Deduplicator::InMemory(dedup) => Ok(dedup.filter_duplicate_events(events, room_events)),
+            Deduplicator::PersistentStore(dedup) => dedup.filter_duplicate_events(events).await,
+        }
+    }
+}
+
+/// A deduplication mechanism based on the persistent storage associated to the
+/// event cache.
+///
+/// It will use queries to the persistent storage to figure where events are
+/// duplicates or not, making it entirely stateless.
+pub struct StoreDeduplicator {
+    /// The room this deduplicator applies to.
+    room_id: OwnedRoomId,
+    /// The actual event cache store implementation used to query events.
+    store: EventCacheStoreLock,
+}
+
+impl StoreDeduplicator {
+    async fn filter_duplicate_events<I>(
+        &self,
+        events: I,
+    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError>
+    where
+        I: Iterator<Item = Event>,
+    {
+        let store = self.store.lock().await?;
+
+        // Collect event ids as we "validate" events (i.e. check they have a valid event
+        // id.)
+        let mut event_ids = Vec::new();
+        let events = events
+            .filter_map(|event| {
+                if let Some(event_id) = event.event_id() {
+                    event_ids.push(event_id);
+                    Some(event)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Let the store do its magic ✨
+        let duplicates = store.filter_duplicated_events(&self.room_id, event_ids).await?;
+
+        Ok((events, duplicates))
+    }
+}
+
+/// `BloomFilterDeduplicator` is an efficient type to find duplicated events,
+/// using an in-memory cache.
 ///
 /// It uses a [bloom filter] to provide a memory efficient probabilistic answer
 /// to: “has event E been seen already?”. False positives are possible, while
@@ -49,34 +146,18 @@ impl BloomFilterDeduplicator {
     const DESIRED_FALSE_POSITIVE_RATE: f64 = 0.01;
 
     /// Create a new `Deduplicator` with no prior knowledge of known events.
-    #[cfg(test)]
-    pub fn new() -> Self {
-        Self::with_initial_events(std::iter::empty())
-    }
-
-    /// Create a new `Deduplicator` filled with initial events.
-    ///
-    /// This won't detect duplicates in the initial events, only learn about
-    /// those events.
-    pub fn with_initial_events<'a>(events: impl Iterator<Item = &'a Event>) -> Self {
-        let mut bloom_filter = GrowableBloomBuilder::new()
+    fn new() -> Self {
+        let bloom_filter = GrowableBloomBuilder::new()
             .estimated_insertions(Self::APPROXIMATED_MAXIMUM_NUMBER_OF_EVENTS)
             .desired_error_ratio(Self::DESIRED_FALSE_POSITIVE_RATE)
             .build();
-        for e in events {
-            let Some(event_id) = e.event_id() else {
-                warn!("initial event in deduplicator had no event id");
-                continue;
-            };
-            bloom_filter.insert(event_id);
-        }
         Self { bloom_filter: Mutex::new(bloom_filter) }
     }
 
     /// Find duplicates in the given collection of events, and return both
     /// valid events (those with an event id) as well as the event ids of
     /// duplicate events.
-    pub fn filter_duplicate_events<'a, I>(
+    fn filter_duplicate_events<'a, I>(
         &'a self,
         events: I,
         room_events: &'a RoomEvents,
@@ -184,7 +265,7 @@ impl BloomFilterDeduplicator {
 
 /// Information about the scanned collection of events.
 #[derive(Debug)]
-pub enum Decoration<I> {
+enum Decoration<I> {
     /// This event is not duplicated.
     Unique(I),
 

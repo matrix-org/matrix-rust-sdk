@@ -424,8 +424,9 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        let (events, duplicated_event_ids, all_duplicates) =
-            state.collect_valid_and_duplicated_events(sync_timeline_events.clone().into_iter());
+        let (events, duplicated_event_ids, all_duplicates) = state
+            .collect_valid_and_duplicated_events(sync_timeline_events.clone().into_iter())
+            .await?;
 
         let sync_timeline_events_diffs = if all_duplicates {
             // No new events, thus no need to change the room events.
@@ -543,7 +544,7 @@ mod private {
     use tracing::{error, instrument, trace};
 
     use super::{chunk_debug_string, events::RoomEvents};
-    use crate::event_cache::{deduplicator::BloomFilterDeduplicator, EventCacheError};
+    use crate::event_cache::{deduplicator::Deduplicator, EventCacheError};
 
     /// State for a single room's event cache.
     ///
@@ -563,7 +564,7 @@ mod private {
         events: RoomEvents,
 
         /// The events deduplicator instance to help finding duplicates.
-        deduplicator: BloomFilterDeduplicator,
+        deduplicator: Deduplicator,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -602,7 +603,7 @@ mod private {
             room: OwnedRoomId,
             store: Arc<OnceCell<EventCacheStoreLock>>,
         ) -> Result<Self, EventCacheError> {
-            let events = if let Some(store) = store.get() {
+            let (events, deduplicator) = if let Some(store) = store.get() {
                 let locked = store.lock().await?;
 
                 // Try to reload a linked chunk from storage. If it fails, log the error and
@@ -620,14 +621,13 @@ mod private {
                     }
                 };
 
-                RoomEvents::with_initial_chunks(linked_chunk)
+                (
+                    RoomEvents::with_initial_chunks(linked_chunk),
+                    Deduplicator::new_store_based(room.clone(), store.clone()),
+                )
             } else {
-                RoomEvents::default()
+                (RoomEvents::default(), Deduplicator::new_memory_based())
             };
-
-            let deduplicator = BloomFilterDeduplicator::with_initial_events(
-                events.events().map(|(_pos, event)| event),
-            );
 
             Ok(Self { room, store, events, deduplicator, waited_for_initial_prev_token: false })
         }
@@ -658,19 +658,19 @@ mod private {
         /// possibly misplace them. And we should not be missing
         /// events either: the already-known events would have their own
         /// previous-batch token (it might already be consumed).
-        pub fn collect_valid_and_duplicated_events<'a, I>(
+        pub async fn collect_valid_and_duplicated_events<'a, I>(
             &'a mut self,
             events: I,
-        ) -> (Vec<Event>, Vec<OwnedEventId>, bool)
+        ) -> Result<(Vec<Event>, Vec<OwnedEventId>, bool), EventCacheError>
         where
             I: Iterator<Item = Event> + 'a,
         {
             let (events, duplicated_event_ids) =
-                self.deduplicator.filter_duplicate_events(events, &self.events);
+                self.deduplicator.filter_duplicate_events(events, &self.events).await?;
 
             let all_duplicates = !events.is_empty() && events.len() == duplicated_event_ids.len();
 
-            (events, duplicated_event_ids, all_duplicates)
+            Ok((events, duplicated_event_ids, all_duplicates))
         }
 
         /// Removes the bundled relations from an event, if they were present.
