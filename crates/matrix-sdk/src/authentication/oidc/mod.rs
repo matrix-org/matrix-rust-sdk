@@ -191,9 +191,9 @@ use mas_oidc_client::{
         IdToken,
     },
 };
-use matrix_sdk_base::{
-    crypto::types::qr_login::QrCodeData, once_cell::sync::OnceCell, SessionMeta,
-};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
+use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::get_authentication_issuer;
 use serde::{Deserialize, Serialize};
