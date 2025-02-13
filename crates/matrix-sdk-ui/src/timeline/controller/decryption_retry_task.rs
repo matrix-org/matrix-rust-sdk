@@ -14,8 +14,10 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
+use itertools::{Either, Itertools as _};
 use matrix_sdk::{
-    deserialized_responses::TimelineEventKind as SdkTimelineEventKind, executor::JoinHandle,
+    deserialized_responses::{EncryptionInfo, TimelineEventKind as SdkTimelineEventKind},
+    executor::JoinHandle,
 };
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
@@ -25,8 +27,9 @@ use tracing::{debug, error, field, info, info_span, Instrument as _};
 
 use crate::timeline::{
     controller::{TimelineSettings, TimelineState},
+    event_item::{EventTimelineItemKind, RemoteEventTimelineItem},
     traits::{Decryptor, RoomDataProvider},
-    EncryptedMessage, TimelineItem,
+    EncryptedMessage, EventTimelineItem, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
 
 /// Holds a long-running task that is used to retry decryption of items in the
@@ -119,16 +122,31 @@ async fn decryption_task<D: Decryptor>(
             }
         };
 
-        let retry_indices = item_indices_to_retry(state.clone(), &should_retry).await;
-        if !retry_indices.is_empty() {
+        // Find which events need retrying
+        let (retry_decryption_indices, retry_info_indices) =
+            event_indices_to_retry_decryption(state.read().await.items.iter(), should_retry);
+
+        // Retry fetching encryption info for events that are already decrypted
+        if !retry_info_indices.is_empty() {
+            debug!("Retrying fetching encryption info");
+            retry_event_encryption_info(
+                &mut *state.write().await,
+                retry_info_indices,
+                &room_data_provider,
+            )
+            .await;
+        }
+
+        // Retry decrypting any unable-to-decrypt messages
+        if !retry_decryption_indices.is_empty() {
             debug!("Retrying decryption");
             decrypt_by_index(
-                state.clone(),
+                &mut *state.write().await,
                 &request.settings,
-                room_data_provider.clone(),
+                &room_data_provider,
                 request.decryptor,
                 should_retry,
-                retry_indices,
+                retry_decryption_indices,
             )
             .await
         }
@@ -137,42 +155,133 @@ async fn decryption_task<D: Decryptor>(
     debug!("Decryption task stopping.");
 }
 
-/// Return a list of the items within the timeline that we should retry
-/// decrypting because their session updated. Items are identified by their
-/// index in the supplied `state`'s list of items.
-async fn item_indices_to_retry(
-    state: Arc<RwLock<TimelineState>>,
+/// Decide which events should be retried, either for re-decryption, or, if they
+/// are already decrypted, for re-checking their encryption info.
+///
+/// Returns a tuple `(retry_decryption_indices, retry_info_indices)` where
+/// `retry_decryption_indices` is a list of UTDs to try decrypting, and
+/// retry_info_indices is a list of already-decrypted events whose encryption
+/// info we can re-fetch.
+fn event_indices_to_retry_decryption<'a>(
+    items: impl Iterator<Item = &'a Arc<TimelineItem>>,
     should_retry: impl Fn(&str) -> bool,
-) -> Vec<usize> {
-    let state = state.read_owned().await;
+) -> (Vec<usize>, Vec<usize>) {
+    use Either::{Left, Right};
 
-    state
-        .items
-        .iter()
+    // We retry an event if its session ID should be retried
+    let should_retry_event = |event: &EventTimelineItem| {
+        let session_id =
+            if let TimelineItemContent::UnableToDecrypt(encrypted_message) = event.content() {
+                // UTDs carry their session ID inside the content
+                encrypted_message.session_id()
+            } else {
+                // Non-UTDs only have a session ID if they are remote and have it in the
+                // EncryptionInfo
+                event
+                    .as_remote()
+                    .and_then(|remote| remote.encryption_info.as_ref())
+                    .and_then(|encryption_info| encryption_info.session_id.as_ref())
+                    .map(String::as_str)
+            };
+
+        if let Some(session_id) = session_id {
+            // Should we retry this session ID?
+            should_retry(session_id)
+        } else {
+            // No session ID: don't retry this event
+            false
+        }
+    };
+
+    fn is_utd(event: &EventTimelineItem) -> bool {
+        matches!(event.content(), TimelineItemContent::UnableToDecrypt(_))
+    }
+
+    items
         .enumerate()
-        .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
-            EncryptedMessage::MegolmV1AesSha2 { session_id, .. } if should_retry(session_id) => {
-                Some(idx)
-            }
-            EncryptedMessage::MegolmV1AesSha2 { .. }
-            | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-            | EncryptedMessage::Unknown => None,
+        .filter_map(|(idx, item)| {
+            item.as_event().and_then(|event| {
+                if should_retry_event(event) {
+                    Some((idx, event))
+                } else {
+                    None
+                }
+            })
         })
-        .collect()
+        // Break the result into 2 lists: (utds, decrypted)
+        .partition_map(|(idx, event)| if is_utd(event) { Left(idx) } else { Right(idx) })
+}
+
+/// Try to fetch [`EncryptionInfo`] for the events with the supplied
+/// indices, and update them where we succeed.
+pub(super) async fn retry_event_encryption_info<P: RoomDataProvider>(
+    state: &mut TimelineState,
+    retry_indices: Vec<usize>,
+    room_data_provider: &P,
+) {
+    // Create TimelineItems to replace the specified ones
+    let mut to_update = Vec::new();
+    for idx in retry_indices {
+        let old_item = state.items.get(idx);
+        if let Some(new_item) = replacement_for(room_data_provider, old_item).await {
+            to_update.push((idx, new_item));
+        }
+    }
+
+    // Actually replace them (separately, to avoid our references to state
+    // overlapping)
+    for (idx, item) in to_update {
+        state.items.replace(idx, item);
+    }
+}
+
+/// Create a replacement TimelineItem for the supplied one, with new
+/// [`EncryptionInfo`] from the supplied `room_data_provider`. Returns None if
+/// the supplied item is not a remote event, or if it doesn't have a session ID.
+async fn replacement_for<P: RoomDataProvider>(
+    room_data_provider: &P,
+    item: Option<&Arc<TimelineItem>>,
+) -> Option<Arc<TimelineItem>> {
+    let item = item?;
+    let event = item.as_event()?;
+    let sender = &event.sender;
+    let remote = event.as_remote()?;
+    let session_id = remote.encryption_info.as_ref()?.session_id.as_ref()?;
+
+    Some(replacement_item(
+        item,
+        event,
+        remote,
+        room_data_provider.get_encryption_info(session_id, sender).await,
+    ))
+}
+
+/// Make a new [`TimelineItem`] based on the supplied `item`, `event` and
+/// `remote`, but with the supplied `encryption_info` replacing its existing
+/// encryption info.
+fn replacement_item(
+    item: &TimelineItem,
+    event: &EventTimelineItem,
+    remote: &RemoteEventTimelineItem,
+    new_encryption_info: Option<EncryptionInfo>,
+) -> Arc<TimelineItem> {
+    let mut new_remote = remote.clone();
+    new_remote.encryption_info = new_encryption_info;
+    item.with_kind(TimelineItemKind::Event(
+        event.with_kind(EventTimelineItemKind::Remote(new_remote)),
+    ))
 }
 
 /// Attempt decryption of the events encrypted with the session IDs in the
 /// supplied decryption `request`.
 async fn decrypt_by_index<D: Decryptor>(
-    state: Arc<RwLock<TimelineState>>,
+    state: &mut TimelineState,
     settings: &TimelineSettings,
-    room_data_provider: impl RoomDataProvider,
+    room_data_provider: &impl RoomDataProvider,
     decryptor: D,
     should_retry: impl Fn(&str) -> bool,
     retry_indices: Vec<usize>,
 ) {
-    let mut state = state.clone().write_owned().await;
-
     let push_rules_context = room_data_provider.push_rules_and_context().await;
     let unable_to_decrypt_hook = state.meta.unable_to_decrypt_hook.clone();
 
@@ -243,8 +352,228 @@ async fn decrypt_by_index<D: Decryptor>(
             retry_one,
             retry_indices,
             push_rules_context,
-            &room_data_provider,
+            room_data_provider,
             settings,
         )
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
+
+    use imbl::Vector;
+    use matrix_sdk::{
+        crypto::types::events::UtdCause,
+        deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},
+    };
+    use ruma::{
+        events::room::{
+            encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit,
+                RoomEncryptedEventContent,
+            },
+            message::RoomMessageEventContent,
+        },
+        owned_device_id, owned_event_id, owned_user_id, MilliSecondsSinceUnixEpoch,
+        OwnedTransactionId,
+    };
+
+    use crate::timeline::{
+        controller::decryption_retry_task::event_indices_to_retry_decryption,
+        event_item::{
+            EventTimelineItemKind, LocalEventTimelineItem, RemoteEventOrigin,
+            RemoteEventTimelineItem,
+        },
+        EventSendState, EventTimelineItem, ReactionsByKeyBySender, TimelineDetails, TimelineItem,
+        TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
+    };
+
+    #[test]
+    fn non_events_are_not_retried() {
+        // Given a timeline with only non-events
+        let timeline = [TimelineItem::read_marker(), date_divider()];
+        // When we ask what to retry
+        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        // Then we retry nothing
+        assert!(answer.0.is_empty());
+        assert!(answer.1.is_empty());
+    }
+
+    #[test]
+    fn non_remote_events_are_not_retried() {
+        // Given a timeline with only local events
+        let timeline = [local_event()];
+        // When we ask what to retry
+        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        // Then we retry nothing
+        assert!(answer.0.is_empty());
+        assert!(answer.1.is_empty());
+    }
+
+    #[test]
+    fn utds_are_retried() {
+        // Given a timeline with a UTD
+        let timeline = [utd_event("session1")];
+        // When we ask what to retry
+        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        // Then we retry decrypting it, and don't refetch any encryption info
+        assert_eq!(answer.0, vec![0]);
+        assert!(answer.1.is_empty());
+    }
+
+    #[test]
+    fn remote_decrypted_info_is_refetched() {
+        // Given a timeline with a decrypted event
+        let timeline = [decrypted_event("session1")];
+        // When we ask what to retry
+        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        // Then we don't need to decrypt anything, but we do refetch the encryption info
+        assert!(answer.0.is_empty());
+        assert_eq!(answer.1, vec![0]);
+    }
+
+    #[test]
+    fn only_required_sessions_are_retried() {
+        // Given we want to retry everything in session1 only
+
+        fn retry(s: &str) -> bool {
+            s == "session1"
+        }
+
+        // And we have a timeline containing non-events, local events, UTDs and
+        // decrypted events
+        let timeline = [
+            TimelineItem::read_marker(),
+            utd_event("session1"),
+            utd_event("session1"),
+            date_divider(),
+            utd_event("session2"),
+            decrypted_event("session1"),
+            decrypted_event("session1"),
+            decrypted_event("session2"),
+            local_event(),
+        ];
+
+        // When we ask what to retry
+        let answer = event_indices_to_retry_decryption(timeline.iter(), retry);
+
+        // Then we re-decrypt the UTDs, and refetch the decrypted events' info
+        assert_eq!(answer.0, vec![1, 2]);
+        assert_eq!(answer.1, vec![5, 6]);
+    }
+
+    fn always_retry(_: &str) -> bool {
+        true
+    }
+
+    fn date_divider() -> Arc<TimelineItem> {
+        TimelineItem::new(
+            TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(timestamp())),
+            TimelineUniqueId("datething".to_owned()),
+        )
+    }
+
+    fn local_event() -> Arc<TimelineItem> {
+        let event_kind = EventTimelineItemKind::Local(LocalEventTimelineItem {
+            send_state: EventSendState::NotSentYet,
+            transaction_id: OwnedTransactionId::from("trans"),
+            send_handle: None,
+        });
+
+        TimelineItem::new(
+            TimelineItemKind::Event(EventTimelineItem::new(
+                owned_user_id!("@u:s.to"),
+                TimelineDetails::Pending,
+                timestamp(),
+                TimelineItemContent::RedactedMessage,
+                event_kind,
+                true,
+            )),
+            TimelineUniqueId("local".to_owned()),
+        )
+    }
+
+    fn utd_event(session_id: &str) -> Arc<TimelineItem> {
+        let event_kind = EventTimelineItemKind::Remote(RemoteEventTimelineItem {
+            event_id: owned_event_id!("$local"),
+            transaction_id: None,
+            read_receipts: Default::default(),
+            is_own: false,
+            is_highlighted: false,
+            encryption_info: None,
+            original_json: None,
+            latest_edit_json: None,
+            origin: RemoteEventOrigin::Sync,
+        });
+
+        TimelineItem::new(
+            TimelineItemKind::Event(EventTimelineItem::new(
+                owned_user_id!("@u:s.to"),
+                TimelineDetails::Pending,
+                timestamp(),
+                TimelineItemContent::unable_to_decrypt(
+                    RoomEncryptedEventContent::new(
+                        EncryptedEventScheme::MegolmV1AesSha2(MegolmV1AesSha2Content::from(
+                            MegolmV1AesSha2ContentInit {
+                                ciphertext: "cyf".to_owned(),
+                                sender_key: "sendk".to_owned(),
+                                device_id: owned_device_id!("DEV"),
+                                session_id: session_id.to_owned(),
+                            },
+                        )),
+                        None,
+                    ),
+                    UtdCause::Unknown,
+                ),
+                event_kind,
+                true,
+            )),
+            TimelineUniqueId("local".to_owned()),
+        )
+    }
+
+    fn decrypted_event(session_id: &str) -> Arc<TimelineItem> {
+        let event_kind = EventTimelineItemKind::Remote(RemoteEventTimelineItem {
+            event_id: owned_event_id!("$local"),
+            transaction_id: None,
+            read_receipts: Default::default(),
+            is_own: false,
+            is_highlighted: false,
+            encryption_info: Some(EncryptionInfo {
+                sender: owned_user_id!("@u:s.co"),
+                sender_device: None,
+                algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                    curve25519_key: "".to_owned(),
+                    sender_claimed_keys: BTreeMap::new(),
+                },
+                verification_state: VerificationState::Verified,
+                session_id: Some(session_id.to_owned()),
+            }),
+            original_json: None,
+            latest_edit_json: None,
+            origin: RemoteEventOrigin::Sync,
+        });
+
+        TimelineItem::new(
+            TimelineItemKind::Event(EventTimelineItem::new(
+                owned_user_id!("@u:s.to"),
+                TimelineDetails::Pending,
+                timestamp(),
+                TimelineItemContent::message(
+                    RoomMessageEventContent::text_plain("hi"),
+                    None,
+                    &Vector::new(),
+                    ReactionsByKeyBySender::default(),
+                ),
+                event_kind,
+                true,
+            )),
+            TimelineUniqueId("local".to_owned()),
+        )
+    }
+
+    fn timestamp() -> MilliSecondsSinceUnixEpoch {
+        MilliSecondsSinceUnixEpoch::from_system_time(SystemTime::UNIX_EPOCH).unwrap()
+    }
 }

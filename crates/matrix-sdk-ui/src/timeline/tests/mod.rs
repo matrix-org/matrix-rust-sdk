@@ -29,7 +29,7 @@ use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
     crypto::OlmMachine,
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
     send_queue::RoomSendQueueUpdate,
@@ -268,6 +268,9 @@ struct TestRoomDataProvider {
 
     /// Events redacted with that room data providier.
     pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
+
+    /// Returned from get_encryption_info method
+    pub encryption_info: Option<EncryptionInfo>,
 }
 
 impl TestRoomDataProvider {
@@ -277,6 +280,14 @@ impl TestRoomDataProvider {
     }
     fn with_fully_read_marker(mut self, event_id: OwnedEventId) -> Self {
         self.fully_read_marker = Some(event_id);
+        self
+    }
+
+    pub(crate) fn with_encryption_info(
+        mut self,
+        encryption_info: EncryptionInfo,
+    ) -> TestRoomDataProvider {
+        self.encryption_info = Some(encryption_info);
         self
     }
 }
@@ -420,7 +431,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         &self,
         _session_id: &str,
         _sender: &UserId,
-    ) -> Option<matrix_sdk::deserialized_responses::EncryptionInfo> {
-        None
+    ) -> Option<EncryptionInfo> {
+        self.encryption_info.clone()
     }
 }
