@@ -339,12 +339,12 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     for (i, event) in items.into_iter().enumerate() {
                         let index = at.index() + i;
                         // Can the ID be encrypted when inserting?
-                        let value = serde_json::json!({
-                            "id": format!("{room_id}-{chunk_id}-{index}"),
-                            "content": event,
-                            "room_id": room_id.to_string(),
-                            "position": index
-                        });
+                        let value = TimelineEventForCache {
+                            id: format!("{room_id}-{chunk_id}-{index}"),
+                            content: event,
+                            room_id: room_id.to_string(),
+                            position: index,
+                        };
 
                         let value = self.serializer.serialize_value(&value)?;
 
