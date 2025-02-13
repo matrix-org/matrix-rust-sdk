@@ -14,19 +14,19 @@
 
 //! Types for the QR code login support defined in [MSC4108](https://github.com/matrix-org/matrix-spec-proposals/pull/4108).
 //!
-//! Please note, QR code logins are only supported when using OIDC as the
-//! auththentication mechanism, native Matrix authentication does not support
-//! it.
+//! Please note, QR code logins are only supported when using OAuth 2.0 as the
+//! authentication mechanism, native Matrix authentication does not support it.
 //!
 //! This currently only implements the case where the new device is scanning the
 //! QR code. To log in using a QR code, please take a look at the
-//! [`Oidc::login_with_qr_code()`] method
+//! [`Oidc::login_with_qr_code()`] method.
 
 use as_variant::as_variant;
 use matrix_sdk_base::crypto::SecretImportError;
-pub use openidconnect::{
-    core::CoreErrorResponseType, ConfigurationError, DeviceCodeErrorResponseType, DiscoveryError,
-    HttpClientError, RequestTokenError, StandardErrorResponse,
+pub use oauth2::{
+    basic::{BasicErrorResponse, BasicRequestTokenError},
+    ConfigurationError, DeviceCodeErrorResponse, DeviceCodeErrorResponseType, HttpClientError,
+    RequestTokenError, StandardErrorResponse,
 };
 use thiserror::Error;
 use url::Url;
@@ -38,7 +38,7 @@ use crate::{authentication::oidc::CrossProcessRefreshLockError, HttpError};
 
 mod login;
 mod messages;
-mod oidc_client;
+mod oauth_client;
 mod rendezvous_channel;
 mod secure_channel;
 
@@ -56,9 +56,10 @@ pub use self::{
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
 pub enum QRCodeLoginError {
-    /// An error happened while we were communicating with the OIDC provider.
+    /// An error happened while we were communicating with the OAuth 2.0
+    /// authorization server.
     #[error(transparent)]
-    Oidc(#[from] DeviceAuhorizationOidcError),
+    Oauth(#[from] DeviceAuthorizationOauthError),
 
     /// The other device has signaled to us that the login has failed.
     #[error("The login failed, reason: {reason}")]
@@ -87,7 +88,8 @@ pub enum QRCodeLoginError {
     CrossProcessRefreshLock(#[from] CrossProcessRefreshLockError),
 
     /// An error happened while we were trying to discover our user and device
-    /// ID, after we have acquired an access token from the OIDC provider.
+    /// ID, after we have acquired an access token from the OAuth 2.0
+    /// authorization server.
     #[error(transparent)]
     UserIdDiscovery(HttpError),
 
@@ -107,22 +109,17 @@ pub enum QRCodeLoginError {
 }
 
 /// Error type describing failures in the interaction between the device
-/// attempting to log in and the OIDC provider.
+/// attempting to log in and the OAuth 2.0 authorization server.
 #[derive(Debug, Error)]
-pub enum DeviceAuhorizationOidcError {
-    /// A generic OIDC error happened while we were attempting to register the
-    /// device with the OIDC provider.
+pub enum DeviceAuthorizationOauthError {
+    /// A generic OAuth 2.0 error happened while we were attempting to register
+    /// the device with the OAuth 2.0 authorization server.
     #[error(transparent)]
-    Oidc(#[from] crate::authentication::oidc::OidcError),
+    Oauth(#[from] crate::authentication::oidc::OidcError),
 
-    /// The issuer URL failed to be parsed.
-    #[error(transparent)]
-    InvalidIssuerUrl(#[from] url::ParseError),
-
-    /// There was an error with our device configuration right before attempting
-    /// to wait for the access token to be issued by the OIDC provider.
-    #[error(transparent)]
-    Configuration(#[from] ConfigurationError),
+    /// The OAuth 2.0 server doesn't support the device authorization grant.
+    #[error("OAuth 2.0 server doesn't support the device authorization grant")]
+    NoDeviceAuthorizationEndpoint,
 
     /// An error happened while we attempted to discover the authentication
     /// issuer URL.
@@ -130,37 +127,23 @@ pub enum DeviceAuhorizationOidcError {
     AuthenticationIssuer(HttpError),
 
     /// An error happened while we attempted to request a device authorization
-    /// from the OIDC provider.
+    /// from the Oauth 2.0 authorization server.
     #[error(transparent)]
-    DeviceAuthorization(
-        #[from]
-        RequestTokenError<
-            HttpClientError<reqwest::Error>,
-            StandardErrorResponse<CoreErrorResponseType>,
-        >,
-    ),
+    DeviceAuthorization(#[from] BasicRequestTokenError<HttpClientError<reqwest::Error>>),
 
     /// An error happened while waiting for the access token to be issued and
-    /// sent to us by the OIDC provider.
+    /// sent to us by the Oauth 2.0 authorization server.
     #[error(transparent)]
     RequestToken(
-        #[from]
-        RequestTokenError<
-            HttpClientError<reqwest::Error>,
-            StandardErrorResponse<DeviceCodeErrorResponseType>,
-        >,
+        #[from] RequestTokenError<HttpClientError<reqwest::Error>, DeviceCodeErrorResponse>,
     ),
-
-    /// An error happened during the discovery of the OIDC provider metadata.
-    #[error(transparent)]
-    Discovery(#[from] DiscoveryError<HttpClientError<reqwest::Error>>),
 }
 
-impl DeviceAuhorizationOidcError {
-    /// If the [`DeviceAuhorizationOidcError`] is of the
+impl DeviceAuthorizationOauthError {
+    /// If the [`DeviceAuthorizationOauthError`] is of the
     /// [`DeviceCodeErrorResponseType`] error variant, return it.
     pub fn as_request_token_error(&self) -> Option<&DeviceCodeErrorResponseType> {
-        let error = as_variant!(self, DeviceAuhorizationOidcError::RequestToken)?;
+        let error = as_variant!(self, DeviceAuthorizationOauthError::RequestToken)?;
         let request_token_error = as_variant!(error, RequestTokenError::ServerResponse)?;
 
         Some(request_token_error.error())

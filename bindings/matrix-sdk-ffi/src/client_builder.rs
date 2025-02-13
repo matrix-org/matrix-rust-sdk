@@ -104,7 +104,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 _ => HumanQrLoginError::Unknown,
             },
 
-            QRCodeLoginError::Oidc(e) => {
+            QRCodeLoginError::Oauth(e) => {
                 if let Some(e) = e.as_request_token_error() {
                     match e {
                         DeviceCodeErrorResponseType::AccessDenied => HumanQrLoginError::Declined,
@@ -153,8 +153,8 @@ pub enum QrLoginProgress {
         /// first digit is a zero.
         check_code_string: String,
     },
-    /// We are waiting for the login and for the OIDC provider to give us an
-    /// access token.
+    /// We are waiting for the login and for the OAuth 2.0 authorization server
+    /// to give us an access token.
     WaitingForToken { user_code: String },
     /// The login has successfully finished.
     Done,
@@ -673,8 +673,8 @@ impl ClientBuilder {
     ///
     /// This method will build the client and immediately attempt to log the
     /// client in using the provided [`QrCodeData`] using the login
-    /// mechanism described in [MSC4108]. As such this methods requires OIDC
-    /// support as well as sliding sync support.
+    /// mechanism described in [MSC4108]. As such this methods requires OAuth
+    /// 2.0 support as well as sliding sync support.
     ///
     /// The usage of the progress_listener is required to transfer the
     /// [`CheckCode`] to the existing client.
