@@ -25,7 +25,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
 use matrix_sdk_ui::{
-    timeline::{TimelineItem, TimelineItemKind, VirtualTimelineItem},
+    timeline::{TimelineItem, TimelineItemKind},
     Timeline,
 };
 use ruma::{room_id, user_id, RoomId};
@@ -81,11 +81,11 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(VectorDiff::PushBack { value }) => {
+                        Some(eyeball_im::VectorDiff::PushBack { value }) => {
                             assert_matches!(
                                 **value,
-                                TimelineItemKind::Virtual(
-                                    VirtualTimelineItem::DateDivider(_)
+                                matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
+                                    matrix_sdk_ui::timeline::VirtualTimelineItem::DateDivider(_)
                                 )
                             );
                         }
@@ -106,10 +106,10 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(VectorDiff::PushBack { value }) => {
+                        Some(eyeball_im::VectorDiff::PushBack { value }) => {
                             assert_matches!(
                                 &**value,
-                                TimelineItemKind::Event(event_timeline_item) => {
+                                matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
                                     assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
                                 }
                             );
@@ -131,10 +131,12 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(VectorDiff::PushFront { value }) => {
+                        Some(eyeball_im::VectorDiff::PushFront { value }) => {
                             assert_matches!(
                                 &**value,
-                                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)) => {}
+                                matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
+                                    matrix_sdk_ui::timeline::VirtualTimelineItem::DateDivider(_)
+                                ) => {}
                             );
                         }
                     );
@@ -143,6 +145,30 @@ macro_rules! assert_timeline_stream {
         )
     };
 
+    // `prepend "$event_id"`
+    ( @_ [ $iterator:ident ] [ prepend $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_timeline_stream!(
+            @_
+            [ $iterator ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $iterator .next(),
+                        Some(eyeball_im::VectorDiff::PushFront { value }) => {
+                            assert_matches!(
+                                &**value,
+                                matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
+                                    assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
+                                }
+                            );
+                        }
+                    );
+                }
+            ]
+        )
+    };
 
     // `insert [$nth] "$event_id"`
     ( @_ [ $iterator:ident ] [ insert [$index:literal] $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
@@ -155,10 +181,10 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(VectorDiff::Insert { index: $index, value }) => {
+                        Some(eyeball_im::VectorDiff::Insert { index: $index, value }) => {
                             assert_matches!(
                                 &**value,
-                                TimelineItemKind::Event(event_timeline_item) => {
+                                matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
                                     assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
                                 }
                             );
@@ -180,10 +206,10 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(VectorDiff::Set { index: $index, value }) => {
+                        Some(eyeball_im::VectorDiff::Set { index: $index, value }) => {
                             assert_matches!(
                                 &**value,
-                                TimelineItemKind::Event(event_timeline_item) => {
+                                matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
                                     assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
                                 }
                             );
@@ -205,15 +231,35 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(VectorDiff::Remove { index: $index })
+                        Some(eyeball_im::VectorDiff::Remove { index: $index })
                     );
                 }
             ]
         )
     };
 
-    ( @_ [ $stream:ident ] [] [ $( $accumulator:tt )* ] ) => {
+    // `clear`
+    ( @_ [ $iterator:ident ] [ clear ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_timeline_stream!(
+            @_
+            [ $iterator ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $iterator .next(),
+                        Some(eyeball_im::VectorDiff::Clear)
+                    );
+                }
+            ]
+        )
+    };
+
+    ( @_ [ $iterator:ident ] [] [ $( $accumulator:tt )* ] ) => {
         $( $accumulator )*
+
+        assert!($iterator .next().is_none(), concat!(stringify!($iterator), " has not been entirely read"));
     };
 
     ( [ $stream:ident ] $( $all:tt )* ) => {
@@ -289,7 +335,7 @@ async fn timeline_test_helper(
 
     let timeline = Timeline::builder(&sdk_room).track_read_marker_and_receipts().build().await?;
 
-    Ok(timeline.subscribe_batched().await)
+    Ok(timeline.subscribe().await)
 }
 
 struct SlidingSyncMatcher;

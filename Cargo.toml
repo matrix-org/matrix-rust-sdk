@@ -18,48 +18,49 @@ default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.82"
+rust-version = "1.83"
 
 [workspace.dependencies]
-anyhow = "1.0.93"
+anyhow = "1.0.95"
 aquamarine = "0.6.0"
 assert-json-diff = "2.0.2"
 assert_matches = "1.5.0"
 assert_matches2 = "0.1.2"
 async-rx = "0.1.3"
 async-stream = "0.3.5"
-async-trait = "0.1.83"
+async-trait = "0.1.85"
 as_variant = "1.2.0"
 base64 = "0.22.1"
 byteorder = "1.5.0"
-chrono = "0.4.38"
-eyeball = { version = "0.8.8", features = ["tracing"] }
-eyeball-im = { version = "0.5.1", features = ["tracing"] }
-eyeball-im-util = "0.7.0"
+chrono = "0.4.39"
+eyeball = { git = "https://github.com/jplatte/eyeball", branch = "main", features = ["tracing"] }
+eyeball-im = { git = "https://github.com/jplatte/eyeball", branch = "main", features = ["tracing"] }
+eyeball-im-util = { git = "https://github.com/jplatte/eyeball", branch = "main" }
 futures-core = "0.3.31"
-futures-executor = "0.3.21"
+futures-executor = "0.3.31"
 futures-util = "0.3.31"
+getrandom = { version = "0.2.15", default-features = false }
 gloo-timers = "0.3.0"
 growable-bloom-filter = "2.1.1"
 hkdf = "0.12.4"
 hmac = "0.12.1"
-http = "1.1.0"
-imbl = "3.0.0"
-indexmap = "2.6.0"
-insta = { version = "1.41.1", features = ["json"] }
-itertools = "0.13.0"
+http = "1.2.0"
+imbl = "4.0.1"
+indexmap = "2.7.1"
+insta = { version = "1.42.1", features = ["json"] }
+itertools = "0.14.0"
 js-sys = "0.3.69"
 mime = "0.3.17"
 once_cell = "1.20.2"
 pbkdf2 = { version = "0.12.2" }
-pin-project-lite = "0.2.15"
-proptest = { version = "1.5.0", default-features = false, features = ["std"] }
+pin-project-lite = "0.2.16"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
-reqwest = { version = "0.12.4", default-features = false }
+reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
-ruma = { git = "https://github.com/ruma/ruma", rev = "b868438f5d91918e97d2c3f64d7c82a0d86d29d4", features = [
+ruma = { version = "0.12.1", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -74,17 +75,17 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "b868438f5d91918e97d2c3f64d
     "unstable-msc4140",
     "unstable-msc4171",
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "b868438f5d91918e97d2c3f64d7c82a0d86d29d4" }
-serde = "1.0.151"
-serde_html_form = "0.2.0"
-serde_json = "1.0.91"
+ruma-common = { version = "0.15.1" }
+serde = "1.0.217"
+serde_html_form = "0.2.7"
+serde_json = "1.0.138"
 sha2 = "0.10.8"
-similar-asserts = "1.6.0"
+similar-asserts = "1.6.1"
 stream_assert = "0.1.1"
-tempfile = "3.9.0"
-thiserror = "2.0.3"
-tokio = { version = "1.41.1", default-features = false, features = ["sync"] }
-tokio-stream = "0.1.14"
+tempfile = "3.16.0"
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", default-features = false, features = ["sync"] }
+tokio-stream = "0.1.17"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 tracing-subscriber = "0.3.18"
@@ -92,25 +93,25 @@ unicode-normalization = "0.1.24"
 uniffi = { version = "0.28.0" }
 uniffi_bindgen = { version = "0.28.0" }
 url = "2.5.4"
-uuid = "1.11.0"
-vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "3d655add09992d17fdb2b55c60f532658090487d", features = ["insecure-pk-encryption"] }
+uuid = "1.12.1"
+vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
 wasm-bindgen = "0.2.84"
 wasm-bindgen-test = "0.3.33"
 web-sys = "0.3.69"
 wiremock = "0.6.2"
 zeroize = "1.8.1"
 
-matrix-sdk = { path = "crates/matrix-sdk", version = "0.9.0", default-features = false }
-matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.9.0" }
-matrix-sdk-common = { path = "crates/matrix-sdk-common", version = "0.9.0" }
-matrix-sdk-crypto = { path = "crates/matrix-sdk-crypto", version = "0.9.0" }
+matrix-sdk = { path = "crates/matrix-sdk", version = "0.10.0", default-features = false }
+matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.10.0" }
+matrix-sdk-common = { path = "crates/matrix-sdk-common", version = "0.10.0" }
+matrix-sdk-crypto = { path = "crates/matrix-sdk-crypto", version = "0.10.0" }
 matrix-sdk-ffi-macros = { path = "bindings/matrix-sdk-ffi-macros", version = "0.7.0" }
-matrix-sdk-indexeddb = { path = "crates/matrix-sdk-indexeddb", version = "0.9.0", default-features = false }
-matrix-sdk-qrcode = { path = "crates/matrix-sdk-qrcode", version = "0.9.0" }
-matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.9.0", default-features = false }
-matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.9.0" }
-matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.7.0" }
-matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.9.0", default-features = false }
+matrix-sdk-indexeddb = { path = "crates/matrix-sdk-indexeddb", version = "0.10.0", default-features = false }
+matrix-sdk-qrcode = { path = "crates/matrix-sdk-qrcode", version = "0.10.0" }
+matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.10.0", default-features = false }
+matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.10.0" }
+matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.10.0" }
+matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.10.0", default-features = false }
 
 # Default release profile, select with `--release`
 [profile.release]

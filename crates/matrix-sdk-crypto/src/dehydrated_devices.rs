@@ -396,12 +396,20 @@ mod tests {
     use js_option::JsOption;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::keys::get_keys::v3::Response as KeysQueryResponse, assign,
-        encryption::DeviceKeys, events::AnyToDeviceEvent, room_id, serde::Raw, user_id, DeviceId,
-        RoomId, TransactionId, UserId,
+        api::client::{
+            dehydrated_device::put_dehydrated_device,
+            keys::get_keys::v3::Response as KeysQueryResponse,
+        },
+        assign,
+        encryption::DeviceKeys,
+        events::AnyToDeviceEvent,
+        room_id,
+        serde::Raw,
+        user_id, DeviceId, RoomId, TransactionId, UserId,
     };
 
     use crate::{
+        dehydrated_devices::DehydratedDevice,
         machine::{
             test_helpers::{create_session, get_prepared_machine_test_helper},
             tests::to_device_requests_to_content,
@@ -625,24 +633,18 @@ mod tests {
         let alice = get_olm_machine().await;
 
         let dehydrated_device = alice.dehydrated_devices().create().await.unwrap();
+        let mut request =
+            legacy_dehydrated_device_keys_for_upload(&dehydrated_device, &pickle_key()).await;
 
-        let mut transaction = dehydrated_device.store.transaction().await;
-        let account = transaction.account().await.unwrap();
-        account.generate_fallback_key_if_needed();
-
-        let (device_keys, mut one_time_keys, _fallback_keys) = account.keys_for_upload();
-        let device_keys = device_keys.unwrap();
-
-        let device_data = account.legacy_dehydrate(&pickle_key().inner);
-        let device_id = account.device_id().to_owned();
-        transaction.commit().await.unwrap();
-
-        let (key_id, one_time_key) = one_time_keys
+        let (key_id, one_time_key) = request
+            .one_time_keys
             .pop_first()
             .expect("The dehydrated device creation request should contain a one-time key");
 
+        let device_id = request.device_id;
+
         // Ensure that we know about the public keys of the dehydrated device.
-        receive_device_keys(&alice, user_id(), &device_id, device_keys.to_raw()).await;
+        receive_device_keys(&alice, user_id(), &device_id, request.device_keys).await;
         // Create a 1-to-1 Olm session with the dehydrated device.
         create_session(&alice, user_id(), &device_id, key_id, one_time_key).await;
 
@@ -666,7 +668,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(&pickle_key(), &device_id, device_data)
+            .rehydrate(&pickle_key(), &device_id, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 
@@ -695,5 +697,36 @@ mod tests {
             group_session.session_id(),
             "The session ids of the imported room key and the outbound group session should match"
         );
+    }
+
+    /// Duplicates the behaviour of [`DehydratedDevice::keys_for_upload`],
+    /// except that it calls [`Account::legacy_dehydrate`] instead of
+    /// [`Account::dehydrate`].
+    async fn legacy_dehydrated_device_keys_for_upload(
+        dehydrated_device: &DehydratedDevice,
+        pickle_key: &DehydratedDeviceKey,
+    ) -> put_dehydrated_device::unstable::Request {
+        let mut transaction = dehydrated_device.store.transaction().await;
+        let account = transaction.account().await.unwrap();
+        account.generate_fallback_key_if_needed();
+
+        let (device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
+        let mut device_keys = device_keys.unwrap();
+        dehydrated_device
+            .store
+            .private_identity()
+            .lock()
+            .await
+            .sign_device_keys(&mut device_keys)
+            .await
+            .expect("Should be able to cross-sign a device");
+
+        let device_id = account.device_id().to_owned();
+        let device_data = account.legacy_dehydrate(pickle_key.inner.as_ref());
+        transaction.commit().await.unwrap();
+
+        assign!(put_dehydrated_device::unstable::Request::new(device_id, device_data, device_keys.to_raw()), {
+            one_time_keys, fallback_keys
+        })
     }
 }

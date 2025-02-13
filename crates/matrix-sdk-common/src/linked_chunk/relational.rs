@@ -292,6 +292,21 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
             }
         }
     }
+
+    /// Return an iterator that yields events of a particular room with no
+    /// particular order.
+    pub fn unordered_events<'a>(&'a self, room_id: &'a RoomId) -> impl Iterator<Item = &'a Item> {
+        self.items.iter().filter_map(move |item_row| {
+            if item_row.room_id == room_id {
+                match &item_row.item {
+                    Either::Item(item) => Some(item),
+                    Either::Gap(..) => None,
+                }
+            } else {
+                None
+            }
+        })
+    }
 }
 
 impl<Item, Gap> RelationalLinkedChunk<Item, Gap>
@@ -1001,5 +1016,40 @@ mod tests {
                 },
             ],
         );
+    }
+
+    #[test]
+    fn test_unordered_events() {
+        let room_id = room_id!("!r0:matrix.org");
+        let other_room_id = room_id!("!r1:matrix.org");
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
+
+        relational_linked_chunk.apply_updates(
+            room_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
+                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['d', 'e', 'f'] },
+            ],
+        );
+
+        relational_linked_chunk.apply_updates(
+            other_room_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['x', 'y', 'z'] },
+            ],
+        );
+
+        let mut events = relational_linked_chunk.unordered_events(room_id);
+
+        assert_eq!(*events.next().unwrap(), 'a');
+        assert_eq!(*events.next().unwrap(), 'b');
+        assert_eq!(*events.next().unwrap(), 'c');
+        assert_eq!(*events.next().unwrap(), 'd');
+        assert_eq!(*events.next().unwrap(), 'e');
+        assert_eq!(*events.next().unwrap(), 'f');
+        assert!(events.next().is_none());
     }
 }

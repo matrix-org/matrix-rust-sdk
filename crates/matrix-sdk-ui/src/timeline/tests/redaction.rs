@@ -15,6 +15,7 @@
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use imbl::vector;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::events::{
     reaction::RedactedReactionEventContent, room::message::OriginalSyncRoomMessageEvent,
@@ -24,8 +25,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::TimelineNewItemPosition, event_item::RemoteEventOrigin,
-    AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent,
+    event_item::RemoteEventOrigin, AnyOtherFullStateEventContent, TimelineDetails,
+    TimelineItemContent,
 };
 
 #[async_test]
@@ -102,13 +103,13 @@ async fn test_reaction_redaction() {
 
     timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_eq!(item.reactions().len(), 0);
+    assert_eq!(item.content().reactions().len(), 0);
 
     let msg_event_id = item.event_id().unwrap();
 
     timeline.handle_live_event(f.reaction(msg_event_id, "+1").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.reactions().len(), 1);
+    assert_eq!(item.content().reactions().len(), 1);
 
     // TODO: After adding raw timeline items, check for one here
 
@@ -116,7 +117,7 @@ async fn test_reaction_redaction() {
 
     timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.reactions().len(), 0);
+    assert_eq!(item.content().reactions().len(), 0);
 }
 
 #[async_test]
@@ -129,9 +130,13 @@ async fn test_reaction_redaction_timeline_filter() {
     // Initialise a timeline with a redacted reaction.
     timeline
         .controller
-        .add_events_at(
-            [f.redacted(*ALICE, RedactedReactionEventContent::new())].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append {
+                values: vector![f
+                    .redacted(*ALICE, RedactedReactionEventContent::new())
+                    .into_event()],
+            }],
+            RemoteEventOrigin::Sync,
         )
         .await;
     // Timeline items are actually empty.
@@ -156,6 +161,6 @@ async fn test_reaction_redaction_timeline_filter() {
     // Redacting the reaction doesn't add a timeline item.
     timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.reactions().len(), 0);
+    assert_eq!(item.content().reactions().len(), 0);
     assert_eq!(timeline.controller.items().await.len(), 2);
 }

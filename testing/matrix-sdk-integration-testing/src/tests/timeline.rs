@@ -91,7 +91,7 @@ async fn test_toggling_reaction() -> Result<()> {
     // waiting for it.
 
     let timeline = room.timeline().await.unwrap();
-    let (mut items, mut stream) = timeline.subscribe_batched().await;
+    let (mut items, mut stream) = timeline.subscribe().await;
 
     let event_id_task: JoinHandle<Result<_>> = spawn(async move {
         let find_event_id = |items: &Vector<Arc<TimelineItem>>| {
@@ -146,7 +146,7 @@ async fn test_toggling_reaction() -> Result<()> {
     // Give a bit of time for the timeline to process all sync updates.
     sleep(Duration::from_secs(1)).await;
 
-    let (mut items, mut stream) = timeline.subscribe_batched().await;
+    let (mut items, mut stream) = timeline.subscribe().await;
 
     // Skip all stream updates that have happened so far.
     debug!("Skipping all other stream updates…");
@@ -182,7 +182,8 @@ async fn test_toggling_reaction() -> Result<()> {
         // Local echo is added.
         {
             let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
-            let reactions = event.reactions().get(&reaction_key).unwrap();
+            let reactions = event.content().reactions();
+            let reactions = reactions.get(&reaction_key).unwrap();
             let reaction = reactions.get(&user_id).unwrap();
             assert_matches!(reaction.status, ReactionStatus::LocalToRemote(..));
         }
@@ -191,7 +192,8 @@ async fn test_toggling_reaction() -> Result<()> {
         {
             let event = assert_event_is_updated!(timeline_updates[1], event_id, message_position);
 
-            let reactions = event.reactions().get(&reaction_key).unwrap();
+            let reactions = event.content().reactions();
+            let reactions = reactions.get(&reaction_key).unwrap();
             assert_eq!(reactions.keys().count(), 1);
 
             let reaction = reactions.get(&user_id).unwrap();
@@ -217,7 +219,7 @@ async fn test_toggling_reaction() -> Result<()> {
 
         // The reaction is removed.
         let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
-        assert!(event.reactions().is_empty());
+        assert!(event.content().reactions().is_empty());
 
         assert_pending!(stream);
     }
@@ -610,7 +612,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .expect("We should be able to load the room list");
 
     // Let's stop the sync so we don't receive the room key using the usual channel.
-    sync_service.stop().await.expect("We should be able to stop the sync service");
+    sync_service.stop().await;
 
     debug!("Alice sends the message");
     let event_id = alice_room

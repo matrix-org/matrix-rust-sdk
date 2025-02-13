@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-indexeddb"
-version = "0.9.0"
+version = "0.10.0"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
@@ -45,7 +45,7 @@ sha2 = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # for wasm32 we need to activate this
-getrandom = { version = "0.2.6", features = ["js"] }
+getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

@@ -16,6 +16,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
+use imbl::vector;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
     async_test, event_factory::PreviousMembership, sync_timeline_event, ALICE, BOB, CAROL,
@@ -36,9 +37,9 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::{TimelineNewItemPosition, TimelineSettings},
+    controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
-    tests::{ReadReceiptMap, TestRoomDataProvider},
+    tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
@@ -50,9 +51,14 @@ async fn test_initial_events() {
     let f = &timeline.factory;
     timeline
         .controller
-        .add_events_at(
-            [f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append {
+                values: vector![
+                    f.text_msg("A").sender(*ALICE).into_event(),
+                    f.text_msg("B").sender(*BOB).into_event()
+                ],
+            }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
@@ -80,22 +86,24 @@ async fn test_replace_with_initial_events_and_read_marker() {
         .entry(ALICE.to_owned())
         .or_insert_with(|| (event_id.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch::now())));
 
-    let timeline = TestTimeline::with_room_data_provider(
-        TestRoomDataProvider::default()
-            // Also add a fully read marker.
-            .with_fully_read_marker(event_id)
-            .with_initial_user_receipts(receipts),
-    )
-    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
+    let timeline = TestTimelineBuilder::new()
+        .provider(
+            TestRoomDataProvider::default()
+                // Also add a fully read marker.
+                .with_fully_read_marker(event_id)
+                .with_initial_user_receipts(receipts),
+        )
+        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
+        .build();
 
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_event();
 
     timeline
         .controller
-        .add_events_at(
-            [ev].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: vector![ev] }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
@@ -273,7 +281,7 @@ async fn test_other_state() {
 
 #[async_test]
 async fn test_internal_id_prefix() {
-    let timeline = TestTimeline::with_internal_id_prefix("le_prefix_".to_owned());
+    let timeline = TestTimelineBuilder::new().internal_id_prefix("le_prefix_".to_owned()).build();
 
     let f = &timeline.factory;
     let ev_a = f.text_msg("A").sender(*ALICE).into_event();
@@ -282,9 +290,9 @@ async fn test_internal_id_prefix() {
 
     timeline
         .controller
-        .add_events_at(
-            [ev_a, ev_b, ev_c].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: vector![ev_a, ev_b, ev_c] }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
@@ -441,21 +449,23 @@ async fn test_thread() {
 
 #[async_test]
 async fn test_replace_with_initial_events_when_batched() {
-    let timeline = TestTimeline::with_room_data_provider(TestRoomDataProvider::default())
-        .with_settings(TimelineSettings::default());
+    let timeline = TestTimelineBuilder::new()
+        .provider(TestRoomDataProvider::default())
+        .settings(TimelineSettings::default())
+        .build();
 
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_event();
 
     timeline
         .controller
-        .add_events_at(
-            [ev].into_iter(),
-            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Append { values: vector![ev] }],
+            RemoteEventOrigin::Sync,
         )
         .await;
 
-    let (items, mut stream) = timeline.controller.subscribe_batched().await;
+    let (items, mut stream) = timeline.controller.subscribe().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");

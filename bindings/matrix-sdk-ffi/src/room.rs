@@ -28,7 +28,7 @@ use ruma::{
     EventId, Int, OwnedDeviceId, OwnedUserId, RoomAliasId, UserId,
 };
 use tokio::sync::RwLock;
-use tracing::error;
+use tracing::{error, warn};
 
 use super::RUNTIME;
 use crate::{
@@ -37,9 +37,10 @@ use crate::{
     error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
     event::{MessageLikeEventType, StateEventType},
     identity_status_change::IdentityStatusChange,
+    live_location_share::{LastLocation, LiveLocationShare},
     room_info::RoomInfo,
     room_member::RoomMember,
-    ruma::{ImageInfo, Mentions, NotifyType},
+    ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
     timeline::{
         configuration::{AllowedMessageTypes, TimelineConfiguration},
         ReceiptType, SendHandle, Timeline,
@@ -251,13 +252,13 @@ impl Room {
     }
 
     pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
-        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let user_id = UserId::parse(&*user_id)?;
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         Ok(member.try_into().context("Unknown state membership")?)
     }
 
     pub async fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
-        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let user_id = UserId::parse(&*user_id)?;
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         let avatar_url_string = member.avatar_url().map(|m| m.to_string());
         Ok(avatar_url_string)
@@ -267,7 +268,7 @@ impl Room {
         &self,
         user_id: String,
     ) -> Result<Option<String>, ClientError> {
-        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let user_id = UserId::parse(&*user_id)?;
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         let avatar_url_string = member.display_name().map(|m| m.to_owned());
         Ok(avatar_url_string)
@@ -969,6 +970,85 @@ impl Room {
         let visibility = self.inner.privacy_settings().get_room_visibility().await?;
         Ok(visibility.into())
     }
+
+    /// Start the current users live location share in the room.
+    pub async fn start_live_location_share(&self, duration_millis: u64) -> Result<(), ClientError> {
+        self.inner.start_live_location_share(duration_millis, None).await?;
+        Ok(())
+    }
+
+    /// Stop the current users live location share in the room.
+    pub async fn stop_live_location_share(&self) -> Result<(), ClientError> {
+        self.inner.stop_live_location_share().await.expect("Unable to stop live location share");
+        Ok(())
+    }
+
+    /// Send the current users live location beacon in the room.
+    pub async fn send_live_location(&self, geo_uri: String) -> Result<(), ClientError> {
+        self.inner
+            .send_location_beacon(geo_uri)
+            .await
+            .expect("Unable to send live location beacon");
+        Ok(())
+    }
+
+    /// Subscribes to live location shares in this room, using a `listener` to
+    /// be notified of the changes.
+    ///
+    /// The current live location shares will be emitted immediately when
+    /// subscribing, along with a [`TaskHandle`] to cancel the subscription.
+    pub fn subscribe_to_live_location_shares(
+        self: Arc<Self>,
+        listener: Box<dyn LiveLocationShareListener>,
+    ) -> Arc<TaskHandle> {
+        let room = self.inner.clone();
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let subscription = room.observe_live_location_shares();
+            let mut stream = subscription.subscribe();
+            let mut pinned_stream = pin!(stream);
+
+            while let Some(event) = pinned_stream.next().await {
+                let last_location = LocationContent {
+                    body: "".to_owned(),
+                    geo_uri: event.last_location.location.uri.clone().to_string(),
+                    description: None,
+                    zoom_level: None,
+                    asset: None,
+                };
+
+                let Some(beacon_info) = event.beacon_info else {
+                    warn!("Live location share is missing the associated beacon_info state, skipping event.");
+                    continue;
+                };
+
+                listener.call(vec![LiveLocationShare {
+                    last_location: LastLocation {
+                        location: last_location,
+                        ts: event.last_location.ts.0.into(),
+                    },
+                    is_live: beacon_info.is_live(),
+                    user_id: event.user_id.to_string(),
+                }])
+            }
+        })))
+    }
+
+    /// Forget this room.
+    ///
+    /// This communicates to the homeserver that it should forget the room.
+    ///
+    /// Only left or banned-from rooms can be forgotten.
+    pub async fn forget(&self) -> Result<(), ClientError> {
+        self.inner.forget().await?;
+        Ok(())
+    }
+}
+
+/// A listener for receiving new live location shares in a room.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait LiveLocationShareListener: Sync + Send {
+    fn call(&self, live_location_shares: Vec<LiveLocationShare>);
 }
 
 impl From<matrix_sdk::room::knock_requests::KnockRequest> for KnockRequest {

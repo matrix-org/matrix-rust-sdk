@@ -52,7 +52,7 @@ async fn test_batched() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let hdl = tokio::spawn(async move {
         let next_batch = timeline_stream.next().await.unwrap();
@@ -93,7 +93,7 @@ async fn test_event_filter() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let first_event_id = event_id!("$YTQwYl2ply");
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -211,7 +211,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().build().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let alice = user_id!("@alice:example.org");
     let bob = user_id!("@bob:example.org");
@@ -291,22 +291,19 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     server.reset().await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 5);
+    assert_eq!(timeline_updates.len(), 4);
 
     // Timeline receives events as before.
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]); // TODO: Remove `RoomEventCacheUpdate::Clear` as it creates double
-                                                           // `VectorDiff::Clear`.
-
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
 
-    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
 
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
 
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
     assert!(value.is_date_divider());
 
     assert_pending!(timeline_stream);
@@ -329,7 +326,7 @@ async fn test_profile_updates() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().build().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let alice = "@alice:example.org";
     let bob = "@bob:example.org";

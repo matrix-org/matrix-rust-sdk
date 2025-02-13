@@ -32,7 +32,7 @@ use ruma::{
     push::Action, room_id, uint, RoomId,
 };
 
-use super::DynEventCacheStore;
+use super::{media::IgnoreMediaRetentionPolicy, DynEventCacheStore};
 use crate::{
     event_cache::{Event, Gap},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
@@ -123,6 +123,9 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test that removing a room from storage empties all associated data.
     async fn test_remove_room(&self);
+
+    /// Test that filtering duplicated events works as expected.
+    async fn test_filter_duplicated_events(&self);
 }
 
 fn rebuild_linked_chunk(raws: Vec<RawChunk<Event, Gap>>) -> Option<LinkedChunk<3, Event, Gap>> {
@@ -168,7 +171,9 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add the media.
-        self.add_media_content(&request_file, content.clone()).await.expect("adding media failed");
+        self.add_media_content(&request_file, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
 
         // Media is present in the cache.
         assert_eq!(
@@ -196,7 +201,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add the media again.
-        self.add_media_content(&request_file, content.clone())
+        self.add_media_content(&request_file, content.clone(), IgnoreMediaRetentionPolicy::No)
             .await
             .expect("adding media again failed");
 
@@ -207,9 +212,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add the thumbnail media.
-        self.add_media_content(&request_thumbnail, thumbnail_content.clone())
-            .await
-            .expect("adding thumbnail failed");
+        self.add_media_content(
+            &request_thumbnail,
+            thumbnail_content.clone(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding thumbnail failed");
 
         // Media's thumbnail is present.
         assert_eq!(
@@ -225,9 +234,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Let's add another media with a different URI.
-        self.add_media_content(&request_other_file, other_content.clone())
-            .await
-            .expect("adding other media failed");
+        self.add_media_content(
+            &request_other_file,
+            other_content.clone(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding other media failed");
 
         // Other file is present.
         assert_eq!(
@@ -279,7 +292,9 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert!(self.get_media_content(&req).await.unwrap().is_none(), "unexpected media found");
 
         // Add the media.
-        self.add_media_content(&req, content.clone()).await.expect("adding media failed");
+        self.add_media_content(&req, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
 
         // Sanity-check: media is found after adding it.
         assert_eq!(self.get_media_content(&req).await.unwrap().unwrap(), b"hello");
@@ -490,6 +505,79 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let r1_linked_chunk = self.reload_linked_chunk(r1).await.unwrap();
         assert!(!r1_linked_chunk.is_empty());
     }
+
+    async fn test_filter_duplicated_events(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+        let event = |msg: &str| make_test_event(room_id, msg);
+
+        let event_comte = event("comté");
+        let event_brigand = event("brigand du jorat");
+        let event_raclette = event("raclette");
+        let event_morbier = event("morbier");
+        let event_gruyere = event("gruyère");
+        let event_tome = event("tome");
+        let event_mont_dor = event("mont d'or");
+
+        self.handle_linked_chunk_updates(
+            room_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_comte.clone(), event_brigand.clone()],
+                },
+                Update::NewGapChunk {
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: None,
+                    gap: Gap { prev_token: "brillat-savarin".to_owned() },
+                },
+                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(2), 0),
+                    items: vec![event_morbier.clone(), event_mont_dor.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Add other events in another room, to ensure filtering take the `room_id` into
+        // account.
+        self.handle_linked_chunk_updates(
+            another_room_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_tome.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let duplicated_events = self
+            .filter_duplicated_events(
+                room_id,
+                vec![
+                    event_comte.event_id().unwrap().to_owned(),
+                    event_raclette.event_id().unwrap().to_owned(),
+                    event_morbier.event_id().unwrap().to_owned(),
+                    event_gruyere.event_id().unwrap().to_owned(),
+                    event_tome.event_id().unwrap().to_owned(),
+                    event_mont_dor.event_id().unwrap().to_owned(),
+                ],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(duplicated_events.len(), 3);
+        assert_eq!(duplicated_events[0], event_comte.event_id().unwrap());
+        assert_eq!(duplicated_events[1], event_morbier.event_id().unwrap());
+        assert_eq!(duplicated_events[2], event_mont_dor.event_id().unwrap());
+    }
 }
 
 /// Macro building to allow your `EventCacheStore` implementation to run the
@@ -571,6 +659,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_remove_room().await;
+            }
+
+            #[async_test]
+            async fn test_filter_duplicated_events() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_filter_duplicated_events().await;
             }
         }
     };

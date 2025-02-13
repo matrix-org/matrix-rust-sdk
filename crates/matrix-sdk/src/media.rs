@@ -23,7 +23,8 @@ use std::{fmt, fs::File, path::Path};
 
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
-pub use matrix_sdk_base::media::*;
+use matrix_sdk_base::event_cache::store::media::IgnoreMediaRetentionPolicy;
+pub use matrix_sdk_base::{event_cache::store::media::MediaRetentionPolicy, media::*};
 use mime::Mime;
 use ruma::{
     api::{
@@ -518,7 +519,7 @@ impl Media {
                 .event_cache_store()
                 .lock()
                 .await?
-                .add_media_content(request, content.clone())
+                .add_media_content(request, content.clone(), IgnoreMediaRetentionPolicy::No)
                 .await?;
         }
 
@@ -668,6 +669,44 @@ impl Media {
             .await?
         }
 
+        Ok(())
+    }
+
+    /// Set the [`MediaRetentionPolicy`] to use for deciding whether to store or
+    /// keep media content.
+    ///
+    /// It is used:
+    ///
+    /// * When a media needs to be cached, to check that it does not exceed the
+    ///   max file size.
+    ///
+    /// * When [`Media::clean_up_media_cache()`], to check that all media
+    ///   content in the store fits those criteria.
+    ///
+    /// To apply the new policy to the media cache right away,
+    /// [`Media::clean_up_media_cache()`] should be called after this.
+    ///
+    /// By default, an empty `MediaRetentionPolicy` is used, which means that no
+    /// criteria are applied.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - The `MediaRetentionPolicy` to use.
+    pub async fn set_media_retention_policy(&self, policy: MediaRetentionPolicy) -> Result<()> {
+        self.client.event_cache_store().lock().await?.set_media_retention_policy(policy).await?;
+        Ok(())
+    }
+
+    /// Get the current `MediaRetentionPolicy`.
+    pub async fn media_retention_policy(&self) -> Result<MediaRetentionPolicy> {
+        Ok(self.client.event_cache_store().lock().await?.media_retention_policy())
+    }
+
+    /// Clean up the media cache with the current [`MediaRetentionPolicy`].
+    ///
+    /// If there is already an ongoing cleanup, this is a noop.
+    pub async fn clean_up_media_cache(&self) -> Result<()> {
+        self.client.event_cache_store().lock().await?.clean_up_media_cache().await?;
         Ok(())
     }
 

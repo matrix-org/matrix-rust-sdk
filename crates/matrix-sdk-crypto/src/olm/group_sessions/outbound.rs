@@ -788,10 +788,7 @@ mod tests {
         let settings = EncryptionSettings::new(
             content.clone(),
             HistoryVisibility::Joined,
-            CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: false,
-            },
+            CollectStrategy::AllDevices,
         );
 
         assert_eq!(settings.rotation_period, ROTATION_PERIOD);
@@ -803,10 +800,7 @@ mod tests {
         let settings = EncryptionSettings::new(
             content,
             HistoryVisibility::Shared,
-            CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: false,
-            },
+            CollectStrategy::AllDevices,
         );
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));

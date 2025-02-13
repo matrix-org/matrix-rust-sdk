@@ -67,8 +67,8 @@ impl JoinedRoomBuilder {
     }
 
     /// Set the `prev_batch` of the timeline.
-    pub fn set_timeline_prev_batch(mut self, prev_batch: String) -> Self {
-        self.inner.timeline.prev_batch = Some(prev_batch);
+    pub fn set_timeline_prev_batch(mut self, prev_batch: impl Into<String>) -> Self {
+        self.inner.timeline.prev_batch = Some(prev_batch.into());
         self
     }
 

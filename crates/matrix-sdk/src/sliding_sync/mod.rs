@@ -549,7 +549,9 @@ impl SlidingSync {
             request,
             // Configure long-polling. We need some time for the long-poll itself,
             // and extra time for the network delays.
-            RequestConfig::default().timeout(self.inner.poll_timeout + self.inner.network_timeout),
+            RequestConfig::default()
+                .timeout(self.inner.poll_timeout + self.inner.network_timeout)
+                .retry_limit(3),
             position_guard,
         ))
     }

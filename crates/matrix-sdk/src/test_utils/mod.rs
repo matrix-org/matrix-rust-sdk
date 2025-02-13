@@ -102,10 +102,38 @@ pub async fn logged_in_client_with_server() -> (Client, wiremock::MockServer) {
     (client, server)
 }
 
-/// Asserts the next item in a `Stream` or `Subscriber` can be loaded in the
-/// given timeout in the given timeout in milliseconds.
+/// Asserts that the next item in a `Stream` is received within a given timeout.
+///
+/// This macro waits for the next item from an asynchronous `Stream` or, if no
+/// item is received within the specified timeout, the macro panics.
+///
+/// # Parameters
+///
+/// - `$stream`: The `Stream` or `Subscriber` to poll for the next item.
+/// - `$timeout_ms` (optional): The timeout in milliseconds to wait for the next
+///   item. Defaults to 500ms if not provided.
+///
+/// # Example
+///
+/// ```rust
+/// use futures_util::{stream, StreamExt};
+/// use matrix_sdk::assert_next_with_timeout;
+///
+/// # async {
+/// let mut stream = stream::iter(vec![1, 2, 3]);
+/// let next_item = assert_next_with_timeout!(stream, 1000); // Waits up to 1000ms
+/// assert_eq!(next_item, 1);
+///
+/// // The timeout can be omitted, in which case it defaults to 500 ms.
+/// let next_item = assert_next_with_timeout!(stream); // Waits up to 500ms
+/// assert_eq!(next_item, 2);
+/// # };
+/// ```
 #[macro_export]
 macro_rules! assert_next_with_timeout {
+    ($stream:expr) => {
+        $crate::assert_next_with_timeout!($stream, 500)
+    };
     ($stream:expr, $timeout_ms:expr) => {{
         // Needed for subscribers, as they won't use the StreamExt features
         #[allow(unused_imports)]
@@ -152,6 +180,84 @@ macro_rules! assert_next_matches_with_timeout {
             }
         }
     };
+}
+
+/// Asserts that the next item from an asynchronous stream is equal to the
+/// expected value, with an optional timeout and custom error message.
+///
+/// # Arguments
+///
+/// * `$stream` - The asynchronous stream to retrieve the next item from.
+/// * `$expected` - The expected value to assert against.
+/// * `$timeout ms` (optional) - A timeout in milliseconds (e.g., `200ms`).
+///   Defaults to `100ms`.
+/// * `$msg` (optional) - A formatted message string for assertion failure.
+///
+/// # Examples
+///
+/// ```
+/// # async {
+/// # use matrix_sdk::assert_next_eq_with_timeout;
+/// # use tokio_stream::StreamExt;
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(stream, 42);
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(stream, 42, 200 ms);
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(
+///     stream,
+///     42,
+///     "Expected 42 but got something else"
+/// );
+///
+/// let mut stream = tokio_stream::iter(vec![42]);
+/// assert_next_eq_with_timeout!(stream, 42, 200 ms, "Expected 42 within 200ms");
+/// # };
+/// ```
+#[macro_export]
+macro_rules! assert_next_eq_with_timeout {
+    ($stream:expr, $expected:expr) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis(100));
+    };
+    ($stream:expr, $expected:expr, $timeout:literal ms) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis($timeout));
+    };
+    ($stream:expr, $expected:expr, $timeout:literal ms, $($msg:tt)*) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis($timeout), $($msg)*);
+    };
+    ($stream:expr, $expected:expr, $($msg:tt)*) => {
+        $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis(100), $($msg)*);
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! assert_next_eq_with_timeout_impl {
+    ($stream:expr, $expected:expr, $timeout:expr) => {
+        let next_value = tokio::time::timeout(
+            $timeout,
+            $stream.next()
+        )
+        .await
+        .expect("We should be able to get the next value out of the stream by now")
+        .expect("The stream should have given us a new value instead of None");
+
+        assert_eq!(next_value, $expected);
+    };
+    ($stream:expr, $expected:expr, $timeout:expr, $($msg:tt)*) => {{
+        let next_value = tokio::time::timeout(
+            $timeout,
+            futures_util::StreamExt::next(&mut $stream)
+        )
+        .await
+        .expect("We should be able to get the next value out of the stream by now")
+        .expect("The stream should have given us a new value instead of None");
+
+        assert_eq!(next_value, $expected, $($msg)*);
+    }};
 }
 
 /// Like `assert_let`, but with the possibility to add an optional timeout.

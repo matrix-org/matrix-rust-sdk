@@ -69,7 +69,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 11;
+const DATABASE_VERSION: u8 = 12;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -104,6 +104,8 @@ impl SqliteStateStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
+        conn.set_journal_size_limit().await?;
+
         let mut version = conn.db_version().await?;
 
         if version == 0 {
@@ -117,6 +119,7 @@ impl SqliteStateStore {
         };
         let this = Self { store_cipher, pool };
         this.run_migrations(&conn, version, None).await?;
+        conn.optimize().await?;
 
         Ok(this)
     }
@@ -327,6 +330,14 @@ impl SqliteStateStore {
                 txn.set_db_version(11)
             })
             .await?;
+        }
+
+        if from < 12 && to >= 12 {
+            // Defragment the DB and optimize its size on the filesystem.
+            // This should have been run in the migration for version 7, to reduce the size
+            // of the DB as we removed the media cache.
+            conn.vacuum().await?;
+            conn.set_kv("version", vec![12]).await?;
         }
 
         Ok(())
@@ -1728,40 +1739,42 @@ impl StateStore for SqliteStateStore {
         let this = self.clone();
         let room_id = room_id.to_owned();
 
-        self.acquire()
-            .await?
-            .with_transaction(move |txn| {
-                let room_info_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
-                txn.remove_room_info(&room_info_room_id)?;
+        let conn = self.acquire().await?;
 
-                let state_event_room_id = this.encode_key(keys::STATE_EVENT, &room_id);
-                txn.remove_room_state_events(&state_event_room_id, None)?;
+        conn.with_transaction(move |txn| -> Result<()> {
+            let room_info_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
+            txn.remove_room_info(&room_info_room_id)?;
 
-                let member_room_id = this.encode_key(keys::MEMBER, &room_id);
-                txn.remove_room_members(&member_room_id, None)?;
+            let state_event_room_id = this.encode_key(keys::STATE_EVENT, &room_id);
+            txn.remove_room_state_events(&state_event_room_id, None)?;
 
-                let profile_room_id = this.encode_key(keys::PROFILE, &room_id);
-                txn.remove_room_profiles(&profile_room_id)?;
+            let member_room_id = this.encode_key(keys::MEMBER, &room_id);
+            txn.remove_room_members(&member_room_id, None)?;
 
-                let room_account_data_room_id = this.encode_key(keys::ROOM_ACCOUNT_DATA, &room_id);
-                txn.remove_room_account_data(&room_account_data_room_id)?;
+            let profile_room_id = this.encode_key(keys::PROFILE, &room_id);
+            txn.remove_room_profiles(&profile_room_id)?;
 
-                let receipt_room_id = this.encode_key(keys::RECEIPT, &room_id);
-                txn.remove_room_receipts(&receipt_room_id)?;
+            let room_account_data_room_id = this.encode_key(keys::ROOM_ACCOUNT_DATA, &room_id);
+            txn.remove_room_account_data(&room_account_data_room_id)?;
 
-                let display_name_room_id = this.encode_key(keys::DISPLAY_NAME, &room_id);
-                txn.remove_room_display_names(&display_name_room_id)?;
+            let receipt_room_id = this.encode_key(keys::RECEIPT, &room_id);
+            txn.remove_room_receipts(&receipt_room_id)?;
 
-                let send_queue_room_id = this.encode_key(keys::SEND_QUEUE, &room_id);
-                txn.remove_room_send_queue(&send_queue_room_id)?;
+            let display_name_room_id = this.encode_key(keys::DISPLAY_NAME, &room_id);
+            txn.remove_room_display_names(&display_name_room_id)?;
 
-                let dependent_send_queue_room_id =
-                    this.encode_key(keys::DEPENDENTS_SEND_QUEUE, &room_id);
-                txn.remove_room_dependent_send_queue(&dependent_send_queue_room_id)?;
+            let send_queue_room_id = this.encode_key(keys::SEND_QUEUE, &room_id);
+            txn.remove_room_send_queue(&send_queue_room_id)?;
 
-                Ok(())
-            })
-            .await
+            let dependent_send_queue_room_id =
+                this.encode_key(keys::DEPENDENTS_SEND_QUEUE, &room_id);
+            txn.remove_room_dependent_send_queue(&dependent_send_queue_room_id)?;
+
+            Ok(())
+        })
+        .await?;
+
+        conn.vacuum().await
     }
 
     async fn save_send_queue_request(

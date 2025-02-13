@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     // Get the timeline stream and listen to it.
     let room = client.get_room(&room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (timeline_items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (timeline_items, mut timeline_stream) = timeline.subscribe().await;
 
     println!("Initial timeline items: {timeline_items:#?}");
     tokio::spawn(async move {

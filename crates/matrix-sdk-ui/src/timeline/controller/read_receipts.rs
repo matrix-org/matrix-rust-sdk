@@ -101,6 +101,7 @@ impl ReadReceipts {
 
         // Get old receipt.
         let old_receipt = self.get_latest(new_receipt.user_id, &new_receipt.receipt_type);
+
         if old_receipt
             .as_ref()
             .is_some_and(|(old_receipt_event_id, _)| old_receipt_event_id == new_receipt.event_id)
@@ -108,27 +109,35 @@ impl ReadReceipts {
             // The receipt has not changed so there is nothing to do.
             return;
         }
+
         let old_event_id = old_receipt.map(|(event_id, _)| event_id);
 
         // Find receipts positions.
         let mut old_receipt_pos = None;
+        let mut old_item_pos = None;
         let mut old_item_event_id = None;
         let mut new_receipt_pos = None;
+        let mut new_item_pos = None;
         let mut new_item_event_id = None;
+
         for (pos, event) in all_events.iter().rev().enumerate() {
-            if old_event_id == Some(&event.event_id) {
+            if old_receipt_pos.is_none() && old_event_id == Some(&event.event_id) {
                 old_receipt_pos = Some(pos);
             }
+
             // The receipt should appear on the first event that is visible.
             if old_receipt_pos.is_some() && old_item_event_id.is_none() && event.visible {
+                old_item_pos = event.timeline_item_index;
                 old_item_event_id = Some(event.event_id.clone());
             }
 
-            if new_receipt.event_id == event.event_id {
+            if new_receipt_pos.is_none() && new_receipt.event_id == event.event_id {
                 new_receipt_pos = Some(pos);
             }
+
             // The receipt should appear on the first event that is visible.
             if new_receipt_pos.is_some() && new_item_event_id.is_none() && event.visible {
+                new_item_pos = event.timeline_item_index;
                 new_item_event_id = Some(event.event_id.clone());
             }
 
@@ -166,6 +175,7 @@ impl ReadReceipts {
             if let Some(old_event_id) = old_event_id.cloned() {
                 self.remove_event_receipt_for_user(&old_event_id, new_receipt.user_id);
             }
+
             // Add the new receipt to the new event.
             self.add_event_receipt_for_user(
                 new_receipt.event_id.to_owned(),
@@ -193,9 +203,12 @@ impl ReadReceipts {
         }
 
         let timeline_update = ReadReceiptTimelineUpdate {
+            old_item_pos,
             old_event_id: old_item_event_id,
+            new_item_pos,
             new_event_id: new_item_event_id,
         };
+
         timeline_update.apply(
             timeline_items,
             new_receipt.user_id.to_owned(),
@@ -273,27 +286,51 @@ struct FullReceipt<'a> {
 /// A read receipt update in the timeline.
 #[derive(Clone, Debug, Default)]
 struct ReadReceiptTimelineUpdate {
+    /// The position of the timeline item that had the old receipt of the user,
+    /// if any.
+    old_item_pos: Option<usize>,
     /// The old event that had the receipt of the user, if any.
     old_event_id: Option<OwnedEventId>,
+    /// The position of the timeline item that has the new receipt of the user,
+    /// if any.
+    new_item_pos: Option<usize>,
     /// The new event that has the receipt of the user, if any.
     new_event_id: Option<OwnedEventId>,
 }
 
 impl ReadReceiptTimelineUpdate {
     /// Remove the old receipt from the corresponding timeline item.
-    fn remove_old_receipt(&self, items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
+    fn remove_old_receipt(&mut self, items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
         let Some(event_id) = &self.old_event_id else {
             // Nothing to do.
             return;
         };
 
-        let Some((receipt_pos, event_item)) = rfind_event_by_id(items, event_id) else {
+        let item_pos = self.old_item_pos.or_else(|| {
+            items
+                .iter()
+                .enumerate()
+                .rev()
+                .filter_map(|(nth, item)| Some((nth, item.as_event()?)))
+                .find_map(|(nth, event_item)| {
+                    (event_item.event_id() == Some(event_id)).then_some(nth)
+                })
+        });
+
+        let Some(item_pos) = item_pos else {
             debug!(%event_id, %user_id, "inconsistent state: old event item for read receipt was not found");
             return;
         };
 
-        let event_item_id = event_item.internal_id.to_owned();
-        let mut event_item = event_item.clone();
+        self.old_item_pos = Some(item_pos);
+
+        let event_item = &items[item_pos];
+        let event_item_id = event_item.unique_id().to_owned();
+
+        let Some(mut event_item) = event_item.as_event().cloned() else {
+            warn!("received a read receipt for a virtual item, this should not be possible");
+            return;
+        };
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
             if remote_event_item.read_receipts.swap_remove(user_id).is_none() {
@@ -303,7 +340,7 @@ impl ReadReceiptTimelineUpdate {
                      receipt doesn't have a receipt for the user"
                 );
             }
-            items.replace(receipt_pos, TimelineItem::new(event_item, event_item_id));
+            items.replace(item_pos, TimelineItem::new(event_item, event_item_id));
         } else {
             warn!("received a read receipt for a local item, this should not be possible");
         }
@@ -321,18 +358,40 @@ impl ReadReceiptTimelineUpdate {
             return;
         };
 
-        let Some((receipt_pos, event_item)) = rfind_event_by_id(items, &event_id) else {
-            // This can happen for new timeline items, the receipts will be loaded directly
-            // during construction of the item.
+        let item_pos = self.new_item_pos.or_else(|| {
+            items
+                .iter()
+                .enumerate()
+                // Don't iterate over all items if the `old_item_pos` is known: the `item_pos`
+                // for the new item is necessarily _after_ the old item.
+                .skip(self.old_item_pos.unwrap_or(0))
+                .rev()
+                .filter_map(|(nth, item)| Some((nth, item.as_event()?)))
+                .find_map(|(nth, event_item)| {
+                    (event_item.event_id() == Some(&event_id)).then_some(nth)
+                })
+        });
+
+        let Some(item_pos) = item_pos else {
+            debug!(%event_id, %user_id, "inconsistent state: new event item for read receipt was not found");
             return;
         };
 
-        let event_item_id = event_item.internal_id.to_owned();
-        let mut event_item = event_item.clone();
+        debug_assert!(
+            item_pos >= self.old_item_pos.unwrap_or(0),
+            "The new receipt must be added on a timeline item that is _after_ the timeline item that was holding the old receipt");
+
+        let event_item = &items[item_pos];
+        let event_item_id = event_item.unique_id().to_owned();
+
+        let Some(mut event_item) = event_item.as_event().cloned() else {
+            warn!("received a read receipt for a virtual item, this should not be possible");
+            return;
+        };
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
             remote_event_item.read_receipts.insert(user_id, receipt);
-            items.replace(receipt_pos, TimelineItem::new(event_item, event_item_id));
+            items.replace(item_pos, TimelineItem::new(event_item, event_item_id));
         } else {
             warn!("received a read receipt for a local item, this should not be possible");
         }
@@ -340,7 +399,7 @@ impl ReadReceiptTimelineUpdate {
 
     /// Apply this update to the timeline.
     fn apply(
-        self,
+        mut self,
         items: &mut ObservableItemsTransaction<'_>,
         user_id: OwnedUserId,
         receipt: Receipt,
@@ -395,10 +454,7 @@ impl TimelineStateTransaction<'_> {
         room_data_provider: &P,
     ) {
         let read_receipts = room_data_provider.load_event_receipts(event_id).await;
-
-        // Filter out receipts for our own user.
         let own_user_id = room_data_provider.own_user_id();
-        let read_receipts = read_receipts.into_iter().filter(|(user_id, _)| user_id != own_user_id);
 
         // Since they are explicit read receipts, we need to check if they are
         // superseded by implicit read receipts.

@@ -24,6 +24,7 @@ use std::{fmt, ops::Deref, str::Utf8Error, sync::Arc};
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
+pub mod media;
 mod memory_store;
 mod traits;
 

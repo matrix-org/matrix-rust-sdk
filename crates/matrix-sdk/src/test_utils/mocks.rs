@@ -785,16 +785,17 @@ impl MatrixMockServer {
     ///
     /// # Examples
     ///
-    /// ``` #
-    /// tokio_test::block_on(async {
-    /// use matrix_sdk_base::RoomMemberships;
-    /// use ruma::events::room::member::MembershipState;
-    /// use ruma::events::room::member::RoomMemberEventContent;
-    /// use ruma::user_id;
-    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// ```
+    /// # tokio_test::block_on(async {
     /// use matrix_sdk::{
     ///     ruma::{event_id, room_id},
     ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use matrix_sdk_base::RoomMemberships;
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     events::room::member::{MembershipState, RoomMemberEventContent},
+    ///     user_id,
     /// };
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
@@ -811,7 +812,12 @@ impl MatrixMockServer {
     ///     .into_raw_timeline()
     ///     .cast();
     ///
-    /// mock_server.mock_get_members().ok(vec![alice_knock_event]).mock_once().mount().await;
+    /// mock_server
+    ///     .mock_get_members()
+    ///     .ok(vec![alice_knock_event])
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
     /// let room = mock_server.sync_joined_room(&client, room_id).await;
     ///
     /// let members = room.members(RoomMemberships::all()).await.unwrap();
@@ -911,6 +917,28 @@ impl MatrixMockServer {
     pub fn mock_ban_user(&self) -> MockEndpoint<'_, BanUserEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/ban"));
         MockEndpoint { mock, server: &self.server, endpoint: BanUserEndpoint }
+    }
+
+    /// Creates a prebuilt mock for the `/_matrix/client/versions` endpoint.
+    pub fn mock_versions(&self) -> MockEndpoint<'_, VersionsEndpoint> {
+        let mock = Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/versions"));
+        MockEndpoint { mock, server: &self.server, endpoint: VersionsEndpoint }
+    }
+
+    /// Creates a prebuilt mock for the room summary endpoint [MSC3266](https://github.com/matrix-org/matrix-spec-proposals/pull/3266).
+    pub fn mock_room_summary(&self) -> MockEndpoint<'_, RoomSummaryEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/im.nheko.summary/rooms/.*/summary"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSummaryEndpoint }
+    }
+
+    /// Creates a prebuilt mock for the endpoint used to set a room's pinned
+    /// events.
+    pub fn mock_set_room_pinned_events(&self) -> MockEndpoint<'_, SetRoomPinnedEventsEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.pinned_events/.*?"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: SetRoomPinnedEventsEndpoint }
     }
 }
 
@@ -2234,6 +2262,79 @@ impl<'a> MockEndpoint<'a, BanUserEndpoint> {
     /// Returns a successful ban user request.
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `GET /versions` request.
+pub struct VersionsEndpoint;
+
+impl<'a> MockEndpoint<'a, VersionsEndpoint> {
+    /// Returns a successful `/_matrix/client/versions` request.
+    ///
+    /// The response will return some commonly supported versions.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "unstable_features": {
+            },
+            "versions": [
+                "r0.0.1",
+                "r0.2.0",
+                "r0.3.0",
+                "r0.4.0",
+                "r0.5.0",
+                "r0.6.0",
+                "r0.6.1",
+                "v1.1",
+                "v1.2",
+                "v1.3",
+                "v1.4",
+                "v1.5",
+                "v1.6",
+                "v1.7",
+                "v1.8",
+                "v1.9",
+                "v1.10",
+                "v1.11"
+            ]
+        })));
+
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for the room summary endpoint.
+pub struct RoomSummaryEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
+    /// Returns a successful response with some default data for the given room
+    /// id.
+    pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "room_id": room_id,
+            "guest_can_join": true,
+            "num_joined_members": 1,
+            "world_readable": true,
+            "join_rule": "public",
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock to set a room's pinned events.
+pub struct SetRoomPinnedEventsEndpoint;
+
+impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
+    /// Returns a successful response with a given event id.
+    /// id.
+    pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+        self.ok_with_event_id(event_id)
+    }
+
+    /// Returns an error response with a generic error code indicating the
+    /// client is not authorized to set pinned events.
+    pub fn unauthorized(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(400));
         MatrixMock { server: self.server, mock }
     }
 }

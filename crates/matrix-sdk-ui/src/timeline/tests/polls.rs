@@ -187,6 +187,49 @@ async fn test_events_received_before_start_are_not_lost() {
     assert_eq!(results.votes["1"], vec![ALICE.to_string()]);
 }
 
+#[async_test]
+async fn test_adding_response_doesnt_clear_latest_json_edit() {
+    let timeline = TestTimeline::new();
+
+    // Alice sends the poll.
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+
+    // Alice edits the poll.
+    let poll_item = timeline.poll_event().await;
+    let poll_id = poll_item.event_id().unwrap();
+    timeline.send_poll_edit(&ALICE, poll_id, fakes::poll_b()).await;
+    // Sanity check: the poll has a latest edit JSON.
+    assert!(timeline.event_items().await[0].latest_edit_json().is_some());
+
+    // Now Bob also votes
+    timeline.send_poll_response(&BOB, vec!["0"], poll_id).await;
+
+    // The poll still has a latest edit JSON.
+    assert!(timeline.event_items().await[0].latest_edit_json().is_some());
+}
+
+#[async_test]
+async fn test_ending_poll_doesnt_clear_latest_json_edit() {
+    let timeline = TestTimeline::new();
+
+    // Alice sends the poll.
+    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+
+    let poll_item = timeline.poll_event().await;
+    let poll_id = poll_item.event_id().unwrap();
+
+    // Alice edits the poll.
+    timeline.send_poll_edit(&ALICE, poll_id, fakes::poll_b()).await;
+    // Sanity check: the poll has a latest edit JSON.
+    assert!(timeline.event_items().await[0].latest_edit_json().is_some());
+
+    // Now the poll is ended.
+    timeline.send_poll_end(&ALICE, "ended", poll_id).await;
+
+    // The poll still has a latest edit JSON.
+    assert!(timeline.event_items().await[0].latest_edit_json().is_some());
+}
+
 impl TestTimeline {
     async fn event_items(&self) -> Vec<EventTimelineItem> {
         self.controller.items().await.iter().filter_map(|item| item.as_event().cloned()).collect()

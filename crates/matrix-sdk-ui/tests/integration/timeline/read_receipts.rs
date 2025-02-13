@@ -76,7 +76,7 @@ async fn test_read_receipts_updates() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
     let mut own_receipts_subscriber = timeline.subscribe_own_user_read_receipts_changed().await;
 
     assert!(items.is_empty());
@@ -319,7 +319,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(filter_notice).build().await.unwrap();
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert!(items.is_empty());
 
@@ -1206,7 +1206,7 @@ async fn test_latest_user_read_receipt() {
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
-    let (items, _) = timeline.subscribe_batched().await;
+    let (items, _) = timeline.subscribe().await;
 
     assert!(items.is_empty());
 

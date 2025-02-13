@@ -852,9 +852,14 @@ impl OlmMachine {
         let mut decrypted =
             transaction.account().await?.decrypt_to_device_event(&self.inner.store, event).await?;
 
-        // Handle the decrypted event, e.g. fetch out Megolm sessions out of
-        // the event.
-        self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes).await?;
+        // We ignore all to-device events from dehydrated devices - we should not
+        // receive any
+        if !self.to_device_event_is_from_dehydrated_device(&decrypted, &event.sender).await? {
+            // Handle the decrypted event, e.g. fetch out Megolm sessions out of
+            // the event.
+            self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes)
+                .await?;
+        }
 
         Ok(decrypted)
     }
@@ -1259,13 +1264,20 @@ impl OlmMachine {
         }
     }
 
+    /// Decrypt the supplied to-device event (if needed, and if we can) and
+    /// handle it.
+    ///
+    /// Return the same event, decrypted if possible and needed.
+    ///
+    /// If we can identify that this to-device event came from a dehydrated
+    /// device, this method does not process it, and returns `None`.
     #[instrument(skip_all, fields(sender, event_type, message_id))]
     async fn receive_to_device_event(
         &self,
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
-    ) -> Raw<AnyToDeviceEvent> {
+    ) -> Option<Raw<AnyToDeviceEvent>> {
         Self::record_message_id(&raw_event);
 
         let event: ToDeviceEvents = match raw_event.deserialize_as() {
@@ -1274,7 +1286,7 @@ impl OlmMachine {
                 // Skip invalid events.
                 warn!("Received an invalid to-device event: {e}");
 
-                return raw_event;
+                return Some(raw_event);
             }
         };
 
@@ -1299,9 +1311,29 @@ impl OlmMachine {
                             }
                         }
 
-                        return raw_event;
+                        return Some(raw_event);
                     }
                 };
+
+                // We ignore all to-device events from dehydrated devices - we should not
+                // receive any
+                match self.to_device_event_is_from_dehydrated_device(&decrypted, &e.sender).await {
+                    Ok(true) => {
+                        warn!(
+                            sender = ?e.sender,
+                            session = ?decrypted.session,
+                            "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
+                        );
+                        return None;
+                    }
+                    Ok(false) => {}
+                    Err(err) => {
+                        error!(
+                            error = ?err,
+                            "Couldn't check whether event is from dehydrated device",
+                        );
+                    }
+                }
 
                 // New sessions modify the account so we need to save that
                 // one as well.
@@ -1336,7 +1368,41 @@ impl OlmMachine {
             e => self.handle_to_device_event(changes, &e).await,
         }
 
-        raw_event
+        Some(raw_event)
+    }
+
+    /// Decide whether a decrypted to-device event was sent from a dehydrated
+    /// device.
+    ///
+    /// This accepts an [`OlmDecryptionInfo`] because it deals with a decrypted
+    /// event.
+    async fn to_device_event_is_from_dehydrated_device(
+        &self,
+        decrypted: &OlmDecryptionInfo,
+        sender_user_id: &UserId,
+    ) -> OlmResult<bool> {
+        // Does the to-device message include device info?
+        if let Some(device_keys) = decrypted.result.event.sender_device_keys() {
+            // There is no need to check whether the device keys are signed correctly - any
+            // to-device message that claims to be from a dehydrated device is weird, so we
+            // will drop it.
+
+            // Does the included device info say the device is dehydrated?
+            if device_keys.dehydrated.unwrap_or(false) {
+                return Ok(true);
+            }
+            // If not, fall through and check our existing list of devices
+            // below, just in case the sender is sending us incorrect
+            // information embedded in the to-device message, but we know
+            // better.
+        }
+
+        // Do we already know about this device?
+        Ok(self
+            .store()
+            .get_device_from_curve_key(sender_user_id, decrypted.result.sender_key)
+            .await?
+            .is_some_and(|d| d.is_dehydrated()))
     }
 
     /// Handle a to-device and one-time key counts from a sync response.
@@ -1377,6 +1443,14 @@ impl OlmMachine {
         Ok((events, room_key_updates))
     }
 
+    /// Initial processing of the changes specified within a sync response.
+    ///
+    /// Returns the to-device events (decrypted where needed and where possible)
+    /// and the processed set of changes.
+    ///
+    /// If any of the to-device events in the supplied changes were sent from
+    /// dehydrated devices, these are not processed, and are omitted from
+    /// the returned list, as per MSC3814.
     pub(crate) async fn preprocess_sync_changes(
         &self,
         transaction: &mut StoreTransaction,
@@ -1412,7 +1486,10 @@ impl OlmMachine {
         for raw_event in sync_changes.to_device_events {
             let raw_event =
                 Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event)).await;
-            events.push(raw_event);
+
+            if let Some(raw_event) = raw_event {
+                events.push(raw_event);
+            }
         }
 
         let changed_sessions = self
@@ -1602,17 +1679,6 @@ impl OlmMachine {
             },
             verification_state,
         })
-    }
-
-    async fn get_megolm_encryption_info(
-        &self,
-        room_id: &RoomId,
-        event: &EncryptedEvent,
-        content: &SupportedEventEncryptionSchemes<'_>,
-    ) -> MegolmResult<EncryptionInfo> {
-        let session =
-            self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
-        self.get_encryption_info(&session, &event.sender).await
     }
 
     async fn decrypt_megolm_events(
@@ -2012,7 +2078,30 @@ impl OlmMachine {
             }
         };
 
-        self.get_megolm_encryption_info(room_id, &event, &content).await
+        self.get_session_encryption_info(room_id, content.session_id(), &event.sender).await
+    }
+
+    /// Get encryption info for a megolm session.
+    ///
+    /// This recalculates the [`EncryptionInfo`] data that is returned by
+    /// [`OlmMachine::decrypt_room_event`], based on the current
+    /// verification status of the sender, etc.
+    ///
+    /// Returns an error if the session can't be found.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room where the session is being used.
+    /// * `session_id` - The ID of the session to get information for.
+    /// * `sender` - The user ID of the sender who created this session.
+    pub async fn get_session_encryption_info(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+        sender: &UserId,
+    ) -> MegolmResult<EncryptionInfo> {
+        let session = self.get_inbound_group_session_or_error(room_id, session_id).await?;
+        self.get_encryption_info(&session, sender).await
     }
 
     /// Update the list of tracked users.

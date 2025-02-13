@@ -2430,7 +2430,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
     let timeline = room.timeline().unwrap();
 
-    let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe_batched().await;
+    let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2493,7 +2493,7 @@ async fn test_room_empty_timeline() {
     // The room wasn't synced, but it will be available
     let room = room_list.room(&room_id).unwrap();
     let timeline = room.default_room_timeline_builder().await.unwrap().build().await.unwrap();
-    let (prev_items, _) = timeline.subscribe_batched().await;
+    let (prev_items, _) = timeline.subscribe().await;
 
     // However, since the room wasn't synced its timeline won't have any initial
     // items

@@ -40,6 +40,7 @@ use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
+    event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::MediaThumbnailSettings,
     store::StateStoreExt,
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
@@ -2038,7 +2039,10 @@ impl Room {
             let request =
                 MediaRequestParameters { source: media_source.clone(), format: MediaFormat::File };
 
-            if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {
+            if let Err(err) = cache_store_lock_guard
+                .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
+                .await
+            {
                 warn!("unable to cache the media after uploading it: {err}");
             }
 
@@ -2052,7 +2056,10 @@ impl Room {
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
                 };
 
-                if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {
+                if let Err(err) = cache_store_lock_guard
+                    .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
+                    .await
+                {
                     warn!("unable to cache the media after uploading it: {err}");
                 }
             }
@@ -2889,11 +2896,14 @@ impl Room {
     ///
     /// This communicates to the homeserver that it should forget the room.
     ///
-    /// Only left rooms can be forgotten.
+    /// Only left or banned-from rooms can be forgotten.
     pub async fn forget(&self) -> Result<()> {
         let state = self.state();
-        if state != RoomState::Left {
-            return Err(Error::WrongRoomState(WrongRoomState::new("Left", state)));
+        match state {
+            RoomState::Joined | RoomState::Invited | RoomState::Knocked => {
+                return Err(Error::WrongRoomState(WrongRoomState::new("Left / Banned", state)));
+            }
+            RoomState::Left | RoomState::Banned => {}
         }
 
         let request = forget_room::v3::Request::new(self.inner.room_id().to_owned());

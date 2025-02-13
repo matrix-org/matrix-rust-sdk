@@ -17,11 +17,14 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk::test_utils::logged_in_client_with_server;
+use matrix_sdk::{
+    assert_next_eq_with_timeout,
+    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
+};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
 use serde_json::json;
-use stream_assert::{assert_next_matches, assert_pending};
+use stream_assert::{assert_next_eq, assert_next_matches, assert_pending};
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
 use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher};
@@ -73,28 +76,28 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     // At first, the sync service is sleeping.
     assert_eq!(state_stream.get(), State::Idle);
     assert!(server.received_requests().await.unwrap().is_empty());
-    assert_eq!(sync_service.task_states(), (false, false));
+    assert!(!sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     // After starting, the sync service is, well, running.
     sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
-    assert_eq!(sync_service.task_states(), (true, true));
+    assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Restarting while started doesn't change the current state.
     sync_service.start().await;
     assert_pending!(state_stream);
-    assert_eq!(sync_service.task_states(), (true, true));
+    assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     // Let the server respond a few times.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Pausing will stop both syncs, after a bit of delay.
-    sync_service.stop().await?;
+    sync_service.stop().await;
     assert_next_matches!(state_stream, State::Idle);
-    assert_eq!(sync_service.task_states(), (false, false));
+    assert!(!sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_some());
 
     let mut num_encryption_sync_requests: i32 = 0;
@@ -149,7 +152,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     // the same position than just before being stopped.
     sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
-    assert_eq!(sync_service.task_states(), (true, true));
+    assert!(sync_service.is_supervisor_running().await);
     assert!(sync_service.try_get_encryption_sync_permit().is_none());
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -201,4 +204,78 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     assert_pending!(state_stream);
 
     Ok(())
+}
+
+#[async_test]
+async fn test_sync_service_offline_mode() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+    let mut states = sync_service.state();
+
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1..)
+        .mount(mock_server.server())
+        .await;
+
+    {
+        let _versions_guard = mock_server.mock_versions().error500().mount_as_scoped().await;
+
+        sync_service.start().await;
+        assert_next_eq!(states, State::Running);
+        assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
+    }
+
+    mock_server.mock_versions().ok().expect(1..).mount().await;
+
+    assert_next_eq_with_timeout!(states, State::Running, 500 ms,  "We should have continued to sync");
+}
+
+#[async_test]
+async fn test_sync_service_offline_mode_stopping() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+    let mut states = sync_service.state();
+
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1..)
+        .mount(mock_server.server())
+        .await;
+    mock_server.mock_versions().error500().mount().await;
+
+    sync_service.start().await;
+    assert_next_eq!(states, State::Running);
+
+    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
+    sync_service.stop().await;
+    assert_next_eq_with_timeout!(states, State::Idle, 500 ms, "We should have entered the idle mode");
+}
+
+#[async_test]
+async fn test_sync_service_offline_mode_restarting() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+    let mut states = sync_service.state();
+
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(ResponseTemplate::new(404))
+        .mount(mock_server.server())
+        .await;
+    mock_server.mock_versions().error500().mount().await;
+
+    sync_service.start().await;
+    assert_next_eq!(states, State::Running);
+    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
+
+    sync_service.start().await;
+
+    assert_next_eq_with_timeout!(states, State::Running, 500 ms, "We should have entered the running mode");
+    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode again");
 }

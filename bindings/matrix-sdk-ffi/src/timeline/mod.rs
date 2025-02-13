@@ -19,8 +19,6 @@ use as_variant::as_variant;
 use content::{InReplyToDetails, RepliedToEventDetails};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
-#[cfg(doc)]
-use matrix_sdk::crypto::CollectStrategy;
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
@@ -63,8 +61,6 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
-#[cfg(doc)]
-use crate::client_builder::ClientBuilder;
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
@@ -216,7 +212,7 @@ pub struct UploadParameters {
 #[matrix_sdk_ffi_macros::export]
 impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
-        let (timeline_items, timeline_stream) = self.inner.subscribe_batched().await;
+        let (timeline_items, timeline_stream) = self.inner.subscribe().await;
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(timeline_stream);
@@ -271,16 +267,16 @@ impl Timeline {
 
     /// Paginate backwards, whether we are in focused mode or in live mode.
     ///
-    /// Returns whether we hit the end of the timeline or not.
+    /// Returns whether we hit the start of the timeline or not.
     pub async fn paginate_backwards(&self, num_events: u16) -> Result<bool, ClientError> {
         Ok(self.inner.paginate_backwards(num_events).await?)
     }
 
-    /// Paginate forwards, when in focused mode.
+    /// Paginate forwards, whether we are in focused mode or in live mode.
     ///
     /// Returns whether we hit the end of the timeline or not.
-    pub async fn focused_paginate_forwards(&self, num_events: u16) -> Result<bool, ClientError> {
-        Ok(self.inner.focused_paginate_forwards(num_events).await?)
+    pub async fn paginate_forwards(&self, num_events: u16) -> Result<bool, ClientError> {
+        Ok(self.inner.paginate_forwards(num_events).await?)
     }
 
     pub async fn send_read_receipt(
@@ -1044,6 +1040,7 @@ pub struct EventTimelineItem {
 impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
     fn from(item: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
         let reactions = item
+            .content()
             .reactions()
             .iter()
             .map(|(k, v)| Reaction {
@@ -1321,5 +1318,9 @@ impl LazyTimelineItemProvider {
     /// remote echoes.
     fn get_send_handle(&self) -> Option<Arc<SendHandle>> {
         self.0.local_echo_send_handle().map(|handle| Arc::new(SendHandle::new(handle)))
+    }
+
+    fn contains_only_emojis(&self) -> bool {
+        self.0.contains_only_emojis()
     }
 }

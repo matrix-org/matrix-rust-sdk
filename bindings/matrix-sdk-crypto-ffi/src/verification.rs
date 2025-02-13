@@ -791,8 +791,7 @@ impl VerificationRequest {
             // task.
             let should_break = matches!(
                 state,
-                RustVerificationRequestState::Done { .. }
-                    | RustVerificationRequestState::Cancelled { .. }
+                RustVerificationRequestState::Done | RustVerificationRequestState::Cancelled { .. }
             );
 
             let state = Self::convert_verification_request(&request, state);

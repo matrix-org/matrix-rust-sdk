@@ -6,11 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.10.0] - 2025-02-04
+
 ### Features
+
+- [**breaking**] `CollectStrategy::DeviceBasedStrategy` is now split into three
+  separate strategies (`AllDevices`, `ErrorOnVerifiedUserProblem`,
+  `OnlyTrustedDevices`), to make the behaviour clearer.
+  ([#4581](https://github.com/matrix-org/matrix-rust-sdk/pull/4581))
 
 - Accept stable identifier `sender_device_keys` for MSC4147 (Including device
   keys with Olm-encrypted events).
   ([#4420](https://github.com/matrix-org/matrix-rust-sdk/pull/4420))
+
+- Room keys are not shared with unsigned dehydrated devices.
+  ([#4551](https://github.com/matrix-org/matrix-rust-sdk/pull/4551))
 
 ## [0.9.0] - 2024-12-18
 

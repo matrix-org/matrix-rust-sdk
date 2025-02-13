@@ -316,14 +316,14 @@ impl ClientWrapper {
         while Instant::now() < end_time {
             if let Some(ans) = f().await {
                 // We found what we were looking for
-                self.sync_service.stop().await.expect("Failed to stop sync service");
+                self.sync_service.stop().await;
                 return Some(ans);
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         // We timed out
-        self.sync_service.stop().await.expect("Failed to stop sync service");
+        self.sync_service.stop().await;
         None
     }
 }

@@ -24,6 +24,7 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use imbl::vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
@@ -36,9 +37,8 @@ use matrix_sdk::{
 use matrix_sdk_base::{
     crypto::types::events::CryptoContextInfo, latest_event::LatestEvent, RoomInfo, RoomState,
 };
-use matrix_sdk_test::{event_factory::EventFactory, ALICE, BOB, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
-    event_id,
     events::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -56,11 +56,8 @@ use ruma::{
 use tokio::sync::RwLock;
 
 use super::{
-    algorithms::rfind_event_by_item_id,
-    controller::{TimelineNewItemPosition, TimelineSettings},
-    event_handler::TimelineEventKind,
-    event_item::RemoteEventOrigin,
-    traits::RoomDataProvider,
+    algorithms::rfind_event_by_item_id, controller::TimelineSettings,
+    event_handler::TimelineEventKind, event_item::RemoteEventOrigin, traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineController, TimelineEventItemId, TimelineFocus,
     TimelineItem,
 };
@@ -81,8 +78,66 @@ mod redaction;
 mod shields;
 mod virt;
 
+/// A timeline instance used only for testing purposes in unit tests.
+#[derive(Default)]
+struct TestTimelineBuilder {
+    provider: Option<TestRoomDataProvider>,
+    internal_id_prefix: Option<String>,
+    utd_hook: Option<Arc<UtdHookManager>>,
+    is_room_encrypted: bool,
+    settings: Option<TimelineSettings>,
+}
+
+impl TestTimelineBuilder {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn provider(mut self, provider: TestRoomDataProvider) -> Self {
+        self.provider = Some(provider);
+        self
+    }
+
+    fn internal_id_prefix(mut self, prefix: String) -> Self {
+        self.internal_id_prefix = Some(prefix);
+        self
+    }
+
+    fn unable_to_decrypt_hook(mut self, hook: Arc<UtdHookManager>) -> Self {
+        self.utd_hook = Some(hook);
+        // It only makes sense to have a UTD hook for an encrypted room.
+        self.is_room_encrypted = true;
+        self
+    }
+
+    fn room_encrypted(mut self, encrypted: bool) -> Self {
+        self.is_room_encrypted = encrypted;
+        self
+    }
+
+    fn settings(mut self, settings: TimelineSettings) -> Self {
+        self.settings = Some(settings);
+        self
+    }
+
+    fn build(self) -> TestTimeline {
+        let mut controller = TimelineController::new(
+            self.provider.unwrap_or_default(),
+            TimelineFocus::Live,
+            self.internal_id_prefix,
+            self.utd_hook,
+            self.is_room_encrypted,
+        );
+        if let Some(settings) = self.settings {
+            controller = controller.with_settings(settings);
+        }
+        TestTimeline { controller, factory: EventFactory::new() }
+    }
+}
+
 struct TestTimeline {
     controller: TimelineController<TestRoomDataProvider>,
+
     /// An [`EventFactory`] that can be used for creating events in this
     /// timeline.
     pub factory: EventFactory,
@@ -90,7 +145,7 @@ struct TestTimeline {
 
 impl TestTimeline {
     fn new() -> Self {
-        Self::with_room_data_provider(TestRoomDataProvider::default())
+        TestTimelineBuilder::new().build()
     }
 
     /// Returns the associated inner data from that [`TestTimeline`].
@@ -98,66 +153,8 @@ impl TestTimeline {
         &self.controller.room_data_provider
     }
 
-    fn with_internal_id_prefix(prefix: String) -> Self {
-        Self {
-            controller: TimelineController::new(
-                TestRoomDataProvider::default(),
-                TimelineFocus::Live,
-                Some(prefix),
-                None,
-                Some(false),
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    fn with_room_data_provider(room_data_provider: TestRoomDataProvider) -> Self {
-        Self {
-            controller: TimelineController::new(
-                room_data_provider,
-                TimelineFocus::Live,
-                None,
-                None,
-                Some(false),
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    fn with_unable_to_decrypt_hook(hook: Arc<UtdHookManager>) -> Self {
-        Self {
-            controller: TimelineController::new(
-                TestRoomDataProvider::default(),
-                TimelineFocus::Live,
-                None,
-                Some(hook),
-                Some(true),
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    // TODO: this is wrong, see also #3850.
-    fn with_is_room_encrypted(encrypted: bool) -> Self {
-        Self {
-            controller: TimelineController::new(
-                TestRoomDataProvider::default(),
-                TimelineFocus::Live,
-                None,
-                None,
-                Some(encrypted),
-            ),
-            factory: EventFactory::new(),
-        }
-    }
-
-    fn with_settings(mut self, settings: TimelineSettings) -> Self {
-        self.controller = self.controller.with_settings(settings);
-        self
-    }
-
     async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
-        let (items, stream) = self.controller.subscribe().await;
+        let (items, stream) = self.controller.subscribe_raw().await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
     }
@@ -174,11 +171,10 @@ impl TestTimeline {
     }
 
     async fn handle_live_event(&self, event: impl Into<TimelineEvent>) {
-        let event = event.into();
         self.controller
-            .add_events_at(
-                [event].into_iter(),
-                TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+            .handle_remote_events_with_diffs(
+                vec![VectorDiff::Append { values: vector![event.into()] }],
+                RemoteEventOrigin::Sync,
             )
             .await;
     }
@@ -198,9 +194,9 @@ impl TestTimeline {
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
         self.controller
-            .add_events_at(
-                [timeline_event].into_iter(),
-                TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+            .handle_remote_events_with_diffs(
+                vec![VectorDiff::PushFront { value: timeline_event }],
+                RemoteEventOrigin::Pagination,
             )
             .await;
     }
@@ -240,6 +236,14 @@ impl TestTimeline {
 
     async fn handle_room_send_queue_update(&self, update: RoomSendQueueUpdate) {
         self.controller.handle_room_send_queue_update(update).await
+    }
+
+    async fn handle_event_update(
+        &self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) {
+        self.controller.handle_remote_events_with_diffs(diffs, origin).await;
     }
 }
 
@@ -356,11 +360,17 @@ impl RoomDataProvider for TestRoomDataProvider {
         &'a self,
         event_id: &'a EventId,
     ) -> IndexMap<OwnedUserId, Receipt> {
-        if event_id == event_id!("$event_with_bob_receipt") {
-            [(BOB.to_owned(), Receipt::new(MilliSecondsSinceUnixEpoch(uint!(10))))].into()
-        } else {
-            IndexMap::new()
+        let mut map = IndexMap::new();
+
+        for (user_id, (receipt_event_id, receipt)) in
+            self.initial_user_receipts.values().flat_map(|m| m.values()).flatten()
+        {
+            if receipt_event_id == event_id {
+                map.insert(user_id.clone(), receipt.clone());
+            }
         }
+
+        map
     }
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {

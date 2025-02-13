@@ -86,7 +86,7 @@ async fn test_new_focused() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 5 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
@@ -121,7 +121,7 @@ async fn test_new_focused() {
     )
     .await;
 
-    let hit_start = timeline.focused_paginate_backwards(20).await.unwrap();
+    let hit_start = timeline.paginate_backwards(20).await.unwrap();
     assert!(hit_start);
 
     server.reset().await;
@@ -161,7 +161,7 @@ async fn test_new_focused() {
     )
     .await;
 
-    let hit_start = timeline.focused_paginate_forwards(20).await.unwrap();
+    let hit_start = timeline.paginate_forwards(20).await.unwrap();
     assert!(!hit_start); // because we gave it another next2 token.
 
     server.reset().await;
@@ -229,14 +229,14 @@ async fn test_focused_timeline_reacts() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    assert_eq!(event_item.reactions().len(), 0);
+    assert_eq!(event_item.content().reactions().len(), 0);
 
     assert_pending!(timeline_stream);
 
@@ -263,7 +263,7 @@ async fn test_focused_timeline_reacts() {
     // Text hasn't changed.
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
     // But now there's one reaction to the event.
-    assert_eq!(event_item.reactions().len(), 1);
+    assert_eq!(event_item.content().reactions().len(), 1);
 
     // And nothing more.
     assert_pending!(timeline_stream);
@@ -314,14 +314,14 @@ async fn test_focused_timeline_local_echoes() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    assert_eq!(event_item.reactions().len(), 0);
+    assert_eq!(event_item.content().reactions().len(), 0);
 
     sleep(Duration::from_millis(100)).await;
     assert_pending!(timeline_stream);
@@ -339,7 +339,7 @@ async fn test_focused_timeline_local_echoes() {
     // Text hasn't changed.
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
     // But now there's one reaction to the event.
-    let reactions = event_item.reactions();
+    let reactions = event_item.content().reactions();
     assert_eq!(reactions.len(), 1);
     assert!(reactions.get("✨").unwrap().get(client.user_id().unwrap()).is_some());
 
@@ -393,14 +393,14 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
 
     server.reset().await;
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event items + a date divider
     assert!(items[0].is_date_divider());
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    assert_eq!(event_item.reactions().len(), 0);
+    assert_eq!(event_item.content().reactions().len(), 0);
 
     assert_pending!(timeline_stream);
 

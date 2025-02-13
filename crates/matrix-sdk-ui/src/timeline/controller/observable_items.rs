@@ -26,7 +26,7 @@ use eyeball_im::{
 use imbl::Vector;
 use ruma::EventId;
 
-use super::{state::EventMeta, TimelineItem};
+use super::{metadata::EventMeta, TimelineItem};
 
 /// An `ObservableItems` is a type similar to
 /// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
@@ -404,6 +404,7 @@ mod observable_items_tests {
                     thread_root: None,
                     edited: false,
                     mentions: None,
+                    reactions: Default::default(),
                 }),
                 EventTimelineItemKind::Remote(RemoteEventTimelineItem {
                     event_id: event_id.parse().unwrap(),
@@ -416,7 +417,6 @@ mod observable_items_tests {
                     latest_edit_json: None,
                     origin: RemoteEventOrigin::Sync,
                 }),
-                Default::default(),
                 false,
             ),
             TimelineUniqueId(format!("__id_{event_id}")),
@@ -1254,10 +1254,20 @@ impl AllRemoteEvents {
     /// Shift to the right all timeline item indexes that are equal to or
     /// greater than `new_timeline_item_index`.
     fn increment_all_timeline_item_index_after(&mut self, new_timeline_item_index: usize) {
-        for event_meta in self.0.iter_mut() {
+        // Traverse items from back to front because:
+        // - if `new_timeline_item_index` is 0, we need to shift all items anyways, so
+        //   all items must be traversed,
+        // - otherwise, it's unlikely we want to traverse all items: the item has been
+        //   either inserted or pushed back, so there is no need to traverse the first
+        //   items; we can also break the iteration as soon as all timeline item index
+        //   after `new_timeline_item_index` has been updated.
+        for event_meta in self.0.iter_mut().rev() {
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 if *timeline_item_index >= new_timeline_item_index {
                     *timeline_item_index += 1;
+                } else {
+                    // Items are ordered.
+                    break;
                 }
             }
         }
@@ -1266,10 +1276,20 @@ impl AllRemoteEvents {
     /// Shift to the left all timeline item indexes that are greater than
     /// `removed_wtimeline_item_index`.
     fn decrement_all_timeline_item_index_after(&mut self, removed_timeline_item_index: usize) {
-        for event_meta in self.0.iter_mut() {
+        // Traverse items from back to front because:
+        // - if `new_timeline_item_index` is 0, we need to shift all items anyways, so
+        //   all items must be traversed,
+        // - otherwise, it's unlikely we want to traverse all items: the item has been
+        //   either inserted or pushed back, so there is no need to traverse the first
+        //   items; we can also break the iteration as soon as all timeline item index
+        //   after `new_timeline_item_index` has been updated.
+        for event_meta in self.0.iter_mut().rev() {
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 if *timeline_item_index > removed_timeline_item_index {
                     *timeline_item_index -= 1;
+                } else {
+                    // Items are ordered.
+                    break;
                 }
             }
         }

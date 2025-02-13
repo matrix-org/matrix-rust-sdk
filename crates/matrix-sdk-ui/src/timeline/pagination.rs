@@ -32,30 +32,37 @@ impl super::Timeline {
     ///
     /// Returns whether we hit the start of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
-    pub async fn paginate_backwards(&self, num_events: u16) -> Result<bool, Error> {
+    pub async fn paginate_backwards(&self, mut num_events: u16) -> Result<bool, Error> {
         if self.controller.is_live().await {
+            match self.controller.live_lazy_paginate_backwards(num_events).await {
+                Some(needed_num_events) => {
+                    num_events = needed_num_events.try_into().expect(
+                        "failed to cast `needed_num_events` (`usize`) into `num_events` (`usize`)",
+                    );
+                }
+                None => {
+                    // TODO: returning `false` is not true everytime, we need a way to know if
+                    // lazy-loading has reached the end of the timeline.
+                    return Ok(false);
+                }
+            }
+
             Ok(self.live_paginate_backwards(num_events).await?)
         } else {
-            Ok(self.focused_paginate_backwards(num_events).await?)
+            Ok(self.controller.focused_paginate_backwards(num_events).await?)
         }
     }
 
-    /// Assuming the timeline is focused on an event, starts a forwards
-    /// pagination.
+    /// Add more events to the end of the timeline.
     ///
     /// Returns whether we hit the end of the timeline.
-    #[instrument(skip_all)]
-    pub async fn focused_paginate_forwards(&self, num_events: u16) -> Result<bool, Error> {
-        Ok(self.controller.focused_paginate_forwards(num_events).await?)
-    }
-
-    /// Assuming the timeline is focused on an event, starts a backwards
-    /// pagination.
-    ///
-    /// Returns whether we hit the start of the timeline.
-    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
-    pub async fn focused_paginate_backwards(&self, num_events: u16) -> Result<bool, Error> {
-        Ok(self.controller.focused_paginate_backwards(num_events).await?)
+    #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
+    pub async fn paginate_forwards(&self, num_events: u16) -> Result<bool, Error> {
+        if self.controller.is_live().await {
+            Ok(true)
+        } else {
+            Ok(self.controller.focused_paginate_forwards(num_events).await?)
+        }
     }
 
     /// Paginate backwards in live mode.
@@ -64,8 +71,7 @@ impl super::Timeline {
     /// on a specific event.
     ///
     /// Returns whether we hit the start of the timeline.
-    #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
-    pub async fn live_paginate_backwards(&self, batch_size: u16) -> event_cache::Result<bool> {
+    async fn live_paginate_backwards(&self, batch_size: u16) -> event_cache::Result<bool> {
         let pagination = self.event_cache.pagination();
 
         let result = pagination

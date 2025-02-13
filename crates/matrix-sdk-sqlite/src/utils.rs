@@ -19,7 +19,9 @@ use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
+use ruma::time::SystemTime;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     error::{Error, Result},
@@ -102,6 +104,56 @@ pub(crate) trait SqliteAsyncConnExt {
     where
         Res: Send + 'static,
         Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+
+    /// Optimize the database.
+    ///
+    /// [The SQLite docs] recommend to run this regularly and after any schema
+    /// change. The easiest is to do it consistently when the state store is
+    /// constructed, after eventual migrations.
+    ///
+    /// [The SQLite docs]: https://www.sqlite.org/pragma.html#pragma_optimize
+    async fn optimize(&self) -> Result<()> {
+        self.execute_batch("PRAGMA optimize=0x10002;").await?;
+        Ok(())
+    }
+
+    /// Limit the size of the WAL file.
+    ///
+    /// By default, while the DB connections of the databases are open, [the
+    /// size of the WAL file can keep increasing] depending on the size
+    /// needed for the transactions. A critical case is VACUUM which
+    /// basically writes the content of the DB file to the WAL file before
+    /// writing it back to the DB file, so we end up taking twice the size
+    /// of the database.
+    ///
+    /// By setting this limit, the WAL file is truncated after its content is
+    /// written to the database, if it is bigger than the limit.
+    ///
+    /// The limit is set to 10MB.
+    ///
+    /// [the size of the WAL file can keep increasing]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
+    async fn set_journal_size_limit(&self) -> Result<()> {
+        self.execute_batch("PRAGMA journal_size_limit = 10000000;").await.map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Defragment the database and free space on the filesystem.
+    ///
+    /// Only returns an error in tests, otherwise the error is only logged.
+    async fn vacuum(&self) -> Result<()> {
+        if let Err(error) = self.execute_batch("VACUUM").await {
+            // Since this is an optimisation step, do not propagate the error
+            // but log it.
+            #[cfg(not(any(test, debug_assertions)))]
+            tracing::warn!("Failed to vacuum database: {error}");
+
+            // We want to know if there is an error with this step during tests.
+            #[cfg(any(test, debug_assertions))]
+            return Err(error.into());
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -187,7 +239,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
 }
 
 pub(crate) trait SqliteTransactionExt {
-    fn chunk_large_query_over<Query, Res>(
+    fn chunk_large_query_over<Key, Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
         result_capacity: Option<usize>,
@@ -199,7 +251,7 @@ pub(crate) trait SqliteTransactionExt {
 }
 
 impl SqliteTransactionExt for Transaction<'_> {
-    fn chunk_large_query_over<Query, Res>(
+    fn chunk_large_query_over<Key, Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,
         result_capacity: Option<usize>,
@@ -257,6 +309,14 @@ pub(crate) trait SqliteKeyValueStoreConnExt {
     /// Store the given value for the given key.
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
 
+    /// Store the given value for the given key by serializing it.
+    fn set_serialized_kv<T: Serialize + Send>(&self, key: &str, value: T) -> Result<()> {
+        let serialized_value = rmp_serde::to_vec_named(&value)?;
+        self.set_kv(key, &serialized_value)?;
+
+        Ok(())
+    }
+
     /// Removes the current key and value if exists.
     fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
 
@@ -312,8 +372,24 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
             .optional()
     }
 
+    /// Get the stored serialized value for the given key.
+    async fn get_serialized_kv<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        let Some(bytes) = self.get_kv(key).await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(rmp_serde::from_slice(&bytes)?))
+    }
+
     /// Store the given value for the given key.
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
+
+    /// Store the given value for the given key by serializing it.
+    async fn set_serialized_kv<T: Serialize + Send + 'static>(
+        &self,
+        key: &str,
+        value: T,
+    ) -> Result<()>;
 
     /// Clears the given value for the given key.
     async fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
@@ -365,6 +441,17 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         Ok(())
     }
 
+    async fn set_serialized_kv<T: Serialize + Send + 'static>(
+        &self,
+        key: &str,
+        value: T,
+    ) -> Result<()> {
+        let key = key.to_owned();
+        self.interact(move |conn| conn.set_serialized_kv(&key, value)).await.unwrap()?;
+
+        Ok(())
+    }
+
     async fn clear_kv(&self, key: &str) -> rusqlite::Result<()> {
         let key = key.to_owned();
         self.interact(move |conn| conn.clear_kv(&key)).await.unwrap()?;
@@ -377,11 +464,26 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
 pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
     assert_ne!(count, 0, "Can't generate zero repeated vars");
 
-    iter::repeat("?").take(count).format(",")
+    iter::repeat_n("?", count).format(",")
+}
+
+/// Convert the given `SystemTime` to a timestamp, as the number of seconds
+/// since Unix Epoch.
+///
+/// Returns an `i64` as it is the numeric type used by SQLite.
+pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| d.as_secs().try_into().ok())
+        // It is unlikely to happen unless the time on the system is seriously wrong, but we always
+        // need a value.
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
 mod unit_tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
@@ -395,5 +497,14 @@ mod unit_tests {
     #[should_panic(expected = "Can't generate zero repeated vars")]
     fn generating_zero_vars_panics() {
         repeat_vars(0);
+    }
+
+    #[test]
+    fn test_time_to_timestamp() {
+        assert_eq!(time_to_timestamp(SystemTime::UNIX_EPOCH), 0);
+        assert_eq!(time_to_timestamp(SystemTime::UNIX_EPOCH + Duration::from_secs(60)), 60);
+
+        // Fallback value on overflow.
+        assert_eq!(time_to_timestamp(SystemTime::UNIX_EPOCH - Duration::from_secs(60)), 0);
     }
 }

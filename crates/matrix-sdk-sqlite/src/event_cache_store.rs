@@ -14,28 +14,44 @@
 
 //! A sqlite-based backend for the [`EventCacheStore`].
 
-use std::{borrow::Cow, fmt, path::Path, sync::Arc};
+use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    event_cache::{store::EventCacheStore, Event, Gap},
+    event_cache::{
+        store::{
+            media::{
+                EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
+                MediaService,
+            },
+            EventCacheStore,
+        },
+        Event, Gap,
+    },
     linked_chunk::{ChunkContent, ChunkIdentifier, RawChunk, Update},
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{MilliSecondsSinceUnixEpoch, RoomId};
-use rusqlite::{OptionalExtension, Transaction, TransactionBehavior};
+use ruma::{time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId};
+use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::fs;
 use tracing::{debug, trace};
 
 use crate::{
     error::{Error, Result},
-    utils::{Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt},
+    utils::{
+        repeat_vars, time_to_timestamp, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
+    },
     OpenStoreError,
 };
 
 mod keys {
+    // Entries in Key-value store
+    pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
+    pub const LAST_MEDIA_CLEANUP_TIME: &str = "last_media_cleanup_time";
+
     // Tables
     pub const LINKED_CHUNKS: &str = "linked_chunks";
     pub const MEDIA: &str = "media";
@@ -46,7 +62,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 4;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -60,6 +76,7 @@ const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 pub struct SqliteEventCacheStore {
     store_cipher: Option<Arc<StoreCipher>>,
     pool: SqlitePool,
+    media_service: MediaService,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -88,15 +105,23 @@ impl SqliteEventCacheStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
+        conn.set_journal_size_limit().await?;
+
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
+        conn.optimize().await?;
 
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
             None => None,
         };
 
-        Ok(Self { store_cipher, pool })
+        let media_service = MediaService::new();
+        let media_retention_policy = conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await?;
+        let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
+        media_service.restore(media_retention_policy, last_media_cleanup_time);
+
+        Ok(Self { store_cipher, pool, media_service })
     }
 
     fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
@@ -303,6 +328,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 4 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/004_ignore_policy.sql"
+            ))?;
+            txn.set_db_version(4)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -355,181 +390,181 @@ impl EventCacheStore for SqliteEventCacheStore {
         let this = self.clone();
 
         with_immediate_transaction(self.acquire().await?, move |txn| {
-                for up in updates {
-                    match up {
-                        Update::NewItemsChunk { previous, new, next } => {
-                            let previous = previous.as_ref().map(ChunkIdentifier::index);
-                            let new = new.index();
-                            let next = next.as_ref().map(ChunkIdentifier::index);
+            for up in updates {
+                match up {
+                    Update::NewItemsChunk { previous, new, next } => {
+                        let previous = previous.as_ref().map(ChunkIdentifier::index);
+                        let new = new.index();
+                        let next = next.as_ref().map(ChunkIdentifier::index);
 
-                            trace!(
-                                %room_id,
-                                "new events chunk (prev={previous:?}, i={new}, next={next:?})",
-                            );
+                        trace!(
+                            %room_id,
+                            "new events chunk (prev={previous:?}, i={new}, next={next:?})",
+                        );
 
-                            insert_chunk(
-                                txn,
-                                &hashed_room_id,
-                                previous,
-                                new,
-                                next,
-                                CHUNK_TYPE_EVENT_TYPE_STRING,
-                            )?;
+                        insert_chunk(
+                            txn,
+                            &hashed_room_id,
+                            previous,
+                            new,
+                            next,
+                            CHUNK_TYPE_EVENT_TYPE_STRING,
+                        )?;
+                    }
+
+                    Update::NewGapChunk { previous, new, next, gap } => {
+                        let serialized = serde_json::to_vec(&gap.prev_token)?;
+                        let prev_token = this.encode_value(serialized)?;
+
+                        let previous = previous.as_ref().map(ChunkIdentifier::index);
+                        let new = new.index();
+                        let next = next.as_ref().map(ChunkIdentifier::index);
+
+                        trace!(
+                            %room_id,
+                            "new gap chunk (prev={previous:?}, i={new}, next={next:?})",
+                        );
+
+                        // Insert the chunk as a gap.
+                        insert_chunk(
+                            txn,
+                            &hashed_room_id,
+                            previous,
+                            new,
+                            next,
+                            CHUNK_TYPE_GAP_TYPE_STRING,
+                        )?;
+
+                        // Insert the gap's value.
+                        txn.execute(
+                            r#"
+                            INSERT INTO gaps(chunk_id, room_id, prev_token)
+                            VALUES (?, ?, ?)
+                        "#,
+                            (new, &hashed_room_id, prev_token),
+                        )?;
+                    }
+
+                    Update::RemoveChunk(chunk_identifier) => {
+                        let chunk_id = chunk_identifier.index();
+
+                        trace!(%room_id, "removing chunk @ {chunk_id}");
+
+                        // Find chunk to delete.
+                        let (previous, next): (Option<usize>, Option<usize>) = txn.query_row(
+                            "SELECT previous, next FROM linked_chunks WHERE id = ? AND room_id = ?",
+                            (chunk_id, &hashed_room_id),
+                            |row| Ok((row.get(0)?, row.get(1)?))
+                        )?;
+
+                        // Replace its previous' next to its own next.
+                        if let Some(previous) = previous {
+                            txn.execute("UPDATE linked_chunks SET next = ? WHERE id = ? AND room_id = ?", (next, previous, &hashed_room_id))?;
                         }
 
-                        Update::NewGapChunk { previous, new, next, gap } => {
-                            let serialized = serde_json::to_vec(&gap.prev_token)?;
-                            let prev_token = this.encode_value(serialized)?;
-
-                            let previous = previous.as_ref().map(ChunkIdentifier::index);
-                            let new = new.index();
-                            let next = next.as_ref().map(ChunkIdentifier::index);
-
-                            trace!(
-                                %room_id,
-                                "new gap chunk (prev={previous:?}, i={new}, next={next:?})",
-                            );
-
-                            // Insert the chunk as a gap.
-                            insert_chunk(
-                                txn,
-                                &hashed_room_id,
-                                previous,
-                                new,
-                                next,
-                                CHUNK_TYPE_GAP_TYPE_STRING,
-                            )?;
-
-                            // Insert the gap's value.
-                            txn.execute(
-                                r#"
-                                INSERT INTO gaps(chunk_id, room_id, prev_token)
-                                VALUES (?, ?, ?)
-                            "#,
-                                (new, &hashed_room_id, prev_token),
-                            )?;
+                        // Replace its next' previous to its own previous.
+                        if let Some(next) = next {
+                            txn.execute("UPDATE linked_chunks SET previous = ? WHERE id = ? AND room_id = ?", (previous, next, &hashed_room_id))?;
                         }
 
-                        Update::RemoveChunk(chunk_identifier) => {
-                            let chunk_id = chunk_identifier.index();
+                        // Now delete it, and let cascading delete corresponding entries in the
+                        // other data tables.
+                        txn.execute("DELETE FROM linked_chunks WHERE id = ? AND room_id = ?", (chunk_id, &hashed_room_id))?;
+                    }
 
-                            trace!(%room_id, "removing chunk @ {chunk_id}");
+                    Update::PushItems { at, items } => {
+                        let chunk_id = at.chunk_identifier().index();
 
-                            // Find chunk to delete.
-                            let (previous, next): (Option<usize>, Option<usize>) = txn.query_row(
-                                "SELECT previous, next FROM linked_chunks WHERE id = ? AND room_id = ?",
-                                (chunk_id, &hashed_room_id),
-                                |row| Ok((row.get(0)?, row.get(1)?))
-                            )?;
+                        trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
-                            // Replace its previous' next to its own next.
-                            if let Some(previous) = previous {
-                                txn.execute("UPDATE linked_chunks SET next = ? WHERE id = ? AND room_id = ?", (next, previous, &hashed_room_id))?;
-                            }
-
-                            // Replace its next' previous to its own previous.
-                            if let Some(next) = next {
-                                txn.execute("UPDATE linked_chunks SET previous = ? WHERE id = ? AND room_id = ?", (previous, next, &hashed_room_id))?;
-                            }
-
-                            // Now delete it, and let cascading delete corresponding entries in the
-                            // other data tables.
-                            txn.execute("DELETE FROM linked_chunks WHERE id = ? AND room_id = ?", (chunk_id, &hashed_room_id))?;
-                        }
-
-                        Update::PushItems { at, items } => {
-                            let chunk_id = at.chunk_identifier().index();
-
-                            trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
-
-                            for (i, event) in items.into_iter().enumerate() {
-                                let serialized = serde_json::to_vec(&event)?;
-                                let content = this.encode_value(serialized)?;
-
-                                let event_id = event.event_id().map(|event_id| event_id.to_string());
-                                let index = at.index() + i;
-
-                                txn.execute(
-                                    r#"
-                                    INSERT INTO events(chunk_id, room_id, event_id, content, position)
-                                    VALUES (?, ?, ?, ?, ?)
-                                "#,
-                                    (chunk_id, &hashed_room_id, event_id, content, index),
-                                )?;
-                            }
-                        }
-
-                        Update::ReplaceItem { at, item: event } => {
-                            let chunk_id = at.chunk_identifier().index();
-                            let index = at.index();
-
-                            trace!(%room_id, "replacing item @ {chunk_id}:{index}");
-
+                        for (i, event) in items.into_iter().enumerate() {
                             let serialized = serde_json::to_vec(&event)?;
                             let content = this.encode_value(serialized)?;
 
-                            // The event id should be the same, but just in case it changed…
                             let event_id = event.event_id().map(|event_id| event_id.to_string());
+                            let index = at.index() + i;
 
                             txn.execute(
                                 r#"
-                                UPDATE events
-                                SET content = ?, event_id = ?
-                                WHERE room_id = ? AND chunk_id = ? AND position = ?
+                                INSERT INTO events(chunk_id, room_id, event_id, content, position)
+                                VALUES (?, ?, ?, ?, ?)
                             "#,
-                                (content, event_id, &hashed_room_id, chunk_id, index,)
+                                (chunk_id, &hashed_room_id, event_id, content, index),
                             )?;
-                        }
-
-                        Update::RemoveItem { at } => {
-                            let chunk_id = at.chunk_identifier().index();
-                            let index = at.index();
-
-                            trace!(%room_id, "removing item @ {chunk_id}:{index}");
-
-                            // Remove the entry.
-                            txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
-
-                            // Decrement the index of each item after the one we're going to remove.
-                            txn.execute(
-                                r#"
-                                    UPDATE events
-                                    SET position = position - 1
-                                    WHERE room_id = ? AND chunk_id = ? AND position > ?
-                                "#,
-                                (&hashed_room_id, chunk_id, index)
-                            )?;
-
-                        }
-
-                        Update::DetachLastItems { at } => {
-                            let chunk_id = at.chunk_identifier().index();
-                            let index = at.index();
-
-                            trace!(%room_id, "truncating items >= {chunk_id}:{index}");
-
-                            // Remove these entries.
-                            txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
-                        }
-
-                        Update::Clear => {
-                            trace!(%room_id, "clearing items");
-
-                            // Remove chunks, and let cascading do its job.
-                            txn.execute(
-                                "DELETE FROM linked_chunks WHERE room_id = ?",
-                                (&hashed_room_id,),
-                            )?;
-                        }
-
-                        Update::StartReattachItems | Update::EndReattachItems => {
-                            // Nothing.
                         }
                     }
-                }
 
-                Ok(())
-            })
+                    Update::ReplaceItem { at, item: event } => {
+                        let chunk_id = at.chunk_identifier().index();
+                        let index = at.index();
+
+                        trace!(%room_id, "replacing item @ {chunk_id}:{index}");
+
+                        let serialized = serde_json::to_vec(&event)?;
+                        let content = this.encode_value(serialized)?;
+
+                        // The event id should be the same, but just in case it changed…
+                        let event_id = event.event_id().map(|event_id| event_id.to_string());
+
+                        txn.execute(
+                            r#"
+                            UPDATE events
+                            SET content = ?, event_id = ?
+                            WHERE room_id = ? AND chunk_id = ? AND position = ?
+                        "#,
+                            (content, event_id, &hashed_room_id, chunk_id, index,)
+                        )?;
+                    }
+
+                    Update::RemoveItem { at } => {
+                        let chunk_id = at.chunk_identifier().index();
+                        let index = at.index();
+
+                        trace!(%room_id, "removing item @ {chunk_id}:{index}");
+
+                        // Remove the entry.
+                        txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
+
+                        // Decrement the index of each item after the one we're going to remove.
+                        txn.execute(
+                            r#"
+                                UPDATE events
+                                SET position = position - 1
+                                WHERE room_id = ? AND chunk_id = ? AND position > ?
+                            "#,
+                            (&hashed_room_id, chunk_id, index)
+                        )?;
+
+                    }
+
+                    Update::DetachLastItems { at } => {
+                        let chunk_id = at.chunk_identifier().index();
+                        let index = at.index();
+
+                        trace!(%room_id, "truncating items >= {chunk_id}:{index}");
+
+                        // Remove these entries.
+                        txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
+                    }
+
+                    Update::Clear => {
+                        trace!(%room_id, "clearing items");
+
+                        // Remove chunks, and let cascading do its job.
+                        txn.execute(
+                            "DELETE FROM linked_chunks WHERE room_id = ?",
+                            (&hashed_room_id,),
+                        )?;
+                    }
+
+                    Update::StartReattachItems | Update::EndReattachItems => {
+                        // Nothing.
+                    }
+                }
+            }
+
+            Ok(())
+        })
         .await?;
 
         Ok(())
@@ -587,23 +622,83 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    async fn filter_duplicated_events(
+        &self,
+        room_id: &RoomId,
+        events: Vec<OwnedEventId>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        // If there's no events for which we want to check duplicates, we can return
+        // early. It's not only an optimization to do so: it's required, otherwise the
+        // `repeat_vars` call below will panic.
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Select all events that exist in the store, i.e. the duplicates.
+        let room_id = room_id.to_owned();
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, &room_id);
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(events, None, move |txn, events| {
+                    let query = format!(
+                        "SELECT event_id FROM events WHERE room_id = ? AND event_id IN ({})",
+                        repeat_vars(events.len()),
+                    );
+                    let parameters = params_from_iter(
+                        // parameter for `room_id = ?`
+                        once(
+                            hashed_room_id
+                                .to_sql()
+                                // SAFETY: it cannot fail since `Key::to_sql` never fails
+                                .unwrap(),
+                        )
+                        // parameters for `event_id IN (…)`
+                        .chain(events.iter().map(|event| {
+                            event
+                                .as_str()
+                                .to_sql()
+                                // SAFETY: it cannot fail since `str::to_sql` never fails
+                                .unwrap()
+                        })),
+                    );
+
+                    let mut duplicated_events = Vec::new();
+
+                    for duplicated_event in txn
+                        .prepare(&query)?
+                        .query_map(parameters, |row| row.get::<_, Option<String>>(0))?
+                    {
+                        let duplicated_event = duplicated_event?;
+
+                        let Some(duplicated_event) = duplicated_event else {
+                            // Event ID is malformed, let's skip it.
+                            continue;
+                        };
+
+                        let Ok(duplicated_event) = EventId::parse(duplicated_event) else {
+                            // Normally unreachable, but the event ID has been stored even if it is
+                            // malformed, let's skip it.
+                            continue;
+                        };
+
+                        duplicated_events.push(duplicated_event);
+                    }
+
+                    Ok(duplicated_events)
+                })
+            })
+            .await
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
         content: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
-        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
-        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        let data = self.encode_value(content)?;
-
-        let conn = self.acquire().await?;
-        conn.execute(
-            "INSERT OR REPLACE INTO media (uri, format, data, last_access) VALUES (?, ?, ?, CAST(strftime('%s') as INT))",
-            (uri, format, data),
-        )
-        .await?;
-
-        Ok(())
+        self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
     async fn replace_media_key(
@@ -619,8 +714,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         let conn = self.acquire().await?;
         conn.execute(
-            r#"UPDATE media SET uri = ?, format = ?, last_access = CAST(strftime('%s') as INT)
-               WHERE uri = ? AND format = ?"#,
+            r#"UPDATE media SET uri = ?, format = ? WHERE uri = ? AND format = ?"#,
             (new_uri, new_format, prev_uri, prev_format),
         )
         .await?;
@@ -629,31 +723,7 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
-        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
-        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-
-        let conn = self.acquire().await?;
-        let data = conn
-            .with_transaction::<_, rusqlite::Error, _>(move |txn| {
-                // Update the last access.
-                // We need to do this first so the transaction is in write mode right away.
-                // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
-                txn.execute(
-                    "UPDATE media SET last_access = CAST(strftime('%s') as INT) \
-                     WHERE uri = ? AND format = ?",
-                    (&uri, &format),
-                )?;
-
-                txn.query_row::<Vec<u8>, _, _>(
-                    "SELECT data FROM media WHERE uri = ? AND format = ?",
-                    (&uri, &format),
-                    |row| row.get(0),
-                )
-                .optional()
-            })
-            .await?;
-
-        data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
+        self.media_service.get_media_content(self, request).await
     }
 
     async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
@@ -668,9 +738,122 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     async fn get_media_content_for_uri(
         &self,
-        uri: &ruma::MxcUri,
+        uri: &MxcUri,
     ) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.media_service.get_media_content_for_uri(self, uri).await
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, uri);
+
+        let conn = self.acquire().await?;
+        conn.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
+
+        Ok(())
+    }
+
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.media_service.set_media_retention_policy(self, policy).await
+    }
+
+    fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        self.media_service.media_retention_policy()
+    }
+
+    async fn set_ignore_media_retention_policy(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
+    }
+
+    async fn clean_up_media_cache(&self) -> Result<(), Self::Error> {
+        self.media_service.clean_up_media_cache(self).await
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl EventCacheStoreMedia for SqliteEventCacheStore {
+    type Error = Error;
+
+    async fn media_retention_policy_inner(
+        &self,
+    ) -> Result<Option<MediaRetentionPolicy>, Self::Error> {
+        let conn = self.acquire().await?;
+        conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await
+    }
+
+    async fn set_media_retention_policy_inner(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        let conn = self.acquire().await?;
+        conn.set_serialized_kv(keys::MEDIA_RETENTION_POLICY, policy).await?;
+        Ok(())
+    }
+
+    async fn add_media_content_inner(
+        &self,
+        request: &MediaRequestParameters,
+        data: Vec<u8>,
+        last_access: SystemTime,
+        policy: MediaRetentionPolicy,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        let ignore_policy = ignore_policy.is_yes();
+        let data = self.encode_value(data)?;
+
+        if !ignore_policy && policy.exceeds_max_file_size(data.len()) {
+            return Ok(());
+        }
+
+        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
+        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
+        let timestamp = time_to_timestamp(last_access);
+
+        let conn = self.acquire().await?;
+        conn.execute(
+            "INSERT OR REPLACE INTO media (uri, format, data, last_access, ignore_policy) VALUES (?, ?, ?, ?, ?)",
+            (uri, format, data, timestamp, ignore_policy),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn set_ignore_media_retention_policy_inner(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
+        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
+        let ignore_policy = ignore_policy.is_yes();
+
+        let conn = self.acquire().await?;
+        conn.execute(
+            r#"UPDATE media SET ignore_policy = ? WHERE uri = ? AND format = ?"#,
+            (ignore_policy, uri, format),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_media_content_inner(
+        &self,
+        request: &MediaRequestParameters,
+        current_time: SystemTime,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
+        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
+        let timestamp = time_to_timestamp(current_time);
+
         let conn = self.acquire().await?;
         let data = conn
             .with_transaction::<_, rusqlite::Error, _>(move |txn| {
@@ -678,10 +861,37 @@ impl EventCacheStore for SqliteEventCacheStore {
                 // We need to do this first so the transaction is in write mode right away.
                 // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
                 txn.execute(
-                    "UPDATE media SET last_access = CAST(strftime('%s') as INT) \
-                     WHERE uri = ?",
-                    (&uri,),
+                    "UPDATE media SET last_access = ? WHERE uri = ? AND format = ?",
+                    (timestamp, &uri, &format),
                 )?;
+
+                txn.query_row::<Vec<u8>, _, _>(
+                    "SELECT data FROM media WHERE uri = ? AND format = ?",
+                    (&uri, &format),
+                    |row| row.get(0),
+                )
+                .optional()
+            })
+            .await?;
+
+        data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
+    }
+
+    async fn get_media_content_for_uri_inner(
+        &self,
+        uri: &MxcUri,
+        current_time: SystemTime,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        let uri = self.encode_key(keys::MEDIA, uri);
+        let timestamp = time_to_timestamp(current_time);
+
+        let conn = self.acquire().await?;
+        let data = conn
+            .with_transaction::<_, rusqlite::Error, _>(move |txn| {
+                // Update the last access.
+                // We need to do this first so the transaction is in write mode right away.
+                // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
+                txn.execute("UPDATE media SET last_access = ? WHERE uri = ?", (timestamp, &uri))?;
 
                 txn.query_row::<Vec<u8>, _, _>(
                     "SELECT data FROM media WHERE uri = ?",
@@ -695,13 +905,140 @@ impl EventCacheStore for SqliteEventCacheStore {
         data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
     }
 
-    async fn remove_media_content_for_uri(&self, uri: &ruma::MxcUri) -> Result<()> {
-        let uri = self.encode_key(keys::MEDIA, uri);
+    async fn clean_up_media_cache_inner(
+        &self,
+        policy: MediaRetentionPolicy,
+        current_time: SystemTime,
+    ) -> Result<(), Self::Error> {
+        if !policy.has_limitations() {
+            // We can safely skip all the checks.
+            return Ok(());
+        }
 
         let conn = self.acquire().await?;
-        conn.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
+        let removed = conn
+            .with_transaction::<_, Error, _>(move |txn| {
+                let mut removed = false;
+
+                // First, check media content that exceed the max filesize.
+                if let Some(max_file_size) = policy.computed_max_file_size() {
+                    let count = txn.execute(
+                        "DELETE FROM media WHERE ignore_policy IS FALSE AND length(data) > ?",
+                        (max_file_size,),
+                    )?;
+
+                    if count > 0 {
+                        removed = true;
+                    }
+                }
+
+                // Then, clean up expired media content.
+                if let Some(last_access_expiry) = policy.last_access_expiry {
+                    let current_timestamp = time_to_timestamp(current_time);
+                    let expiry_secs = last_access_expiry.as_secs();
+                    let count = txn.execute(
+                        "DELETE FROM media WHERE ignore_policy IS FALSE AND (? - last_access) >= ?",
+                        (current_timestamp, expiry_secs),
+                    )?;
+
+                    if count > 0 {
+                        removed = true;
+                    }
+                }
+
+                // Finally, if the cache size is too big, remove old items until it fits.
+                if let Some(max_cache_size) = policy.max_cache_size {
+                    // i64 is the integer type used by SQLite, use it here to avoid usize overflow
+                    // during the conversion of the result.
+                    let cache_size_int = txn
+                        .query_row(
+                            "SELECT sum(length(data)) FROM media WHERE ignore_policy IS FALSE",
+                            (),
+                            |row| {
+                                // `sum()` returns `NULL` if there are no rows.
+                                row.get::<_, Option<i64>>(0)
+                            },
+                        )?
+                        .unwrap_or_default();
+                    let cache_size_usize = usize::try_from(cache_size_int);
+
+                    // If the cache size is overflowing or bigger than max cache size, clean up.
+                    if cache_size_usize.is_err()
+                        || cache_size_usize.is_ok_and(|cache_size| cache_size > max_cache_size)
+                    {
+                        // Get the sizes of the media contents ordered by last access.
+                        let mut cached_stmt = txn.prepare_cached(
+                            "SELECT rowid, length(data) FROM media \
+                             WHERE ignore_policy IS FALSE ORDER BY last_access DESC",
+                        )?;
+                        let content_sizes = cached_stmt
+                            .query(())?
+                            .mapped(|row| Ok((row.get::<_, i64>(0)?, row.get::<_, usize>(1)?)));
+
+                        let mut accumulated_items_size = 0usize;
+                        let mut limit_reached = false;
+                        let mut rows_to_remove = Vec::new();
+
+                        for result in content_sizes {
+                            let (row_id, size) = match result {
+                                Ok(content_size) => content_size,
+                                Err(error) => {
+                                    return Err(error.into());
+                                }
+                            };
+
+                            if limit_reached {
+                                rows_to_remove.push(row_id);
+                                continue;
+                            }
+
+                            match accumulated_items_size.checked_add(size) {
+                                Some(acc) if acc > max_cache_size => {
+                                    // We can stop accumulating.
+                                    limit_reached = true;
+                                    rows_to_remove.push(row_id);
+                                }
+                                Some(acc) => accumulated_items_size = acc,
+                                None => {
+                                    // The accumulated size is overflowing but the setting cannot be
+                                    // bigger than usize::MAX, we can stop accumulating.
+                                    limit_reached = true;
+                                    rows_to_remove.push(row_id);
+                                }
+                            };
+                        }
+
+                        if !rows_to_remove.is_empty() {
+                            removed = true;
+                        }
+
+                        txn.chunk_large_query_over(rows_to_remove, None, |txn, row_ids| {
+                            let sql_params = repeat_vars(row_ids.len());
+                            let query = format!("DELETE FROM media WHERE rowid IN ({sql_params})");
+                            txn.prepare(&query)?.execute(params_from_iter(row_ids))?;
+                            Ok(Vec::<()>::new())
+                        })?;
+                    }
+                }
+
+                txn.set_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME, current_time)?;
+
+                Ok(removed)
+            })
+            .await?;
+
+        // If we removed media, defragment the database and free space on the
+        // filesystem.
+        if removed {
+            conn.vacuum().await?;
+        }
 
         Ok(())
+    }
+
+    async fn last_media_cleanup_time_inner(&self) -> Result<Option<SystemTime>, Self::Error> {
+        let conn = self.acquire().await?;
+        conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await
     }
 }
 
@@ -798,11 +1135,13 @@ mod tests {
         event_cache::{
             store::{
                 integration_tests::{check_test_event, make_test_event},
+                media::IgnoreMediaRetentionPolicy,
                 EventCacheStore, EventCacheStoreError,
             },
             Gap,
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        event_cache_store_media_integration_tests,
         linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     };
@@ -828,6 +1167,7 @@ mod tests {
 
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
+    event_cache_store_media_integration_tests!(with_media_size_tests);
 
     async fn get_event_cache_store_content_sorted_by_last_access(
         event_cache_store: &SqliteEventCacheStore,
@@ -863,7 +1203,7 @@ mod tests {
 
         // Add the media.
         event_cache_store
-            .add_media_content(&file_request, content.clone())
+            .add_media_content(&file_request, content.clone(), IgnoreMediaRetentionPolicy::No)
             .await
             .expect("adding file failed");
 
@@ -872,7 +1212,11 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         event_cache_store
-            .add_media_content(&thumbnail_request, thumbnail_content.clone())
+            .add_media_content(
+                &thumbnail_request,
+                thumbnail_content.clone(),
+                IgnoreMediaRetentionPolicy::No,
+            )
             .await
             .expect("adding thumbnail failed");
 
@@ -1468,6 +1812,15 @@ mod tests {
         let chunks = store.reload_linked_chunk(room_id).await.unwrap();
         assert!(chunks.is_empty());
     }
+
+    #[async_test]
+    async fn test_filter_duplicate_events_no_events() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let duplicates = store.filter_duplicated_events(room_id, Vec::new()).await.unwrap();
+        assert!(duplicates.is_empty());
+    }
 }
 
 #[cfg(test)]
@@ -1476,7 +1829,7 @@ mod encrypted_tests {
 
     use matrix_sdk_base::{
         event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
-        event_cache_store_integration_tests_time,
+        event_cache_store_integration_tests_time, event_cache_store_media_integration_tests,
     };
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
@@ -1502,4 +1855,5 @@ mod encrypted_tests {
 
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
+    event_cache_store_media_integration_tests!();
 }

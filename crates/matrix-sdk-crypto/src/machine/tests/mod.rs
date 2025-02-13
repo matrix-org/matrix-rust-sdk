@@ -18,8 +18,8 @@ use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
-    UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation,
-    WithheldCode,
+    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
+    UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -38,7 +38,7 @@ use ruma::{
     room_id,
     serde::Raw,
     uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, TransactionId, UserId,
+    OneTimeKeyAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde_json::json;
 use vodozemac::{
@@ -48,17 +48,21 @@ use vodozemac::{
 
 use super::CrossSigningBootstrapRequests;
 use crate::{
-    error::EventError,
+    error::{EventError, OlmResult},
     machine::{
         test_helpers::{
             get_machine_after_query_test_helper, get_machine_pair_with_session,
+            get_machine_pair_with_session_using_store,
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
         },
         EncryptionSyncChanges, OlmMachine,
     },
     olm::{BackedUpRoomKey, ExportedRoomKey, SenderData, VerifyJson},
     session_manager::CollectStrategy,
-    store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore},
+    store::{
+        BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, MemoryStore, PendingChanges,
+        RoomKeyInfo,
+    },
     types::{
         events::{
             room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
@@ -70,7 +74,7 @@ use crate::{
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    Account, DecryptionSettings, DeviceData, EncryptionSettings, MegolmError, OlmError,
+    Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
     RoomEventDecryptionResult, TrustRequirement,
 };
 
@@ -388,33 +392,10 @@ async fn test_missing_sessions_calculation() {
 #[async_test]
 async fn test_room_key_sharing() {
     let (alice, bob) = get_machine_pair_with_session(alice_id(), user_id(), false).await;
-
     let room_id = room_id!("!test:example.org");
 
-    let to_device_requests = alice
-        .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
-        .await
-        .unwrap();
-
-    let event = ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        to_device_requests_to_content(to_device_requests),
-    );
-    let event = json_convert(&event).unwrap();
-
-    let alice_session =
-        alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
-
-    let (decrypted, room_key_updates) = bob
-        .receive_sync_changes(EncryptionSyncChanges {
-            to_device_events: vec![event],
-            changed_devices: &Default::default(),
-            one_time_keys_counts: &Default::default(),
-            unused_fallback_keys: None,
-            next_batch_token: None,
-        })
-        .await
-        .unwrap();
+    let (decrypted, room_key_updates) =
+        send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
 
     let event = decrypted[0].deserialize().unwrap();
 
@@ -425,6 +406,9 @@ async fn test_room_key_sharing() {
         panic!("expected RoomKeyEvent found {event:?}");
     }
 
+    let alice_session =
+        alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
     let session = bob.store().get_inbound_group_session(room_id, alice_session.session_id()).await;
 
     assert!(session.unwrap().is_some());
@@ -432,6 +416,137 @@ async fn test_room_key_sharing() {
     assert_eq!(room_key_updates.len(), 1);
     assert_eq!(room_key_updates[0].room_id, room_id);
     assert_eq!(room_key_updates[0].session_id, alice_session.session_id());
+}
+
+#[async_test]
+async fn test_session_encryption_info_can_be_fetched() {
+    // Given a megolm session has been established
+    let (alice, bob) = get_machine_pair_with_session(alice_id(), user_id(), false).await;
+    let room_id = room_id!("!test:example.org");
+
+    send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
+
+    let alice_session =
+        alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+    let session = bob
+        .store()
+        .get_inbound_group_session(room_id, alice_session.session_id())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // When I request the encryption info about this session
+    let encryption_info =
+        bob.get_session_encryption_info(room_id, session.session_id(), alice_id()).await.unwrap();
+
+    // Then the expected info is returned
+    assert_eq!(encryption_info.sender, alice_id());
+    assert_eq!(encryption_info.sender_device.unwrap(), alice_device_id());
+    assert_matches!(
+        encryption_info.algorithm_info,
+        AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. }
+    );
+    assert_eq!(curve25519_key, alice_session.sender_key().to_string());
+    assert_eq!(
+        encryption_info.verification_state,
+        VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+    );
+}
+
+#[async_test]
+async fn test_to_device_messages_from_dehydrated_devices_are_ignored() {
+    // Given alice's device is dehydrated
+    let (alice, bob) = create_dehydrated_machine_and_pair().await;
+
+    // When we send a to-device message from alice to bob
+    // (Note: we send a room_key message, but it could be any to-device message.)
+    let room_id = room_id!("!test:example.org");
+    let (decrypted, room_key_updates) =
+        send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
+
+    // Then the to-device message was discarded, because it was from a dehydrated
+    // device
+    assert!(decrypted.is_empty());
+
+    // And the room key was not imported as a session
+    let alice_session =
+        alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
+    let session = bob.store().get_inbound_group_session(room_id, alice_session.session_id()).await;
+    assert!(session.unwrap().is_none());
+
+    assert!(room_key_updates.is_empty());
+}
+
+/// "Send" a to-device message containing a room key from sender to receiver.
+///
+/// (Actually constructs the JSON of a to-device message from `sender` and feeds
+/// it in to `receiver`'s `receive_sync_changes` method.
+///
+/// Returns the return value of `receive_sync_changes`, which is a tuple of
+/// (decrypted to-device events, updated room keys).
+async fn send_room_key_to_device(
+    sender: &OlmMachine,
+    receiver: &OlmMachine,
+    room_id: &RoomId,
+) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
+    let to_device_requests = sender
+        .share_room_key(room_id, iter::once(receiver.user_id()), EncryptionSettings::default())
+        .await
+        .unwrap();
+
+    let event = ToDeviceEvent::new(
+        sender.user_id().to_owned(),
+        to_device_requests_to_content(to_device_requests),
+    );
+    let event = json_convert(&event).unwrap();
+
+    receiver
+        .receive_sync_changes(EncryptionSyncChanges {
+            to_device_events: vec![event],
+            changed_devices: &Default::default(),
+            one_time_keys_counts: &Default::default(),
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        })
+        .await
+}
+
+/// Create an alice, bob pair where alice's device is dehydrated. Create a
+/// session for messages from alice to bob, and ensure bob knows alice's device
+/// is dehydrated.
+async fn create_dehydrated_machine_and_pair() -> (OlmMachine, OlmMachine) {
+    // Create a store holding info about an account that is linked to a dehydrated
+    // device. This should never happen in real life, so we have to poke the
+    // info into the store directly.
+    let alice_store = MemoryStore::new();
+    let alice_dehydrated_account = Account::new_dehydrated(alice_id());
+    let mut alice_static_account = alice_dehydrated_account.static_data().clone();
+    alice_static_account.dehydrated = true;
+    let alice_device = DeviceData::from_account(&alice_dehydrated_account);
+    let alice_dehydrated_device_id = alice_device.device_id().to_owned();
+    alice_device.set_trust_state(LocalTrust::Verified);
+
+    let changes = Changes {
+        devices: DeviceChanges { new: vec![alice_device], ..Default::default() },
+        ..Default::default()
+    };
+    alice_store.save_changes(changes).await.expect("Failed to same changes to the store");
+    alice_store
+        .save_pending_changes(PendingChanges { account: Some(alice_dehydrated_account) })
+        .await
+        .expect("Failed to save pending changes to the store");
+
+    // Create the alice machine using the store we have made (and also create a
+    // normal bob machine)
+    get_machine_pair_with_session_using_store(
+        alice_id(),
+        user_id(),
+        false,
+        alice_store,
+        &alice_dehydrated_device_id,
+    )
+    .await
 }
 
 #[async_test]
@@ -594,10 +709,7 @@ async fn test_withheld_unverified() {
 
     let encryption_settings = EncryptionSettings::default();
     let encryption_settings = EncryptionSettings {
-        sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices: true,
-            error_on_verified_user_problem: false,
-        },
+        sharing_strategy: CollectStrategy::OnlyTrustedDevices,
         ..encryption_settings
     };
 
@@ -851,7 +963,7 @@ async fn test_query_ratcheted_key() {
         .await
         .unwrap()
         .expect("should exist")
-        .set_trust_state(crate::LocalTrust::Verified);
+        .set_trust_state(LocalTrust::Verified);
 
     alice.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
 

@@ -80,7 +80,7 @@ async fn test_new_pinned_events_are_added_on_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -171,7 +171,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -282,7 +282,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert!(!items.is_empty()); // We just loaded some events
     assert_pending!(timeline_stream);
@@ -306,7 +306,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let timeline =
         Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
-    let (items, _) = timeline.subscribe_batched().await;
+    let (items, _) = timeline.subscribe().await;
     assert!(!items.is_empty()); // These events came from the cache
     assert!(room_cache.event(event_id!("$1")).await.is_some());
 
@@ -367,7 +367,7 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
-    let (items, _) = timeline.subscribe_batched().await;
+    let (items, _) = timeline.subscribe().await;
     assert!(items.is_empty());
 }
 
@@ -395,7 +395,7 @@ async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_on_sync_is_just_e
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
-    let (items, _) = timeline.subscribe_batched().await;
+    let (items, _) = timeline.subscribe().await;
     assert!(items.is_empty());
 }
 
@@ -418,7 +418,7 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
-    let (pinned_items, mut pinned_events_stream) = pinned_timeline.subscribe_batched().await;
+    let (pinned_items, mut pinned_events_stream) = pinned_timeline.subscribe().await;
     assert!(pinned_items.is_empty());
 
     // Create a non-pinned event to return in the pagination
@@ -485,7 +485,7 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
         Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline loaded with just a day divider and the pinned UTD
-    let (items, _) = timeline.subscribe_batched().await;
+    let (items, _) = timeline.subscribe().await;
     assert_eq!(items.len(), 2);
     let pinned_utd_event = items.last().unwrap().as_event().unwrap();
     assert_eq!(pinned_utd_event.event_id().unwrap(), event_id);
@@ -523,7 +523,7 @@ async fn test_edited_events_are_reflected_in_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -609,7 +609,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
@@ -685,7 +685,7 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     );
 
     // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe_batched().await;
+    let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());

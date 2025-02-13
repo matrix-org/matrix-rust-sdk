@@ -9,7 +9,7 @@ name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.9.0"
+version = "0.10.0"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -48,7 +48,7 @@ as_variant = { workspace = true }
 assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait = { workspace = true }
-bitflags = { version = "2.6.0", features = ["serde"] }
+bitflags = { version = "2.8.0", features = ["serde"] }
 decancer = "3.2.8"
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im = { workspace = true }

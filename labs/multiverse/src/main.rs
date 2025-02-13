@@ -267,7 +267,7 @@ impl App {
 
                     // Save the timeline in the cache.
                     let sdk_timeline = ui_room.timeline().unwrap();
-                    let (items, stream) = sdk_timeline.subscribe_batched().await;
+                    let (items, stream) = sdk_timeline.subscribe().await;
                     let items = Arc::new(Mutex::new(items));
 
                     // Spawn a timeline task that will listen to all the timeline item changes.
@@ -418,7 +418,7 @@ impl App {
         // Start a new one, request batches of 20 events, stop after 10 timeline items
         // have been added.
         *pagination = Some(spawn(async move {
-            if let Err(err) = sdk_timeline.live_paginate_backwards(20).await {
+            if let Err(err) = sdk_timeline.paginate_backwards(20).await {
                 // TODO: would be nice to be able to set the status
                 // message remotely?
                 //self.set_status_message(format!(
@@ -480,7 +480,7 @@ impl App {
                             }
 
                             Char('s') => self.sync_service.start().await,
-                            Char('S') => self.sync_service.stop().await?,
+                            Char('S') => self.sync_service.stop().await,
 
                             Char('Q') => {
                                 let q = self.client.send_queue();
@@ -565,7 +565,7 @@ impl App {
             }
         });
 
-        self.sync_service.stop().await?;
+        self.sync_service.stop().await;
         self.listen_task.abort();
         for timeline in self.timelines.lock().unwrap().values() {
             timeline.task.abort();
@@ -789,7 +789,7 @@ impl App {
                             Handle::current().block_on(async {
                                 let (room_event_cache, _drop_handles) =
                                     room.event_cache().await.unwrap();
-                                let (events, _) = room_event_cache.subscribe().await.unwrap();
+                                let (events, _) = room_event_cache.subscribe().await;
                                 events
                             })
                         });
