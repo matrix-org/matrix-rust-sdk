@@ -13,7 +13,6 @@
 // limitations under the License.
 mod builder;
 mod error;
-mod idb_operations;
 mod indexeddb_serializer;
 mod migrations;
 
@@ -166,7 +165,7 @@ impl_event_cache_store!({
                     if let Some(previous) = previous {
                         let previous_id = self
                             .serializer
-                            .encode_key_as_string(&room_id.to_string(), previous.to_string());
+                            .encode_key_as_string(room_id.as_ref(), previous.to_string());
                         let previous_chunk_js_value =
                             object_store.get_owned(&previous_id)?.await?.unwrap();
 
@@ -188,7 +187,7 @@ impl_event_cache_store!({
                     if let Some(next) = next {
                         let next_id = self
                             .serializer
-                            .encode_key_as_string(&room_id.to_string(), next.to_string());
+                            .encode_key_as_string(room_id.as_ref(), next.to_string());
                         // TODO unsafe unwrap()?
                         let next_chunk_js_value = object_store.get_owned(&next_id)?.await?.unwrap();
                         let next_chunk: Chunk =
@@ -258,19 +257,20 @@ impl_event_cache_store!({
 
                     let id = self
                         .serializer
-                        .encode_key_as_string(&room_id.to_string(), &id.index().to_string());
+                        .encode_key_as_string(room_id.as_ref(), id.index().to_string());
 
                     trace!("Removing chunk {id:?}");
 
                     // Remove the chunk itself
-                    let chunk_to_delete_js_value = object_store.get_owned(id)?.await?.unwrap();
+                    let chunk_to_delete_js_value =
+                        object_store.get_owned(id.clone())?.await?.unwrap();
                     let chunk_to_delete: Chunk =
                         self.serializer.deserialize_value(chunk_to_delete_js_value)?;
 
                     if let Some(previous) = chunk_to_delete.previous {
                         let previous_id = self
                             .serializer
-                            .encode_key_as_string(&room_id.to_string(), previous.to_string());
+                            .encode_key_as_string(room_id.as_ref(), previous.to_string());
                         let previous_chunk_js_value =
                             object_store.get_owned(&previous_id)?.await?.unwrap();
                         let previous_chunk: Chunk =
@@ -290,7 +290,7 @@ impl_event_cache_store!({
                     if let Some(next) = chunk_to_delete.next {
                         let next_id = self
                             .serializer
-                            .encode_key_as_string(&room_id.to_string(), next.to_string());
+                            .encode_key_as_string(room_id.as_ref(), next.to_string());
                         let next_chunk_js_value = object_store.get_owned(&next_id)?.await?.unwrap();
                         let next_chunk: Chunk =
                             self.serializer.deserialize_value(next_chunk_js_value)?;
@@ -393,10 +393,11 @@ impl_event_cache_store!({
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let key_range =
-                        self.serializer.encode_to_range(keys::EVENTS, chunk_id.to_string())?;
+                    let key_range = self
+                        .serializer
+                        .encode_to_range(keys::EVENTS, format!("{room_id}-{chunk_id}"))?;
 
-                    // object_store.get_all_with_key(&key_range)?.for_each(|entry| {});
+                    object_store.get_all_with_key(&key_range)?.await.iter().for_each(|_entry| {});
                 }
                 Update::StartReattachItems => {}
                 Update::EndReattachItems => {}
