@@ -46,7 +46,10 @@ use super::{
     DateDividerMode, TimelineFocusKind, TimelineMetadata, TimelineSettings,
     TimelineStateTransaction,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{
+    timeline::{event_item::EventTimelineItemKind, TimelineItemKind},
+    unable_to_decrypt_hook::UtdHookManager,
+};
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineState {
@@ -222,6 +225,45 @@ impl TimelineState {
 
         txn.adjust_date_dividers(date_divider_adjuster);
 
+        txn.commit();
+    }
+
+    /// Try to fetch [`EncryptionInfo`] for the events with the supplied
+    /// indices, and update them where we succeed.
+    pub(super) async fn retry_event_encryption_info<P: RoomDataProvider>(
+        &mut self,
+        retry_indices: Vec<usize>,
+        room_data_provider: &P,
+    ) {
+        let mut new_info = Vec::new();
+        for idx in retry_indices {
+            let item = self.items.get(idx);
+            if let Some(item) = item {
+                if let Some(event) = item.as_event() {
+                    let sender = event.sender.clone();
+                    if let Some(remote) = event.as_remote() {
+                        if let Some(session_id) = &remote.session_id {
+                            let mut new_remote = remote.clone();
+
+                            new_remote.encryption_info =
+                                room_data_provider.get_encryption_info(session_id, &sender).await;
+
+                            let new_event =
+                                event.with_kind(EventTimelineItemKind::Remote(new_remote));
+
+                            let new_item = item.with_kind(TimelineItemKind::Event(new_event));
+
+                            new_info.push((idx, new_item));
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut txn = self.transaction();
+        for (idx, item) in new_info {
+            txn.replace(idx, item);
+        }
         txn.commit();
     }
 
