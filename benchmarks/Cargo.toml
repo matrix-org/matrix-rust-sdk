@@ -37,5 +37,9 @@ harness = false
 name = "room_bench"
 harness = false
 
+[[bench]]
+name = "timeline"
+harness = false
+
 [package.metadata.release]
 release = false
