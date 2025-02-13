@@ -422,9 +422,54 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         }
                     }
                 }
-                Update::StartReattachItems => {}
-                Update::EndReattachItems => {}
-                Update::Clear => {}
+                Update::StartReattachItems | Update::EndReattachItems => {
+                    // Nothing? See sqlite implementation
+                }
+                Update::Clear => {
+                    trace!(%room_id, "clearing all events");
+                    let linked_chunks_key_range =
+                        self.serializer.encode_to_range(keys::LINKED_CHUNKS, room_id)?;
+
+                    let tx = self.inner.transaction_on_one_with_mode(
+                        keys::LINKED_CHUNKS,
+                        IdbTransactionMode::Readwrite,
+                    )?;
+
+                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+
+                    let linked_chunks =
+                        object_store.get_all_with_key(&linked_chunks_key_range)?.await?;
+
+                    for linked_chunk in linked_chunks {
+                        let linked_chunk: Chunk =
+                            self.serializer.deserialize_value(linked_chunk)?;
+                        // Delete all events for chunk
+                        let events_key_range = self.serializer.encode_to_range(
+                            keys::EVENTS,
+                            format!("{}-{}", room_id, linked_chunk.id),
+                        )?;
+
+                        let events_tx = self.inner.transaction_on_one_with_mode(
+                            keys::EVENTS,
+                            IdbTransactionMode::Readwrite,
+                        )?;
+
+                        let events_object_store = events_tx.object_store(keys::EVENTS)?;
+
+                        let events =
+                            events_object_store.get_all_with_key(&events_key_range)?.await?;
+
+                        for event in events {
+                            let event: TimelineEventForCache =
+                                self.serializer.deserialize_value(event)?;
+                            let event_id = JsValue::from_str(&event.id);
+                            events_object_store.delete(&event_id)?;
+                        }
+
+                        let linked_chunk_id = JsValue::from_str(&linked_chunk.id);
+                        object_store.delete(&linked_chunk_id)?;
+                    }
+                }
             }
         }
 
