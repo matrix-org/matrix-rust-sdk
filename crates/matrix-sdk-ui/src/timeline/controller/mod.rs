@@ -1062,8 +1062,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
         decryptor: impl Decryptor,
         session_ids: Option<BTreeSet<String>>,
     ) {
-        let mut state = self.state.clone().write_owned().await;
+        let state = self.state.clone().write_owned().await;
 
+        // We should retry an event if its session is included in the list, or the list
+        // is None.
         let should_retry = move |session_id: &str| {
             if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
@@ -1072,8 +1074,27 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
         };
 
+        // Find which messages need retrying
         let retry_indices = event_indices_to_retry_decryption(&state, &should_retry);
 
+        // Retry decrypting
+        self.retry_event_decryption_by_index(state, retry_indices, should_retry, decryptor).await;
+    }
+
+    /// Retry decryption of the supplied events, which are expected to be UTDs.
+    ///
+    /// `state` is the [`TimelineState`] state of the timeline.
+    /// `retry_indices` contains the indices of events to try within the
+    /// `state.items` `should_retry` checks that a session is included in
+    /// the list of updated sessions. `decryptor` does the actual work of
+    /// decrypting events.
+    async fn retry_event_decryption_by_index(
+        &self,
+        mut state: tokio::sync::OwnedRwLockWriteGuard<TimelineState>,
+        retry_indices: Vec<usize>,
+        should_retry: impl Fn(&str) -> bool + Send + Sync + 'static,
+        decryptor: impl Decryptor,
+    ) {
         if retry_indices.is_empty() {
             return;
         }
