@@ -42,6 +42,10 @@ All notable changes to this project will be documented in this file.
 - [**breaking**]: The `authentication::qrcode` module now reexports types from
   `oauth2` rather than `openidconnect`. Some type names might have changed.
   ([#4604](https://github.com/matrix-org/matrix-rust-sdk/pull/4604))
+- [**breaking**] `Oidc::authorize_scope()` was removed because it has no use
+  case anymore, according to the latest version of
+  [MSC2967](https://github.com/matrix-org/matrix-spec-proposals/pull/2967).
+  ([#4664](https://github.com/matrix-org/matrix-rust-sdk/pull/4664))
 
 ## [0.10.0] - 2025-02-04
 

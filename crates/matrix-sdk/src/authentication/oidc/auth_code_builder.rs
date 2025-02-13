@@ -32,8 +32,7 @@ use crate::Result;
 /// Builder type used to configure optional settings for authorization with an
 /// OpenID Connect Provider via the Authorization Code flow.
 ///
-/// Created with [`Oidc::authorize_scope()`] or [`Oidc::login()`]. Finalized
-/// with [`Self::build()`].
+/// Created with [`Oidc::login()`]. Finalized with [`Self::build()`].
 #[allow(missing_debug_implementations)]
 pub struct OidcAuthCodeUrlBuilder {
     oidc: Oidc,
