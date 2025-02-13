@@ -38,7 +38,7 @@ use ruma::{
         room::{
             encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
-            message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
+            message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
@@ -54,8 +54,8 @@ use super::{
     algorithms::{rfind_event_by_id, rfind_event_by_item_id},
     controller::{
         find_item_and_apply_aggregation, Aggregation, AggregationKind, ApplyAggregationResult,
-        ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
-        TimelineMetadata, TimelineStateTransaction,
+        ObservableItemsTransaction, PendingEdit, PendingEditKind, TimelineMetadata,
+        TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -398,7 +398,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
 
                 AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
-                    relates_to: Some(message::Relation::Replacement(re)),
+                    relates_to: Some(Relation::Replacement(re)),
                     ..
                 }) => {
                     self.handle_room_message_edit(re);
@@ -578,6 +578,27 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
+        // If this message is a reply to another message, add an entry in the inverted
+        // mapping.
+        if let Some(event_id) = self.ctx.flow.event_id() {
+            let replied_to_event_id =
+                msg.relates_to.as_ref().and_then(|relates_to| match relates_to {
+                    Relation::Reply { in_reply_to } => Some(in_reply_to.event_id.clone()),
+                    Relation::Thread(thread) => {
+                        thread.in_reply_to.as_ref().map(|in_reply_to| in_reply_to.event_id.clone())
+                    }
+                    _ => None,
+                });
+            if let Some(replied_to_event_id) = replied_to_event_id {
+                // This is a reply! Add an entry.
+                self.meta
+                    .replies
+                    .entry(replied_to_event_id)
+                    .or_default()
+                    .insert(event_id.to_owned());
+            }
+        }
+
         self.add_item(
             TimelineItemContent::message(msg, edit_content, self.items, Default::default()),
             edit_json,
@@ -597,7 +618,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let internal_id = item.internal_id.to_owned();
 
                 // Update all events that replied to this message with the edited content.
-                Self::maybe_update_responses(self.items, &replacement.event_id, &new_item);
+                Self::maybe_update_responses(
+                    self.meta,
+                    self.items,
+                    &replacement.event_id,
+                    &new_item,
+                );
 
                 // Update the event itself.
                 self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
@@ -902,7 +928,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                     // Look for any timeline event that's a reply to the redacted event, and redact
                     // the replied-to event there as well.
-                    Self::maybe_update_responses(self.items, &redacted, &new_item);
+                    Self::maybe_update_responses(self.meta, self.items, &redacted, &new_item);
 
                     self.items.replace(idx, TimelineItem::new(new_item, internal_id));
                     self.result.items_updated += 1;
@@ -1181,7 +1207,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Updating timeline item at position {idx}");
 
                 // Update all events that replied to this previously encrypted message.
-                Self::maybe_update_responses(self.items, decrypted_event_id, &item);
+                Self::maybe_update_responses(self.meta, self.items, decrypted_event_id, &item);
 
                 let internal_id = self.items[*idx].internal_id.clone();
                 self.items.replace(*idx, TimelineItem::new(item, internal_id));
@@ -1266,29 +1292,47 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// After updating the timeline item `new_item` which id is
     /// `target_event_id`, update other items that are responses to this item.
     fn maybe_update_responses(
+        meta: &mut TimelineMetadata,
         items: &mut ObservableItemsTransaction<'_>,
         target_event_id: &EventId,
         new_item: &EventTimelineItem,
     ) {
-        items.for_each(|mut entry| {
-            let Some(event_item) = entry.as_event() else { return };
-            let Some(message) = event_item.content.as_message() else { return };
-            let Some(in_reply_to) = message.in_reply_to() else { return };
-            if target_event_id == in_reply_to.event_id {
-                trace!(reply_event_id = ?event_item.identifier(), "Updating response to edited event");
-                let in_reply_to = InReplyToDetails {
-                    event_id: in_reply_to.event_id.clone(),
-                    event: TimelineDetails::Ready(Box::new(
-                        RepliedToEvent::from_timeline_item(new_item),
-                    )),
-                };
-                let new_reply_content =
+        let Some(replies) = meta.replies.get(target_event_id) else {
+            trace!("item has no replies");
+            return;
+        };
+
+        for reply_id in replies {
+            let Some(timeline_item_index) = items
+                .get_remote_event_by_event_id(reply_id)
+                .and_then(|meta| meta.timeline_item_index)
+            else {
+                warn!(%reply_id, "event not known as an item in the timeline");
+                continue;
+            };
+
+            let Some(item) = items.get(timeline_item_index) else {
+                warn!(%reply_id, timeline_item_index, "mapping from event id to timeline item likely incorrect");
+                continue;
+            };
+
+            let Some(event_item) = item.as_event() else { continue };
+            let Some(message) = event_item.content.as_message() else { continue };
+            let Some(in_reply_to) = message.in_reply_to() else { continue };
+
+            trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
+            let in_reply_to = InReplyToDetails {
+                event_id: in_reply_to.event_id.clone(),
+                event: TimelineDetails::Ready(Box::new(RepliedToEvent::from_timeline_item(
+                    new_item,
+                ))),
+            };
+
+            let new_reply_content =
                 TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
-                let new_reply_item =
-                entry.with_kind(event_item.with_content(new_reply_content));
-                ObservableItemsTransactionEntry::replace(&mut entry, new_reply_item);
-            }
-        });
+            let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
+            items.replace(timeline_item_index, new_reply_item);
+        }
     }
 }
 
