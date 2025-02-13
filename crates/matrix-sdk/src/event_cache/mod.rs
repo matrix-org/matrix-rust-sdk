@@ -549,11 +549,15 @@ impl EventCacheInner {
 
         let rooms = self.by_room.write().await;
         for room in rooms.values() {
+            // Clear all the room state.
+            let updates_as_vector_diffs = room.inner.state.write().await.reset().await?;
+
             // Notify all the observers that we've lost track of state. (We ignore the
             // error if there aren't any.)
-            let _ = room.inner.sender.send(RoomEventCacheUpdate::Clear);
-            // Clear all the room state.
-            room.inner.state.write().await.reset().await?;
+            let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs: updates_as_vector_diffs,
+                origin: EventsOrigin::Sync,
+            });
         }
 
         Ok(())
@@ -668,9 +672,6 @@ pub struct BackPaginationOutcome {
 /// An update related to events happened in a room.
 #[derive(Debug, Clone)]
 pub enum RoomEventCacheUpdate {
-    /// The room has been cleared from events.
-    Clear,
-
     /// The fully read marker has moved to a different event.
     MoveReadMarkerTo {
         /// Event at which the read marker is now pointing.
@@ -753,7 +754,7 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
 
-        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+        let (events, mut stream) = room_event_cache.subscribe().await;
 
         assert!(events.is_empty());
 
@@ -911,7 +912,7 @@ mod tests {
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (initial_events, _) = room_event_cache.subscribe().await.unwrap();
+        let (initial_events, _) = room_event_cache.subscribe().await;
         // `add_initial_events` had an effect.
         assert_eq!(initial_events.len(), 1);
     }

@@ -22,6 +22,7 @@ use std::{
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
 };
 
+use caches::ClientCaches;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
@@ -35,6 +36,8 @@ use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
+#[cfg(feature = "experimental-oidc")]
+use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
@@ -81,7 +84,7 @@ use crate::{
     },
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
-    error::{HttpError, HttpResult},
+    error::HttpResult,
     event_cache::EventCache,
     event_handler::{
         EventHandler, EventHandlerContext, EventHandlerDropGuard, EventHandlerHandle,
@@ -93,8 +96,8 @@ use crate::{
     send_queue::SendQueueData,
     sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
-    Account, AuthApi, AuthSession, Error, Media, Pusher, RefreshTokenError, Result, Room,
-    TransmissionProgress,
+    Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
+    Room, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
@@ -103,6 +106,7 @@ use crate::{
 };
 
 mod builder;
+pub(crate) mod caches;
 pub(crate) mod futures;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
@@ -263,9 +267,8 @@ pub(crate) struct ClientInner {
     /// User session data.
     pub(super) base_client: BaseClient,
 
-    /// Server capabilities, either prefilled during building or fetched from
-    /// the server.
-    server_capabilities: RwLock<ClientServerCapabilities>,
+    /// Collection of in-memory caches for the [`Client`].
+    pub(crate) caches: ClientCaches,
 
     /// Collection of locks individual client methods might want to use, either
     /// to ensure that only a single call to a method happens at once or to
@@ -351,6 +354,12 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         cross_process_store_locks_holder_name: String,
     ) -> Arc<Self> {
+        let caches = ClientCaches {
+            server_capabilities: server_capabilities.into(),
+            #[cfg(feature = "experimental-oidc")]
+            provider_metadata: Mutex::new(TtlCache::new()),
+        };
+
         let client = Self {
             server,
             homeserver: StdRwLock::new(homeserver),
@@ -358,9 +367,9 @@ impl ClientInner {
             sliding_sync_version: StdRwLock::new(sliding_sync_version),
             http_client,
             base_client,
+            caches,
             locks: Default::default(),
             cross_process_store_locks_holder_name,
-            server_capabilities: RwLock::new(server_capabilities),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -1155,16 +1164,20 @@ impl Client {
         };
 
         if let Some(room) = self.get_room(&room_id) {
-            // The cached data can only be trusted if the room is joined: for invite and
-            // knock rooms, no updates will be received for the rooms after the invite/knock
-            // action took place so we may have very out to date data for important fields
-            // such as `join_rule`
-            if room.state() == RoomState::Joined {
-                return Ok(RoomPreview::from_joined(&room).await);
+            // The cached data can only be trusted if the room state is joined or
+            // banned: for invite and knock rooms, no updates will be received
+            // for the rooms after the invite/knock action took place so we may
+            // have very out to date data for important fields such as
+            // `join_rule`. For left rooms, the homeserver should return the latest info.
+            match room.state() {
+                RoomState::Joined | RoomState::Banned => {
+                    return Ok(RoomPreview::from_known_room(&room).await);
+                }
+                RoomState::Left | RoomState::Invited | RoomState::Knocked => {}
             }
         }
 
-        RoomPreview::from_not_joined(self, room_id, room_or_alias_id, via).await
+        RoomPreview::from_remote_room(self, room_id, room_or_alias_id, via).await
     }
 
     /// Resolve a room alias to a room id and a list of servers which know
@@ -1726,7 +1739,7 @@ impl Client {
         &self,
         f: F,
     ) -> HttpResult<T> {
-        let caps = &self.inner.server_capabilities;
+        let caps = &self.inner.caches.server_capabilities;
         if let Some(val) = f(&*caps.read().await) {
             return Ok(val);
         }
@@ -1795,7 +1808,7 @@ impl Client {
     /// functions makes it possible to force reset it.
     pub async fn reset_server_capabilities(&self) -> Result<()> {
         // Empty the in-memory caches.
-        let mut guard = self.inner.server_capabilities.write().await;
+        let mut guard = self.inner.caches.server_capabilities.write().await;
         guard.server_versions = None;
         guard.unstable_features = None;
 
@@ -2417,7 +2430,7 @@ impl Client {
                     .base_client
                     .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name)
                     .await?,
-                self.inner.server_capabilities.read().await.clone(),
+                self.inner.caches.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
@@ -3181,5 +3194,115 @@ pub(crate) mod tests {
             )
             .await;
         assert_matches!(ret, Ok(()));
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_invited_room_hits_summary_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is called once
+        server.mock_room_summary().ok(room_id).mock_once().mount().await;
+
+        // We create a locally cached invited room
+        let invited_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Invited);
+
+        // And we get a preview, the server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(invited_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_left_room_hits_summary_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is called once
+        server.mock_room_summary().ok(room_id).mock_once().mount().await;
+
+        // We create a locally cached left room
+        let left_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Left);
+
+        // And we get a preview, the server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(left_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_knocked_room_hits_summary_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is called once
+        server.mock_room_summary().ok(room_id).mock_once().mount().await;
+
+        // We create a locally cached knocked room
+        let knocked_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Knocked);
+
+        // And we get a preview, the server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(knocked_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_joined_room_retrieves_local_room_info() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is not called
+        server.mock_room_summary().ok(room_id).never().mount().await;
+
+        // We create a locally cached joined room
+        let joined_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Joined);
+
+        // And we get a preview, no server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(joined_room.room_id().to_owned(), preview.room_id);
+    }
+
+    #[async_test]
+    async fn test_room_preview_for_banned_room_retrieves_local_room_info() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a-room:matrix.org");
+
+        // Make sure the summary endpoint is not called
+        server.mock_room_summary().ok(room_id).never().mount().await;
+
+        // We create a locally cached banned room
+        let banned_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Banned);
+
+        // And we get a preview, no server endpoint was reached
+        let preview = client
+            .get_room_preview(room_id.into(), Vec::new())
+            .await
+            .expect("Room preview should be retrieved");
+
+        assert_eq!(banned_room.room_id().to_owned(), preview.room_id);
     }
 }

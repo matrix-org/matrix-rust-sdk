@@ -69,16 +69,14 @@ mod polls;
 
 pub use pinned_events::RoomPinnedEventsChange;
 
-pub(in crate::timeline) use self::{
-    message::{
-        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
-    },
-    polls::ResponseData,
+pub(in crate::timeline) use self::message::{
+    extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
 };
 pub use self::{
     message::{InReplyToDetails, Message, RepliedToEvent},
     polls::{PollResult, PollState},
 };
+use super::ReactionsByKeyBySender;
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
@@ -213,10 +211,12 @@ impl TimelineItemContent {
                 // `Message::from_event` marks the original event as `Unavailable` if it can't
                 // be found inside the timeline_items.
                 let timeline_items = Vector::new();
+                let reactions = Default::default();
                 TimelineItemContent::Message(Message::from_event(
                     event_content,
                     edit,
                     &timeline_items,
+                    reactions,
                 ))
             }
 
@@ -249,7 +249,10 @@ impl TimelineItemContent {
             SyncStickerEvent::Original(event) => {
                 // Grab the content of this event
                 let event_content = event.content.clone();
-                TimelineItemContent::Sticker(Sticker { content: event_content })
+                TimelineItemContent::Sticker(Sticker {
+                    content: event_content,
+                    reactions: Default::default(),
+                })
             }
             SyncStickerEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
@@ -276,9 +279,13 @@ impl TimelineItemContent {
                 }
             });
 
+        // We're not interested in reactions for the latest preview item.
+        let reactions = Default::default();
+
         TimelineItemContent::Poll(PollState::new(
             NewUnstablePollStartEventContent::new(event.content.poll_start().clone()),
             edit,
+            reactions,
         ))
     }
 
@@ -324,8 +331,9 @@ impl TimelineItemContent {
         c: RoomMessageEventContent,
         edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
+        reactions: ReactionsByKeyBySender,
     ) -> Self {
-        Self::Message(Message::from_event(c, edit, timeline_items))
+        Self::Message(Message::from_event(c, edit, timeline_items, reactions))
     }
 
     #[cfg(not(tarpaulin_include))] // debug-logging functionality
@@ -430,6 +438,70 @@ impl TimelineItemContent {
             Self::FailedToParseMessageLike { .. } | Self::FailedToParseState { .. } => self.clone(),
         }
     }
+
+    /// Return the reactions, grouped by key and then by sender, for a given
+    /// content.
+    ///
+    /// Some content kinds can't hold reactions; for these, this function will
+    /// return `None`.
+    pub fn reactions(&self) -> ReactionsByKeyBySender {
+        match self {
+            TimelineItemContent::Message(message) => message.reactions.clone(),
+            TimelineItemContent::Sticker(sticker) => sticker.reactions.clone(),
+            TimelineItemContent::Poll(poll_state) => poll_state.reactions.clone(),
+
+            TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
+                // No reactions for redacted messages or UTDs.
+                Default::default()
+            }
+
+            TimelineItemContent::MembershipChange(..)
+            | TimelineItemContent::ProfileChange(..)
+            | TimelineItemContent::OtherState(..)
+            | TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. }
+            | TimelineItemContent::CallInvite
+            | TimelineItemContent::CallNotify => {
+                // No reactions for these kind of items.
+                Default::default()
+            }
+        }
+    }
+
+    /// Return a mutable handle to the reactions of this item.
+    ///
+    /// See also [`Self::reactions()`] to explain the optional return type.
+    pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
+        match self {
+            TimelineItemContent::Message(message) => Some(&mut message.reactions),
+            TimelineItemContent::Sticker(sticker) => Some(&mut sticker.reactions),
+            TimelineItemContent::Poll(poll_state) => Some(&mut poll_state.reactions),
+
+            TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
+                // No reactions for redacted messages or UTDs.
+                None
+            }
+
+            TimelineItemContent::MembershipChange(..)
+            | TimelineItemContent::ProfileChange(..)
+            | TimelineItemContent::OtherState(..)
+            | TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. }
+            | TimelineItemContent::CallInvite
+            | TimelineItemContent::CallNotify => {
+                // No reactions for these kind of items.
+                None
+            }
+        }
+    }
+
+    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
+        let mut cloned = self.clone();
+        if let Some(r) = cloned.reactions_mut() {
+            *r = reactions;
+        }
+        cloned
+    }
 }
 
 /// Metadata about an `m.room.encrypted` event that could not be decrypted.
@@ -485,6 +557,7 @@ impl EncryptedMessage {
 #[derive(Clone, Debug)]
 pub struct Sticker {
     pub(in crate::timeline) content: StickerEventContent,
+    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
 }
 
 impl Sticker {

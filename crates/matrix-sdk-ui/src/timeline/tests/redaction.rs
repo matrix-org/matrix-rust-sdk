@@ -103,13 +103,13 @@ async fn test_reaction_redaction() {
 
     timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_eq!(item.reactions().len(), 0);
+    assert_eq!(item.content().reactions().len(), 0);
 
     let msg_event_id = item.event_id().unwrap();
 
     timeline.handle_live_event(f.reaction(msg_event_id, "+1").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.reactions().len(), 1);
+    assert_eq!(item.content().reactions().len(), 1);
 
     // TODO: After adding raw timeline items, check for one here
 
@@ -117,7 +117,7 @@ async fn test_reaction_redaction() {
 
     timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.reactions().len(), 0);
+    assert_eq!(item.content().reactions().len(), 0);
 }
 
 #[async_test]
@@ -161,6 +161,6 @@ async fn test_reaction_redaction_timeline_filter() {
     // Redacting the reaction doesn't add a timeline item.
     timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.reactions().len(), 0);
+    assert_eq!(item.content().reactions().len(), 0);
     assert_eq!(timeline.controller.items().await.len(), 2);
 }

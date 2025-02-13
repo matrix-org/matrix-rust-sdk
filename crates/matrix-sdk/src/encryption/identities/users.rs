@@ -413,6 +413,14 @@ impl UserIdentity {
         self.inner.is_verified()
     }
 
+    /// True if we verified this identity at some point in the past.
+    ///
+    /// To reset this latch back to `false`, one must call
+    /// [`UserIdentity::withdraw_verification()`].
+    pub fn was_previously_verified(&self) -> bool {
+        self.inner.was_previously_verified()
+    }
+
     /// Remove the requirement for this identity to be verified.
     ///
     /// If an identity was previously verified and is not anymore it will be
@@ -420,6 +428,11 @@ impl UserIdentity {
     /// verify again or to withdraw the verification requirement.
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
         self.inner.withdraw_verification().await
+    }
+
+    /// Was this identity previously verified, and is no longer?
+    pub fn has_verification_violation(&self) -> bool {
+        self.inner.has_verification_violation()
     }
 
     /// Remember this identity, ensuring it does not result in a pin violation.

@@ -252,13 +252,13 @@ impl Room {
     }
 
     pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
-        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let user_id = UserId::parse(&*user_id)?;
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         Ok(member.try_into().context("Unknown state membership")?)
     }
 
     pub async fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
-        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let user_id = UserId::parse(&*user_id)?;
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         let avatar_url_string = member.avatar_url().map(|m| m.to_string());
         Ok(avatar_url_string)
@@ -268,7 +268,7 @@ impl Room {
         &self,
         user_id: String,
     ) -> Result<Option<String>, ClientError> {
-        let user_id = UserId::parse(&*user_id).context("Invalid user id.")?;
+        let user_id = UserId::parse(&*user_id)?;
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         let avatar_url_string = member.display_name().map(|m| m.to_owned());
         Ok(avatar_url_string)
@@ -1032,6 +1032,16 @@ impl Room {
                 }])
             }
         })))
+    }
+
+    /// Forget this room.
+    ///
+    /// This communicates to the homeserver that it should forget the room.
+    ///
+    /// Only left or banned-from rooms can be forgotten.
+    pub async fn forget(&self) -> Result<(), ClientError> {
+        self.inner.forget().await?;
+        Ok(())
     }
 }
 

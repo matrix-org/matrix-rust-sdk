@@ -924,6 +924,22 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/versions"));
         MockEndpoint { mock, server: &self.server, endpoint: VersionsEndpoint }
     }
+
+    /// Creates a prebuilt mock for the room summary endpoint [MSC3266](https://github.com/matrix-org/matrix-spec-proposals/pull/3266).
+    pub fn mock_room_summary(&self) -> MockEndpoint<'_, RoomSummaryEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/im.nheko.summary/rooms/.*/summary"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSummaryEndpoint }
+    }
+
+    /// Creates a prebuilt mock for the endpoint used to set a room's pinned
+    /// events.
+    pub fn mock_set_room_pinned_events(&self) -> MockEndpoint<'_, SetRoomPinnedEventsEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.pinned_events/.*?"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: SetRoomPinnedEventsEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2283,6 +2299,42 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
             ]
         })));
 
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for the room summary endpoint.
+pub struct RoomSummaryEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
+    /// Returns a successful response with some default data for the given room
+    /// id.
+    pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "room_id": room_id,
+            "guest_can_join": true,
+            "num_joined_members": 1,
+            "world_readable": true,
+            "join_rule": "public",
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock to set a room's pinned events.
+pub struct SetRoomPinnedEventsEndpoint;
+
+impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
+    /// Returns a successful response with a given event id.
+    /// id.
+    pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+        self.ok_with_event_id(event_id)
+    }
+
+    /// Returns an error response with a generic error code indicating the
+    /// client is not authorized to set pinned events.
+    pub fn unauthorized(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(400));
         MatrixMock { server: self.server, mock }
     }
 }

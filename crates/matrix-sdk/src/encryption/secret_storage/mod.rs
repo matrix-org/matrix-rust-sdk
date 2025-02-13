@@ -66,11 +66,14 @@ use matrix_sdk_base::crypto::{
     secret_storage::{DecodeError, MacError, SecretStorageKey},
     CryptoStoreError, SecretImportError,
 };
-use ruma::events::{
-    secret_storage::{
-        default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
+use ruma::{
+    events::{
+        secret_storage::{
+            default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
+        },
+        EventContentFromType, GlobalAccountDataEventType,
     },
-    EventContentFromType, GlobalAccountDataEventType,
+    serde::Raw,
 };
 use serde_json::value::to_raw_value;
 use thiserror::Error;
@@ -186,11 +189,7 @@ impl SecretStorage {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn open_secret_store(&self, secret_storage_key: &str) -> Result<SecretStore> {
-        let maybe_default_key_id = self
-            .client
-            .account()
-            .fetch_account_data(GlobalAccountDataEventType::SecretStorageDefaultKey)
-            .await?;
+        let maybe_default_key_id = self.fetch_default_key_id().await?;
 
         if let Some(default_key_id) = maybe_default_key_id {
             let default_key_id =
@@ -271,12 +270,7 @@ impl SecretStorage {
 
     /// Run a network request to find if secret storage is set up for this user.
     pub async fn is_enabled(&self) -> crate::Result<bool> {
-        if let Some(content) = self
-            .client
-            .account()
-            .fetch_account_data(GlobalAccountDataEventType::SecretStorageDefaultKey)
-            .await?
-        {
+        if let Some(content) = self.fetch_default_key_id().await? {
             // Since we can't delete account data events, we're going to treat
             // deserialization failures as secret storage being disabled.
             Ok(content.deserialize_as::<SecretStorageDefaultKeyEventContent>().is_ok())
@@ -284,5 +278,18 @@ impl SecretStorage {
             // No account data event found, must be disabled.
             Ok(false)
         }
+    }
+
+    /// Fetch the `m.secret_storage.default_key` event from the server.
+    pub async fn fetch_default_key_id(
+        &self,
+    ) -> crate::Result<Option<Raw<SecretStorageDefaultKeyEventContent>>> {
+        let maybe_default_key_id = self
+            .client
+            .account()
+            .fetch_account_data(GlobalAccountDataEventType::SecretStorageDefaultKey)
+            .await?;
+
+        Ok(maybe_default_key_id.map(|event| event.cast()))
     }
 }

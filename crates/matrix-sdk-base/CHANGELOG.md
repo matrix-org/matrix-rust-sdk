@@ -8,6 +8,18 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] The `MediaRetentionPolicy` can now trigger regular cleanups
+  with its new `cleanup_frequency` setting.
+  ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+  - `Clone` is a supertrait of `EventCacheStoreMedia`.
+  - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
+  - There are new `'static` bounds in `MediaService` for the media cache stores
+- `event_cache::store::MemoryStore` implements `Clone`.
+
+## [0.10.0] - 2025-02-04
+
+### Features
+
 - [**breaking**] `EventCacheStore` allows to control which media content is
   allowed in the media cache, and how long it should be kept, with a
   `MediaRetentionPolicy`:

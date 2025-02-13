@@ -14,7 +14,7 @@
 
 //! A sqlite-based backend for the [`EventCacheStore`].
 
-use std::{borrow::Cow, fmt, path::Path, sync::Arc};
+use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
@@ -33,11 +33,9 @@ use matrix_sdk_base::{
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri, RoomId};
-use rusqlite::{params_from_iter, OptionalExtension, Transaction, TransactionBehavior};
+use ruma::{time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId};
+use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::fs;
-#[cfg(not(test))]
-use tracing::warn;
 use tracing::{debug, trace};
 
 use crate::{
@@ -52,6 +50,7 @@ use crate::{
 mod keys {
     // Entries in Key-value store
     pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
+    pub const LAST_MEDIA_CLEANUP_TIME: &str = "last_media_cleanup_time";
 
     // Tables
     pub const LINKED_CHUNKS: &str = "linked_chunks";
@@ -77,7 +76,7 @@ const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 pub struct SqliteEventCacheStore {
     store_cipher: Option<Arc<StoreCipher>>,
     pool: SqlitePool,
-    media_service: Arc<MediaService>,
+    media_service: MediaService,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -106,8 +105,11 @@ impl SqliteEventCacheStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
+        conn.set_journal_size_limit().await?;
+
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
+        conn.optimize().await?;
 
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
@@ -115,10 +117,11 @@ impl SqliteEventCacheStore {
         };
 
         let media_service = MediaService::new();
-        let media_retention_policy = media_retention_policy(&conn).await?;
-        media_service.restore(media_retention_policy);
+        let media_retention_policy = conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await?;
+        let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
+        media_service.restore(media_retention_policy, last_media_cleanup_time);
 
-        Ok(Self { store_cipher, pool, media_service: Arc::new(media_service) })
+        Ok(Self { store_cipher, pool, media_service })
     }
 
     fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
@@ -387,181 +390,181 @@ impl EventCacheStore for SqliteEventCacheStore {
         let this = self.clone();
 
         with_immediate_transaction(self.acquire().await?, move |txn| {
-                for up in updates {
-                    match up {
-                        Update::NewItemsChunk { previous, new, next } => {
-                            let previous = previous.as_ref().map(ChunkIdentifier::index);
-                            let new = new.index();
-                            let next = next.as_ref().map(ChunkIdentifier::index);
+            for up in updates {
+                match up {
+                    Update::NewItemsChunk { previous, new, next } => {
+                        let previous = previous.as_ref().map(ChunkIdentifier::index);
+                        let new = new.index();
+                        let next = next.as_ref().map(ChunkIdentifier::index);
 
-                            trace!(
-                                %room_id,
-                                "new events chunk (prev={previous:?}, i={new}, next={next:?})",
-                            );
+                        trace!(
+                            %room_id,
+                            "new events chunk (prev={previous:?}, i={new}, next={next:?})",
+                        );
 
-                            insert_chunk(
-                                txn,
-                                &hashed_room_id,
-                                previous,
-                                new,
-                                next,
-                                CHUNK_TYPE_EVENT_TYPE_STRING,
-                            )?;
+                        insert_chunk(
+                            txn,
+                            &hashed_room_id,
+                            previous,
+                            new,
+                            next,
+                            CHUNK_TYPE_EVENT_TYPE_STRING,
+                        )?;
+                    }
+
+                    Update::NewGapChunk { previous, new, next, gap } => {
+                        let serialized = serde_json::to_vec(&gap.prev_token)?;
+                        let prev_token = this.encode_value(serialized)?;
+
+                        let previous = previous.as_ref().map(ChunkIdentifier::index);
+                        let new = new.index();
+                        let next = next.as_ref().map(ChunkIdentifier::index);
+
+                        trace!(
+                            %room_id,
+                            "new gap chunk (prev={previous:?}, i={new}, next={next:?})",
+                        );
+
+                        // Insert the chunk as a gap.
+                        insert_chunk(
+                            txn,
+                            &hashed_room_id,
+                            previous,
+                            new,
+                            next,
+                            CHUNK_TYPE_GAP_TYPE_STRING,
+                        )?;
+
+                        // Insert the gap's value.
+                        txn.execute(
+                            r#"
+                            INSERT INTO gaps(chunk_id, room_id, prev_token)
+                            VALUES (?, ?, ?)
+                        "#,
+                            (new, &hashed_room_id, prev_token),
+                        )?;
+                    }
+
+                    Update::RemoveChunk(chunk_identifier) => {
+                        let chunk_id = chunk_identifier.index();
+
+                        trace!(%room_id, "removing chunk @ {chunk_id}");
+
+                        // Find chunk to delete.
+                        let (previous, next): (Option<usize>, Option<usize>) = txn.query_row(
+                            "SELECT previous, next FROM linked_chunks WHERE id = ? AND room_id = ?",
+                            (chunk_id, &hashed_room_id),
+                            |row| Ok((row.get(0)?, row.get(1)?))
+                        )?;
+
+                        // Replace its previous' next to its own next.
+                        if let Some(previous) = previous {
+                            txn.execute("UPDATE linked_chunks SET next = ? WHERE id = ? AND room_id = ?", (next, previous, &hashed_room_id))?;
                         }
 
-                        Update::NewGapChunk { previous, new, next, gap } => {
-                            let serialized = serde_json::to_vec(&gap.prev_token)?;
-                            let prev_token = this.encode_value(serialized)?;
-
-                            let previous = previous.as_ref().map(ChunkIdentifier::index);
-                            let new = new.index();
-                            let next = next.as_ref().map(ChunkIdentifier::index);
-
-                            trace!(
-                                %room_id,
-                                "new gap chunk (prev={previous:?}, i={new}, next={next:?})",
-                            );
-
-                            // Insert the chunk as a gap.
-                            insert_chunk(
-                                txn,
-                                &hashed_room_id,
-                                previous,
-                                new,
-                                next,
-                                CHUNK_TYPE_GAP_TYPE_STRING,
-                            )?;
-
-                            // Insert the gap's value.
-                            txn.execute(
-                                r#"
-                                INSERT INTO gaps(chunk_id, room_id, prev_token)
-                                VALUES (?, ?, ?)
-                            "#,
-                                (new, &hashed_room_id, prev_token),
-                            )?;
+                        // Replace its next' previous to its own previous.
+                        if let Some(next) = next {
+                            txn.execute("UPDATE linked_chunks SET previous = ? WHERE id = ? AND room_id = ?", (previous, next, &hashed_room_id))?;
                         }
 
-                        Update::RemoveChunk(chunk_identifier) => {
-                            let chunk_id = chunk_identifier.index();
+                        // Now delete it, and let cascading delete corresponding entries in the
+                        // other data tables.
+                        txn.execute("DELETE FROM linked_chunks WHERE id = ? AND room_id = ?", (chunk_id, &hashed_room_id))?;
+                    }
 
-                            trace!(%room_id, "removing chunk @ {chunk_id}");
+                    Update::PushItems { at, items } => {
+                        let chunk_id = at.chunk_identifier().index();
 
-                            // Find chunk to delete.
-                            let (previous, next): (Option<usize>, Option<usize>) = txn.query_row(
-                                "SELECT previous, next FROM linked_chunks WHERE id = ? AND room_id = ?",
-                                (chunk_id, &hashed_room_id),
-                                |row| Ok((row.get(0)?, row.get(1)?))
-                            )?;
+                        trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
-                            // Replace its previous' next to its own next.
-                            if let Some(previous) = previous {
-                                txn.execute("UPDATE linked_chunks SET next = ? WHERE id = ? AND room_id = ?", (next, previous, &hashed_room_id))?;
-                            }
-
-                            // Replace its next' previous to its own previous.
-                            if let Some(next) = next {
-                                txn.execute("UPDATE linked_chunks SET previous = ? WHERE id = ? AND room_id = ?", (previous, next, &hashed_room_id))?;
-                            }
-
-                            // Now delete it, and let cascading delete corresponding entries in the
-                            // other data tables.
-                            txn.execute("DELETE FROM linked_chunks WHERE id = ? AND room_id = ?", (chunk_id, &hashed_room_id))?;
-                        }
-
-                        Update::PushItems { at, items } => {
-                            let chunk_id = at.chunk_identifier().index();
-
-                            trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
-
-                            for (i, event) in items.into_iter().enumerate() {
-                                let serialized = serde_json::to_vec(&event)?;
-                                let content = this.encode_value(serialized)?;
-
-                                let event_id = event.event_id().map(|event_id| event_id.to_string());
-                                let index = at.index() + i;
-
-                                txn.execute(
-                                    r#"
-                                    INSERT INTO events(chunk_id, room_id, event_id, content, position)
-                                    VALUES (?, ?, ?, ?, ?)
-                                "#,
-                                    (chunk_id, &hashed_room_id, event_id, content, index),
-                                )?;
-                            }
-                        }
-
-                        Update::ReplaceItem { at, item: event } => {
-                            let chunk_id = at.chunk_identifier().index();
-                            let index = at.index();
-
-                            trace!(%room_id, "replacing item @ {chunk_id}:{index}");
-
+                        for (i, event) in items.into_iter().enumerate() {
                             let serialized = serde_json::to_vec(&event)?;
                             let content = this.encode_value(serialized)?;
 
-                            // The event id should be the same, but just in case it changed…
                             let event_id = event.event_id().map(|event_id| event_id.to_string());
+                            let index = at.index() + i;
 
                             txn.execute(
                                 r#"
-                                UPDATE events
-                                SET content = ?, event_id = ?
-                                WHERE room_id = ? AND chunk_id = ? AND position = ?
+                                INSERT INTO events(chunk_id, room_id, event_id, content, position)
+                                VALUES (?, ?, ?, ?, ?)
                             "#,
-                                (content, event_id, &hashed_room_id, chunk_id, index,)
+                                (chunk_id, &hashed_room_id, event_id, content, index),
                             )?;
-                        }
-
-                        Update::RemoveItem { at } => {
-                            let chunk_id = at.chunk_identifier().index();
-                            let index = at.index();
-
-                            trace!(%room_id, "removing item @ {chunk_id}:{index}");
-
-                            // Remove the entry.
-                            txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
-
-                            // Decrement the index of each item after the one we're going to remove.
-                            txn.execute(
-                                r#"
-                                    UPDATE events
-                                    SET position = position - 1
-                                    WHERE room_id = ? AND chunk_id = ? AND position > ?
-                                "#,
-                                (&hashed_room_id, chunk_id, index)
-                            )?;
-
-                        }
-
-                        Update::DetachLastItems { at } => {
-                            let chunk_id = at.chunk_identifier().index();
-                            let index = at.index();
-
-                            trace!(%room_id, "truncating items >= {chunk_id}:{index}");
-
-                            // Remove these entries.
-                            txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
-                        }
-
-                        Update::Clear => {
-                            trace!(%room_id, "clearing items");
-
-                            // Remove chunks, and let cascading do its job.
-                            txn.execute(
-                                "DELETE FROM linked_chunks WHERE room_id = ?",
-                                (&hashed_room_id,),
-                            )?;
-                        }
-
-                        Update::StartReattachItems | Update::EndReattachItems => {
-                            // Nothing.
                         }
                     }
-                }
 
-                Ok(())
-            })
+                    Update::ReplaceItem { at, item: event } => {
+                        let chunk_id = at.chunk_identifier().index();
+                        let index = at.index();
+
+                        trace!(%room_id, "replacing item @ {chunk_id}:{index}");
+
+                        let serialized = serde_json::to_vec(&event)?;
+                        let content = this.encode_value(serialized)?;
+
+                        // The event id should be the same, but just in case it changed…
+                        let event_id = event.event_id().map(|event_id| event_id.to_string());
+
+                        txn.execute(
+                            r#"
+                            UPDATE events
+                            SET content = ?, event_id = ?
+                            WHERE room_id = ? AND chunk_id = ? AND position = ?
+                        "#,
+                            (content, event_id, &hashed_room_id, chunk_id, index,)
+                        )?;
+                    }
+
+                    Update::RemoveItem { at } => {
+                        let chunk_id = at.chunk_identifier().index();
+                        let index = at.index();
+
+                        trace!(%room_id, "removing item @ {chunk_id}:{index}");
+
+                        // Remove the entry.
+                        txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
+
+                        // Decrement the index of each item after the one we're going to remove.
+                        txn.execute(
+                            r#"
+                                UPDATE events
+                                SET position = position - 1
+                                WHERE room_id = ? AND chunk_id = ? AND position > ?
+                            "#,
+                            (&hashed_room_id, chunk_id, index)
+                        )?;
+
+                    }
+
+                    Update::DetachLastItems { at } => {
+                        let chunk_id = at.chunk_identifier().index();
+                        let index = at.index();
+
+                        trace!(%room_id, "truncating items >= {chunk_id}:{index}");
+
+                        // Remove these entries.
+                        txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
+                    }
+
+                    Update::Clear => {
+                        trace!(%room_id, "clearing items");
+
+                        // Remove chunks, and let cascading do its job.
+                        txn.execute(
+                            "DELETE FROM linked_chunks WHERE room_id = ?",
+                            (&hashed_room_id,),
+                        )?;
+                    }
+
+                    Update::StartReattachItems | Update::EndReattachItems => {
+                        // Nothing.
+                    }
+                }
+            }
+
+            Ok(())
+        })
         .await?;
 
         Ok(())
@@ -617,6 +620,76 @@ impl EventCacheStore for SqliteEventCacheStore {
             })
             .await?;
         Ok(())
+    }
+
+    async fn filter_duplicated_events(
+        &self,
+        room_id: &RoomId,
+        events: Vec<OwnedEventId>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        // If there's no events for which we want to check duplicates, we can return
+        // early. It's not only an optimization to do so: it's required, otherwise the
+        // `repeat_vars` call below will panic.
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Select all events that exist in the store, i.e. the duplicates.
+        let room_id = room_id.to_owned();
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, &room_id);
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(events, None, move |txn, events| {
+                    let query = format!(
+                        "SELECT event_id FROM events WHERE room_id = ? AND event_id IN ({})",
+                        repeat_vars(events.len()),
+                    );
+                    let parameters = params_from_iter(
+                        // parameter for `room_id = ?`
+                        once(
+                            hashed_room_id
+                                .to_sql()
+                                // SAFETY: it cannot fail since `Key::to_sql` never fails
+                                .unwrap(),
+                        )
+                        // parameters for `event_id IN (…)`
+                        .chain(events.iter().map(|event| {
+                            event
+                                .as_str()
+                                .to_sql()
+                                // SAFETY: it cannot fail since `str::to_sql` never fails
+                                .unwrap()
+                        })),
+                    );
+
+                    let mut duplicated_events = Vec::new();
+
+                    for duplicated_event in txn
+                        .prepare(&query)?
+                        .query_map(parameters, |row| row.get::<_, Option<String>>(0))?
+                    {
+                        let duplicated_event = duplicated_event?;
+
+                        let Some(duplicated_event) = duplicated_event else {
+                            // Event ID is malformed, let's skip it.
+                            continue;
+                        };
+
+                        let Ok(duplicated_event) = EventId::parse(duplicated_event) else {
+                            // Normally unreachable, but the event ID has been stored even if it is
+                            // malformed, let's skip it.
+                            continue;
+                        };
+
+                        duplicated_events.push(duplicated_event);
+                    }
+
+                    Ok(duplicated_events)
+                })
+            })
+            .await
     }
 
     async fn add_media_content(
@@ -712,7 +785,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         &self,
     ) -> Result<Option<MediaRetentionPolicy>, Self::Error> {
         let conn = self.acquire().await?;
-        media_retention_policy(&conn).await
+        conn.get_serialized_kv(keys::MEDIA_RETENTION_POLICY).await
     }
 
     async fn set_media_retention_policy_inner(
@@ -720,10 +793,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         policy: MediaRetentionPolicy,
     ) -> Result<(), Self::Error> {
         let conn = self.acquire().await?;
-
-        let serialized_policy = rmp_serde::to_vec_named(&policy)?;
-        conn.set_kv(keys::MEDIA_RETENTION_POLICY, serialized_policy).await?;
-
+        conn.set_serialized_kv(keys::MEDIA_RETENTION_POLICY, policy).await?;
         Ok(())
     }
 
@@ -951,26 +1021,24 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                     }
                 }
 
+                txn.set_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME, current_time)?;
+
                 Ok(removed)
             })
             .await?;
 
-        // If we removed media, use the VACUUM command to defragment the
-        // database and free space on the filesystem.
+        // If we removed media, defragment the database and free space on the
+        // filesystem.
         if removed {
-            if let Err(error) = conn.execute("VACUUM", ()).await {
-                // Since this is an optimisation step, do not propagate the error
-                // but log it.
-                #[cfg(not(test))]
-                warn!("Failed to vacuum database: {error}");
-
-                // We want to know if there is an error with this step during tests.
-                #[cfg(test)]
-                return Err(error.into());
-            }
+            conn.vacuum().await?;
         }
 
         Ok(())
+    }
+
+    async fn last_media_cleanup_time_inner(&self) -> Result<Option<SystemTime>, Self::Error> {
+        let conn = self.acquire().await?;
+        conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await
     }
 }
 
@@ -1053,17 +1121,6 @@ fn insert_chunk(
     }
 
     Ok(())
-}
-
-/// Get the persisted [`MediaRetentionPolicy`] with the given connection.
-async fn media_retention_policy(
-    conn: &SqliteAsyncConn,
-) -> Result<Option<MediaRetentionPolicy>, Error> {
-    let Some(bytes) = conn.get_kv(keys::MEDIA_RETENTION_POLICY).await? else {
-        return Ok(None);
-    };
-
-    Ok(Some(rmp_serde::from_slice(&bytes)?))
 }
 
 #[cfg(test)]
@@ -1754,6 +1811,15 @@ mod tests {
         // rolled back.
         let chunks = store.reload_linked_chunk(room_id).await.unwrap();
         assert!(chunks.is_empty());
+    }
+
+    #[async_test]
+    async fn test_filter_duplicate_events_no_events() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let duplicates = store.filter_duplicated_events(room_id, Vec::new()).await.unwrap();
+        assert!(duplicates.is_empty());
     }
 }
 

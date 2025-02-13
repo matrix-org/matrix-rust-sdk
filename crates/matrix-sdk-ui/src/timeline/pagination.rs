@@ -32,8 +32,21 @@ impl super::Timeline {
     ///
     /// Returns whether we hit the start of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
-    pub async fn paginate_backwards(&self, num_events: u16) -> Result<bool, Error> {
+    pub async fn paginate_backwards(&self, mut num_events: u16) -> Result<bool, Error> {
         if self.controller.is_live().await {
+            match self.controller.live_lazy_paginate_backwards(num_events).await {
+                Some(needed_num_events) => {
+                    num_events = needed_num_events.try_into().expect(
+                        "failed to cast `needed_num_events` (`usize`) into `num_events` (`usize`)",
+                    );
+                }
+                None => {
+                    // TODO: returning `false` is not true everytime, we need a way to know if
+                    // lazy-loading has reached the end of the timeline.
+                    return Ok(false);
+                }
+            }
+
             Ok(self.live_paginate_backwards(num_events).await?)
         } else {
             Ok(self.controller.focused_paginate_backwards(num_events).await?)

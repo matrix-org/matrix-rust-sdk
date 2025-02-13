@@ -20,7 +20,6 @@ use ruma::{
     events::poll::{
         compile_unstable_poll_results,
         start::PollKind,
-        unstable_response::UnstablePollResponseEventContent,
         unstable_start::{
             NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
             UnstablePollStartContentBlock,
@@ -29,6 +28,8 @@ use ruma::{
     },
     MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
 };
+
+use crate::timeline::ReactionsByKeyBySender;
 
 /// Holds the state of a poll.
 ///
@@ -41,6 +42,7 @@ pub struct PollState {
     pub(in crate::timeline) response_data: Vec<ResponseData>,
     pub(in crate::timeline) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
     pub(in crate::timeline) has_been_edited: bool,
+    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
 }
 
 #[derive(Clone, Debug)]
@@ -54,12 +56,14 @@ impl PollState {
     pub(crate) fn new(
         content: NewUnstablePollStartEventContent,
         edit: Option<NewUnstablePollStartEventContentWithoutRelation>,
+        reactions: ReactionsByKeyBySender,
     ) -> Self {
         let mut ret = Self {
             start_event_content: content,
             response_data: vec![],
             end_event_timestamp: None,
             has_been_edited: false,
+            reactions,
         };
 
         if let Some(edit) = edit {
@@ -88,31 +92,41 @@ impl PollState {
         }
     }
 
+    /// Add a response to a poll.
     pub(crate) fn add_response(
-        &self,
+        &mut self,
+        sender: OwnedUserId,
+        timestamp: MilliSecondsSinceUnixEpoch,
+        answers: Vec<String>,
+    ) {
+        self.response_data.push(ResponseData { sender, timestamp, answers });
+    }
+
+    /// Remove a response from the poll, as identified by its sender and
+    /// timestamp values.
+    pub(crate) fn remove_response(
+        &mut self,
         sender: &UserId,
         timestamp: MilliSecondsSinceUnixEpoch,
-        content: &UnstablePollResponseEventContent,
-    ) -> Self {
-        let mut clone = self.clone();
-        clone.response_data.push(ResponseData {
-            sender: sender.to_owned(),
-            timestamp,
-            answers: content.poll_response.answers.clone(),
-        });
-        clone
+    ) {
+        if let Some(idx) = self
+            .response_data
+            .iter()
+            .position(|resp| resp.sender == sender && resp.timestamp == timestamp)
+        {
+            self.response_data.remove(idx);
+        }
     }
 
     /// Marks the poll as ended.
     ///
-    /// If the poll has already ended, returns `Err(())`.
-    pub(crate) fn end(&self, timestamp: MilliSecondsSinceUnixEpoch) -> Result<Self, ()> {
+    /// Returns false if the poll was already ended, true otherwise.
+    pub(crate) fn end(&mut self, timestamp: MilliSecondsSinceUnixEpoch) -> bool {
         if self.end_event_timestamp.is_none() {
-            let mut clone = self.clone();
-            clone.end_event_timestamp = Some(timestamp);
-            Ok(clone)
+            self.end_event_timestamp = Some(timestamp);
+            true
         } else {
-            Err(())
+            false
         }
     }
 

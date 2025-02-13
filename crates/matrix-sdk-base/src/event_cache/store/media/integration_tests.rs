@@ -53,6 +53,9 @@ pub trait EventCacheStoreMediaIntegrationTests {
     /// Test [`IgnoreMediaRetentionPolicy`] with the media content's retention
     /// policy expiry.
     async fn test_media_ignore_expiry(&self);
+
+    /// Test last media cleanup time storage.
+    async fn test_store_last_media_cleanup_time(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -941,6 +944,25 @@ where
         let stored = self.get_media_content_inner(&request_5, time).await.unwrap();
         assert!(stored.is_none());
     }
+
+    async fn test_store_last_media_cleanup_time(&self) {
+        let initial = self.last_media_cleanup_time_inner().await.unwrap();
+        let new_time = initial.unwrap_or_else(SystemTime::now) + Duration::from_secs(60);
+
+        // With an empty policy.
+        let policy = MediaRetentionPolicy::empty();
+        self.clean_up_media_cache_inner(policy, new_time).await.unwrap();
+
+        let stored = self.last_media_cleanup_time_inner().await.unwrap();
+        assert_eq!(stored, initial);
+
+        // With the default policy.
+        let policy = MediaRetentionPolicy::default();
+        self.clean_up_media_cache_inner(policy, new_time).await.unwrap();
+
+        let stored = self.last_media_cleanup_time_inner().await.unwrap();
+        assert_eq!(stored, Some(new_time));
+    }
 }
 
 /// Macro building to allow your [`EventCacheStoreMedia`] implementation to run
@@ -1030,6 +1052,12 @@ macro_rules! event_cache_store_media_integration_tests {
         async fn test_media_ignore_expiry() {
             let event_cache_store_media = get_event_cache_store().await.unwrap();
             event_cache_store_media.test_media_ignore_expiry().await;
+        }
+
+        #[async_test]
+        async fn test_store_last_media_cleanup_time() {
+            let event_cache_store_media = get_event_cache_store().await.unwrap();
+            event_cache_store_media.test_store_last_media_cleanup_time().await;
         }
     };
 }

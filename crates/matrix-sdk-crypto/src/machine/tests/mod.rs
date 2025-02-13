@@ -18,8 +18,8 @@ use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
-    UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation,
-    WithheldCode,
+    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
+    UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -416,6 +416,42 @@ async fn test_room_key_sharing() {
     assert_eq!(room_key_updates.len(), 1);
     assert_eq!(room_key_updates[0].room_id, room_id);
     assert_eq!(room_key_updates[0].session_id, alice_session.session_id());
+}
+
+#[async_test]
+async fn test_session_encryption_info_can_be_fetched() {
+    // Given a megolm session has been established
+    let (alice, bob) = get_machine_pair_with_session(alice_id(), user_id(), false).await;
+    let room_id = room_id!("!test:example.org");
+
+    send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
+
+    let alice_session =
+        alice.inner.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+    let session = bob
+        .store()
+        .get_inbound_group_session(room_id, alice_session.session_id())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // When I request the encryption info about this session
+    let encryption_info =
+        bob.get_session_encryption_info(room_id, session.session_id(), alice_id()).await.unwrap();
+
+    // Then the expected info is returned
+    assert_eq!(encryption_info.sender, alice_id());
+    assert_eq!(encryption_info.sender_device.unwrap(), alice_device_id());
+    assert_matches!(
+        encryption_info.algorithm_info,
+        AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. }
+    );
+    assert_eq!(curve25519_key, alice_session.sender_key().to_string());
+    assert_eq!(
+        encryption_info.verification_state,
+        VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+    );
 }
 
 #[async_test]

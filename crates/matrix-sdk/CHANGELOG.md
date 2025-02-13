@@ -8,6 +8,42 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**]: The `Oidc::account_management_url` method now caches the
+  result of a call, subsequent calls to the method will not contact the OIDC
+  provider for a while, instead the cached URI will be returned. If caching of
+  this URI is not desirable, the `Oidc::fetch_account_management_url` method
+  can be used.
+  ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
+
+- The `MediaRetentionPolicy` can now trigger regular cleanups with its new
+  `cleanup_frequency` setting.
+  ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+- [**breaking**] The HTTP client only allows TLS 1.2 or newer, as recommended by
+  [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
+  ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
+
+### Bug Fixes
+
+- Ensure all known secrets are removed from secret storage when invoking the
+  `Recovery::disable()` method. While the server is not guaranteed to delete
+  these secrets, making an attempt to remove them is considered good practice.
+  Note that all secrets are uploaded to the server in an encrypted form.
+  ([#4629](https://github.com/matrix-org/matrix-rust-sdk/pull/4629))
+
+### Refactor
+
+- [**breaking**]: The `Oidc` API only supports public clients, i.e. clients
+  without a secret.
+  ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
+  - `Oidc::restore_registered_client()` takes a `ClientId` instead of
+    `ClientCredentials`
+  - `Oidc::restore_registered_client()` must NOT be called after
+    `Oidc::register_client()` anymore.
+
+## [0.10.0] - 2025-02-04
+
+### Features
+
 - Allow to set and check whether an image is animated via its `ImageInfo`.
   ([#4503](https://github.com/matrix-org/matrix-rust-sdk/pull/4503))
 
@@ -32,6 +68,14 @@ All notable changes to this project will be documented in this file.
   ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
 
 ### Refactor
+
+- [**breaking**]: The `RoomEventCacheUpdate::Clear` variant has been removed, as
+  it is redundant with the `RoomEventCacheUpdate::UpdateTimelineEvents { diffs:
+  Vec<VectorDiff<_>>, .. }` where `VectorDiff` has its own `Clear` variant.
+  ([#4627](https://github.com/matrix-org/matrix-rust-sdk/pull/4627))
+
+- Improve the performance of `EventCache` (approximately 4.5 times faster).
+  ([#4616](https://github.com/matrix-org/matrix-rust-sdk/pull/4616))
 
 - [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
   `TimelineEvent`, and its field `push_actions` has been made `Option`al (it is set to `None` when

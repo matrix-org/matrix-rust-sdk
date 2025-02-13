@@ -31,9 +31,9 @@ use axum::{
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oidc::{
+        registrations::ClientId,
         requests::account_management::AccountManagementActionFull,
         types::{
-            client_credentials::ClientCredentials,
             iana::oauth::OAuthClientAuthenticationMethod,
             oidc::ApplicationType,
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
@@ -215,12 +215,6 @@ impl OidcCli {
         // the JWT.
         let res = oidc.register_client(&issuer, metadata.clone(), None).await?;
 
-        oidc.restore_registered_client(
-            issuer,
-            metadata,
-            ClientCredentials::None { client_id: res.client_id.clone() },
-        );
-
         println!("\nRegistered successfully");
 
         Ok(res.client_id)
@@ -293,7 +287,7 @@ impl OidcCli {
         println!("Restoring session for {}…", user_session.meta.user_id);
 
         let session = OidcSession {
-            credentials: ClientCredentials::None { client_id: client_credentials.client_id },
+            client_id: ClientId(client_credentials.client_id),
             metadata: client_metadata(),
             user: user_session,
         };
@@ -450,7 +444,7 @@ impl OidcCli {
 
     /// Get the account management URL.
     async fn account(&self, action: Option<AccountManagementActionFull>) {
-        match self.client.oidc().account_management_url(action).await {
+        match self.client.oidc().fetch_account_management_url(action).await {
             Ok(Some(url)) => {
                 println!("\nTo manage your account, visit: {url}");
             }

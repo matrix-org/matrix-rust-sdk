@@ -94,8 +94,12 @@ impl SqliteCryptoStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
+        conn.set_journal_size_limit().await?;
+
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
+        conn.optimize().await?;
+
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
             None => None,

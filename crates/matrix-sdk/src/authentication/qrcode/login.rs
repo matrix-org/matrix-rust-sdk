@@ -16,9 +16,7 @@ use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use mas_oidc_client::types::{
-    client_credentials::ClientCredentials, registration::VerifiedClientMetadata,
-};
+use mas_oidc_client::types::registration::VerifiedClientMetadata;
 use matrix_sdk_base::{
     boxed_into_future,
     crypto::types::qr_login::{QrCodeData, QrCodeMode},
@@ -305,15 +303,6 @@ impl<'a> LoginWithQrCode<'a> {
         // Now we register the client with the OAuth 2.0 authorization server.
         let registration_response =
             oidc.register_client(&issuer, self.client_metadata.clone(), None).await?;
-
-        // Now we need to put the relevant data we got from the registration response
-        // into the `Client`.
-        // TODO: Why isn't `oidc().register_client()` doing this automatically?
-        oidc.restore_registered_client(
-            issuer.clone(),
-            self.client_metadata.clone(),
-            ClientCredentials::None { client_id: registration_response.client_id.clone() },
-        );
 
         // We're now switching to the oauth2 crate, it has a bit of a strange API
         // where you need to provide the HTTP client in every call you make.

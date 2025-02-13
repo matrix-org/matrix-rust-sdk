@@ -8,12 +8,31 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+### Features
+
+### Refactor
+
+- [**breaking**] Reactions on a given timeline item have been moved from
+  [`EventTimelineItem::reactions()`] to [`TimelineItemContent::reactions()`]; they're thus available
+  from an [`EventTimelineItem`] by calling `.content().reactions()`. They're also returned by
+  ownership (cloned) instead of by reference.
+  ([#4576](https://github.com/matrix-org/matrix-rust-sdk/pull/4576))
+
+## [0.10.0] - 2025-02-04
+
+### Bug Fixes
+
 - Don't consider rooms in the banned state to be non-left rooms. This bug was
   introduced due to the introduction of the banned state for rooms, and the
   non-left room filter did not take the new room stat into account.
   ([#4448](https://github.com/matrix-org/matrix-rust-sdk/pull/4448))
+
 - Fix `EventTimelineItem::latest_edit_json()` when it is populated by a live
   edit. ([#4552](https://github.com/matrix-org/matrix-rust-sdk/pull/4552))
+
+- Fix our own explicit read receipt being ignored when loading it from the
+  state store, which resulted in our own read receipt being wrong sometimes.
+  ([#4600](https://github.com/matrix-org/matrix-rust-sdk/pull/4600))
 
 ### Features
 
@@ -32,10 +51,17 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- Drastically improve the performance of the `Timeline` when it receives
+  hundreds and hundreds of events (approximately 10 times faster).
+  ([#4601](https://github.com/matrix-org/matrix-rust-sdk/pull/4601),
+  [#4608](https://github.com/matrix-org/matrix-rust-sdk/pull/4608),
+  [#4612](https://github.com/matrix-org/matrix-rust-sdk/pull/4612))
+
 - [**breaking**] `Timeline::paginate_forwards` and `Timeline::paginate_backwards`
   are unified to work on a live or focused timeline.
   `Timeline::live_paginate_*` and `Timeline::focused_paginate_*` have been
   removed ([#4584](https://github.com/matrix-org/matrix-rust-sdk/pull/4584)).
+
 - [**breaking**] `Timeline::subscribe_batched` replaces
   `Timeline::subscribe`. `subscribe` has been removed in
   [#4567](https://github.com/matrix-org/matrix-rust-sdk/pull/4567),
