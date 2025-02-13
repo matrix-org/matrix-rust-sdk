@@ -22,6 +22,7 @@ use crate::event_cache_store::indexeddb_serializer::IndexeddbSerializer;
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
 use indexed_db_futures::IdbQuerySource;
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_base::{
     event_cache::{
         store::{
@@ -99,18 +100,6 @@ impl IndexeddbEventCacheStore {
 
 type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
 
-#[cfg(target_arch = "wasm32")]
-macro_rules! impl_event_cache_store {
-    ({ $($body:tt)* }) => {
-        #[async_trait(?Send)]
-        impl EventCacheStore for IndexeddbEventCacheStore {
-            type Error = IndexeddbEventCacheStoreError;
-
-            $($body)*
-        }
-    };
-}
-
 #[derive(Serialize, Deserialize)]
 struct Chunk {
     id: String,
@@ -119,16 +108,42 @@ struct Chunk {
     type_str: String,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! impl_state_store {
-    ({ $($body:tt)* }) => {
-        impl IndexeddbEventCacheStore {
-            $($body)*
-        }
-    };
+#[derive(Serialize, Deserialize)]
+struct TimelineEventForCache {
+    id: String,
+    content: TimelineEvent,
+    room_id: String,
+    position: usize,
 }
 
-impl_event_cache_store!({
+// #[cfg(target_arch = "wasm32")]
+// macro_rules! impl_event_cache_store {
+//     ({ $($body:tt)* }) => {
+//         #[async_trait(?Send)]
+//         impl EventCacheStore for IndexeddbEventCacheStore {
+//             type Error = IndexeddbEventCacheStoreError;
+
+//             $($body)*
+//         }
+//     };
+// }
+
+// #[cfg(not(target_arch = "wasm32"))]
+// macro_rules! impl_event_cache_store {
+//     ({ $($body:tt)* }) => {
+//         impl IndexeddbEventCacheStore {
+//             $($body)*
+//         }
+//     };
+// }
+
+// TODO We need to implement this trait only on wasm32 target
+// But it kills autocomplete and inlay types in the IDE
+// When things are ready to commit, should be replaced with the macro above
+#[async_trait(?Send)]
+impl EventCacheStore for IndexeddbEventCacheStore {
+    type Error = IndexeddbEventCacheStoreError;
+
     async fn handle_linked_chunk_updates(
         &self,
         room_id: &RoomId,
@@ -351,16 +366,16 @@ impl_event_cache_store!({
 
                     let event_id = format!("{}-{}", chunk_id, index);
 
-                    let value = serde_json::json!({
-                        "id": event_id,
-                        "content": item,
-                        "room_id": room_id.to_string(),
-                        "position": index
-                    });
+                    let timeline_event = TimelineEventForCache {
+                        id: event_id.clone(),
+                        content: item,
+                        room_id: room_id.to_string(),
+                        position: index,
+                    };
 
-                    let value = self.serializer.serialize_value(&value)?;
+                    let value = self.serializer.serialize_value(&timeline_event)?;
 
-                    object_store.put_key_val(&JsValue::from_str(&event_id), &value)?;
+                    object_store.put_val(&value)?;
                 }
                 Update::RemoveItem { at } => {
                     let chunk_id = at.chunk_identifier().index();
@@ -397,7 +412,15 @@ impl_event_cache_store!({
                         .serializer
                         .encode_to_range(keys::EVENTS, format!("{room_id}-{chunk_id}"))?;
 
-                    object_store.get_all_with_key(&key_range)?.await.iter().for_each(|_entry| {});
+                    let items = object_store.get_all_with_key(&key_range)?.await?;
+
+                    for item in items {
+                        let event: TimelineEventForCache =
+                            self.serializer.deserialize_value(item)?;
+                        if event.position >= index {
+                            object_store.delete(&JsValue::from_str(&event.id))?;
+                        }
+                    }
                 }
                 Update::StartReattachItems => {}
                 Update::EndReattachItems => {}
@@ -607,4 +630,4 @@ impl_event_cache_store!({
             }
         }
     }
-});
+}
