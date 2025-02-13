@@ -185,7 +185,7 @@ async fn test_new_focused() {
 }
 
 #[async_test]
-async fn test_focused_timeline_reacts() {
+async fn test_focused_timeline_does_not_react() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -254,18 +254,7 @@ async fn test_focused_timeline_reacts() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
-
-    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-
-    let event_item = item.as_event().unwrap();
-    // Text hasn't changed.
-    assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    // But now there's one reaction to the event.
-    assert_eq!(event_item.content().reactions().len(), 1);
-
-    // And nothing more.
+    // Nothing was received by the focused event timeline
     assert_pending!(timeline_stream);
 }
 
