@@ -11,7 +11,6 @@ use matrix_sdk::{
         registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
         types::{
-            client_credentials::ClientCredentials,
             registration::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
@@ -1589,11 +1588,7 @@ impl Session {
                         },
                     issuer,
                 } = api.user_session().context("Missing session")?;
-                let client_id = api
-                    .client_credentials()
-                    .context("OIDC client credentials are missing.")?
-                    .client_id()
-                    .to_owned();
+                let client_id = api.client_id().context("OIDC client ID is missing.")?.0.clone();
                 let client_metadata =
                     api.client_metadata().context("OIDC client metadata is missing.")?.clone();
                 let oidc_data = OidcSessionData {
@@ -1657,7 +1652,7 @@ impl TryFrom<Session> for AuthSession {
             };
 
             let session = OidcSession {
-                credentials: ClientCredentials::None { client_id: oidc_data.client_id },
+                client_id: ClientId(oidc_data.client_id),
                 metadata: oidc_data.client_metadata,
                 user: user_session,
             };

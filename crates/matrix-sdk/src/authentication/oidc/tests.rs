@@ -5,7 +5,6 @@ use assert_matches::assert_matches;
 use mas_oidc_client::{
     requests::authorization_code::AuthorizationValidationData,
     types::{
-        client_credentials::ClientCredentials,
         errors::ClientErrorCode,
         iana::oauth::OAuthClientAuthenticationMethod,
         registration::{ClientMetadata, VerifiedClientMetadata},
@@ -25,33 +24,33 @@ use wiremock::{
 };
 
 use super::{
-    backend::mock::{MockImpl, AUTHORIZATION_URL, ISSUER_URL},
+    backend::mock::{MockImpl, AUTHORIZATION_URL, CLIENT_ID, ISSUER_URL},
     registrations::{ClientId, OidcRegistrations},
     AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc, OidcError, OidcSession,
     OidcSessionTokens, RedirectUriQueryParseError, UserSession,
 };
 use crate::{test_utils::test_client_builder, Client, Error};
 
-const CLIENT_ID: &str = "test_client_id";
 const REDIRECT_URI_STRING: &str = "http://matrix.example.com/oidc/callback";
 
-pub fn mock_registered_client_data() -> (ClientCredentials, VerifiedClientMetadata) {
-    (
-        ClientCredentials::None { client_id: CLIENT_ID.to_owned() },
-        ClientMetadata {
-            redirect_uris: Some(vec![Url::parse(REDIRECT_URI_STRING).unwrap()]),
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-            ..ClientMetadata::default()
-        }
-        .validate()
-        .expect("validate client metadata"),
-    )
+pub fn mock_client_metadata() -> VerifiedClientMetadata {
+    ClientMetadata {
+        redirect_uris: Some(vec![Url::parse(REDIRECT_URI_STRING).unwrap()]),
+        token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+        ..ClientMetadata::default()
+    }
+    .validate()
+    .expect("validate client metadata")
+}
+
+pub fn mock_registered_client_data() -> (ClientId, VerifiedClientMetadata) {
+    (ClientId(CLIENT_ID.to_owned()), mock_client_metadata())
 }
 
 pub fn mock_session(tokens: OidcSessionTokens) -> OidcSession {
-    let (credentials, metadata) = mock_registered_client_data();
+    let (client_id, metadata) = mock_registered_client_data();
     OidcSession {
-        credentials,
+        client_id,
         metadata,
         user: UserSession {
             meta: SessionMeta {
@@ -98,11 +97,11 @@ pub async fn mock_environment(
         backend: Arc::new(MockImpl::new().mark_insecure().next_session_tokens(session_tokens)),
     };
 
-    let (client_credentials, client_metadata) = mock_registered_client_data();
+    let (client_id, client_metadata) = mock_registered_client_data();
 
     // The mock backend doesn't support registration so set a static registration.
     let mut static_registrations = HashMap::new();
-    static_registrations.insert(issuer_url, ClientId(client_credentials.client_id().to_owned()));
+    static_registrations.insert(issuer_url, client_id);
 
     let registrations_path = tempdir().unwrap().path().join("oidc").join("registrations.json");
     let registrations =
@@ -118,7 +117,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
     assert!(oidc.issuer().is_none());
     assert!(oidc.client_metadata().is_none());
-    assert!(oidc.client_credentials().is_none());
+    assert!(oidc.client_id().is_none());
 
     // When getting the OIDC login URL.
     let authorization_data =
@@ -127,7 +126,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     // Then the client should be configured correctly.
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
-    assert!(oidc.client_credentials().is_some());
+    assert!(oidc.client_id().is_some());
 
     // When completing the login with a valid callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -148,7 +147,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
-    assert!(oidc.client_credentials().is_some());
+    assert!(oidc.client_id().is_some());
 
     // When completing login with a cancellation callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -172,7 +171,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
 
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
-    assert!(oidc.client_credentials().is_some());
+    assert!(oidc.client_id().is_some());
 
     // When completing login with an old/tampered state.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -374,9 +373,7 @@ async fn test_oidc_session() -> anyhow::Result<()> {
 
     let full_session = oidc.full_session().unwrap();
 
-    assert_matches!(full_session.credentials, ClientCredentials::None { client_id } => {
-        assert_eq!(client_id, CLIENT_ID);
-    });
+    assert_eq!(full_session.client_id.0, CLIENT_ID);
     assert_eq!(full_session.metadata, session.metadata);
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
@@ -451,4 +448,29 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[async_test]
+async fn test_register_client() {
+    let client = test_client_builder(Some("https://example.org".to_owned())).build().await.unwrap();
+    let client_metadata = mock_client_metadata();
+
+    // Server doesn't support registration, it fails.
+    let backend = Arc::new(MockImpl::new().registration_endpoint(None));
+    let oidc = Oidc { client: client.clone(), backend };
+
+    let result = oidc.register_client(ISSUER_URL, client_metadata.clone(), None).await;
+    assert_matches!(result, Err(OidcError::NoRegistrationSupport));
+
+    // Server supports registration, it succeeds.
+    let backend = Arc::new(MockImpl::new());
+    let oidc = Oidc { client: client.clone(), backend };
+
+    let response = oidc.register_client(ISSUER_URL, client_metadata.clone(), None).await.unwrap();
+    assert_eq!(response.client_id, CLIENT_ID);
+
+    let auth_data = oidc.data().unwrap();
+    assert_eq!(auth_data.issuer, ISSUER_URL);
+    assert_eq!(auth_data.client_id.0, response.client_id);
+    assert_eq!(auth_data.metadata, client_metadata);
 }

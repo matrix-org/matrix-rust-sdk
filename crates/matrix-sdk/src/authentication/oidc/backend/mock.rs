@@ -42,8 +42,10 @@ use crate::authentication::oidc::{AuthorizationCode, OidcSessionTokens};
 pub(crate) const ISSUER_URL: &str = "https://oidc.example.com/issuer";
 pub(crate) const AUTHORIZATION_URL: &str = "https://oidc.example.com/authorization";
 pub(crate) const REVOCATION_URL: &str = "https://oidc.example.com/revocation";
+pub(crate) const REGISTRATION_URL: &str = "https://oidc.example.com/register";
 pub(crate) const TOKEN_URL: &str = "https://oidc.example.com/token";
 pub(crate) const JWKS_URL: &str = "https://oidc.example.com/jwks";
+pub(crate) const CLIENT_ID: &str = "test_client_id";
 
 #[derive(Debug)]
 pub(crate) struct MockImpl {
@@ -61,6 +63,9 @@ pub(crate) struct MockImpl {
 
     /// Must be an HTTPS URL.
     revocation_endpoint: String,
+
+    /// Must be an HTTPS URL.
+    registration_endpoint: Option<Url>,
 
     /// The next session tokens that will be returned by a login or refresh.
     next_session_tokens: Option<OidcSessionTokens>,
@@ -86,6 +91,7 @@ impl MockImpl {
             token_endpoint: TOKEN_URL.to_owned(),
             jwks_uri: JWKS_URL.to_owned(),
             revocation_endpoint: REVOCATION_URL.to_owned(),
+            registration_endpoint: Some(Url::parse(REGISTRATION_URL).unwrap()),
             next_session_tokens: None,
             expected_refresh_token: None,
             num_refreshes: Default::default(),
@@ -106,6 +112,11 @@ impl MockImpl {
 
     pub fn mark_insecure(mut self) -> Self {
         self.is_insecure = true;
+        self
+    }
+
+    pub fn registration_endpoint(mut self, registration_endpoint: Option<Url>) -> Self {
+        self.registration_endpoint = registration_endpoint;
         self
     }
 }
@@ -131,6 +142,7 @@ impl OidcBackend for MockImpl {
             authorization_endpoint: Some(Url::parse(&self.authorization_endpoint).unwrap()),
             revocation_endpoint: Some(Url::parse(&self.revocation_endpoint).unwrap()),
             token_endpoint: Some(Url::parse(&self.token_endpoint).unwrap()),
+            registration_endpoint: self.registration_endpoint.clone(),
             jwks_uri: Some(Url::parse(&self.jwks_uri).unwrap()),
             response_types_supported: Some(vec![]),
             subject_types_supported: Some(vec![]),
@@ -162,7 +174,12 @@ impl OidcBackend for MockImpl {
         _client_metadata: VerifiedClientMetadata,
         _software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        unimplemented!()
+        Ok(ClientRegistrationResponse {
+            client_id: CLIENT_ID.to_owned(),
+            client_secret: None,
+            client_id_issued_at: None,
+            client_secret_expires_at: None,
+        })
     }
 
     async fn build_par_authorization_url(

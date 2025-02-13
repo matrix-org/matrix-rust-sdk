@@ -20,6 +20,16 @@ All notable changes to this project will be documented in this file.
   Note that all secrets are uploaded to the server in an encrypted form.
   ([#4629](https://github.com/matrix-org/matrix-rust-sdk/pull/4629))
 
+### Refactor
+
+- [**breaking**]: The `Oidc` API only supports public clients, i.e. clients
+  without a secret.
+  ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
+  - `Oidc::restore_registered_client()` takes a `ClientId` instead of
+    `ClientCredentials`
+  - `Oidc::restore_registered_client()` must NOT be called after
+    `Oidc::register_client()` anymore.
+
 ## [0.10.0] - 2025-02-04
 
 ### Features
