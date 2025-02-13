@@ -40,8 +40,8 @@ impl Deduplicator {
     /// will learn over time by using a Bloom filter which events are
     /// duplicates or not.
     ///
-    /// When the persistent storage is enabled by default, this constructor
-    /// (and the associated variant) will be removed.
+    /// When the persistent storage of the event cache is enabled by default,
+    /// this constructor (and the associated variant) will be removed.
     pub fn new_memory_based() -> Self {
         Self::InMemory(BloomFilterDeduplicator::new())
     }
@@ -51,9 +51,9 @@ impl Deduplicator {
     ///
     /// This deduplicator is stateless.
     ///
-    /// When the persistent storage is enabled by default, this will become the
-    /// default, and [`Deduplicator`] will be replaced with
-    /// [`StoreDeduplicator`].
+    /// When the persistent storage of the event cache is enabled by default,
+    /// this will become the default, and [`Deduplicator`] will be replaced
+    /// with [`StoreDeduplicator`].
     pub fn new_store_based(room_id: OwnedRoomId, store: EventCacheStoreLock) -> Self {
         Self::PersistentStore(StoreDeduplicator { room_id, store })
     }
@@ -76,7 +76,7 @@ impl Deduplicator {
 /// A deduplication mechanism based on the persistent storage associated to the
 /// event cache.
 ///
-/// It will use queries to the persistent storage to figure where events are
+/// It will use queries to the persistent storage to figure when events are
 /// duplicates or not, making it entirely stateless.
 pub struct StoreDeduplicator {
     /// The room this deduplicator applies to.
@@ -432,5 +432,81 @@ mod tests {
 
             dedups.push(dedup);
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[matrix_sdk_test::async_test]
+    async fn test_storage_deduplication() {
+        use std::sync::Arc;
+
+        use matrix_sdk_base::{
+            event_cache::store::{EventCacheStore as _, MemoryStore},
+            linked_chunk::{ChunkIdentifier, Position, Update},
+        };
+        use matrix_sdk_test::{ALICE, BOB};
+        use ruma::{event_id, room_id, serde::Raw};
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let eid3 = event_id!("$3");
+
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(eid1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(eid2).into_event();
+        let ev3 = f.text_msg("wassup").sender(*ALICE).event_id(eid3).into_event();
+        // An invalid event (doesn't have an event id.).
+        let ev4 = TimelineEvent::new(Raw::from_json_string("{}".to_owned()).unwrap());
+
+        // Prefill the store with ev1 and ev2.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    // Non empty items chunk.
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![ev1.clone()],
+                    },
+                    // And another items chunk, non-empty again.
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev2.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        // Wrap the store into its lock.
+        let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+
+        let deduplicator =
+            StoreDeduplicator { room_id: room_id.to_owned(), store: event_cache_store };
+
+        let (valid_events, duplicates) =
+            deduplicator.filter_duplicate_events(vec![ev1, ev2, ev3, ev4]).await.unwrap();
+
+        assert_eq!(valid_events.len(), 3);
+        assert_eq!(valid_events[0].event_id().as_deref(), Some(eid1));
+        assert_eq!(valid_events[1].event_id().as_deref(), Some(eid2));
+        assert_eq!(valid_events[2].event_id().as_deref(), Some(eid3));
+
+        assert_eq!(duplicates.len(), 2);
+        assert_eq!(duplicates[0], eid1);
+        assert_eq!(duplicates[1], eid2);
     }
 }
