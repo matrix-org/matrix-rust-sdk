@@ -100,7 +100,7 @@ pub fn check_test_event(event: &TimelineEvent, text: &str) {
 /// `EventCacheStore` integration tests.
 ///
 /// This trait is not meant to be used directly, but will be used with the
-/// [`event_cache_store_integration_tests!`] macro.
+/// `event_cache_store_integration_tests!` macro.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait EventCacheStoreIntegrationTests {

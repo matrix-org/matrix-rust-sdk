@@ -47,7 +47,7 @@ use crate::{
 /// `StateStore` integration tests.
 ///
 /// This trait is not meant to be used directly, but will be used with the
-/// [`statestore_integration_tests!`] macro.
+/// `statestore_integration_tests!` macro.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait StateStoreIntegrationTests {
