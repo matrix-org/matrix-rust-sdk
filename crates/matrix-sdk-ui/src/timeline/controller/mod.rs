@@ -80,7 +80,7 @@ use crate::{
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        TimelineEventFilterFn,
+        EncryptedMessage, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -1062,8 +1062,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         decryptor: impl Decryptor,
         session_ids: Option<BTreeSet<String>>,
     ) {
-        use super::EncryptedMessage;
-
         let mut state = self.state.clone().write_owned().await;
 
         let should_retry = move |session_id: &str| {
@@ -1074,21 +1072,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
         };
 
-        let retry_indices: Vec<_> = state
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
-                EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                    if should_retry(session_id) =>
-                {
-                    Some(idx)
-                }
-                EncryptedMessage::MegolmV1AesSha2 { .. }
-                | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                | EncryptedMessage::Unknown => None,
-            })
-            .collect();
+        let retry_indices = event_indices_to_retry_decryption(&state, &should_retry);
 
         if retry_indices.is_empty() {
             return;
@@ -1431,6 +1415,26 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
         }
     }
+}
+
+fn event_indices_to_retry_decryption(
+    state: &tokio::sync::OwnedRwLockWriteGuard<TimelineState>,
+    should_retry: impl Fn(&str) -> bool,
+) -> Vec<usize> {
+    let retry_indices: Vec<_> = state
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
+            EncryptedMessage::MegolmV1AesSha2 { session_id, .. } if should_retry(session_id) => {
+                Some(idx)
+            }
+            EncryptedMessage::MegolmV1AesSha2 { .. }
+            | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
+            | EncryptedMessage::Unknown => None,
+        })
+        .collect();
+    retry_indices
 }
 
 impl TimelineController {
