@@ -35,14 +35,10 @@ use ruma::{
         reaction::ReactionEventContent,
         receipt::Receipt,
         relation::Replacement,
-        room::{
-            encrypted::RoomEncryptedEventContent,
-            member::RoomMemberEventContent,
-            message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
-        },
+        room::message::{self, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
-        MessageLikeEventType, StateEventType, SyncStateEvent,
+        MessageLikeEventType, SyncStateEvent,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -123,7 +119,6 @@ pub(super) struct TimelineEventContext {
     pub(super) sender_profile: Option<Profile>,
     /// The event's `origin_server_ts` field (or creation time for local echo).
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
-    pub(super) is_own_event: bool,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
     pub(super) flow: Flow,
@@ -138,49 +133,30 @@ pub(super) struct TimelineEventContext {
 
 #[derive(Clone, Debug)]
 pub(super) enum TimelineEventKind {
+    AddItem {
+        content: TimelineItemContent,
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
+    },
+
     /// The common case: a message-like item.
     Message {
         content: AnyMessageLikeEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     },
 
-    /// An encrypted event that could not be decrypted
-    UnableToDecrypt { content: RoomEncryptedEventContent, utd_cause: UtdCause },
-
-    /// Some remote event that was redacted a priori, i.e. we never had the
-    /// original content, so we'll just display a dummy redacted timeline
-    /// item.
-    RedactedMessage { event_type: MessageLikeEventType },
-
     /// We're redacting a remote event that we may or may not know about (i.e.
     /// the redacted event *may* have a corresponding timeline item).
-    Redaction { redacts: OwnedEventId },
-
-    /// A timeline event for a room membership update.
-    RoomMember {
-        user_id: OwnedUserId,
-        content: FullStateEventContent<RoomMemberEventContent>,
-        sender: OwnedUserId,
-    },
-
-    /// A state update that's not a [`Self::RoomMember`] event.
-    OtherState { state_key: String, content: AnyOtherFullStateEventContent },
-
-    /// If the timeline is configured to display events that failed to parse, a
-    /// special item indicating a message-like event that couldn't be
-    /// deserialized.
-    FailedToParseMessageLike { event_type: MessageLikeEventType, error: Arc<serde_json::Error> },
-
-    /// If the timeline is configured to display events that failed to parse, a
-    /// special item indicating a state event that couldn't be deserialized.
-    FailedToParseState {
-        event_type: StateEventType,
-        state_key: String,
-        error: Arc<serde_json::Error>,
+    Redaction {
+        redacts: OwnedEventId,
     },
 }
 
 impl TimelineEventKind {
+    /// Create a new [`TimelineEventKind::AddItem`] with no edit json.
+    fn add_item(content: TimelineItemContent) -> Self {
+        Self::AddItem { content, edit_json: None }
+    }
+
     /// Creates a new `TimelineEventKind`.
     ///
     /// # Arguments
@@ -197,16 +173,24 @@ impl TimelineEventKind {
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
-    ) -> Self {
+        meta: &TimelineMetadata,
+    ) -> Option<Self> {
         let room_version = room_data_provider.room_version();
-        match event {
+
+        let redacted_message_or_none = |event_type: MessageLikeEventType| {
+            (event_type != MessageLikeEventType::Reaction)
+                .then_some(TimelineItemContent::RedactedMessage)
+        };
+
+        Some(match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(&room_version).map(ToOwned::to_owned) {
                     Self::Redaction { redacts }
                 } else {
-                    Self::RedactedMessage { event_type: ev.event_type() }
+                    Self::add_item(redacted_message_or_none(ev.event_type())?)
                 }
             }
+
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(AnyMessageLikeEventContent::RoomEncrypted(content)) => {
                     // An event which is still encrypted.
@@ -216,7 +200,20 @@ impl TimelineEventKind {
                             room_data_provider.crypto_context_info().await,
                             &unable_to_decrypt_info,
                         );
-                        Self::UnableToDecrypt { content, utd_cause }
+
+                        // Let the hook know that we ran into an unable-to-decrypt that is added to
+                        // the timeline.
+                        if let Some(hook) = meta.unable_to_decrypt_hook.as_ref() {
+                            hook.on_utd(
+                                ev.event_id(),
+                                utd_cause,
+                                ev.origin_server_ts(),
+                                ev.sender(),
+                            )
+                            .await;
+                        }
+
+                        Self::add_item(TimelineItemContent::unable_to_decrypt(content, utd_cause))
                     } else {
                         // If we get here, it means that some part of the code has created a
                         // `TimelineEvent` containing an `m.room.encrypted` event
@@ -230,30 +227,35 @@ impl TimelineEventKind {
                     }
                 }
                 Some(content) => Self::Message { content, relations: ev.relations() },
-                None => Self::RedactedMessage { event_type: ev.event_type() },
+                None => Self::add_item(redacted_message_or_none(ev.event_type())?),
             },
+
             AnySyncTimelineEvent::State(ev) => match ev {
                 AnySyncStateEvent::RoomMember(ev) => match ev {
-                    SyncStateEvent::Original(ev) => Self::RoomMember {
-                        user_id: ev.state_key,
-                        content: FullStateEventContent::Original {
-                            content: ev.content,
-                            prev_content: ev.unsigned.prev_content,
-                        },
-                        sender: ev.sender,
-                    },
-                    SyncStateEvent::Redacted(ev) => Self::RoomMember {
-                        user_id: ev.state_key,
-                        content: FullStateEventContent::Redacted(ev.content),
-                        sender: ev.sender,
-                    },
+                    SyncStateEvent::Original(ev) => {
+                        Self::add_item(TimelineItemContent::room_member(
+                            ev.state_key,
+                            FullStateEventContent::Original {
+                                content: ev.content,
+                                prev_content: ev.unsigned.prev_content,
+                            },
+                            ev.sender,
+                        ))
+                    }
+                    SyncStateEvent::Redacted(ev) => {
+                        Self::add_item(TimelineItemContent::room_member(
+                            ev.state_key,
+                            FullStateEventContent::Redacted(ev.content),
+                            ev.sender,
+                        ))
+                    }
                 },
-                ev => Self::OtherState {
+                ev => Self::add_item(TimelineItemContent::OtherState(OtherState {
                     state_key: ev.state_key().to_owned(),
                     content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
-                },
+                })),
             },
-        }
+        })
     }
 
     pub(super) fn failed_to_parse(
@@ -263,21 +265,31 @@ impl TimelineEventKind {
         let error = Arc::new(error);
         match event {
             SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+                Self::add_item(TimelineItemContent::FailedToParseMessageLike {
+                    event_type: ev.content.event_type,
+                    error,
+                })
             }
             SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
-                Self::FailedToParseMessageLike { event_type: ev.content.event_type, error }
+                Self::add_item(TimelineItemContent::FailedToParseMessageLike {
+                    event_type: ev.content.event_type,
+                    error,
+                })
             }
-            SyncTimelineEventWithoutContent::OriginalState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
-            },
-            SyncTimelineEventWithoutContent::RedactedState(ev) => Self::FailedToParseState {
-                event_type: ev.content.event_type,
-                state_key: ev.state_key,
-                error,
-            },
+            SyncTimelineEventWithoutContent::OriginalState(ev) => {
+                Self::add_item(TimelineItemContent::FailedToParseState {
+                    event_type: ev.content.event_type,
+                    state_key: ev.state_key,
+                    error,
+                })
+            }
+            SyncTimelineEventWithoutContent::RedactedState(ev) => {
+                Self::add_item(TimelineItemContent::FailedToParseState {
+                    event_type: ev.content.event_type,
+                    state_key: ev.state_key,
+                    error,
+                })
+            }
         }
     }
 }
@@ -392,6 +404,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let should_add = self.ctx.should_add_new_items;
 
         match event_kind {
+            TimelineEventKind::AddItem { content, edit_json } => {
+                if should_add {
+                    self.add_item(content, edit_json);
+                }
+            }
+
             TimelineEventKind::Message { content, relations } => match content {
                 AnyMessageLikeEventContent::Reaction(c) => {
                     self.handle_reaction(c);
@@ -459,65 +477,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             },
 
-            TimelineEventKind::UnableToDecrypt { content, utd_cause } => {
-                // TODO: Handle replacements if the replaced event is also UTD
-                if should_add {
-                    self.add_item(TimelineItemContent::unable_to_decrypt(content, utd_cause), None);
-                }
-
-                // Let the hook know that we ran into an unable-to-decrypt that is added to the
-                // timeline.
-                if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
-                    if let Some(event_id) = &self.ctx.flow.event_id() {
-                        hook.on_utd(event_id, utd_cause, self.ctx.timestamp, &self.ctx.sender)
-                            .await;
-                    }
-                }
-            }
-
-            TimelineEventKind::RedactedMessage { event_type } => {
-                if event_type != MessageLikeEventType::Reaction && should_add {
-                    self.add_item(TimelineItemContent::RedactedMessage, None);
-                }
-            }
-
             TimelineEventKind::Redaction { redacts } => {
                 self.handle_redaction(redacts);
-            }
-
-            TimelineEventKind::RoomMember { user_id, content, sender } => {
-                if should_add {
-                    self.add_item(TimelineItemContent::room_member(user_id, content, sender), None);
-                }
-            }
-
-            TimelineEventKind::OtherState { state_key, content } => {
-                // Update room encryption if a `m.room.encryption` event is found in the
-                // timeline
-                if should_add {
-                    self.add_item(
-                        TimelineItemContent::OtherState(OtherState { state_key, content }),
-                        None,
-                    );
-                }
-            }
-
-            TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
-                if should_add {
-                    self.add_item(
-                        TimelineItemContent::FailedToParseMessageLike { event_type, error },
-                        None,
-                    );
-                }
-            }
-
-            TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
-                if should_add {
-                    self.add_item(
-                        TimelineItemContent::FailedToParseState { event_type, state_key, error },
-                        None,
-                    );
-                }
             }
         }
 
@@ -1010,7 +971,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     event_id: event_id.clone(),
                     transaction_id: txn_id.clone(),
                     read_receipts: self.ctx.read_receipts.clone(),
-                    is_own: self.ctx.is_own_event,
+                    is_own: self.ctx.sender == self.meta.own_user_id,
                     is_highlighted: self.ctx.is_highlighted,
                     encryption_info: encryption_info.clone(),
                     original_json: Some(raw_event.clone()),

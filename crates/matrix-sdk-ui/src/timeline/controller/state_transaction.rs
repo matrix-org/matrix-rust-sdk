@@ -278,7 +278,14 @@ impl<'a> TimelineStateTransaction<'a> {
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    TimelineEventKind::from_event(event, &raw, room_data_provider, utd_info).await,
+                    TimelineEventKind::from_event(
+                        event,
+                        &raw,
+                        room_data_provider,
+                        utd_info,
+                        &self.meta,
+                    )
+                    .await,
                     should_add,
                 )
             }
@@ -292,7 +299,7 @@ impl<'a> TimelineStateTransaction<'a> {
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    TimelineEventKind::failed_to_parse(event, e),
+                    Some(TimelineEventKind::failed_to_parse(event, e)),
                     true,
                 ),
 
@@ -303,11 +310,9 @@ impl<'a> TimelineStateTransaction<'a> {
                     let event_id = event.event_id();
                     warn!(%event_type, %event_id, "Failed to deserialize timeline event: {e}");
 
-                    let is_own_event = event.sender() == room_data_provider.own_user_id();
                     let event_meta = FullEventMeta {
                         event_id,
                         sender: Some(event.sender()),
-                        is_own_event,
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
@@ -338,15 +343,12 @@ impl<'a> TimelineStateTransaction<'a> {
 
                     if let Some(event_id) = &event_id {
                         let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
-                        let is_own_event =
-                            sender.as_ref().is_some_and(|s| s == room_data_provider.own_user_id());
                         let timestamp: Option<MilliSecondsSinceUnixEpoch> =
                             raw.get_field("origin_server_ts").ok().flatten();
 
                         let event_meta = FullEventMeta {
                             event_id,
                             sender: sender.as_deref(),
-                            is_own_event,
                             timestamp,
                             visible: false,
                         };
@@ -367,12 +369,9 @@ impl<'a> TimelineStateTransaction<'a> {
             },
         };
 
-        let is_own_event = sender == room_data_provider.own_user_id();
-
         let event_meta = FullEventMeta {
             event_id: &event_id,
             sender: Some(&sender),
-            is_own_event,
             timestamp: Some(timestamp),
             visible: should_add,
         };
@@ -386,7 +385,6 @@ impl<'a> TimelineStateTransaction<'a> {
             sender,
             sender_profile,
             timestamp,
-            is_own_event,
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
@@ -410,7 +408,13 @@ impl<'a> TimelineStateTransaction<'a> {
         };
 
         // Handle the event to create or update a timeline item.
-        TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
+        if let Some(event_kind) = event_kind {
+            TimelineEventHandler::new(self, ctx)
+                .handle_event(date_divider_adjuster, event_kind)
+                .await
+        } else {
+            HandleEventResult::default()
+        }
     }
 
     /// Remove one timeline item by its `event_index`.
