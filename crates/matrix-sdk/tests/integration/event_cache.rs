@@ -1056,14 +1056,12 @@ async fn test_backpaginate_with_no_initial_events() {
     //
     // The following things will happen:
     // - We don't have a prev-batch token to start with, so the first
-    //   back-pagination doesn't start
-    // before DEFAULT_WAIT_FOR_TOKEN_DURATION seconds.
+    //   back-pagination doesn't start before DEFAULT_WAIT_FOR_TOKEN_DURATION
+    //   seconds.
     // - While the back-pagination is actually running, we need a sync adding events
-    //   to happen
-    // (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500 milliseconds).
+    //   to happen (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500 milliseconds).
     // - The back-pagination finishes after this sync (after
-    //   DEFAULT_WAIT_FOR_TOKEN_DURATION + 1
-    // second).
+    //   DEFAULT_WAIT_FOR_TOKEN_DURATION + 1 seconds).
 
     let wait_time = Duration::from_millis(500);
     server
@@ -1071,8 +1069,8 @@ async fn test_backpaginate_with_no_initial_events() {
         .ok(RoomMessagesResponseTemplate::default()
             .end_token("prev_batch")
             .events(vec![
-                f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
-                f.text_msg("hello").event_id(event_id!("$3")).into_raw_timeline(),
+                f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
+                f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
             ])
             .delayed(2 * wait_time))
         .mock_once()
@@ -1105,7 +1103,7 @@ async fn test_backpaginate_with_no_initial_events() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$3"))),
+                .add_timeline_event(f.text_msg("world").event_id(event_id!("$3"))),
         )
         .await;
 
@@ -1377,10 +1375,10 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // recent token.
     let outcome = pagination.run_backwards(20, once).await.unwrap();
 
-    // The pagination contains events, but they are all duplicated; the gap is
-    // replaced by zero event: nothing happens.
+    // The pagination contains deduplicated events; they are all deduplicated; the
+    // gap is replaced by zero event: nothing happens.
     assert!(outcome.reached_start.not());
-    assert_eq!(outcome.events.len(), 2);
+    assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
     // If this back-pagination fails, that's because we've stored a gap that's

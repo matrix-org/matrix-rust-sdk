@@ -425,6 +425,11 @@ impl RoomEventCacheInner {
         let (events, duplicated_event_ids, all_duplicates) =
             state.collect_valid_and_duplicated_events(sync_timeline_events.clone()).await?;
 
+        // During a sync, when a duplicated event is found, the old event is removed and
+        // the new event is added. This is the opposite strategy than during a backwards
+        // pagination where the old event is kept and the new event is ignored.
+        //
+        // Let's remove the old events that are duplicated.
         let sync_timeline_events_diffs = if all_duplicates {
             // No new events, thus no need to change the room events.
             vec![]
@@ -437,13 +442,14 @@ impl RoomEventCacheInner {
                         room_events.push_gap(Gap { prev_token: prev_token.clone() });
                     }
 
-                    // Remove the _old_ duplicated events!
+                    // Remove the old duplicated events.
                     //
                     // We don't have to worry the removals can change the position of the
                     // existing events, because we are pushing all _new_
                     // `events` at the back.
                     room_events.remove_events_by_id(duplicated_event_ids);
 
+                    // Push the new events.
                     room_events.push_events(events.clone());
 
                     room_events.on_new_events(&self.room_version, events.iter());
