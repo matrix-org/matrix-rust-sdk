@@ -185,50 +185,18 @@ impl RoomPagination {
 
         let (backpagination_outcome, sync_timeline_events_diffs) = state
             .with_events_mut(move |room_events| {
+            let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
-        let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
-                // First, insert events.
-                let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
-                    // There is a prior gap, let's replace it by new events!
-                    if all_deduplicated {
-                        // All the events were duplicated; don't act upon them, and only remove the
-                        // prior gap that we just filled.
-                        trace!("removing previous gap, as all events have been deduplicated");
-                        room_events.remove_gap_at(gap_id).expect("gap identifier is a valid gap chunk id we read previously")
-                    } else {
-                        trace!("replacing previous gap with the back-paginated events");
-
-                        // Remove the _old_ duplicated events!
-                        //
-                        // We don't have to worry the removals can change the position of the existing
-                        // events, because we are replacing a gap: its identifier will not change
-                        // because of the removals.
-                        room_events.remove_events_by_id(duplicated_event_ids);
-
-                        // Replace the gap with the events we just deduplicated.
-                        room_events.replace_gap_at(new_events.clone(), gap_id)
-                            .expect("gap_identifier is a valid chunk id we read previously")
-                    }
-                } else if let Some(mut pos) = first_event_pos {
-                    // No prior gap, but we had some events: assume we need to prepend events
-                    // before those.
-                    trace!("inserted events before the first known event");
-
-                    // Remove the _old_ duplicated events!
-                    //
-                    // We **have to worry* the removals can change the position of the
-                    // existing events. We **have** to update the `position`
-                    // argument value for each removal.
-                    room_events.remove_events_and_update_insert_position(duplicated_event_ids, &mut pos);
-
-                    room_events
-                        .insert_events_at(new_events.clone(), pos)
-                        .expect("pos is a valid position we just read above");
-
-                    Some(pos)
+            // First, insert events.
+            let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                // There is a prior gap, let's replace it by new events!
+                if all_deduplicated {
+                    // All the events were duplicated; don't act upon them, and only remove the
+                    // prior gap that we just filled.
+                    trace!("removing previous gap, as all events have been deduplicated");
+                    room_events.remove_gap_at(gap_id).expect("gap identifier is a valid gap chunk id we read previously")
                 } else {
-                    // No prior gap, and no prior events: push the events.
-                    trace!("pushing events received from back-pagination");
+                    trace!("replacing previous gap with the back-paginated events");
 
                     // Remove the _old_ duplicated events!
                     //
@@ -237,35 +205,67 @@ impl RoomPagination {
                     // because of the removals.
                     room_events.remove_events_by_id(duplicated_event_ids);
 
-                    room_events.push_events(new_events.clone());
-
-                    // A new gap may be inserted before the new events, if there are any.
-                    room_events.events().next().map(|(item_pos, _)| item_pos)
-                };
-
-                // And insert the new gap if needs be.
-                //
-                // We only do this when at least one new, non-duplicated event, has been added to
-                // the chunk. Otherwise it means we've back-paginated all the known events.
-                if !all_deduplicated {
-                    if let Some(new_gap) = new_gap {
-                        if let Some(new_pos) = insert_new_gap_pos {
-                            room_events
-                                .insert_gap_at(new_gap, new_pos)
-                                .expect("events_chunk_pos represents a valid chunk position");
-                        } else {
-                            room_events.push_gap(new_gap);
-                        }
-                    }
-                } else {
-                    debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
+                    // Replace the gap with the events we just deduplicated.
+                    room_events.replace_gap_at(new_events.clone(), gap_id)
+                        .expect("gap_identifier is a valid chunk id we read previously")
                 }
+            } else if let Some(mut pos) = first_event_pos {
+                // No prior gap, but we had some events: assume we need to prepend events
+                // before those.
+                trace!("inserted events before the first known event");
 
-                room_events.on_new_events(&self.inner.room_version, new_events.iter());
+                // Remove the _old_ duplicated events!
+                //
+                // We **have to worry* the removals can change the position of the
+                // existing events. We **have** to update the `position`
+                // argument value for each removal.
+                room_events.remove_events_and_update_insert_position(duplicated_event_ids, &mut pos);
 
-                BackPaginationOutcome { events, reached_start }
-            })
-            .await?;
+                room_events
+                    .insert_events_at(new_events.clone(), pos)
+                    .expect("pos is a valid position we just read above");
+
+                Some(pos)
+            } else {
+                // No prior gap, and no prior events: push the events.
+                trace!("pushing events received from back-pagination");
+
+                // Remove the _old_ duplicated events!
+                //
+                // We don't have to worry the removals can change the position of the existing
+                // events, because we are replacing a gap: its identifier will not change
+                // because of the removals.
+                room_events.remove_events_by_id(duplicated_event_ids);
+
+                room_events.push_events(new_events.clone());
+
+                // A new gap may be inserted before the new events, if there are any.
+                room_events.events().next().map(|(item_pos, _)| item_pos)
+            };
+
+            // And insert the new gap if needs be.
+            //
+            // We only do this when at least one new, non-duplicated event, has been added to
+            // the chunk. Otherwise it means we've back-paginated all the known events.
+            if !all_deduplicated {
+                if let Some(new_gap) = new_gap {
+                    if let Some(new_pos) = insert_new_gap_pos {
+                        room_events
+                            .insert_gap_at(new_gap, new_pos)
+                            .expect("events_chunk_pos represents a valid chunk position");
+                    } else {
+                        room_events.push_gap(new_gap);
+                    }
+                }
+            } else {
+                debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
+            }
+
+            room_events.on_new_events(&self.inner.room_version, new_events.iter());
+
+            BackPaginationOutcome { events, reached_start }
+        })
+        .await?;
 
         if !sync_timeline_events_diffs.is_empty() {
             let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
