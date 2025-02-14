@@ -21,6 +21,10 @@ All notable changes to this project will be documented in this file.
 
 - Room keys are not shared with unsigned dehydrated devices.
   ([#4551](https://github.com/matrix-org/matrix-rust-sdk/pull/4551))
+  
+- Have the `RoomIdentityProvider` return processing changes when identities transition
+  to `IdentityState::Verified` too.
+  ([#1234](https://github.com/matrix-org/matrix-rust-sdk/pull/????))
 
 ## [0.9.0] - 2024-12-18
 

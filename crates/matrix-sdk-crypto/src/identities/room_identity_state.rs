@@ -146,6 +146,14 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
                 if let Some(user_identity @ UserIdentity::Other(_)) =
                     self.room.user_identity(user_id).await
                 {
+                    // Don't notify on membership changes of verified or pinned identities
+                    if matches!(
+                        self.room.state_of(&user_identity),
+                        IdentityState::Verified | IdentityState::Pinned
+                    ) {
+                        return vec![];
+                    }
+
                     match event.content.membership {
                         MembershipState::Join | MembershipState::Invite => {
                             // They are joining the room - check whether we need to display a
@@ -219,16 +227,11 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
             // Changed the type of bad - report so can change the message
             (PinViolation, VerificationViolation) |
-            (VerificationViolation, PinViolation) => Some(self.set_state(user_id, new_state)),
+            (VerificationViolation, PinViolation) |
 
-            // good -> good - don't report - no message needed in either case
+            // Changed the type of good - report so can change the message
             (Pinned, Verified) |
-            (Verified, Pinned) => {
-                // The state has changed, so we update it
-                self.set_state(user_id, new_state);
-                // but there is no need to report a change to the UI
-                None
-            }
+            (Verified, Pinned) => Some(self.set_state(user_id, new_state)),
 
             // State didn't change - don't report - nothing changed
             (Pinned, Pinned) |
@@ -409,8 +412,14 @@ mod tests {
             identity_change(&mut room, user_id, IdentityState::Verified, false, false).await;
         let update = state.process_change(updates).await;
 
-        // Then we emit no update
-        assert_eq!(update, vec![]);
+        // Then we emit an update
+        assert_eq!(
+            update,
+            vec![IdentityStatusChange {
+                user_id: user_id.to_owned(),
+                changed_to: IdentityState::Verified
+            }]
+        );
     }
 
     #[async_test]
@@ -722,7 +731,7 @@ mod tests {
 
     #[async_test]
     async fn test_a_verified_identity_leaving_the_room_does_nothing() {
-        // Given a pinned user is in the room
+        // Given a verified user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
         room.member(other_user_identity(user_id).await, IdentityState::Verified);
