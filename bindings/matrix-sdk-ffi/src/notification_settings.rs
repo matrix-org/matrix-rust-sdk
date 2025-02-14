@@ -704,6 +704,7 @@ impl NotificationSettings {
         Ok(())
     }
 
+    /// Sets a custom push rule with the given actions and conditions.
     pub async fn set_custom_push_rule(
         &self,
         rule_id: String,
