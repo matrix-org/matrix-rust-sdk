@@ -71,22 +71,22 @@ pub enum JsonValue {
     Null,
 
     /// Represents a boolean.
-    Bool(bool),
+    Bool { value: bool },
 
     /// Represents an integer.
-    Integer(i64),
+    Integer { value: i64 },
 
     /// Represents a string.
-    String(String),
+    String { value: String },
 }
 
 impl From<SdkJsonValue> for JsonValue {
     fn from(value: SdkJsonValue) -> Self {
         match value {
             SdkJsonValue::Null => Self::Null,
-            SdkJsonValue::Bool(b) => Self::Bool(b),
-            SdkJsonValue::Integer(i) => Self::Integer(i.into()),
-            SdkJsonValue::String(s) => Self::String(s),
+            SdkJsonValue::Bool(b) => Self::Bool { value: b },
+            SdkJsonValue::Integer(i) => Self::Integer { value: i.into() },
+            SdkJsonValue::String(s) => Self::String { value: s },
         }
     }
 }
@@ -95,9 +95,9 @@ impl From<JsonValue> for SdkJsonValue {
     fn from(value: JsonValue) -> Self {
         match value {
             JsonValue::Null => Self::Null,
-            JsonValue::Bool(b) => Self::Bool(b),
-            JsonValue::Integer(i) => Self::Integer(Int::new(i).unwrap_or_default()),
-            JsonValue::String(s) => Self::String(s),
+            JsonValue::Bool { value } => Self::Bool(value),
+            JsonValue::Integer { value } => Self::Integer(Int::new(value).unwrap_or_default()),
+            JsonValue::String { value } => Self::String(value),
         }
     }
 }
