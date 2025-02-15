@@ -359,6 +359,7 @@ impl Oidc {
     ///
     /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
     pub async fn fetch_authentication_issuer(&self) -> Result<String, HttpError> {
+        #[allow(deprecated)]
         let response = self.client.send(get_authentication_issuer::msc2965::Request::new()).await?;
 
         Ok(response.issuer)
