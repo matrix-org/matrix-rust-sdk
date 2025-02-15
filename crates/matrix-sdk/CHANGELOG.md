@@ -42,6 +42,21 @@ All notable changes to this project will be documented in this file.
 - [**breaking**]: The `authentication::qrcode` module now reexports types from
   `oauth2` rather than `openidconnect`. Some type names might have changed.
   ([#4604](https://github.com/matrix-org/matrix-rust-sdk/pull/4604))
+- [**breaking**]: The `Oidc` API uses the `GET /auth_metadata` endpoint from the
+  latest version of [MSC2965](https://github.com/matrix-org/matrix-spec-proposals/pull/2965)
+  by default. The previous `GET /auth_issuer` endpoint is still supported as a
+  fallback for now.
+  ([#4673](https://github.com/matrix-org/matrix-rust-sdk/pull/4673))
+  - It is not possible to provide a custom issuer anymore:
+    `Oidc::given_provider_metadata()` was removed, and the parameter was removed
+    from `Oidc::register_client()`.
+  - `Oidc::fetch_authentication_issuer()` was removed. To check if the
+    homeserver supports OAuth 2.0, use `Oidc::provider_metadata()`. To get the
+    issuer, use `VerifiedProviderMetadata::issuer()`.
+  - `Oidc::provider_metadata()` returns an `OauthDiscoveryError`. It has a
+    `NotSupported` variant and an `is_not_supported()` method to check if the
+    error is due to the server not supporting OAuth 2.0.
+  - `OidcError::MissingAuthenticationIssuer` was removed.
 
 ## [0.10.0] - 2025-02-04
 
