@@ -19,10 +19,8 @@ use std::sync::{Arc, Mutex};
 use http::StatusCode;
 use mas_oidc_client::{
     error::{
-        DiscoveryError,
-        Error::{self as OidcClientError, Discovery},
-        ErrorBody as OidcErrorBody, HttpError as OidcHttpError, TokenRefreshError,
-        TokenRequestError,
+        DiscoveryError as OidcDiscoveryError, Error as OidcClientError, ErrorBody as OidcErrorBody,
+        HttpError as OidcHttpError, TokenRefreshError, TokenRequestError,
     },
     requests::authorization_code::{AuthorizationRequestData, AuthorizationValidationData},
     types::{
@@ -37,7 +35,7 @@ use mas_oidc_client::{
 use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
-use crate::authentication::oidc::{AuthorizationCode, OidcSessionTokens};
+use crate::authentication::oidc::{AuthorizationCode, OauthDiscoveryError, OidcSessionTokens};
 
 pub(crate) const ISSUER_URL: &str = "https://oidc.example.com/issuer";
 pub(crate) const AUTHORIZATION_URL: &str = "https://oidc.example.com/authorization";
@@ -131,14 +129,18 @@ impl MockImpl {
 
 #[async_trait::async_trait]
 impl OidcBackend for MockImpl {
-    async fn discover(&self, insecure: bool) -> Result<VerifiedProviderMetadata, OidcError> {
+    async fn discover(
+        &self,
+        insecure: bool,
+    ) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
         if insecure != self.is_insecure {
-            return Err(OidcError::Oidc(Discovery(DiscoveryError::Validation(
+            return Err(OidcDiscoveryError::Validation(
                 ProviderMetadataVerificationError::UrlNonHttpsScheme(
                     "mocking backend",
                     Url::parse(&self.issuer).unwrap(),
                 ),
-            ))));
+            )
+            .into());
         }
 
         Ok(ProviderMetadata {
@@ -158,7 +160,7 @@ impl OidcBackend for MockImpl {
             ..Default::default()
         }
         .validate(&self.issuer)
-        .map_err(DiscoveryError::from)?)
+        .map_err(OidcDiscoveryError::from)?)
     }
 
     async fn trade_authorization_code_for_tokens(

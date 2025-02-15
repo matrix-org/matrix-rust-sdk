@@ -196,7 +196,7 @@ pub enum OidcError {
 impl From<SdkOidcError> for OidcError {
     fn from(e: SdkOidcError) -> OidcError {
         match e {
-            SdkOidcError::NotSupported => OidcError::NotSupported,
+            SdkOidcError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
             SdkOidcError::MissingRedirectUri => OidcError::MetadataInvalid,
             SdkOidcError::InvalidCallbackUrl => OidcError::CallbackUrlInvalid,
             SdkOidcError::InvalidState => OidcError::CallbackUrlInvalid,

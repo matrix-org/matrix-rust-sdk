@@ -28,7 +28,7 @@ use mas_oidc_client::{
 };
 use url::Url;
 
-use super::{AuthorizationCode, OidcError, OidcSessionTokens};
+use super::{AuthorizationCode, OauthDiscoveryError, OidcError, OidcSessionTokens};
 
 pub(crate) mod server;
 
@@ -42,7 +42,10 @@ pub(super) struct RefreshedSessionTokens {
 
 #[async_trait::async_trait]
 pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
-    async fn discover(&self, insecure: bool) -> Result<VerifiedProviderMetadata, OidcError>;
+    async fn discover(
+        &self,
+        insecure: bool,
+    ) -> Result<VerifiedProviderMetadata, OauthDiscoveryError>;
 
     async fn register_client(
         &self,

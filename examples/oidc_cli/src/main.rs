@@ -714,22 +714,24 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
             .await
         {
             Ok(client) => {
-                // Check if the homeserver advertises an OIDC Provider.
-                match client.oidc().fetch_authentication_issuer().await {
-                    Ok(issuer) => {
-                        println!("Found issuer: {issuer}");
+                // Check if the homeserver advertises OAuth 2.0 server metadata.
+                match client.oidc().provider_metadata().await {
+                    Ok(server_metadata) => {
+                        println!(
+                            "Found OAuth 2.0 server metadata with issuer: {}",
+                            server_metadata.issuer()
+                        );
 
                         let homeserver = client.homeserver().to_string();
                         return Ok((client, ClientSession { homeserver, db_path, passphrase }));
                     }
                     Err(error) => {
-                        if error
-                            .as_client_api_error()
-                            .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
-                        {
-                            println!("This homeserver doesn't advertise an authentication issuer.");
+                        if error.is_not_supported() {
+                            println!(
+                                "This homeserver doesn't advertise OAuth 2.0 server metadata."
+                            );
                         } else {
-                            println!("Error fetching the authentication issuer: {error:?}");
+                            println!("Error fetching the OAuth 2.0 server metadata: {error:?}");
                         }
                         // The client already initialized the store so we need to remove it.
                         fs::remove_dir_all(data_dir).await?;

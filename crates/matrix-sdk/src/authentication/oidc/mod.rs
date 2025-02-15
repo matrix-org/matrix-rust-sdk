@@ -36,7 +36,7 @@
 //! # Homeserver support
 //!
 //! After building the client, you can check that the homeserver supports
-//! logging in via OIDC when [`Oidc::fetch_authentication_issuer()`] succeeds.
+//! logging in via OAuth 2.0 when [`Oidc::provider_metadata()`] succeeds.
 //!
 //! # Registration
 //!
@@ -169,7 +169,6 @@ use std::{collections::HashMap, fmt, sync::Arc};
 use as_variant::as_variant;
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use http::StatusCode;
 pub use mas_oidc_client::{error, requests, types};
 use mas_oidc_client::{
     requests::{
@@ -191,7 +190,6 @@ use mas_oidc_client::{
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use ruma::api::client::discovery::get_authentication_issuer;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use thiserror::Error;
@@ -347,20 +345,6 @@ impl Oidc {
         as_variant!(data, AuthData::Oidc)
     }
 
-    /// Get the authentication issuer advertised by the homeserver.
-    ///
-    /// Returns an error if the request fails. An error with a
-    /// `StatusCode::NOT_FOUND` should mean that the homeserver does not support
-    /// authenticating via OpenID Connect ([MSC3861]).
-    ///
-    /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
-    pub async fn fetch_authentication_issuer(&self) -> Result<String, HttpError> {
-        #[allow(deprecated)]
-        let response = self.client.send(get_authentication_issuer::msc2965::Request::new()).await?;
-
-        Ok(response.issuer)
-    }
-
     /// Log in using a QR code.
     ///
     /// This method allows you to log in with a QR code, the existing device
@@ -457,26 +441,14 @@ impl Oidc {
         registrations: OidcRegistrations,
         prompt: Prompt,
     ) -> Result<OidcAuthorizationData, OidcError> {
-        let issuer = match self.fetch_authentication_issuer().await {
-            Ok(issuer) => issuer,
-            Err(error) => {
-                if error
-                    .as_client_api_error()
-                    .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
-                {
-                    return Err(OidcError::NotSupported);
-                } else {
-                    return Err(OidcError::UnknownError(Box::new(error)));
-                }
-            }
-        };
+        let metadata = self.provider_metadata().await?;
 
         let redirect_uris =
             client_metadata.redirect_uris.clone().ok_or(OidcError::MissingRedirectUri)?;
 
         let redirect_url = redirect_uris.first().ok_or(OidcError::MissingRedirectUri)?;
 
-        self.configure(issuer, client_metadata, registrations).await?;
+        self.configure(metadata.issuer().to_owned(), client_metadata, registrations).await?;
 
         let mut data_builder = self.login(redirect_url.clone(), None)?;
         data_builder = data_builder.prompt(vec![prompt]);
@@ -684,11 +656,11 @@ impl Oidc {
         self.management_url_from_provider_metadata(metadata, action)
     }
 
-    /// Fetch the OpenID Connect metadata of the issuer.
+    /// Fetch the OAuth 2.0 server metadata of the homeserver.
     ///
-    /// Returns an error if the client registration was not restored, or if an
-    /// error occurred when fetching the metadata.
-    pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OidcError> {
+    /// Returns an error if a problem occurred when fetching or validating the
+    /// metadata.
+    pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
         self.backend.discover(self.ctx().insecure_discover).await
     }
 
@@ -875,8 +847,11 @@ impl Oidc {
     /// let client = Client::builder().server_name(&server_name).build().await?;
     /// let oidc = client.oidc();
     ///
-    /// if let Err(error) = oidc.fetch_authentication_issuer().await {
-    ///     println!("OAuth 2.0 is not supported");
+    /// if let Err(error) = oidc.provider_metadata().await {
+    ///     if error.is_not_supported() {
+    ///         println!("OAuth 2.0 is not supported");
+    ///     }
+    ///
     ///     return Err(error.into());
     /// }
     ///
@@ -1483,9 +1458,8 @@ impl Oidc {
         let provider_metadata = match self.provider_metadata().await {
             Ok(metadata) => metadata,
             Err(err) => {
-                let err = Arc::new(err);
-                warn!("couldn't get provider metadata: {err}");
-                fail!(refresh_status_guard, RefreshTokenError::Oidc(err));
+                warn!("couldn't get authorization server metadata: {err}");
+                fail!(refresh_status_guard, RefreshTokenError::Oidc(Arc::new(err.into())));
             }
         };
 
@@ -1719,11 +1693,7 @@ pub enum OidcError {
 
     /// An error occurred when discovering the authorization server's issuer.
     #[error("authorization server discovery failed: {0}")]
-    Discovery(#[from] HttpError),
-
-    /// OAuth 2.0 is not supported by the homeserver.
-    #[error("OAuth 2.0 is not supported by the homeserver")]
-    NotSupported,
+    Discovery(#[from] OauthDiscoveryError),
 
     /// The OpenID Connect Provider doesn't support dynamic client registration.
     ///
@@ -1796,6 +1766,35 @@ where
 {
     fn from(value: E) -> Self {
         Self::Oidc(value.into())
+    }
+}
+
+/// All errors that can occur when discovering the OAuth 2.0 server metadata.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum OauthDiscoveryError {
+    /// OAuth 2.0 is not supported by the homeserver.
+    #[error("OAuth 2.0 is not supported by the homeserver")]
+    NotSupported,
+
+    /// An error occurred when making a request to the homeserver.
+    #[error(transparent)]
+    Http(#[from] HttpError),
+
+    /// The server metadata is invalid.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+
+    /// An error occurred when making a request to the OpenID Connect provider.
+    #[error(transparent)]
+    Oidc(#[from] error::DiscoveryError),
+}
+
+impl OauthDiscoveryError {
+    /// Whether this error occurred because OAuth 2.0 is not supported by the
+    /// homeserver.
+    pub fn is_not_supported(&self) -> bool {
+        matches!(self, Self::NotSupported)
     }
 }
 

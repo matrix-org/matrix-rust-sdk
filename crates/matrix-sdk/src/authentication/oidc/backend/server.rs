@@ -16,6 +16,7 @@
 //! implementation.
 
 use chrono::Utc;
+use http::StatusCode;
 use mas_oidc_client::{
     http_service::HttpService,
     jose::jwk::PublicJsonWebKeySet,
@@ -33,17 +34,17 @@ use mas_oidc_client::{
     types::{
         client_credentials::ClientCredentials,
         iana::oauth::OAuthTokenTypeHint,
-        oidc::VerifiedProviderMetadata,
+        oidc::{ProviderMetadata, ProviderMetadataVerificationError, VerifiedProviderMetadata},
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
         IdToken,
     },
 };
-use ruma::api::client::discovery::get_authentication_issuer;
+use ruma::api::client::discovery::{get_authentication_issuer, get_authorization_server_metadata};
 use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
 use crate::{
-    authentication::oidc::{rng, AuthorizationCode, OidcSessionTokens},
+    authentication::oidc::{rng, AuthorizationCode, OauthDiscoveryError, OidcSessionTokens},
     Client,
 };
 
@@ -72,10 +73,54 @@ impl OidcServer {
 
 #[async_trait::async_trait]
 impl OidcBackend for OidcServer {
-    async fn discover(&self, insecure: bool) -> Result<VerifiedProviderMetadata, OidcError> {
+    async fn discover(
+        &self,
+        insecure: bool,
+    ) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+        match self.client.send(get_authorization_server_metadata::msc2965::Request::new()).await {
+            Ok(response) => {
+                let metadata = response.metadata.deserialize_as::<ProviderMetadata>()?;
+
+                let result = if insecure {
+                    metadata.insecure_verify_metadata()
+                } else {
+                    // The mas-oidc-client method needs to compare the issuer for validation. It's a
+                    // bit unnecessary because we take it from the metadata, oh well.
+                    let issuer = metadata.issuer.clone().ok_or(
+                        mas_oidc_client::error::DiscoveryError::Validation(
+                            ProviderMetadataVerificationError::MissingIssuer,
+                        ),
+                    )?;
+                    metadata.validate(&issuer)
+                };
+
+                return Ok(result.map_err(mas_oidc_client::error::DiscoveryError::Validation)?);
+            }
+            Err(error)
+                if error
+                    .as_client_api_error()
+                    .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND) =>
+            {
+                // Fallback to OIDC discovery.
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        // TODO: remove this fallback behavior when the metadata endpoint has wider
+        // support.
         #[allow(deprecated)]
         let issuer =
-            self.client.send(get_authentication_issuer::msc2965::Request::new()).await?.issuer;
+            match self.client.send(get_authentication_issuer::msc2965::Request::new()).await {
+                Ok(response) => response.issuer,
+                Err(error)
+                    if error
+                        .as_client_api_error()
+                        .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND) =>
+                {
+                    return Err(OauthDiscoveryError::NotSupported);
+                }
+                Err(error) => return Err(error.into()),
+            };
 
         if insecure {
             insecure_discover(&self.http_service(), &issuer).await.map_err(Into::into)

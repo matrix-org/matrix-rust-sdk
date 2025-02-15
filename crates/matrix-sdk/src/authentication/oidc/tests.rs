@@ -76,12 +76,6 @@ pub async fn mock_environment(
     let issuer_url = Url::parse(&issuer).unwrap();
 
     Mock::given(method("GET"))
-        .and(path("/_matrix/client/unstable/org.matrix.msc2965/auth_issuer"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"issuer": issuer})))
-        .mount(&server)
-        .await;
-
-    Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/account/whoami"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "user_id": "@joe:example.org",
