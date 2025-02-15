@@ -131,11 +131,7 @@ impl MockImpl {
 
 #[async_trait::async_trait]
 impl OidcBackend for MockImpl {
-    async fn discover(
-        &self,
-        issuer: &str,
-        insecure: bool,
-    ) -> Result<VerifiedProviderMetadata, OidcError> {
+    async fn discover(&self, insecure: bool) -> Result<VerifiedProviderMetadata, OidcError> {
         if insecure != self.is_insecure {
             return Err(OidcError::Oidc(Discovery(DiscoveryError::Validation(
                 ProviderMetadataVerificationError::UrlNonHttpsScheme(
@@ -161,7 +157,7 @@ impl OidcBackend for MockImpl {
                 .map(|uri| Url::parse(uri).unwrap()),
             ..Default::default()
         }
-        .validate(issuer)
+        .validate(&self.issuer)
         .map_err(DiscoveryError::from)?)
     }
 

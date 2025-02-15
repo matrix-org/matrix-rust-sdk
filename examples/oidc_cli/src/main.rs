@@ -155,10 +155,10 @@ impl OidcCli {
     async fn new(data_dir: &Path, session_file: PathBuf) -> anyhow::Result<Self> {
         println!("No previous session found, logging in…");
 
-        let (client, client_session, issuer) = build_client(data_dir).await?;
+        let (client, client_session) = build_client(data_dir).await?;
         let cli = Self { client, restored: false, session_file };
 
-        let client_id = cli.register_client(issuer).await?;
+        let client_id = cli.register_client().await?;
         cli.login().await?;
 
         // Persist the session to reuse it later.
@@ -192,10 +192,10 @@ impl OidcCli {
     /// Register the OIDC client with the provider.
     ///
     /// Returns the ID of the client returned by the provider.
-    async fn register_client(&self, issuer: String) -> anyhow::Result<String> {
+    async fn register_client(&self) -> anyhow::Result<String> {
         let oidc = self.client.oidc();
 
-        let provider_metadata = oidc.given_provider_metadata(&issuer).await?;
+        let provider_metadata = oidc.provider_metadata().await?;
 
         if provider_metadata.registration_endpoint.is_none() {
             // This would require to register with the provider manually, which
@@ -213,7 +213,7 @@ impl OidcCli {
         // to update the metadata later without changing the client ID, but requires to
         // have a way to serve public keys online to validate the signature of
         // the JWT.
-        let res = oidc.register_client(&issuer, metadata.clone(), None).await?;
+        let res = oidc.register_client(metadata.clone(), None).await?;
 
         println!("\nRegistered successfully");
 
@@ -681,7 +681,7 @@ impl OidcCli {
 ///
 /// Returns the client, the data required to restore the client, and the OIDC
 /// issuer advertised by the homeserver.
-async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession, String)> {
+async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)> {
     let db_path = data_dir.join("db");
 
     // Generate a random passphrase.
@@ -715,18 +715,12 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession,
         {
             Ok(client) => {
                 // Check if the homeserver advertises an OIDC Provider.
-                // This can be bypassed by providing the issuer manually, but it should be the
-                // most common case for public homeservers.
                 match client.oidc().fetch_authentication_issuer().await {
                     Ok(issuer) => {
                         println!("Found issuer: {issuer}");
 
                         let homeserver = client.homeserver().to_string();
-                        return Ok((
-                            client,
-                            ClientSession { homeserver, db_path, passphrase },
-                            issuer,
-                        ));
+                        return Ok((client, ClientSession { homeserver, db_path, passphrase }));
                     }
                     Err(error) => {
                         if error

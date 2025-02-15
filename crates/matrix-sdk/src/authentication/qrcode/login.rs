@@ -293,16 +293,9 @@ impl<'a> LoginWithQrCode<'a> {
     async fn register_client(&self) -> Result<OauthClient, DeviceAuthorizationOauthError> {
         let oidc = self.client.oidc();
 
-        // Let's figure out the OAuth 2.0 issuer, this fetches the info from the
-        // homeserver.
-        let issuer = oidc
-            .fetch_authentication_issuer()
-            .await
-            .map_err(DeviceAuthorizationOauthError::AuthenticationIssuer)?;
-
         // Now we register the client with the OAuth 2.0 authorization server.
         let registration_response =
-            oidc.register_client(&issuer, self.client_metadata.clone(), None).await?;
+            oidc.register_client(self.client_metadata.clone(), None).await?;
 
         // We're now switching to the oauth2 crate, it has a bit of a strange API
         // where you need to provide the HTTP client in every call you make.
@@ -622,7 +615,7 @@ mod test {
                 "issuer": server.uri(),
 
             })))
-            .expect(1)
+            .expect(1..)
             .named("auth_issuer")
             .mount(server)
             .await;

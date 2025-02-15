@@ -38,6 +38,7 @@ use mas_oidc_client::{
         IdToken,
     },
 };
+use ruma::api::client::discovery::get_authentication_issuer;
 use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
@@ -71,15 +72,15 @@ impl OidcServer {
 
 #[async_trait::async_trait]
 impl OidcBackend for OidcServer {
-    async fn discover(
-        &self,
-        issuer: &str,
-        insecure: bool,
-    ) -> Result<VerifiedProviderMetadata, OidcError> {
+    async fn discover(&self, insecure: bool) -> Result<VerifiedProviderMetadata, OidcError> {
+        #[allow(deprecated)]
+        let issuer =
+            self.client.send(get_authentication_issuer::msc2965::Request::new()).await?.issuer;
+
         if insecure {
-            insecure_discover(&self.http_service(), issuer).await.map_err(Into::into)
+            insecure_discover(&self.http_service(), &issuer).await.map_err(Into::into)
         } else {
-            discover(&self.http_service(), issuer).await.map_err(Into::into)
+            discover(&self.http_service(), &issuer).await.map_err(Into::into)
         }
     }
 

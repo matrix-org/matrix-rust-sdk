@@ -465,14 +465,14 @@ async fn test_register_client() {
     let backend = Arc::new(MockImpl::new().registration_endpoint(None));
     let oidc = Oidc { client: client.clone(), backend };
 
-    let result = oidc.register_client(ISSUER_URL, client_metadata.clone(), None).await;
+    let result = oidc.register_client(client_metadata.clone(), None).await;
     assert_matches!(result, Err(OidcError::NoRegistrationSupport));
 
     // Server supports registration, it succeeds.
     let backend = Arc::new(MockImpl::new());
     let oidc = Oidc { client: client.clone(), backend };
 
-    let response = oidc.register_client(ISSUER_URL, client_metadata.clone(), None).await.unwrap();
+    let response = oidc.register_client(client_metadata.clone(), None).await.unwrap();
     assert_eq!(response.client_id, CLIENT_ID);
 
     let auth_data = oidc.data().unwrap();
