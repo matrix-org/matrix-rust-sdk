@@ -17,7 +17,7 @@ use mas_oidc_client::{
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::ServerName;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::tempdir;
 use url::Url;
@@ -33,7 +33,9 @@ use super::{
     OidcSessionTokens, RedirectUriQueryParseError, UserSession,
 };
 use crate::{
-    test_utils::{client::MockClientBuilder, test_client_builder},
+    test_utils::{
+        client::MockClientBuilder, no_retry_test_client_with_server, test_client_builder,
+    },
     Client, Error,
 };
 
@@ -506,4 +508,58 @@ async fn test_management_url_cache() {
 
     // Check that the provider metadata has been inserted into the cache.
     assert!(client.inner.caches.provider_metadata.lock().await.contains("PROVIDER_METADATA"));
+}
+
+fn mock_oidc_provider_metadata(issuer: &str) -> JsonValue {
+    json!({
+        "issuer": issuer,
+        "authorization_endpoint": issuer,
+        "token_endpoint": issuer,
+        "jwks_uri": issuer,
+        "response_types_supported": ["code"],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["rs256"],
+    })
+}
+
+#[async_test]
+async fn test_provider_metadata() {
+    let (client, server) = no_retry_test_client_with_server().await;
+    let oidc = client.oidc();
+    let issuer = server.uri();
+
+    // The endpoint is not mocked so it is not supported.
+    let error = oidc.provider_metadata().await.unwrap_err();
+    assert!(error.is_not_supported());
+
+    // Mock the `GET /auth_issuer` fallback endpoint.
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/unstable/org.matrix.msc2965/auth_issuer"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"issuer": issuer})))
+        .expect(1)
+        .named("auth_issuer")
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(mock_oidc_provider_metadata(&issuer)),
+        )
+        .expect(1)
+        .named("openid-configuration")
+        .mount(&server)
+        .await;
+    oidc.provider_metadata().await.unwrap();
+
+    // Mock the `GET /auth_metadata` endpoint.
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(mock_oidc_provider_metadata(&issuer)),
+        )
+        .expect(1)
+        .named("auth_metadata")
+        .mount(&server)
+        .await;
+    oidc.provider_metadata().await.unwrap();
 }
