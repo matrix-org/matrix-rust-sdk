@@ -464,7 +464,7 @@ impl Oidc {
                     .as_client_api_error()
                     .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
                 {
-                    return Err(OidcError::MissingAuthenticationIssuer);
+                    return Err(OidcError::NotSupported);
                 } else {
                     return Err(OidcError::UnknownError(Box::new(error)));
                 }
@@ -554,7 +554,7 @@ impl Oidc {
         &self,
         registrations: &OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
-        let issuer = Url::parse(self.issuer().ok_or(OidcError::MissingAuthenticationIssuer)?)
+        let issuer = Url::parse(self.issuer().expect("issuer should be set after registration"))
             .map_err(OidcError::Url)?;
         let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.to_owned();
 
@@ -1721,9 +1721,9 @@ pub enum OidcError {
     #[error("authorization server discovery failed: {0}")]
     Discovery(#[from] HttpError),
 
-    /// No authentication issuer was provided by the homeserver or by the user.
-    #[error("client missing authentication issuer")]
-    MissingAuthenticationIssuer,
+    /// OAuth 2.0 is not supported by the homeserver.
+    #[error("OAuth 2.0 is not supported by the homeserver")]
+    NotSupported,
 
     /// The OpenID Connect Provider doesn't support dynamic client registration.
     ///
