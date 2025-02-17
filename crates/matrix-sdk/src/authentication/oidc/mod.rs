@@ -1576,7 +1576,7 @@ pub struct OidcSession {
 }
 
 /// A user session for the OpenID Connect API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSession {
     /// The Matrix user session info.
     #[serde(flatten)]
