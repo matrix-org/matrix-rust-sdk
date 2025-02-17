@@ -124,6 +124,8 @@ pub(super) trait RoomDataProvider:
 
     fn room_info(&self) -> Subscriber<RoomInfo>;
 
+    /// Return the encryption info for the Megolm session with the supplied
+    /// session ID.
     fn get_encryption_info(
         &self,
         session_id: &str,

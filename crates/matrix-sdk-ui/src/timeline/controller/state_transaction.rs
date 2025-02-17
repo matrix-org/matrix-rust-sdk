@@ -443,6 +443,7 @@ impl<'a> TimelineStateTransaction<'a> {
         }
     }
 
+    /// Replace the timeline item at the supplied index with the supplied item.
     pub(super) fn replace(
         &mut self,
         timeline_item_index: usize,

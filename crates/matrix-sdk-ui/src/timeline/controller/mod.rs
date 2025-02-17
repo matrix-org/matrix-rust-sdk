@@ -1097,11 +1097,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     /// Retry decryption of the supplied events, which are expected to be UTDs.
     ///
-    /// `state` is the [`TimelineState`] state of the timeline.
-    /// `retry_indices` contains the indices of events to try within the
-    /// `state.items` `should_retry` checks that a session is included in
-    /// the list of updated sessions. `decryptor` does the actual work of
-    /// decrypting events.
+    /// # Arguments
+    ///
+    /// * `state` is the [`TimelineState`] state of the timeline.
+    ///
+    /// * `retry_indices` contains the indices of events to try within the
+    ///   `state.items`.
+    ///
+    /// * `should_retry` checks that a session is included in the list of
+    ///   updated sessions.
+    ///
+    /// * `decryptor` does the actual work of decrypting events.
     async fn retry_event_decryption_by_index(
         &self,
         mut state: tokio::sync::OwnedRwLockWriteGuard<TimelineState>,
