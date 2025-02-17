@@ -162,6 +162,7 @@ impl TimelineBuilder {
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
         let (_, mut event_subscriber) = room_event_cache.subscribe().await;
 
+        let is_live = matches!(focus, TimelineFocus::Live);
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
         let is_room_encrypted = room.is_encrypted().await.ok().unwrap_or_default();
 
@@ -262,6 +263,13 @@ impl TimelineBuilder {
 
                         RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
                             trace!("Received new timeline events diffs");
+
+                            // We shouldn't use the general way of adding events to timelines to
+                            // non-live timelines, such as pinned events or focused timeline.
+                            // These timelines should handle any live updates by themselves.
+                            if !is_live {
+                                continue;
+                            }
 
                             inner
                                 .handle_remote_events_with_diffs(

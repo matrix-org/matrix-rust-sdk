@@ -18,7 +18,6 @@ use std::{
     io::{self, Write},
     ops::Range,
     path::{Path, PathBuf},
-    str::FromStr,
     sync::{Arc, Mutex},
 };
 
@@ -38,7 +37,6 @@ use matrix_sdk::{
             oidc::ApplicationType,
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::GrantType,
-            scope::{Scope, ScopeToken},
         },
         AuthorizationCode, AuthorizationResponse, OidcAuthorizationData, OidcSession, UserSession,
     },
@@ -96,7 +94,6 @@ fn help() {
     println!("  whoami                 Get information about this session");
     println!("  account                Get the URL to manage this account");
     println!("  watch [sliding?]       Watch new incoming messages until an error occurs");
-    println!("  authorize [scope…]     Authorize the given scope");
     println!("  refresh                Refresh the access token");
     println!("  recover                Recover the E2EE secrets from secret storage");
     println!("  logout                 Log out of this account");
@@ -339,14 +336,6 @@ impl OidcCli {
                     }
                     None => self.watch().await?,
                 },
-                Some("authorize") => {
-                    let mut scopes = args.peekable();
-                    if scopes.peek().is_some() {
-                        self.authorize(scopes).await?;
-                    } else {
-                        println!("Error: missing arguments, expected at least 1 scope\n");
-                    }
-                }
                 Some("refresh") => {
                     self.refresh_token().await?;
                 }
@@ -603,40 +592,6 @@ impl OidcCli {
         fs::write(&self.session_file, serialized_session).await?;
 
         println!("Updating the stored session: done!");
-        Ok(())
-    }
-
-    /// Authorize the given scopes using the OIDC Authorization Code flow.
-    async fn authorize(&self, scopes: impl IntoIterator<Item = &str>) -> anyhow::Result<()> {
-        // Here we spawn a server to listen on the loopback interface. Another option
-        // would be to register a custom URI scheme with the system and handle the
-        // redirect when the custom URI scheme is opened.
-        let (redirect_uri, data_rx, signal_tx) = spawn_local_server().await?;
-
-        let oidc = self.client.oidc();
-        let scope = scopes
-            .into_iter()
-            .map(|s| ScopeToken::from_str(s).map_err(|_| anyhow!("invalid scope {s}")))
-            .collect::<Result<Scope, _>>()?;
-
-        let OidcAuthorizationData { url, state } =
-            oidc.authorize_scope(scope, redirect_uri).build().await?;
-
-        let authorization_code = match use_auth_url(&url, &state, data_rx, signal_tx).await {
-            Ok(code) => code,
-            Err(err) => {
-                oidc.abort_authorization(&state).await;
-                return Err(err);
-            }
-        };
-
-        oidc.finish_authorization(authorization_code).await?;
-
-        // Now we store the latest session to always have the latest tokens.
-        self.update_stored_session().await?;
-
-        println!("\nAuthorized successfully");
-
         Ok(())
     }
 

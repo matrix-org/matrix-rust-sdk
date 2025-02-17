@@ -409,7 +409,9 @@ async fn test_edit_to_replied_updates_reply() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let f = EventFactory::new();
-    let event_id = event_id!("$original_event");
+    let eid1 = event_id!("$original_event");
+    let eid2 = event_id!("$reply1");
+    let eid3 = event_id!("$reply2");
     let user_id = client.user_id().unwrap();
 
     // When a room has two messages, one is a reply to the other…
@@ -417,9 +419,11 @@ async fn test_edit_to_replied_updates_reply() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("bonjour").sender(user_id).event_id(event_id))
-                .add_timeline_event(f.text_msg("hi back").reply_to(event_id).sender(*ALICE))
-                .add_timeline_event(f.text_msg("yo").reply_to(event_id).sender(*BOB)),
+                .add_timeline_event(f.text_msg("bonjour").sender(user_id).event_id(eid1))
+                .add_timeline_event(
+                    f.text_msg("hi back").reply_to(eid1).sender(*ALICE).event_id(eid2),
+                )
+                .add_timeline_event(f.text_msg("yo").reply_to(eid1).sender(*BOB).event_id(eid3)),
         )
         .await;
 
@@ -435,7 +439,7 @@ async fn test_edit_to_replied_updates_reply() {
         assert_eq!(reply_message.body(), "hi back");
 
         let in_reply_to = reply_message.in_reply_to().unwrap();
-        assert_eq!(in_reply_to.event_id, event_id);
+        assert_eq!(in_reply_to.event_id, eid1);
 
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "bonjour");
@@ -446,7 +450,7 @@ async fn test_edit_to_replied_updates_reply() {
         assert_eq!(reply_message.body(), "yo");
 
         let in_reply_to = reply_message.in_reply_to().unwrap();
-        assert_eq!(in_reply_to.event_id, event_id);
+        assert_eq!(in_reply_to.event_id, eid1);
 
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "bonjour");
@@ -474,7 +478,7 @@ async fn test_edit_to_replied_updates_reply() {
         assert!(!reply_message.is_edited());
 
         let in_reply_to = reply_message.in_reply_to().unwrap();
-        assert_eq!(in_reply_to.event_id, event_id);
+        assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
     });
@@ -485,7 +489,7 @@ async fn test_edit_to_replied_updates_reply() {
         assert!(!reply_message.is_edited());
 
         let in_reply_to = reply_message.in_reply_to().unwrap();
-        assert_eq!(in_reply_to.event_id, event_id);
+        assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
     });

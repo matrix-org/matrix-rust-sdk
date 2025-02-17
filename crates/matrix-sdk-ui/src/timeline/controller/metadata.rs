@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
 use matrix_sdk::ring_buffer::RingBuffer;
 use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
@@ -75,6 +79,9 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// Aggregation metadata and pending aggregations.
     pub aggregations: Aggregations,
 
+    /// Given an event, what are all the events that are replies to it?
+    pub replies: HashMap<OwnedEventId, BTreeSet<OwnedEventId>>,
+
     /// Edit events received before the related event they're editing.
     pub pending_edits: RingBuffer<PendingEdit>,
 
@@ -114,6 +121,7 @@ impl TimelineMetadata {
             next_internal_id: Default::default(),
             aggregations: Default::default(),
             pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
+            replies: Default::default(),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
             // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
@@ -130,6 +138,7 @@ impl TimelineMetadata {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
         self.aggregations.clear();
+        self.replies.clear();
         self.pending_edits.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one

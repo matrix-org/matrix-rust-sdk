@@ -800,13 +800,14 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk::test_utils::logged_in_client;
     use matrix_sdk_base::{
-        deserialized_responses::TimelineEvent, latest_event::LatestEvent, sliding_sync::http,
-        MinimalStateEvent, OriginalMinimalStateEvent,
+        deserialized_responses::TimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
+        OriginalMinimalStateEvent,
     };
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, sync_state_event, sync_timeline_event,
     };
     use ruma::{
+        api::client::sync::sync_events::v5 as http,
         event_id,
         events::{
             room::{

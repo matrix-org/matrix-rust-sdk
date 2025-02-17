@@ -53,7 +53,7 @@ experimental-oidc = [
     "dep:rand",
     "dep:sha2",
     "dep:tower",
-    "dep:openidconnect",
+    "dep:oauth2",
 ]
 experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
@@ -129,7 +129,7 @@ tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
-openidconnect = { version = "4.0.0", optional = true }
+oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"], optional = true }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }

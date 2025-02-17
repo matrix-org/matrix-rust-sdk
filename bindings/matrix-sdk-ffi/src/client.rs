@@ -1816,7 +1816,6 @@ impl MediaFileHandle {
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersion {
     None,
-    Proxy { url: String },
     Native,
 }
 
@@ -1824,7 +1823,6 @@ impl From<SdkSlidingSyncVersion> for SlidingSyncVersion {
     fn from(value: SdkSlidingSyncVersion) -> Self {
         match value {
             SdkSlidingSyncVersion::None => Self::None,
-            SdkSlidingSyncVersion::Proxy { url } => Self::Proxy { url: url.to_string() },
             SdkSlidingSyncVersion::Native => Self::Native,
         }
     }
@@ -1836,9 +1834,6 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
     fn try_from(value: SlidingSyncVersion) -> Result<Self, Self::Error> {
         Ok(match value {
             SlidingSyncVersion::None => Self::None,
-            SlidingSyncVersion::Proxy { url } => Self::Proxy {
-                url: Url::parse(&url).map_err(|e| ClientError::Generic { msg: e.to_string() })?,
-            },
             SlidingSyncVersion::Native => Self::Native,
         })
     }

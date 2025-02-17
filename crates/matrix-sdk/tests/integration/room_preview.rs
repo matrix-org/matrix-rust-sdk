@@ -1,12 +1,15 @@
 use js_int::uint;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
-use matrix_sdk_base::{sliding_sync, RoomState};
+use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder,
 };
 use ruma::{
-    api::client::sync::sync_events::v5::response::Hero, assign,
-    events::room::member::MembershipState, owned_user_id, room_id, space::SpaceRoomJoinRule,
+    api::client::sync::sync_events::{v5 as sliding_sync_http, v5::response::Hero},
+    assign,
+    events::room::member::MembershipState,
+    owned_user_id, room_id,
+    space::SpaceRoomJoinRule,
     RoomId,
 };
 use serde_json::json;
@@ -120,7 +123,7 @@ async fn test_room_preview_computes_name_if_room_is_known() {
     let room_id = room_id!("!room:localhost");
 
     // Given a room with no name but a hero
-    let room = assign!(sliding_sync::http::response::Room::new(), {
+    let room = assign!(sliding_sync_http::response::Room::new(), {
         name: None,
         heroes: Some(vec![assign!(Hero::new(owned_user_id!("@alice:matrix.org")), {
             name: Some("Alice".to_owned()),
@@ -129,7 +132,7 @@ async fn test_room_preview_computes_name_if_room_is_known() {
         joined_count: Some(uint!(1)),
         invited_count: Some(uint!(1)),
     });
-    let mut response = sliding_sync::http::Response::new("0".to_owned());
+    let mut response = sliding_sync_http::Response::new("0".to_owned());
     response.rooms.insert(room_id.to_owned(), room);
 
     client.process_sliding_sync_test_helper(&response).await.expect("Failed to process sync");
