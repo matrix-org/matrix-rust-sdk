@@ -1085,9 +1085,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         });
 
         // Retry decrypting UTDs
-        let state = self.state.clone().write_owned().await;
         self.retry_event_decryption_by_index(
-            state,
+            &self.state,
             retry_decryption_indices,
             should_retry,
             decryptor,
@@ -1110,7 +1109,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// * `decryptor` does the actual work of decrypting events.
     async fn retry_event_decryption_by_index(
         &self,
-        mut state: tokio::sync::OwnedRwLockWriteGuard<TimelineState>,
+        state: &Arc<RwLock<TimelineState>>,
         retry_indices: Vec<usize>,
         should_retry: impl Fn(&str) -> bool + Send + Sync + 'static,
         decryptor: impl Decryptor,
@@ -1121,6 +1120,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         debug!("Retrying decryption");
 
+        let mut state = state.clone().write_owned().await;
         let settings = self.settings.clone();
         let room_data_provider = self.room_data_provider.clone();
         let push_rules_context = room_data_provider.push_rules_and_context().await;
