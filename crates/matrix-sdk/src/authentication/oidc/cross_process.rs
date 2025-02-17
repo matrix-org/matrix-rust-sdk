@@ -611,14 +611,11 @@ mod tests {
 
         oidc.logout().await?;
 
-        // Both the access token and the refresh tokens have been invalidated.
+        // The access token has been invalidated.
         {
             let revoked = backend.revoked_tokens.lock().unwrap();
-            assert_eq!(revoked.len(), 2);
-            assert_eq!(
-                *revoked,
-                vec![tokens.access_token.clone(), tokens.refresh_token.clone().unwrap(),]
-            );
+            assert_eq!(revoked.len(), 1);
+            assert_eq!(*revoked, &[tokens.access_token]);
         }
 
         {

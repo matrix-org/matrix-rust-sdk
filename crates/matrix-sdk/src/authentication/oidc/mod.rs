@@ -1476,27 +1476,15 @@ impl Oidc {
 
         let tokens = self.session_tokens().ok_or(OidcError::NotAuthenticated)?;
 
-        // Revoke the access token.
+        // Revoke the access token, it should revoke both tokens.
         self.backend
             .revoke_token(
-                client_credentials.clone(),
+                client_credentials,
                 revocation_endpoint,
                 tokens.access_token,
                 Some(OAuthTokenTypeHint::AccessToken),
             )
             .await?;
-
-        // Revoke the refresh token, if any.
-        if let Some(refresh_token) = tokens.refresh_token {
-            self.backend
-                .revoke_token(
-                    client_credentials.clone(),
-                    revocation_endpoint,
-                    refresh_token,
-                    Some(OAuthTokenTypeHint::RefreshToken),
-                )
-                .await?;
-        }
 
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager.on_logout().await?;
