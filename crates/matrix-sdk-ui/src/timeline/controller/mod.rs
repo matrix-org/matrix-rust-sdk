@@ -19,6 +19,7 @@ use eyeball_im::VectorDiff;
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
+use itertools::{Either, Itertools};
 #[cfg(test)]
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
@@ -1469,28 +1470,29 @@ fn event_indices_to_retry_decryption(
     state: &tokio::sync::OwnedRwLockWriteGuard<TimelineState>,
     should_retry: impl Fn(&str) -> bool,
 ) -> (Vec<usize>, Vec<usize>) {
-    let mut retry_decryption_indices = Vec::new();
-    let mut retry_info_indices = Vec::new();
-
-    for (idx, item) in state.items.iter().enumerate() {
-        if let Some(event) = item.as_event() {
-            if let TimelineItemContent::UnableToDecrypt(encrypted) = event.content() {
-                if let Some(session_id) = encrypted.session_id() {
-                    if should_retry(session_id) {
-                        retry_decryption_indices.push(idx);
+    state
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| {
+            if let Some(event) = item.as_event() {
+                if let TimelineItemContent::UnableToDecrypt(encrypted) = event.content() {
+                    if let Some(session_id) = encrypted.session_id() {
+                        if should_retry(session_id) {
+                            return Some(Either::Left(idx));
+                        }
                     }
-                }
-            } else if let Some(remote_event) = event.as_remote() {
-                if let Some(encryption_info) = &remote_event.encryption_info {
-                    if should_retry(&encryption_info.session_id) {
-                        retry_info_indices.push(idx);
+                } else if let Some(remote_event) = event.as_remote() {
+                    if let Some(encryption_info) = &remote_event.encryption_info {
+                        if should_retry(&encryption_info.session_id) {
+                            return Some(Either::Right(idx));
+                        }
                     }
                 }
             }
-        }
-    }
-
-    (retry_decryption_indices, retry_info_indices)
+            None
+        })
+        .partition_map(|either| either)
 }
 
 impl TimelineController {
