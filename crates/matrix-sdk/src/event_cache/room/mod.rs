@@ -20,7 +20,6 @@ use events::Gap;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
-    linked_chunk::ChunkContent,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -500,29 +499,6 @@ impl RoomEventCacheInner {
         }
 
         Ok(())
-    }
-}
-
-/// Create a debug string for a [`ChunkContent`] for an event/gap pair.
-fn chunk_debug_string(content: &ChunkContent<TimelineEvent, Gap>) -> String {
-    match content {
-        ChunkContent::Gap(Gap { prev_token }) => {
-            format!("gap['{prev_token}']")
-        }
-        ChunkContent::Items(vec) => {
-            let items = vec
-                .iter()
-                .map(|event| {
-                    // Limit event ids to 8 chars *after* the $.
-                    event.event_id().map_or_else(
-                        || "<no event id>".to_owned(),
-                        |id| id.as_str().chars().take(1 + 8).collect(),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("events[{items}]")
-        }
     }
 }
 
