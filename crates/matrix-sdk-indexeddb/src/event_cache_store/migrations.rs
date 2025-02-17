@@ -50,7 +50,7 @@ async fn setup_db(db: IdbDatabase, version: u32) -> Result<IdbDatabase> {
             let mut params = IdbObjectStoreParameters::new();
             params.key_path(Some(&IdbKeyPath::from("id")));
             events.db().create_object_store_with_params(keys::LINKED_CHUNKS, &params)?;
-
+            events.db().create_object_store(keys::CORE)?;
             events.db().create_object_store_with_params(keys::EVENTS, &params)?;
             events.db().create_object_store_with_params(keys::GAPS, &params)?;
             Ok(())

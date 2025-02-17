@@ -96,6 +96,11 @@ impl IndexeddbEventCacheStore {
     pub fn builder() -> IndexeddbEventCacheStoreBuilder {
         IndexeddbEventCacheStoreBuilder::new()
     }
+
+    pub fn get_id(&self, room_id: &str, object_id: &str) -> String {
+        let id_raw = format!("{}-{}", room_id, object_id);
+        self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
+    }
 }
 
 type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
@@ -103,8 +108,8 @@ type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
 #[derive(Serialize, Deserialize)]
 struct Chunk {
     id: String,
-    previous: Option<u64>,
-    next: Option<u64>,
+    previous: Option<String>,
+    next: Option<String>,
     type_str: String,
 }
 
@@ -150,6 +155,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
         for update in updates {
+            // web_sys::console::log_1(&format!("🟦 Trying to handle update {:?}", update).into());
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
                     let tx = self.inner.transaction_on_one_with_mode(
@@ -159,63 +165,65 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-                    let previous = previous.as_ref().map(ChunkIdentifier::index);
+                    let previous = previous
+                        .as_ref()
+                        .map(ChunkIdentifier::index)
+                        .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
                     let new = new.index();
-                    let next = next.as_ref().map(ChunkIdentifier::index);
+                    let next = next
+                        .as_ref()
+                        .map(ChunkIdentifier::index)
+                        .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
 
                     trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
 
+                    let id = self.get_id(room_id.as_ref(), new.to_string().as_ref());
+
                     let chunk = Chunk {
-                        id: format!("{room_id}-{new}"),
-                        previous,
-                        next,
+                        id: id.clone(),
+                        previous: previous.clone(),
+                        next: next.clone(),
                         type_str: CHUNK_TYPE_EVENT_TYPE_STRING.to_owned(),
                     };
 
-                    let serialized_value = self.serializer.serialize_value(&chunk)?;
+                    let serialized_value = self.serializer.serialize_into_object(&id, &chunk)?;
 
                     object_store.add_val(&serialized_value)?;
 
                     // Update previous if there
                     if let Some(previous) = previous {
-                        let previous_id = self
-                            .serializer
-                            .encode_key_as_string(room_id.as_ref(), previous.to_string());
                         let previous_chunk_js_value =
-                            object_store.get_owned(&previous_id)?.await?.unwrap();
+                            object_store.get_owned(&previous)?.await?.unwrap();
 
                         let previous_chunk: Chunk =
                             self.serializer.deserialize_value(previous_chunk_js_value)?;
 
                         let updated_previous_chunk = Chunk {
-                            id: previous_id,
+                            id: previous.clone(),
                             previous: previous_chunk.previous,
-                            next: Some(new),
+                            next: Some(id.clone()),
                             type_str: previous_chunk.type_str,
                         };
-                        let updated_previous_value =
-                            self.serializer.serialize_value(&updated_previous_chunk)?;
+                        let updated_previous_value = self
+                            .serializer
+                            .serialize_into_object(&previous, &updated_previous_chunk)?;
                         object_store.put_val(&updated_previous_value)?;
                     }
 
                     // update next if there
                     if let Some(next) = next {
-                        let next_id = self
-                            .serializer
-                            .encode_key_as_string(room_id.as_ref(), next.to_string());
-                        // TODO unsafe unwrap()?
-                        let next_chunk_js_value = object_store.get_owned(&next_id)?.await?.unwrap();
+                        let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
                         let next_chunk: Chunk =
                             self.serializer.deserialize_value(next_chunk_js_value)?;
 
                         let updated_next_chunk = Chunk {
-                            id: next_chunk.id,
-                            previous: Some(new),
+                            id: next.clone(),
+                            previous: Some(id),
                             next: next_chunk.next,
                             type_str: next_chunk.type_str,
                         };
                         let updated_next_value =
-                            self.serializer.serialize_value(&updated_next_chunk)?;
+                            self.serializer.serialize_into_object(&next, &updated_next_chunk)?;
 
                         object_store.put_val(&updated_next_value)?;
                     }
@@ -238,8 +246,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let chunk = Chunk {
                         id: format!("{room_id}-{new}"),
-                        previous,
-                        next,
+                        previous: previous.map(|n| n.to_string()),
+                        next: next.map(|n| n.to_string()),
                         type_str: CHUNK_TYPE_GAP_TYPE_STRING.to_owned(),
                     };
 
@@ -270,9 +278,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-                    let id = self
-                        .serializer
-                        .encode_key_as_string(room_id.as_ref(), id.index().to_string());
+                    let id = self.get_id(room_id.as_ref(), id.index().to_string().as_ref());
 
                     trace!("Removing chunk {id:?}");
 
@@ -282,42 +288,37 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let chunk_to_delete: Chunk =
                         self.serializer.deserialize_value(chunk_to_delete_js_value)?;
 
-                    if let Some(previous) = chunk_to_delete.previous {
-                        let previous_id = self
-                            .serializer
-                            .encode_key_as_string(room_id.as_ref(), previous.to_string());
+                    if let Some(previous) = chunk_to_delete.previous.clone() {
                         let previous_chunk_js_value =
-                            object_store.get_owned(&previous_id)?.await?.unwrap();
+                            object_store.get_owned(&previous)?.await?.unwrap();
                         let previous_chunk: Chunk =
                             self.serializer.deserialize_value(previous_chunk_js_value)?;
 
                         let updated_previous_chunk = Chunk {
-                            id: previous_id,
+                            id: previous.clone(),
                             previous: previous_chunk.previous,
-                            next: chunk_to_delete.next,
+                            next: chunk_to_delete.next.clone(),
                             type_str: previous_chunk.type_str,
                         };
-                        let updated_previous_value =
-                            self.serializer.serialize_value(&updated_previous_chunk)?;
+                        let updated_previous_value = self
+                            .serializer
+                            .serialize_into_object(&previous, &updated_previous_chunk)?;
                         object_store.put_val(&updated_previous_value)?;
                     }
 
                     if let Some(next) = chunk_to_delete.next {
-                        let next_id = self
-                            .serializer
-                            .encode_key_as_string(room_id.as_ref(), next.to_string());
-                        let next_chunk_js_value = object_store.get_owned(&next_id)?.await?.unwrap();
+                        let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
                         let next_chunk: Chunk =
                             self.serializer.deserialize_value(next_chunk_js_value)?;
 
                         let updated_next_chunk = Chunk {
-                            id: next_id,
+                            id: next.clone(),
                             previous: chunk_to_delete.previous,
                             next: next_chunk.next,
                             type_str: next_chunk.type_str,
                         };
                         let updated_next_value =
-                            self.serializer.serialize_value(&updated_next_chunk)?;
+                            self.serializer.serialize_into_object(&next, &updated_next_chunk)?;
 
                         object_store.put_val(&updated_next_value)?;
                     }
