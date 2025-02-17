@@ -287,7 +287,7 @@ mod tests {
         // When Bob becomes verified
         t.verify_bob().await;
 
-        // Then we are notified about the unpinning part
+        // Then we are notified about Bob being verified
         let change = assert_next_with_timeout!(stream);
         assert_eq!(change[0].user_id, t.bob_user_id());
         assert_eq!(change[0].changed_to, IdentityState::Verified);

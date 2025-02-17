@@ -200,45 +200,20 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
     }
 
     /// Updates our internal state for this user to the supplied `new_state`. If
-    /// the change of state is significant (it requires something to change
-    /// in the UI, like a warning being added or removed), returns the
-    /// change information we will surface to the UI.
+    /// the state changed it returns the change information we will surface to
+    /// the UI.
     fn update_user_state_to(
         &mut self,
         user_id: &UserId,
         new_state: IdentityState,
     ) -> Option<IdentityStatusChange> {
-        use IdentityState::*;
-
         let old_state = self.known_states.get(user_id);
 
-        match (old_state, &new_state) {
-            // good -> bad - report so we can add a message
-            (Pinned, PinViolation) |
-            (Pinned, VerificationViolation) |
-            (Verified, PinViolation) |
-            (Verified, VerificationViolation) |
-
-            // bad -> good - report so we can remove a message
-            (PinViolation, Pinned) |
-            (PinViolation, Verified) |
-            (VerificationViolation, Pinned) |
-            (VerificationViolation, Verified) |
-
-            // Changed the type of bad - report so can change the message
-            (PinViolation, VerificationViolation) |
-            (VerificationViolation, PinViolation) |
-
-            // Changed the type of good - report so can change the message
-            (Pinned, Verified) |
-            (Verified, Pinned) => Some(self.set_state(user_id, new_state)),
-
-            // State didn't change - don't report - nothing changed
-            (Pinned, Pinned) |
-            (Verified, Verified) |
-            (PinViolation, PinViolation) |
-            (VerificationViolation, VerificationViolation) => None,
+        if old_state == new_state {
+            return None;
         }
+
+        Some(self.set_state(user_id, new_state))
     }
 
     fn set_state(&mut self, user_id: &UserId, new_state: IdentityState) -> IdentityStatusChange {
@@ -400,7 +375,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_verifying_a_pinned_identity_in_the_room_does_nothing() {
+    async fn test_verifying_a_pinned_identity_in_the_room_notifies() {
         // Given someone in the room is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
