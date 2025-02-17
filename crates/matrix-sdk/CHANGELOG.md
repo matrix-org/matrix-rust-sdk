@@ -46,6 +46,8 @@ All notable changes to this project will be documented in this file.
   case anymore, according to the latest version of
   [MSC2967](https://github.com/matrix-org/matrix-spec-proposals/pull/2967).
   ([#4664](https://github.com/matrix-org/matrix-rust-sdk/pull/4664))
+- The `UserSession` type cannot be deserialized from its old format anymore. The
+  old format used an `issuer_info` field instead of an `issuer` field.
 
 ## [0.10.0] - 2025-02-04
 
