@@ -27,6 +27,7 @@ use matrix_sdk_common::{
     },
     locks::RwLock as StdRwLock,
     BoxFuture,
+    NoisyArc,
 };
 use ruma::{
     api::client::{
@@ -140,6 +141,12 @@ pub struct OlmMachineInner {
     backup_machine: BackupMachine,
 }
 
+impl Drop for OlmMachineInner {
+    fn drop(&mut self) {
+        info!("OlmMachineInner::drop");
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for OlmMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -180,7 +187,7 @@ impl OlmMachine {
         let static_account = account.static_data().clone();
 
         let store =
-            Arc::new(CryptoStoreWrapper::new(self.user_id(), device_id, MemoryStore::new()));
+            NoisyArc::new(CryptoStoreWrapper::new(self.user_id(), device_id, MemoryStore::new()));
         let device = DeviceData::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
         store
@@ -204,7 +211,7 @@ impl OlmMachine {
     }
 
     fn new_helper_prelude(
-        store_wrapper: Arc<CryptoStoreWrapper>,
+        store_wrapper: NoisyArc<CryptoStoreWrapper>,
         account: StaticAccountData,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     ) -> (VerificationMachine, Store, IdentityManager) {
@@ -376,7 +383,7 @@ impl OlmMachine {
         });
 
         let identity = Arc::new(Mutex::new(identity));
-        let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, store));
+        let store = NoisyArc::new(CryptoStoreWrapper::new(user_id, device_id, store));
 
         let (verification_machine, store, identity_manager) =
             Self::new_helper_prelude(store, static_account, identity.clone());

@@ -2,7 +2,7 @@ use std::{future, ops::Deref, sync::Arc};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
-use matrix_sdk_common::store_locks::CrossProcessStoreLock;
+use matrix_sdk_common::{store_locks::CrossProcessStoreLock, NoisyArc};
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use tokio::sync::{
     broadcast::{self},
@@ -28,7 +28,7 @@ pub(crate) struct CryptoStoreWrapper {
     user_id: OwnedUserId,
     device_id: OwnedDeviceId,
 
-    store: Arc<DynCryptoStore>,
+    store: NoisyArc<DynCryptoStore>,
 
     /// A cache for the Olm Sessions.
     sessions: SessionStore,
@@ -368,7 +368,9 @@ impl CryptoStoreWrapper {
         lock_key: String,
         lock_value: String,
     ) -> CrossProcessStoreLock<LockableCryptoStore> {
-        CrossProcessStoreLock::new(LockableCryptoStore(self.store.clone()), lock_key, lock_value)
+        panic!("Store.create_store_lock");
+        //CrossProcessStoreLock::new(LockableCryptoStore(self.store.clone()),
+        // lock_key, lock_value)
     }
 }
 

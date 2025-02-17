@@ -36,6 +36,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time"] }
 uniffi = { workspace = true, optional = true }
+uuid = { version = "^1.0.0", features = ["v4"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }

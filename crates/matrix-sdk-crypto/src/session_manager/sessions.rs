@@ -589,6 +589,7 @@ mod tests {
     use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc, time::Duration};
 
     use matrix_sdk_common::locks::RwLock as StdRwLock;
+    use matrix_sdk_common::NoisyArc;
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
         api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
@@ -648,7 +649,7 @@ mod tests {
         let device_id = device_id();
 
         let account = Account::with_device_id(user_id, device_id);
-        let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, MemoryStore::new()));
+        let store = NoisyArc::new(CryptoStoreWrapper::new(user_id, device_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification = VerificationMachine::new(
             account.static_data().clone(),

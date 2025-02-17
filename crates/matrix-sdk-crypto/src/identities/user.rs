@@ -1409,7 +1409,7 @@ pub(crate) mod tests {
     use ruma::{device_id, user_id, TransactionId};
     use serde_json::{json, Value};
     use tokio::sync::Mutex;
-
+    use matrix_sdk_common::NoisyArc;
     use super::{
         testing::{device, get_other_identity, get_own_identity},
         OtherUserIdentityDataSerializerV2, OwnUserIdentityData, OwnUserIdentityVerifiedState,
@@ -1596,7 +1596,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             Account::with_device_id(second.user_id(), second.device_id()).static_data,
             private_identity,
-            Arc::new(CryptoStoreWrapper::new(
+            NoisyArc::new(CryptoStoreWrapper::new(
                 second.user_id(),
                 second.device_id(),
                 MemoryStore::new(),
@@ -1641,7 +1641,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             Account::with_device_id(device.user_id(), device.device_id()).static_data,
             id.clone(),
-            Arc::new(CryptoStoreWrapper::new(
+            NoisyArc::new(CryptoStoreWrapper::new(
                 device.user_id(),
                 device.device_id(),
                 MemoryStore::new(),

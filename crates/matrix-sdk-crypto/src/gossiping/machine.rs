@@ -1097,6 +1097,7 @@ mod tests {
 
     #[cfg(feature = "automatic-room-key-forwarding")]
     use assert_matches::assert_matches;
+    use matrix_sdk_common::NoisyArc;
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
         device_id, event_id,
@@ -1178,7 +1179,7 @@ mod tests {
         let user_id = user_id.to_owned();
         let device_id = DeviceId::new();
 
-        let store = Arc::new(store_with_account_helper(&user_id, &device_id).await);
+        let store = NoisyArc::new(store_with_account_helper(&user_id, &device_id).await);
         let static_data = store.load_account().await.unwrap().unwrap().static_data;
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
@@ -1221,7 +1222,7 @@ mod tests {
             DeviceData::from_account(&Account::with_device_id(&user_id, alice2_device_id()));
 
         let store =
-            Arc::new(CryptoStoreWrapper::new(&user_id, account.device_id(), MemoryStore::new()));
+            NoisyArc::new(CryptoStoreWrapper::new(&user_id, account.device_id(), MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());

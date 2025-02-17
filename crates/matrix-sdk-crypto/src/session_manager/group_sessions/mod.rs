@@ -23,7 +23,7 @@ use std::{
 use futures_util::future::join_all;
 use itertools::Itertools;
 use matrix_sdk_common::{
-    deserialized_responses::WithheldCode, executor::spawn, locks::RwLock as StdRwLock,
+    deserialized_responses::WithheldCode, executor::spawn, locks::RwLock as StdRwLock, NoisyArc,
 };
 use ruma::{
     events::{AnyMessageLikeEventContent, ToDeviceEventType},
@@ -257,7 +257,7 @@ impl GroupSessionManager {
     /// Encrypt the given content for the given devices and create a to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
-        store: Arc<CryptoStoreWrapper>,
+        store: NoisyArc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
         devices: Vec<DeviceData>,
     ) -> OlmResult<(
@@ -280,7 +280,7 @@ impl GroupSessionManager {
 
         // XXX is there a way to do this that doesn't involve cloning the
         // `Arc<CryptoStoreWrapper>` for each device?
-        let encrypt = |store: Arc<CryptoStoreWrapper>,
+        let encrypt = |store: NoisyArc<CryptoStoreWrapper>,
                        device: DeviceData,
                        session: OutboundGroupSession| async move {
             let encryption_result = device.maybe_encrypt_room_key(store.as_ref(), session).await?;
@@ -348,7 +348,7 @@ impl GroupSessionManager {
     }
 
     async fn encrypt_request(
-        store: Arc<CryptoStoreWrapper>,
+        store: NoisyArc<CryptoStoreWrapper>,
         chunk: Vec<DeviceData>,
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,

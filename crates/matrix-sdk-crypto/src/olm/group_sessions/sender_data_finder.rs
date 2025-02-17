@@ -374,7 +374,7 @@ mod tests {
     use ruma::{device_id, room_id, user_id, DeviceId, OwnedUserId, RoomId, UserId};
     use tokio::sync::Mutex;
     use vodozemac::{megolm::SessionKey, Curve25519PublicKey, Ed25519PublicKey};
-
+    use matrix_sdk_common::NoisyArc;
     use super::SenderDataFinder;
     use crate::{
         error::MismatchedIdentityKeysError,
@@ -880,7 +880,7 @@ mod tests {
     }
 
     fn create_store(me: &TestUser) -> Store {
-        let store_wrapper = Arc::new(CryptoStoreWrapper::new(
+        let store_wrapper = NoisyArc::new(CryptoStoreWrapper::new(
             &me.user_id,
             me.account.device_id(),
             MemoryStore::new(),
@@ -889,7 +889,7 @@ mod tests {
         let verification_machine = VerificationMachine::new(
             me.account.deref().clone(),
             Arc::clone(&me.private_identity),
-            Arc::clone(&store_wrapper),
+            NoisyArc::clone(&store_wrapper),
         );
 
         Store::new(
@@ -1049,7 +1049,7 @@ mod tests {
                 Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(
                     account.user_id().to_owned(),
                 ))),
-                Arc::new(CryptoStoreWrapper::new(
+                NoisyArc::new(CryptoStoreWrapper::new(
                     account.user_id(),
                     account.device_id(),
                     MemoryStore::new(),

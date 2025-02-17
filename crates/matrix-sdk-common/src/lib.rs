@@ -27,11 +27,14 @@ pub mod executor;
 pub mod failures_cache;
 pub mod linked_chunk;
 pub mod locks;
+mod noisy_arc;
 pub mod ring_buffer;
 pub mod sleep;
 pub mod store_locks;
 pub mod timeout;
 pub mod tracing_timer;
+
+pub use noisy_arc::NoisyArc;
 
 // We cannot currently measure test coverage in the WASM environment, so
 // js_tracing is incorrectly flagged as untested. Disable coverage checking for

@@ -41,8 +41,7 @@
 // a lot of to-device events. This process might take some time and we should
 // support resuming it.
 
-use std::sync::Arc;
-
+use matrix_sdk_common::NoisyArc;
 use ruma::{
     api::client::dehydrated_device::{put_dehydrated_device, DehydratedDeviceData},
     assign,
@@ -103,7 +102,7 @@ impl DehydratedDevices {
 
         let account = Account::new_dehydrated(user_id);
         let store =
-            Arc::new(CryptoStoreWrapper::new(user_id, account.device_id(), MemoryStore::new()));
+            NoisyArc::new(CryptoStoreWrapper::new(user_id, account.device_id(), MemoryStore::new()));
 
         let verification_machine = VerificationMachine::new(
             account.static_data().clone(),

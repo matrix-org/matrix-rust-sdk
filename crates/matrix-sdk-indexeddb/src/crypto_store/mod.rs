@@ -1434,6 +1434,7 @@ impl_crypto_store! {
 
 impl Drop for IndexeddbCryptoStore {
     fn drop(&mut self) {
+        tracing::info!("IndexeddbCryptoStore::drop");
         // Must release the database access manually as it's not done when
         // dropping it.
         self.inner.close();

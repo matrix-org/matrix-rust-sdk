@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, fmt};
 
 use async_trait::async_trait;
-use matrix_sdk_common::AsyncTraitDeps;
+use matrix_sdk_common::{AsyncTraitDeps, NoisyArc};
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
 };
@@ -605,35 +605,33 @@ pub type DynCryptoStore = dyn CryptoStore<Error = CryptoStoreError>;
 /// implements `CryptoStore`.
 pub trait IntoCryptoStore {
     #[doc(hidden)]
-    fn into_crypto_store(self) -> Arc<DynCryptoStore>;
+    fn into_crypto_store(self) -> NoisyArc<DynCryptoStore>;
 }
 
 impl<T> IntoCryptoStore for T
 where
     T: CryptoStore + 'static,
 {
-    fn into_crypto_store(self) -> Arc<DynCryptoStore> {
-        Arc::new(EraseCryptoStoreError(self))
+    fn into_crypto_store(self) -> NoisyArc<DynCryptoStore> {
+        NoisyArc::from_box(Box::new(EraseCryptoStoreError(self)), true)
     }
 }
 
 // Turns a given `Arc<T>` into `Arc<DynCryptoStore>` by attaching the
 // CryptoStore impl vtable of `EraseCryptoStoreError<T>`.
-impl<T> IntoCryptoStore for Arc<T>
+impl<T> IntoCryptoStore for NoisyArc<T>
 where
     T: CryptoStore + 'static,
 {
-    fn into_crypto_store(self) -> Arc<DynCryptoStore> {
-        let ptr: *const T = Arc::into_raw(self);
-        let ptr_erased = ptr as *const EraseCryptoStoreError<T>;
+    fn into_crypto_store(self) -> NoisyArc<DynCryptoStore> {
         // SAFETY: EraseCryptoStoreError is repr(transparent) so T and
         //         EraseCryptoStoreError<T> have the same layout and ABI
-        unsafe { Arc::from_raw(ptr_erased) }
+        unsafe { NoisyArc::transmute(self) }
     }
 }
 
-impl IntoCryptoStore for Arc<DynCryptoStore> {
-    fn into_crypto_store(self) -> Arc<DynCryptoStore> {
+impl IntoCryptoStore for NoisyArc<DynCryptoStore> {
+    fn into_crypto_store(self) -> NoisyArc<DynCryptoStore> {
         self
     }
 }

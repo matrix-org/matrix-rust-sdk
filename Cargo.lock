@@ -3313,6 +3313,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uniffi",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -3367,6 +3368,7 @@ dependencies = [
  "ulid",
  "uniffi",
  "url",
+ "uuid",
  "vodozemac",
  "zeroize",
 ]

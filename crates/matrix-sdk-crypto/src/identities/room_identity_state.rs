@@ -351,7 +351,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use matrix_sdk_common::BoxFuture;
+    use matrix_sdk_common::{BoxFuture, NoisyArc};
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -1150,7 +1150,7 @@ mod tests {
                 Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(
                     account.user_id().to_owned(),
                 ))),
-                Arc::new(CryptoStoreWrapper::new(
+                NoisyArc::new(CryptoStoreWrapper::new(
                     account.user_id(),
                     account.device_id(),
                     MemoryStore::new(),
@@ -1186,7 +1186,7 @@ mod tests {
         let verification_machine = VerificationMachine::new(
             account.clone(),
             Arc::new(Mutex::new(cross_signing_identity.clone())),
-            Arc::new(CryptoStoreWrapper::new(
+            NoisyArc::new(CryptoStoreWrapper::new(
                 account.user_id(),
                 account.device_id(),
                 MemoryStore::new(),
@@ -1199,7 +1199,7 @@ mod tests {
             Store::new(
                 account.static_data().clone(),
                 Arc::new(Mutex::new(cross_signing_identity)),
-                Arc::new(CryptoStoreWrapper::new(
+                NoisyArc::new(CryptoStoreWrapper::new(
                     user_id!("@u:s.co"),
                     device_id!("DEV7"),
                     MemoryStore::new(),

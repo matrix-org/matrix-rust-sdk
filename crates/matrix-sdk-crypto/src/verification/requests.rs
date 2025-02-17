@@ -889,6 +889,7 @@ impl VerificationRequest {
     ///
     /// To listen to changes to the [`VerificationRequestState`] use the
     /// [`VerificationRequest::changes`] method.
+    #[tracing::instrument]
     pub fn state(&self) -> VerificationRequestState {
         (&*self.inner.read()).into()
     }

@@ -39,6 +39,7 @@ pub mod integration_tests;
 mod observable_map;
 mod traits;
 
+use matrix_sdk_common::NoisyArc;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
@@ -486,7 +487,7 @@ impl StateChanges {
 #[derive(Clone)]
 pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store: Arc<DynCryptoStore>,
+    pub(crate) crypto_store: NoisyArc<DynCryptoStore>,
     pub(crate) state_store: Arc<DynStateStore>,
     pub(crate) event_cache_store: event_cache_store::EventCacheStoreLock,
     cross_process_store_locks_holder_name: String,
@@ -506,6 +507,8 @@ impl StoreConfig {
     /// [`CrossProcessStoreLock::new`](matrix_sdk_common::store_locks::CrossProcessStoreLock::new).
     #[must_use]
     pub fn new(cross_process_store_locks_holder_name: String) -> Self {
+        panic!("xxx");
+        /*
         Self {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
@@ -516,6 +519,8 @@ impl StoreConfig {
             ),
             cross_process_store_locks_holder_name,
         }
+
+         */
     }
 
     /// Set a custom implementation of a `CryptoStore`.

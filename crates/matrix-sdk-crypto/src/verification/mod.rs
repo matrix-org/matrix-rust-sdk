@@ -25,6 +25,7 @@ use std::{collections::HashMap, ops::Deref, sync::Arc};
 use as_variant::as_variant;
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
+use matrix_sdk_common::NoisyArc;
 #[cfg(feature = "qrcode")]
 pub use qrcode::{QrVerification, QrVerificationState, ScanError};
 pub use requests::{VerificationRequest, VerificationRequestState};
@@ -62,7 +63,7 @@ use crate::{
 pub(crate) struct VerificationStore {
     pub account: StaticAccountData,
     pub private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    inner: Arc<CryptoStoreWrapper>,
+    inner: NoisyArc<CryptoStoreWrapper>,
 }
 
 /// An emoji that is used for interactive verification using a short auth
@@ -733,15 +734,13 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::Arc;
-
     use ruma::{
         device_id,
         events::{AnyToDeviceEventContent, ToDeviceEvent},
         user_id, DeviceId, UserId,
     };
     use tokio::sync::Mutex;
-
+    use matrix_sdk_common::NoisyArc;
     use super::{event_enums::OutgoingContent, VerificationStore};
     use crate::{
         olm::PrivateCrossSigningIdentity,
@@ -869,7 +868,7 @@ pub(crate) mod tests {
         bob_store.save_devices(vec![alice_device]);
 
         let alice_store = VerificationStore {
-            inner: Arc::new(CryptoStoreWrapper::new(
+            inner: NoisyArc::new(CryptoStoreWrapper::new(
                 alice.user_id(),
                 alice.device_id(),
                 alice_store,
@@ -880,7 +879,7 @@ pub(crate) mod tests {
 
         let bob_store = VerificationStore {
             account: bob.static_data.clone(),
-            inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob.device_id(), bob_store)),
+            inner: NoisyArc::new(CryptoStoreWrapper::new(bob.user_id(), bob.device_id(), bob_store)),
             private_identity: bob_private_identity.into(),
         };
 

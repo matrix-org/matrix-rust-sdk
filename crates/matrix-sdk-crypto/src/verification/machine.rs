@@ -15,6 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
+use matrix_sdk_common::NoisyArc;
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -54,7 +55,7 @@ impl VerificationMachine {
     pub(crate) fn new(
         account: StaticAccountData,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<CryptoStoreWrapper>,
+        store: NoisyArc<CryptoStoreWrapper>,
     ) -> Self {
         Self {
             store: VerificationStore { account, private_identity: identity, inner: store },
@@ -538,6 +539,7 @@ impl VerificationMachine {
 mod tests {
     use std::sync::Arc;
 
+    use matrix_sdk_common::NoisyArc;
     use matrix_sdk_test::async_test;
     use ruma::TransactionId;
     use tokio::sync::Mutex;
@@ -592,7 +594,7 @@ mod tests {
         let _ = VerificationMachine::new(
             alice.static_data,
             identity,
-            Arc::new(CryptoStoreWrapper::new(alice_id(), alice_device_id(), MemoryStore::new())),
+            NoisyArc::new(CryptoStoreWrapper::new(alice_id(), alice_device_id(), MemoryStore::new())),
         );
     }
 
