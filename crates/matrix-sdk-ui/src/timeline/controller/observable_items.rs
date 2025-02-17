@@ -14,7 +14,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{vec_deque::Iter, VecDeque},
+    collections::{vec_deque::Iter, HashMap, VecDeque},
     ops::{Deref, RangeBounds},
     sync::Arc,
 };
@@ -24,7 +24,7 @@ use eyeball_im::{
     ObservableVectorTransactionEntry, VectorSubscriber,
 };
 use imbl::Vector;
-use ruma::EventId;
+use ruma::{EventId, OwnedEventId};
 
 use super::{metadata::EventMeta, TimelineItem};
 
@@ -298,9 +298,9 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     /// to it; that's the case for virtual timeline item for example. See
     /// [`EventMeta::timeline_item_index`] to learn more.
     pub fn push_back(&mut self, timeline_item: Arc<TimelineItem>, event_index: Option<usize>) {
+        let item_index = self.items.len();
         self.items.push_back(timeline_item);
-        self.all_remote_events
-            .timeline_item_has_been_inserted_at(self.items.len().saturating_sub(1), event_index);
+        self.all_remote_events.timeline_item_has_been_inserted_at(item_index, event_index);
     }
 
     /// Clear all timeline items and all remote events.
@@ -450,13 +450,19 @@ mod observable_items_tests {
             $(
                 // Remote event exists at this index…
                 assert_matches!(all_remote_events.events.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
+                    // The reverse mapping from event-id to event-index must be correct.
+                    assert_eq!(
+                        all_remote_events.event_id_to_index.get(event_id).copied(),
+                        Some($event_index),
+                        concat!("event $", $event_id, " has an incorrect reverse mapping")
+                    );
+
                     // … this is the remote event with the expected event ID
                     assert_eq!(
                         event_id.as_str(),
                         $event_id ,
                         concat!("event #", $event_index, " should have ID ", $event_id)
                     );
-
 
                     // (tiny hack to handle the case where `$timeline_item_index` is absent)
                     #[allow(unused_variables)]
@@ -1160,7 +1166,10 @@ mod observable_items_tests {
 /// them.
 #[derive(Clone, Debug, Default)]
 pub struct AllRemoteEvents {
+    /// The list of all remote events itself.
     events: VecDeque<EventMeta>,
+    /// Mapping from an event id to its index in `items`.
+    event_id_to_index: HashMap<OwnedEventId, usize>,
 }
 
 impl AllRemoteEvents {
@@ -1186,6 +1195,7 @@ impl AllRemoteEvents {
     /// Remove all remote events.
     fn clear(&mut self) {
         self.events.clear();
+        self.event_id_to_index.clear();
     }
 
     /// Insert a new remote event at the front of all the others.
@@ -1196,8 +1206,20 @@ impl AllRemoteEvents {
             self.increment_all_timeline_item_index_after(new_timeline_item_index);
         }
 
+        // Incremental all indices in the event id mapping.
+        {
+            for meta in &self.events {
+                let entry = self
+                    .event_id_to_index
+                    .get_mut(&meta.event_id)
+                    .expect("there should be an entry for every event");
+                *entry += 1;
+            }
+            self.event_id_to_index.insert(event_meta.event_id.clone(), 0);
+        }
+
         // Push the event.
-        self.events.push_front(event_meta)
+        self.events.push_front(event_meta);
     }
 
     /// Insert a new remote event at the back of all the others.
@@ -1208,8 +1230,12 @@ impl AllRemoteEvents {
             self.increment_all_timeline_item_index_after(new_timeline_item_index);
         }
 
+        // Add the inverted mapping for this new entry. Bonus, we don't need to shift
+        // anything \o/
+        self.event_id_to_index.insert(event_meta.event_id.clone(), self.events.len());
+
         // Push the event.
-        self.events.push_back(event_meta)
+        self.events.push_back(event_meta);
     }
 
     /// Insert a new remote event at a specific index.
@@ -1220,6 +1246,18 @@ impl AllRemoteEvents {
             self.increment_all_timeline_item_index_after(new_timeline_item_index);
         }
 
+        // Increment all indices after the one we're shifting in the event id mapping.
+        {
+            for meta in self.events.iter().skip(event_index) {
+                let entry = self
+                    .event_id_to_index
+                    .get_mut(&meta.event_id)
+                    .expect("there should be an entry for every event");
+                *entry += 1;
+            }
+            self.event_id_to_index.insert(event_meta.event_id.clone(), event_index);
+        }
+
         // Insert the event.
         self.events.insert(event_index, event_meta)
     }
@@ -1228,6 +1266,25 @@ impl AllRemoteEvents {
     fn remove(&mut self, event_index: usize) -> Option<EventMeta> {
         // Remove the event.
         let event_meta = self.events.remove(event_index)?;
+
+        // In the event-id to index mapping, decrement all indices after the one we're
+        // going to remove.
+        //
+        // Note: we do this *after* the actual removal, because `event_index` is the
+        // number of entries to skip *after* the removal (if there was two
+        // events, and we're removing the first one, we need to decrement the
+        // second one, that's at `event_index` *after* the removal).
+
+        for meta in self.events.iter().skip(event_index) {
+            let entry = self
+                .event_id_to_index
+                .get_mut(&meta.event_id)
+                .expect("there should be an entry for every event");
+            *entry -= 1;
+        }
+
+        // Remove its inverted mapping from event id.
+        self.event_id_to_index.remove(&event_meta.event_id);
 
         // If there is an associated `timeline_item_index`, shift all the
         // `timeline_item_index` that come after this one.
@@ -1250,12 +1307,14 @@ impl AllRemoteEvents {
 
     /// Get a mutable reference to a specific remote event by its ID.
     pub fn get_by_event_id_mut(&mut self, event_id: &EventId) -> Option<&mut EventMeta> {
-        self.events.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
+        let index = *self.event_id_to_index.get(event_id)?;
+        self.events.get_mut(index)
     }
 
     /// Get an immutable reference to a specific remote event by its ID.
     pub fn get_by_event_id(&self, event_id: &EventId) -> Option<&EventMeta> {
-        self.events.iter().rev().find(|event_meta| event_meta.event_id == event_id)
+        let index = *self.event_id_to_index.get(event_id)?;
+        self.events.get(index)
     }
 
     /// Shift to the right all timeline item indexes that are equal to or
@@ -1281,7 +1340,7 @@ impl AllRemoteEvents {
     }
 
     /// Shift to the left all timeline item indexes that are greater than
-    /// `removed_wtimeline_item_index`.
+    /// `removed_timeline_item_index`.
     fn decrement_all_timeline_item_index_after(&mut self, removed_timeline_item_index: usize) {
         // Traverse items from back to front because:
         // - if `new_timeline_item_index` is 0, we need to shift all items anyways, so
@@ -1374,6 +1433,16 @@ mod all_remote_events_tests {
             )*
 
             assert!(iter.next().is_none(), "Not all events have been asserted");
+
+            // Also check the reverse mapping from event-id to event-index.
+            for (i, meta) in $events.iter().enumerate() {
+                assert_eq!($events.event_id_to_index.get(&meta.event_id).copied(), Some(i));
+            }
+            assert_eq!(
+                $events.event_id_to_index.len(),
+                $events.events.len(),
+                "there are more entries in the reverse mapping than in the original"
+            );
         }
     }
 
@@ -1535,12 +1604,12 @@ mod all_remote_events_tests {
 
         // Remove two events.
         events.remove(2); // $ev2 has no `timeline_item_index`
-        events.remove(1); // $ev1 has a `timeline_item_index`
+        events.remove(0); // $ev0 has a `timeline_item_index`
 
         assert_events!(
             events,
             [
-                ("$ev0", Some(0)),
+                ("$ev1", Some(0)),
                 // `timeline_item_index` has shifted once
                 ("$ev3", Some(1)),
             ]
