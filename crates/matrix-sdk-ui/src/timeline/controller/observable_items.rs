@@ -449,7 +449,7 @@ mod observable_items_tests {
 
             $(
                 // Remote event exists at this index…
-                assert_matches!(all_remote_events.0.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
+                assert_matches!(all_remote_events.events.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
                     // … this is the remote event with the expected event ID
                     assert_eq!(
                         event_id.as_str(),
@@ -1065,13 +1065,13 @@ mod observable_items_tests {
             | "$ev3"   | 3           | 3                   |
         }
 
-        assert_eq!(transaction.all_remote_events().0.len(), 4);
+        assert_eq!(transaction.all_remote_events().events.len(), 4);
         assert_eq!(transaction.len(), 4);
 
         // Let's clear everything.
         transaction.clear();
 
-        assert!(transaction.all_remote_events().0.is_empty());
+        assert!(transaction.all_remote_events().events.is_empty());
         assert!(transaction.is_empty());
     }
 
@@ -1148,7 +1148,7 @@ mod observable_items_tests {
             | "$ev2"   | 2           | 1                   | // has shifted
         }
 
-        assert_eq!(transaction.all_remote_events().0.len(), 3);
+        assert_eq!(transaction.all_remote_events().events.len(), 3);
         assert_eq!(transaction.len(), 2);
     }
 }
@@ -1159,17 +1159,19 @@ mod observable_items_tests {
 /// use all remote events. It also helps to give a bit of semantics on top of
 /// them.
 #[derive(Clone, Debug, Default)]
-pub struct AllRemoteEvents(VecDeque<EventMeta>);
+pub struct AllRemoteEvents {
+    events: VecDeque<EventMeta>,
+}
 
 impl AllRemoteEvents {
     /// Return a reference to a remote event.
     pub fn get(&self, event_index: usize) -> Option<&EventMeta> {
-        self.0.get(event_index)
+        self.events.get(event_index)
     }
 
     /// Return a front-to-back iterator over all remote events.
     pub fn iter(&self) -> Iter<'_, EventMeta> {
-        self.0.iter()
+        self.events.iter()
     }
 
     /// Return a front-to-back iterator covering ranges of all remote events
@@ -1178,12 +1180,12 @@ impl AllRemoteEvents {
     where
         R: RangeBounds<usize>,
     {
-        self.0.range(range)
+        self.events.range(range)
     }
 
     /// Remove all remote events.
     fn clear(&mut self) {
-        self.0.clear();
+        self.events.clear();
     }
 
     /// Insert a new remote event at the front of all the others.
@@ -1195,7 +1197,7 @@ impl AllRemoteEvents {
         }
 
         // Push the event.
-        self.0.push_front(event_meta)
+        self.events.push_front(event_meta)
     }
 
     /// Insert a new remote event at the back of all the others.
@@ -1207,7 +1209,7 @@ impl AllRemoteEvents {
         }
 
         // Push the event.
-        self.0.push_back(event_meta)
+        self.events.push_back(event_meta)
     }
 
     /// Insert a new remote event at a specific index.
@@ -1219,13 +1221,13 @@ impl AllRemoteEvents {
         }
 
         // Insert the event.
-        self.0.insert(event_index, event_meta)
+        self.events.insert(event_index, event_meta)
     }
 
     /// Remove one remote event at a specific index, and return it if it exists.
     fn remove(&mut self, event_index: usize) -> Option<EventMeta> {
         // Remove the event.
-        let event_meta = self.0.remove(event_index)?;
+        let event_meta = self.events.remove(event_index)?;
 
         // If there is an associated `timeline_item_index`, shift all the
         // `timeline_item_index` that come after this one.
@@ -1238,22 +1240,22 @@ impl AllRemoteEvents {
 
     /// Return a reference to the last remote event if it exists.
     pub fn last(&self) -> Option<&EventMeta> {
-        self.0.back()
+        self.events.back()
     }
 
     /// Return the index of the last remote event if it exists.
     pub fn last_index(&self) -> Option<usize> {
-        self.0.len().checked_sub(1)
+        self.events.len().checked_sub(1)
     }
 
     /// Get a mutable reference to a specific remote event by its ID.
     pub fn get_by_event_id_mut(&mut self, event_id: &EventId) -> Option<&mut EventMeta> {
-        self.0.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
+        self.events.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
     }
 
     /// Get an immutable reference to a specific remote event by its ID.
     pub fn get_by_event_id(&self, event_id: &EventId) -> Option<&EventMeta> {
-        self.0.iter().rev().find(|event_meta| event_meta.event_id == event_id)
+        self.events.iter().rev().find(|event_meta| event_meta.event_id == event_id)
     }
 
     /// Shift to the right all timeline item indexes that are equal to or
@@ -1266,7 +1268,7 @@ impl AllRemoteEvents {
         //   either inserted or pushed back, so there is no need to traverse the first
         //   items; we can also break the iteration as soon as all timeline item index
         //   after `new_timeline_item_index` has been updated.
-        for event_meta in self.0.iter_mut().rev() {
+        for event_meta in self.events.iter_mut().rev() {
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 if *timeline_item_index >= new_timeline_item_index {
                     *timeline_item_index += 1;
@@ -1288,7 +1290,7 @@ impl AllRemoteEvents {
         //   either inserted or pushed back, so there is no need to traverse the first
         //   items; we can also break the iteration as soon as all timeline item index
         //   after `new_timeline_item_index` has been updated.
-        for event_meta in self.0.iter_mut().rev() {
+        for event_meta in self.events.iter_mut().rev() {
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 if *timeline_item_index > removed_timeline_item_index {
                     *timeline_item_index -= 1;
@@ -1312,7 +1314,7 @@ impl AllRemoteEvents {
         self.increment_all_timeline_item_index_after(new_timeline_item_index);
 
         if let Some(event_index) = event_index {
-            if let Some(event_meta) = self.0.get_mut(event_index) {
+            if let Some(event_meta) = self.events.get_mut(event_index) {
                 event_meta.timeline_item_index = Some(new_timeline_item_index);
             }
         }
@@ -1321,7 +1323,7 @@ impl AllRemoteEvents {
     /// Notify that a timeline item has been removed at
     /// `new_timeline_item_index`.
     fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
-        for event_meta in self.0.iter_mut() {
+        for event_meta in self.events.iter_mut() {
             let mut remove_timeline_item_index = false;
 
             // A `timeline_item_index` is removed. Let's shift all indexes that come
