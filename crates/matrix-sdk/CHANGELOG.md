@@ -72,6 +72,14 @@ simpler methods:
   - `OidcError::MissingAuthenticationIssuer` was removed.
 - [**breaking**]: The `authentication::qrcode` module was moved inside
   `authentication::oidc`, because it is only available through the `Oidc` API.
+- [**breaking**]: The behavior of `Oidc::logout()` is now aligned with
+  [MSC4254](https://github.com/matrix-org/matrix-spec-proposals/pull/4254)
+  ([#4674](https://github.com/matrix-org/matrix-rust-sdk/pull/4674))
+  - Support for [RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
+    was removed, so it doesn't return an `OidcEndSessionUrlBuilder` anymore.
+  - Only one request is made to revoke the access token, since the server is
+    supposed to revoke both the access token and the associated refresh token
+    when the request is made.
 
 ## [0.10.0] - 2025-02-04
 
