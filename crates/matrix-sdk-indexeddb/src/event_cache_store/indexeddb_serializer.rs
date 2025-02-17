@@ -131,7 +131,7 @@ impl IndexeddbSerializer {
     ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
         let serialized = self.maybe_encrypt_value(value)?;
 
-        let res_obj = WrapperObject { id: id.to_string(), value: serialized };
+        let res_obj = WrapperObject { id: id.to_owned(), value: serialized };
 
         Ok(serde_wasm_bindgen::to_value(&res_obj)?)
     }
@@ -229,6 +229,16 @@ impl IndexeddbSerializer {
 
         // Otherwise, fall back to the legacy deserializer.
         self.deserialize_legacy_value(value)
+    }
+
+    pub fn deserialize_into_object<T: DeserializeOwned>(
+        &self,
+        value: JsValue,
+    ) -> Result<T, IndexeddbEventCacheStoreError> {
+        let obj: WrapperObject = value.into_serde()?;
+        let deserialized: T = self.maybe_decrypt_value(obj.value)?;
+
+        Ok(deserialized)
     }
 
     /// Decode a value that was encoded with an old version of

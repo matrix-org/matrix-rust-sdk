@@ -101,6 +101,11 @@ impl IndexeddbEventCacheStore {
         let id_raw = format!("{}-{}", room_id, object_id);
         self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
     }
+
+    pub fn get_event_id(&self, room_id: &str, chunk_id: &str, index: usize) -> String {
+        let id_raw = format!("{}-{}", chunk_id, index);
+        self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
+    }
 }
 
 type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
@@ -111,6 +116,12 @@ struct Chunk {
     previous: Option<String>,
     next: Option<String>,
     type_str: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct IndexedDbGap {
+    id: String,
+    prev_token: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -155,7 +166,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
         for update in updates {
-            // web_sys::console::log_1(&format!("🟦 Trying to handle update {:?}", update).into());
+            web_sys::console::log_1(&format!("🟦 Trying to handle update {:?}", update).into());
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
                     let tx = self.inner.transaction_on_one_with_mode(
@@ -188,15 +199,19 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let serialized_value = self.serializer.serialize_into_object(&id, &chunk)?;
 
-                    object_store.add_val(&serialized_value)?;
+                    let req = object_store.put_val(&serialized_value)?;
+
+                    req.await?;
 
                     // Update previous if there
                     if let Some(previous) = previous {
-                        let previous_chunk_js_value =
-                            object_store.get_owned(&previous)?.await?.unwrap();
+                        let previous_chunk_js_value = object_store
+                            .get_owned(&previous)?
+                            .await?
+                            .expect("Previous chunk not found");
 
                         let previous_chunk: Chunk =
-                            self.serializer.deserialize_value(previous_chunk_js_value)?;
+                            self.serializer.deserialize_into_object(previous_chunk_js_value)?;
 
                         let updated_previous_chunk = Chunk {
                             id: previous.clone(),
@@ -204,9 +219,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                             next: Some(id.clone()),
                             type_str: previous_chunk.type_str,
                         };
+
                         let updated_previous_value = self
                             .serializer
                             .serialize_into_object(&previous, &updated_previous_chunk)?;
+
                         object_store.put_val(&updated_previous_value)?;
                     }
 
@@ -214,7 +231,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     if let Some(next) = next {
                         let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
                         let next_chunk: Chunk =
-                            self.serializer.deserialize_value(next_chunk_js_value)?;
+                            self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
                         let updated_next_chunk = Chunk {
                             id: next.clone(),
@@ -222,6 +239,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                             next: next_chunk.next,
                             type_str: next_chunk.type_str,
                         };
+
                         let updated_next_value =
                             self.serializer.serialize_into_object(&next, &updated_next_chunk)?;
 
@@ -236,22 +254,28 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-                    // let prev_token = self.serializer.serialize_value(&gap.prev_token)?;
-
-                    let previous = previous.as_ref().map(ChunkIdentifier::index);
+                    let previous = previous
+                        .as_ref()
+                        .map(ChunkIdentifier::index)
+                        .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
                     let new = new.index();
-                    let next = next.as_ref().map(ChunkIdentifier::index);
+                    let next = next
+                        .as_ref()
+                        .map(ChunkIdentifier::index)
+                        .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
+
+                    let id = self.get_id(room_id.as_ref(), new.to_string().as_ref());
 
                     trace!(%room_id,"Inserting new gap (prev={previous:?}, new={new}, next={next:?})");
 
                     let chunk = Chunk {
-                        id: format!("{room_id}-{new}"),
-                        previous: previous.map(|n| n.to_string()),
-                        next: next.map(|n| n.to_string()),
+                        id: id.clone(),
+                        previous,
+                        next,
                         type_str: CHUNK_TYPE_GAP_TYPE_STRING.to_owned(),
                     };
 
-                    let serialized_value = self.serializer.serialize_value(&chunk)?;
+                    let serialized_value = self.serializer.serialize_into_object(&id, &chunk)?;
 
                     object_store.add_val(&serialized_value)?;
 
@@ -261,12 +285,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::GAPS)?;
 
-                    let gap = serde_json::json!({
-                        "id": format!("{room_id}-{new}"),
-                        "prev_token": gap.prev_token
-                    });
+                    let gap = IndexedDbGap { id: id.clone(), prev_token: gap.prev_token };
 
-                    let serialized_gap = self.serializer.serialize_value(&gap)?;
+                    let serialized_gap = self.serializer.serialize_into_object(&id, &gap)?;
 
                     object_store.add_val(&serialized_gap)?;
                 }
@@ -286,13 +307,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let chunk_to_delete_js_value =
                         object_store.get_owned(id.clone())?.await?.unwrap();
                     let chunk_to_delete: Chunk =
-                        self.serializer.deserialize_value(chunk_to_delete_js_value)?;
+                        self.serializer.deserialize_into_object(chunk_to_delete_js_value)?;
 
                     if let Some(previous) = chunk_to_delete.previous.clone() {
                         let previous_chunk_js_value =
                             object_store.get_owned(&previous)?.await?.unwrap();
                         let previous_chunk: Chunk =
-                            self.serializer.deserialize_value(previous_chunk_js_value)?;
+                            self.serializer.deserialize_into_object(previous_chunk_js_value)?;
 
                         let updated_previous_chunk = Chunk {
                             id: previous.clone(),
@@ -309,7 +330,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     if let Some(next) = chunk_to_delete.next {
                         let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
                         let next_chunk: Chunk =
-                            self.serializer.deserialize_value(next_chunk_js_value)?;
+                            self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
                         let updated_next_chunk = Chunk {
                             id: next.clone(),
@@ -339,17 +360,22 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     for (i, event) in items.into_iter().enumerate() {
                         let index = at.index() + i;
-                        // Can the ID be encrypted when inserting?
+                        let id = self.get_event_id(
+                            room_id.as_ref(),
+                            chunk_id.to_string().as_ref(),
+                            index,
+                        );
+
                         let value = TimelineEventForCache {
-                            id: format!("{room_id}-{chunk_id}-{index}"),
+                            id: id.clone(),
                             content: event,
                             room_id: room_id.to_string(),
                             position: index,
                         };
 
-                        let value = self.serializer.serialize_value(&value)?;
+                        let value = self.serializer.serialize_into_object(&id, &value)?;
 
-                        object_store.add_val(&value)?.into_future().await?;
+                        object_store.put_val(&value)?.into_future().await?;
                     }
                 }
                 Update::ReplaceItem { at, item } => {
@@ -365,7 +391,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let event_id = format!("{}-{}", chunk_id, index);
+                    let event_id = self.get_event_id(
+                        room_id.to_string().as_ref(),
+                        chunk_id.to_string().as_ref(),
+                        index,
+                    );
 
                     let timeline_event = TimelineEventForCache {
                         id: event_id.clone(),
@@ -374,7 +404,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         position: index,
                     };
 
-                    let value = self.serializer.serialize_value(&timeline_event)?;
+                    let value =
+                        self.serializer.serialize_into_object(&event_id, &timeline_event)?;
 
                     object_store.put_val(&value)?;
                 }
