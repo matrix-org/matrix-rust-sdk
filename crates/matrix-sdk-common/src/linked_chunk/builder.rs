@@ -62,10 +62,15 @@ impl LinkedChunkBuilder {
         // Create the `LinkedChunk` from a single chunk.
         {
             // This is the only chunk. Pretend it has no previous chunk if any.
-            chunk.previous = None;
+            let lazy_previous = chunk.previous.take();
 
             // Transform the `RawChunk` into a `Chunk`.
-            let chunk_ptr = Chunk::new_leaked(chunk.identifier, chunk.content);
+            let mut chunk_ptr = Chunk::new_leaked(chunk.identifier, chunk.content);
+
+            // Set the `lazy_previous` value!
+            //
+            // SAFETY: Pointer is convertible to a reference.
+            unsafe { chunk_ptr.as_mut() }.lazy_previous = lazy_previous;
 
             Ok(Some(LinkedChunk {
                 links: Ends { first: chunk_ptr, last: None },
@@ -79,7 +84,7 @@ impl LinkedChunkBuilder {
     /// Insert a new chunk at the front of a `LinkedChunk`.
     pub fn insert_new_first_chunk<const CAP: usize, Item, Gap>(
         linked_chunk: &mut LinkedChunk<CAP, Item, Gap>,
-        new_first_chunk: RawChunk<Item, Gap>,
+        mut new_first_chunk: RawChunk<Item, Gap>,
     ) -> Result<(), LinkedChunkBuilderError>
     where
         Item: Clone,
@@ -94,13 +99,6 @@ impl LinkedChunkBuilder {
                         id: new_first_chunk.identifier,
                     });
                 }
-            }
-
-            // New chunk has no previous chunk.
-            if new_first_chunk.previous.is_some() {
-                return Err(LinkedChunkBuilderError::ChunkIsNotFirst {
-                    id: new_first_chunk.identifier,
-                });
             }
 
             let expected_next_chunk = linked_chunk.links.first_chunk().identifier();
@@ -127,48 +125,62 @@ impl LinkedChunkBuilder {
         // Insert the new first chunk.
         {
             // Transform the `RawChunk` into a `Chunk`.
-            let new_first_chunk =
+            let lazy_previous = new_first_chunk.previous.take();
+            let mut new_first_chunk =
                 Chunk::new_leaked(new_first_chunk.identifier, new_first_chunk.content);
 
             let links = &mut linked_chunk.links;
 
-            debug_assert!(
-                links.first_chunk().previous.is_none(),
-                "The first chunk is supposed to not have a previous chunk"
-            );
+            // Update the first chunk.
+            {
+                let first_chunk = links.first_chunk_mut();
 
-            // Link one way: `new_first_chunk` becomes the previous chunk of the first
-            // chunk.
-            links.first_chunk_mut().previous = Some(new_first_chunk);
+                debug_assert!(
+                    first_chunk.previous.is_none(),
+                    "The first chunk is not supposed to have a previous chunk"
+                );
 
-            // Remember the pointer to the `first_chunk`.
-            let old_first_chunk = links.first;
+                // Move the `lazy_previous` if any.
+                first_chunk.lazy_previous = None;
+                unsafe { new_first_chunk.as_mut() }.lazy_previous = lazy_previous;
 
-            // `new_first_chunk` becomes the new first chunk.
-            links.first = new_first_chunk;
+                // Link one way: `new_first_chunk` becomes the previous chunk of the first
+                // chunk.
+                first_chunk.previous = Some(new_first_chunk);
+            }
 
-            // Link the other way: `old_first_chunk` becomes the next chunk of the first
-            // chunk.
-            links.first_chunk_mut().next = Some(old_first_chunk);
+            // Update `links`.
+            {
+                // Remember the pointer to the `first_chunk`.
+                let old_first_chunk = links.first;
 
-            debug_assert!(
-                links.first_chunk().previous.is_none(),
-                "The new first chunk is supposed to not have a previous chunk"
-            );
+                // `new_first_chunk` becomes the new first chunk.
+                links.first = new_first_chunk;
 
-            // Update the last chunk. If it's `Some(_)`, no need to update the last chunk
-            // pointer. If it's `None`, it means we had only one chunk; now we have two, the
-            // last chunk is the `old_first_chunk`.
-            if links.last.is_none() {
-                links.last = Some(old_first_chunk);
+                // Link the other way: `old_first_chunk` becomes the next chunk of the first
+                // chunk.
+                links.first_chunk_mut().next = Some(old_first_chunk);
+
+                debug_assert!(
+                    links.first_chunk().previous.is_none(),
+                    "The new first chunk is not supposed to have a previous chunk"
+                );
+
+                // Update the last chunk. If it's `Some(_)`, no need to update the last chunk
+                // pointer. If it's `None`, it means we had only one chunk; now we have two, the
+                // last chunk is the `old_first_chunk`.
+                if links.last.is_none() {
+                    links.last = Some(old_first_chunk);
+                }
             }
         }
 
-        // Emit the updates.
+        // Emit the updates..
         if let Some(updates) = linked_chunk.updates.as_mut() {
             let first_chunk = linked_chunk.links.first_chunk();
 
-            let previous = first_chunk.previous().map(Chunk::identifier);
+            let previous =
+                first_chunk.previous().map(Chunk::identifier).or(first_chunk.lazy_previous);
             let new = first_chunk.identifier();
             let next = first_chunk.next().map(Chunk::identifier);
 
@@ -193,9 +205,6 @@ impl LinkedChunkBuilder {
 
 #[derive(thiserror::Error, Debug)]
 pub enum LinkedChunkBuilderError {
-    #[error("chunk with id {} has a previous chunk, it is supposed to be the first chunk", id.index())]
-    ChunkIsNotFirst { id: ChunkIdentifier },
-
     #[error("chunk with id {} has a next chunk, it is supposed to be the last chunk", id.index())]
     ChunkIsNotLast { id: ChunkIdentifier },
 
@@ -330,24 +339,6 @@ mod tests {
         let result = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk);
 
         assert_matches!(result, Err(LinkedChunkBuilderError::ChunkTooLarge { id }) => {
-            assert_eq!(id, 0);
-        });
-    }
-
-    #[test]
-    fn test_insert_new_first_chunk_err_is_not_first() {
-        let new_first_chunk = RawChunk {
-            previous: Some(ChunkIdentifier::new(42)),
-            identifier: ChunkIdentifier::new(0),
-            next: None,
-            content: ChunkContent::Gap(()),
-        };
-
-        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
-
-        let result = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk);
-
-        assert_matches!(result, Err(LinkedChunkBuilderError::ChunkIsNotFirst { id }) => {
             assert_eq!(id, 0);
         });
     }

@@ -333,11 +333,8 @@ impl RoomEvents {
 impl RoomEvents {
     pub(super) fn insert_new_chunk_as_first(
         &mut self,
-        mut raw_new_first_chunk: RawChunk<Event, Gap>,
+        raw_new_first_chunk: RawChunk<Event, Gap>,
     ) -> Result<(), LinkedChunkBuilderError> {
-        // Pretend there is no previous chunk.
-        raw_new_first_chunk.previous = None;
-
         LinkedChunkBuilder::insert_new_first_chunk(&mut self.chunks, raw_new_first_chunk)
     }
 }
