@@ -610,22 +610,13 @@ impl OidcCli {
     /// Log out from this session.
     async fn logout(&self) -> anyhow::Result<()> {
         // Log out via OIDC.
-        let url_builder = self.client.oidc().logout().await?;
+        self.client.oidc().logout().await?;
 
         // Delete the stored session and database.
         let data_dir = self.session_file.parent().expect("The file has a parent directory");
         fs::remove_dir_all(data_dir).await?;
 
         println!("\nLogged out successfully");
-
-        if let Some(url_builder) = url_builder {
-            let data = url_builder.build()?;
-            println!(
-                "\nTo log out from your account in the provider's interface, visit: {}",
-                data.url
-            );
-        }
-
         println!("\nExiting…");
 
         Ok(())

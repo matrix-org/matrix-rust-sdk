@@ -800,10 +800,8 @@ impl Client {
         Ok(Arc::new(session_verification_controller))
     }
 
-    /// Log out the current user. This method returns an optional URL that
-    /// should be presented to the user to complete logout (in the case of
-    /// Session having been authenticated using OIDC).
-    pub async fn logout(&self) -> Result<Option<String>, ClientError> {
+    /// Log the current user out.
+    pub async fn logout(&self) -> Result<(), ClientError> {
         let Some(auth_api) = self.inner.auth_api() else {
             return Err(anyhow!("Missing authentication API").into());
         };
@@ -812,19 +810,13 @@ impl Client {
             AuthApi::Matrix(a) => {
                 tracing::info!("Logging out via the homeserver.");
                 a.logout().await?;
-                Ok(None)
+                Ok(())
             }
 
             AuthApi::Oidc(api) => {
                 tracing::info!("Logging out via OIDC.");
-                let end_session_builder = api.logout().await?;
-
-                if let Some(builder) = end_session_builder {
-                    let url = builder.build()?.url;
-                    return Ok(Some(url.to_string()));
-                }
-
-                Ok(None)
+                api.logout().await?;
+                Ok(())
             }
             _ => Err(anyhow!("Unknown authentication API").into()),
         }

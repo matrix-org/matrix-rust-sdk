@@ -609,11 +609,7 @@ mod tests {
         // Restore the session.
         oidc.restore_session(tests::mock_session(tokens.clone())).await?;
 
-        let end_session_builder = oidc.logout().await?;
-
-        // No end session builder because our test impl doesn't provide an end session
-        // endpoint.
-        assert!(end_session_builder.is_none());
+        oidc.logout().await?;
 
         // Both the access token and the refresh tokens have been invalidated.
         {
