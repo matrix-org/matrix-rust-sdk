@@ -73,10 +73,11 @@ pub async fn open_state_store(
 /// Create an ['IndexeddbEventCacheStore']
 #[cfg(feature = "event-cache-store")]
 pub async fn open_event_cache_store(
-    name: &str,
+    prefix: &str,
     store_cipher: Option<Arc<StoreCipher>>,
 ) -> Result<IndexeddbEventCacheStore, OpenStoreError> {
-    let mut builder = IndexeddbEventCacheStore::builder().name(name.to_owned());
+    let mut builder =
+        IndexeddbEventCacheStore::builder().name(format!("{prefix}-event-cache-store"));
     if let Some(store_cipher) = store_cipher {
         builder = builder.store_cipher(store_cipher);
     }

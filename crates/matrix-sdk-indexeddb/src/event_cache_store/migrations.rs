@@ -6,7 +6,7 @@ use indexed_db_futures::{
 };
 use wasm_bindgen::JsValue;
 
-const CURRENT_DB_VERSION: u32 = 1;
+const CURRENT_DB_VERSION: u32 = 2;
 
 /// data. This allows you to configure, how these cases should be handled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,7 +29,7 @@ pub async fn open_and_upgrade_db(
 
     let old_version = db.version() as u32;
 
-    if old_version == 0 {
+    if old_version == 1 {
         // TODO some temporary code just to get going
         // Take a look at the state_store migrations
         // https://github.com/ospfranco/matrix-rust-sdk/blob/e49bda6f821d1b117c623dc9682e22337be16149/crates/matrix-sdk-indexeddb/src/state_store/migrations.rs
@@ -44,11 +44,15 @@ async fn setup_db(db: IdbDatabase, version: u32) -> Result<IdbDatabase> {
     db.close();
 
     let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, version)?;
+
     db_req.set_on_upgrade_needed(Some(
         move |events: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             let mut params = IdbObjectStoreParameters::new();
             params.key_path(Some(&IdbKeyPath::from("id")));
             events.db().create_object_store_with_params(keys::LINKED_CHUNKS, &params)?;
+
+            events.db().create_object_store_with_params(keys::EVENTS, &params)?;
+            events.db().create_object_store_with_params(keys::GAPS, &params)?;
             Ok(())
         },
     ));
