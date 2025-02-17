@@ -1622,4 +1622,64 @@ mod tests {
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
     }
+
+    #[async_test]
+    async fn test_create_custom_conditional_push_rule() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        Mock::given(method("PUT"))
+            .and(path("/_matrix/client/r0/pushrules/global/override/custom_rule"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let actions = vec![Action::Notify];
+        let conditions = vec![ruma::push::PushCondition::EventMatch {
+            key: "content.body".to_owned(),
+            pattern: "hello".to_owned(),
+        }];
+
+        settings
+            .create_custom_conditional_push_rule(
+                "custom_rule".to_owned(),
+                RuleKind::Override,
+                actions.clone(),
+                conditions.clone(),
+            )
+            .await
+            .unwrap();
+
+        let rules = settings.rules.read().await;
+        let rule = rules.ruleset.get(RuleKind::Override, "custom_rule").unwrap();
+
+        assert_eq!(rule.rule_id(), "custom_rule");
+        assert!(rule.enabled());
+    }
+
+    #[async_test]
+    async fn test_create_custom_conditional_push_rule_invalid_kind() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        let actions = vec![Action::Notify];
+        let conditions = vec![ruma::push::PushCondition::EventMatch {
+            key: "content.body".to_owned(),
+            pattern: "hello".to_owned(),
+        }];
+
+        let result = settings
+            .create_custom_conditional_push_rule(
+                "custom_rule".to_owned(),
+                RuleKind::Room,
+                actions,
+                conditions,
+            )
+            .await;
+
+        assert_matches!(result, Err(NotificationSettingsError::InvalidParameter(_)));
+    }
 }
