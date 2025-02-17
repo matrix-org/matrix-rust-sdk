@@ -183,7 +183,6 @@ mod auth_code_builder;
 mod backend;
 mod cross_process;
 mod data_serde;
-mod end_session_builder;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registrations;
@@ -193,7 +192,6 @@ mod tests;
 pub use self::{
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
     cross_process::CrossProcessRefreshLockError,
-    end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
 };
 use self::{
     backend::{server::OidcServer, OidcBackend},
@@ -1469,13 +1467,7 @@ impl Oidc {
     }
 
     /// Log out from the currently authenticated session.
-    ///
-    /// On success, if the provider supports [RP-Initiated Logout], an
-    /// [`OidcEndSessionUrlBuilder`] will be provided to build the URL allowing
-    /// the user to log out from their account in the provider's interface.
-    ///
-    /// [RP-Initiated Logout]: https://openid.net/specs/openid-connect-rpinitiated-1_0.html
-    pub async fn logout(&self) -> Result<Option<OidcEndSessionUrlBuilder>, OidcError> {
+    pub async fn logout(&self) -> Result<(), OidcError> {
         let provider_metadata = self.provider_metadata().await?;
         let client_credentials = self.data().ok_or(OidcError::NotAuthenticated)?.credentials();
 
@@ -1506,20 +1498,11 @@ impl Oidc {
                 .await?;
         }
 
-        let end_session_builder =
-            provider_metadata.end_session_endpoint.clone().map(|end_session_endpoint| {
-                OidcEndSessionUrlBuilder::new(
-                    self.clone(),
-                    end_session_endpoint,
-                    client_credentials.client_id().to_owned(),
-                )
-            });
-
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager.on_logout().await?;
         }
 
-        Ok(end_session_builder)
+        Ok(())
     }
 }
 
