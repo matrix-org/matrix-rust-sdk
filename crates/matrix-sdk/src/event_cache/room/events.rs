@@ -29,8 +29,6 @@ use ruma::{
 };
 use tracing::{error, instrument, trace, warn};
 
-use super::chunk_debug_string;
-
 /// This type represents all events of a single room.
 #[derive(Debug)]
 pub struct RoomEvents {
@@ -320,11 +318,14 @@ impl RoomEvents {
     /// events for this room.
     pub fn debug_string(&self) -> Vec<String> {
         let mut result = Vec::new();
-        for c in self.chunks() {
-            let content = chunk_debug_string(c.content());
-            let line = format!("chunk #{}: {content}", c.identifier().index());
+
+        for chunk in self.chunks() {
+            let content = chunk_debug_string(chunk.content());
+            let line = format!("chunk #{}: {content}", chunk.identifier().index());
+
             result.push(line);
         }
+
         result
     }
 }
@@ -339,12 +340,36 @@ impl RoomEvents {
     }
 }
 
+/// Create a debug string for a [`ChunkContent`] for an event/gap pair.
+fn chunk_debug_string(content: &ChunkContent<Event, Gap>) -> String {
+    match content {
+        ChunkContent::Gap(Gap { prev_token }) => {
+            format!("gap['{prev_token}']")
+        }
+        ChunkContent::Items(vec) => {
+            let items = vec
+                .iter()
+                .map(|event| {
+                    // Limit event ids to 8 chars *after* the $.
+                    event.event_id().map_or_else(
+                        || "<no event id>".to_owned(),
+                        |id| id.as_str().chars().take(1 + 8).collect(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            format!("events[{items}]")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{user_id, EventId, OwnedEventId};
+    use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
+    use ruma::{event_id, user_id, EventId, OwnedEventId};
 
     use super::*;
 
@@ -703,5 +728,26 @@ mod tests {
                 assert_eq!(values[0].event_id(), Some(event_id_3));
             }
         );
+    }
+
+    #[test]
+    fn test_debug_string() {
+        let event_factory = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
+
+        let mut room_events = RoomEvents::new();
+        room_events.push_events(vec![
+            event_factory
+                .text_msg("hey")
+                .event_id(event_id!("$123456789101112131415617181920"))
+                .into_event(),
+            event_factory.text_msg("you").event_id(event_id!("$2")).into_event(),
+        ]);
+        room_events.push_gap(Gap { prev_token: "raclette".to_owned() });
+
+        let output = room_events.debug_string();
+
+        assert_eq!(output.len(), 2);
+        assert_eq!(&output[0], "chunk #0: events[$12345678, $2]");
+        assert_eq!(&output[1], "chunk #1: gap['raclette']");
     }
 }
