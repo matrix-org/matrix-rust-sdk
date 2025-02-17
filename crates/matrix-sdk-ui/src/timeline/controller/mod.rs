@@ -1480,12 +1480,10 @@ fn event_indices_to_retry_decryption(
                         retry_decryption_indices.push(idx);
                     }
                 }
-            } else {
-                if let Some(remote_event) = event.as_remote() {
-                    if let Some(encryption_info) = &remote_event.encryption_info {
-                        if should_retry(&encryption_info.session_id) {
-                            retry_info_indices.push(idx);
-                        }
+            } else if let Some(remote_event) = event.as_remote() {
+                if let Some(encryption_info) = &remote_event.encryption_info {
+                    if should_retry(&encryption_info.session_id) {
+                        retry_info_indices.push(idx);
                     }
                 }
             }
