@@ -182,10 +182,6 @@ impl EventTimelineItem {
         // Probably the origin of the event doesn't matter for the preview.
         let origin = RemoteEventOrigin::Sync;
 
-        // In the timeline, this is used to find events that need re-decrypting but in
-        // the message preview it is not used.
-        let session_id = None;
-
         let kind = RemoteEventTimelineItem {
             event_id,
             transaction_id: None,
@@ -196,7 +192,6 @@ impl EventTimelineItem {
             original_json: Some(raw_sync_event),
             latest_edit_json,
             origin,
-            session_id,
         }
         .into();
 

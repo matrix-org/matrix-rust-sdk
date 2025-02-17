@@ -169,7 +169,7 @@ impl TimelineState {
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut date_divider_adjuster, content, None)
+            .handle_event(&mut date_divider_adjuster, content)
             .await;
 
         txn.adjust_date_dividers(date_divider_adjuster);
@@ -242,11 +242,12 @@ impl TimelineState {
                 if let Some(event) = item.as_event() {
                     let sender = event.sender.clone();
                     if let Some(remote) = event.as_remote() {
-                        if let Some(session_id) = &remote.session_id {
+                        if let Some(encryption_info) = &remote.encryption_info {
                             let mut new_remote = remote.clone();
 
-                            new_remote.encryption_info =
-                                room_data_provider.get_encryption_info(session_id, &sender).await;
+                            new_remote.encryption_info = room_data_provider
+                                .get_encryption_info(&encryption_info.session_id, &sender)
+                                .await;
 
                             let new_event =
                                 event.with_kind(EventTimelineItemKind::Remote(new_remote));

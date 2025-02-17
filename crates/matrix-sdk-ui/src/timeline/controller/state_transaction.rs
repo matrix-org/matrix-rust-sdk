@@ -206,7 +206,6 @@ impl<'a> TimelineStateTransaction<'a> {
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> HandleEventResult {
         let TimelineEvent { push_actions, kind } = event;
-        let session_id = kind.session_id();
         let encryption_info = kind.encryption_info().cloned();
 
         let (raw, utd_info) = match kind {
@@ -413,9 +412,7 @@ impl<'a> TimelineStateTransaction<'a> {
         };
 
         // Handle the event to create or update a timeline item.
-        TimelineEventHandler::new(self, ctx)
-            .handle_event(date_divider_adjuster, event_kind, session_id)
-            .await
+        TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
     }
 
     /// Remove one timeline item by its `event_index`.

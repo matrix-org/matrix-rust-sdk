@@ -65,9 +65,6 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
 
     /// Where we got this event from: A sync response or pagination.
     pub origin: RemoteEventOrigin,
-
-    /// The megolm session ID used to send this event, if it was encrypted.
-    pub session_id: Option<String>,
 }
 
 impl RemoteEventTimelineItem {
@@ -104,7 +101,6 @@ impl fmt::Debug for RemoteEventTimelineItem {
             latest_edit_json: _,
             is_highlighted,
             origin,
-            session_id,
         } = self;
 
         f.debug_struct("RemoteEventTimelineItem")
@@ -115,7 +111,6 @@ impl fmt::Debug for RemoteEventTimelineItem {
             .field("is_highlighted", is_highlighted)
             .field("encryption_info", encryption_info)
             .field("origin", origin)
-            .field("session_id", session_id)
             .finish_non_exhaustive()
     }
 }

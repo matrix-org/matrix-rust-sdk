@@ -1468,16 +1468,17 @@ fn event_indices_to_retry_decryption(
 
     for (idx, item) in state.items.iter().enumerate() {
         if let Some(event) = item.as_event() {
-            if let Some(remote_event) = event.as_remote() {
-                if let Some(session_id) = &remote_event.session_id {
+            if let TimelineItemContent::UnableToDecrypt(encrypted) = event.content() {
+                if let Some(session_id) = encrypted.session_id() {
                     if should_retry(session_id) {
-                        match event.content() {
-                            TimelineItemContent::UnableToDecrypt(_) => {
-                                retry_decryption_indices.push(idx);
-                            }
-                            _ => {
-                                retry_info_indices.push(idx);
-                            }
+                        retry_decryption_indices.push(idx);
+                    }
+                }
+            } else {
+                if let Some(remote_event) = event.as_remote() {
+                    if let Some(encryption_info) = &remote_event.encryption_info {
+                        if should_retry(&encryption_info.session_id) {
+                            retry_info_indices.push(idx);
                         }
                     }
                 }
