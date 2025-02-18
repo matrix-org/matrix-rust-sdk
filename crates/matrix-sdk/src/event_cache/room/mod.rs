@@ -1513,6 +1513,13 @@ mod tests {
         let room_id = room_id!("!galette:saucisse.bzh");
         let event_cache_store = Arc::new(MemoryStore::new());
 
+        let event = EventFactory::new()
+            .room(room_id)
+            .sender(user_id!("@ben:saucisse.bzh"))
+            .text_msg("foo")
+            .event_id(event_id!("$42"))
+            .into_event();
+
         // Prefill the store with invalid data: two chunks that form a cycle.
         event_cache_store
             .handle_linked_chunk_updates(
@@ -1522,6 +1529,10 @@ mod tests {
                         previous: None,
                         new: ChunkIdentifier::new(0),
                         next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event],
                     },
                     Update::NewItemsChunk {
                         previous: Some(ChunkIdentifier::new(0)),
