@@ -27,6 +27,7 @@ use imbl::Vector;
 use ruma::{EventId, OwnedEventId};
 
 use super::{metadata::EventMeta, TimelineItem};
+use crate::timeline::algorithms::EventTimelineItemWithId;
 
 /// An `ObservableItems` is a type similar to
 /// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
@@ -235,11 +236,6 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.get_by_event_id_mut(event_id)
     }
 
-    /// Get a remote event by using an event ID.
-    pub fn get_remote_event_by_event_id(&self, event_id: &EventId) -> Option<&EventMeta> {
-        self.all_remote_events.get_by_event_id(event_id)
-    }
-
     /// Replace a timeline item at position `timeline_item_index` by
     /// `timeline_item`.
     pub fn replace(
@@ -307,6 +303,20 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     pub fn clear(&mut self) {
         self.items.clear();
         self.all_remote_events.clear();
+    }
+
+    /// Return an event item, given its event id, and its timeline item index,
+    /// if it exists.
+    pub fn event_item_by_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Option<(usize, EventTimelineItemWithId<'_>)> {
+        let meta = self.all_remote_events.get_by_event_id(event_id)?;
+        let idx = meta.timeline_item_index?;
+        let item = self.items.get(idx)?;
+        let event_item = item.as_event()?;
+        debug_assert_eq!(event_item.event_id(), Some(event_id));
+        Some((idx, EventTimelineItemWithId { inner: event_item, internal_id: &item.internal_id }))
     }
 
     /// Call the given closure for every element in this `ObservableItems`,

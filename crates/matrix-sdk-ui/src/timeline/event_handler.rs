@@ -610,7 +610,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
-        if let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) {
+        if let Some((item_pos, item)) = self.items.event_item_by_event_id(&replacement.event_id) {
             let edit_json = self.ctx.flow.raw_event().cloned();
             if let Some(new_item) = self.apply_msg_edit(&item, replacement.new_content, edit_json) {
                 trace!("Applied edit");
@@ -1292,36 +1292,43 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     /// After updating the timeline item `new_item` which id is
     /// `target_event_id`, update other items that are responses to this item.
+    #[instrument(skip_all)]
     fn maybe_update_responses(
         meta: &mut TimelineMetadata,
         items: &mut ObservableItemsTransaction<'_>,
         target_event_id: &EventId,
         new_item: &EventTimelineItem,
     ) {
-        let Some(replies) = meta.replies.get(target_event_id) else {
+        let Some(replies) = meta.replies.get_mut(target_event_id) else {
             trace!("item has no replies");
             return;
         };
 
-        for reply_id in replies {
-            let Some(timeline_item_index) = items
-                .get_remote_event_by_event_id(reply_id)
-                .and_then(|meta| meta.timeline_item_index)
-            else {
-                warn!(%reply_id, "event not known as an item in the timeline");
+        let mut reply_ids_to_remove = Vec::new();
+
+        for reply_id in replies.iter() {
+            let Some((timeline_item_index, item)) = items.event_item_by_event_id(reply_id) else {
+                warn!(%reply_id, "couldn't find timeline item for reply");
                 continue;
             };
 
-            let Some(item) = items.get(timeline_item_index) else {
-                warn!(%reply_id, timeline_item_index, "mapping from event id to timeline item likely incorrect");
+            let Some(message) = item.content.as_message() else {
+                if matches!(item.content, TimelineItemContent::RedactedMessage) {
+                    // The item has been redacted in the meanwhile: remove it from the list of
+                    // replies.
+                    reply_ids_to_remove.push(reply_id.clone());
+                } else {
+                    warn!(%reply_id, "reply item is not a message: {}", item.content.debug_string());
+                }
                 continue;
             };
 
-            let Some(event_item) = item.as_event() else { continue };
-            let Some(message) = event_item.content.as_message() else { continue };
-            let Some(in_reply_to) = message.in_reply_to() else { continue };
+            let Some(in_reply_to) = message.in_reply_to() else {
+                warn!(%reply_id, target = %target_event_id, "timeline item is not a message in reply to target");
+                continue;
+            };
 
-            trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
+            trace!(%reply_id, "Updating response to updated event");
             let in_reply_to = InReplyToDetails {
                 event_id: in_reply_to.event_id.clone(),
                 event: TimelineDetails::Ready(Box::new(RepliedToEvent::from_timeline_item(
@@ -1331,8 +1338,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             let new_reply_content =
                 TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
-            let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
-            items.replace(timeline_item_index, new_reply_item);
+            let new_reply_item = item.with_content(new_reply_content);
+            items.replace(
+                timeline_item_index,
+                TimelineItem::new(new_reply_item, item.internal_id.clone()),
+            );
+        }
+
+        for reply_id in reply_ids_to_remove {
+            replies.remove(&reply_id);
         }
     }
 }
