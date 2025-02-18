@@ -23,7 +23,7 @@ use url::Url;
 use vodozemac::Curve25519PublicKey;
 
 #[cfg(doc)]
-use crate::authentication::qrcode::QRCodeLoginError::SecureChannel;
+use super::QRCodeLoginError::SecureChannel;
 
 /// Messages that will be exchanged over the [`SecureChannel`] to log in a new
 /// device using a QR code.

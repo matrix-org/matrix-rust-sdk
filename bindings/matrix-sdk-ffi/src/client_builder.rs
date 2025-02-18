@@ -2,7 +2,7 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
+    authentication::oidc::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
     crypto::{
         types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
         CollectStrategy, TrustRequirement,
