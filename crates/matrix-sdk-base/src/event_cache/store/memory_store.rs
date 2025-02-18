@@ -20,7 +20,10 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{relational::RelationalLinkedChunk, RawChunk, Update},
+    linked_chunk::{
+        relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator, RawChunk,
+        Update,
+    },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
@@ -132,14 +135,37 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
-    async fn reload_linked_chunk(
+    async fn load_all_chunks(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         let inner = self.inner.read().unwrap();
         inner
             .events
-            .reload_chunks(room_id)
+            .load_all_chunks(room_id)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })
+    }
+
+    async fn load_last_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .events
+            .load_last_chunk(room_id)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })
+    }
+
+    async fn load_previous_chunk(
+        &self,
+        room_id: &RoomId,
+        before_chunk_identifier: ChunkIdentifier,
+    ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .events
+            .load_previous_chunk(room_id, before_chunk_identifier)
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 

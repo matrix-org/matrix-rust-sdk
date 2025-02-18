@@ -56,6 +56,7 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
         room::{
+            history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::{
                 AllowRule as RumaAllowRule, JoinRule as RumaJoinRule, RoomJoinRulesEventContent,
             },
@@ -80,6 +81,7 @@ use crate::{
     encryption::Encryption,
     notification::NotificationClient,
     notification_settings::NotificationSettings,
+    room::RoomHistoryVisibility,
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{AuthData, MediaSource},
@@ -1391,6 +1393,8 @@ pub struct CreateRoomParameters {
     #[uniffi(default = None)]
     pub join_rule_override: Option<JoinRule>,
     #[uniffi(default = None)]
+    pub history_visibility_override: Option<RoomHistoryVisibility>,
+    #[uniffi(default = None)]
     pub canonical_alias: Option<String>,
 }
 
@@ -1435,6 +1439,12 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
 
         if let Some(join_rule_override) = value.join_rule_override {
             let content = RoomJoinRulesEventContent::new(join_rule_override.try_into()?);
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        if let Some(history_visibility_override) = value.history_visibility_override {
+            let content =
+                RoomHistoryVisibilityEventContent::new(history_visibility_override.try_into()?);
             initial_state.push(InitialStateEvent::new(content).to_raw_any());
         }
 

@@ -355,7 +355,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // The linked chunk is correctly reloaded.
-        let raws = self.reload_linked_chunk(room_id).await.unwrap();
+        let raws = self.load_all_chunks(room_id).await.unwrap();
         let lc = rebuild_linked_chunk(raws).expect("linked chunk not empty");
 
         let mut chunks = lc.chunks();
@@ -397,7 +397,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_rebuild_empty_linked_chunk(&self) {
         // When I rebuild a linked chunk from an empty store, it's empty.
-        let raw_parts = self.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        let raw_parts = self.load_all_chunks(&DEFAULT_TEST_ROOM_ID).await.unwrap();
         assert!(rebuild_linked_chunk(raw_parts).is_none());
     }
 
@@ -447,15 +447,15 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // Sanity check: both linked chunks can be reloaded.
-        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r0).await.unwrap()).is_some());
-        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r1).await.unwrap()).is_some());
+        assert!(rebuild_linked_chunk(self.load_all_chunks(r0).await.unwrap()).is_some());
+        assert!(rebuild_linked_chunk(self.load_all_chunks(r1).await.unwrap()).is_some());
 
         // Clear the chunks.
         self.clear_all_rooms_chunks().await.unwrap();
 
         // Both rooms now have no linked chunk.
-        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r0).await.unwrap()).is_none());
-        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r1).await.unwrap()).is_none());
+        assert!(rebuild_linked_chunk(self.load_all_chunks(r0).await.unwrap()).is_none());
+        assert!(rebuild_linked_chunk(self.load_all_chunks(r1).await.unwrap()).is_none());
     }
 
     async fn test_remove_room(&self) {
@@ -498,11 +498,11 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         self.remove_room(r0).await.unwrap();
 
         // Check that r0 doesn't have a linked chunk anymore.
-        let r0_linked_chunk = self.reload_linked_chunk(r0).await.unwrap();
+        let r0_linked_chunk = self.load_all_chunks(r0).await.unwrap();
         assert!(r0_linked_chunk.is_empty());
 
         // Check that r1 is unaffected.
-        let r1_linked_chunk = self.reload_linked_chunk(r1).await.unwrap();
+        let r1_linked_chunk = self.load_all_chunks(r1).await.unwrap();
         assert!(!r1_linked_chunk.is_empty());
     }
 

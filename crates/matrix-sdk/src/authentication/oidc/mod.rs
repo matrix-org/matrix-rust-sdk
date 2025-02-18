@@ -120,24 +120,6 @@
 //! If this fails again, the client should assume to be logged out, and all
 //! local data should be erased.
 //!
-//! # Insufficient scope error
-//!
-//! _Note: This is not fully specced yet._
-//!
-//! Some API calls that deal with sensitive data require more privileges than
-//! others. In the current Matrix specification, those endpoints use the
-//! User-Interactive Authentication API.
-//!
-//! The OAuth 2.0 specification has the concept of scopes, and an access token
-//! is limited to a given scope when it is generated. Accessing those endpoints
-//! require a privileged scope, so a new authorization request is necessary to
-//! get a new access token.
-//!
-//! When the API endpoint returns an [`Error`] with an
-//! [`AuthenticateError::InsufficientScope`], the [`Oidc::authorize_scope()`]
-//! method can be used to authorize the required scope. It works just like
-//! [`Oidc::login()`].
-//!
 //! # Account management.
 //!
 //! The homeserver or provider might advertise a URL that allows the user to
@@ -182,7 +164,7 @@ use mas_oidc_client::{
         oidc::{AccountManagementAction, VerifiedProviderMetadata},
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
         requests::Prompt,
-        scope::{MatrixApiScopeToken, Scope, ScopeToken},
+        scope::{MatrixApiScopeToken, ScopeToken},
         IdToken,
     },
 };
@@ -1224,29 +1206,6 @@ impl Oidc {
         Ok(())
     }
 
-    /// Authorize a given scope with the Authorization Code flow.
-    ///
-    /// This should be used if a new scope is necessary to make a request. For
-    /// example, if the homeserver returns an [`Error`] with an
-    /// [`AuthenticateError::InsufficientScope`].
-    ///
-    /// This should be called after the registered client has been restored or
-    /// the client was logged in.
-    ///
-    /// # Arguments
-    ///
-    /// * `scope` - The scope to authorize.
-    ///
-    /// * `redirect_uri` - The URI where the end user will be redirected after
-    ///   authorizing the scope. It must be one of the redirect URIs sent in the
-    ///   client metadata during registration.
-    ///
-    /// [`Error`]: ruma::api::client::error::Error
-    /// [`AuthenticateError::InsufficientScope`]: ruma::api::client::error::AuthenticateError
-    pub fn authorize_scope(&self, scope: Scope, redirect_uri: Url) -> OidcAuthCodeUrlBuilder {
-        OidcAuthCodeUrlBuilder::new(self.clone(), scope, redirect_uri)
-    }
-
     /// Finish the authorization process.
     ///
     /// This method should be called after the URL returned by
@@ -1578,7 +1537,7 @@ pub struct OidcSession {
 }
 
 /// A user session for the OpenID Connect API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSession {
     /// The Matrix user session info.
     #[serde(flatten)]

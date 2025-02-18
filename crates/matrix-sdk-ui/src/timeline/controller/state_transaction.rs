@@ -508,7 +508,7 @@ impl<'a> TimelineStateTransaction<'a> {
         self.items.commit();
     }
 
-    /// Add or update a remote  event in the
+    /// Add or update a remote event in the
     /// [`ObservableItems::all_remote_events`] collection.
     ///
     /// This method also adjusts read receipt if needed.

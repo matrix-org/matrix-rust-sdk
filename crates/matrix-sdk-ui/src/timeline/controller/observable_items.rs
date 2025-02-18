@@ -235,6 +235,11 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.get_by_event_id_mut(event_id)
     }
 
+    /// Get a remote event by using an event ID.
+    pub fn get_remote_event_by_event_id(&self, event_id: &EventId) -> Option<&EventMeta> {
+        self.all_remote_events.get_by_event_id(event_id)
+    }
+
     /// Replace a timeline item at position `timeline_item_index` by
     /// `timeline_item`.
     pub fn replace(
@@ -346,11 +351,6 @@ pub struct ObservableItemsTransactionEntry<'observable_transaction_items, 'obser
 }
 
 impl ObservableItemsTransactionEntry<'_, '_> {
-    /// Replace the timeline item by `timeline_item`.
-    pub fn replace(this: &mut Self, timeline_item: Arc<TimelineItem>) -> Arc<TimelineItem> {
-        ObservableVectorTransactionEntry::set(&mut this.entry, timeline_item)
-    }
-
     /// Remove this timeline item.
     pub fn remove(this: Self) {
         let entry_index = ObservableVectorTransactionEntry::index(&this.entry);
@@ -1249,6 +1249,11 @@ impl AllRemoteEvents {
     /// Get a mutable reference to a specific remote event by its ID.
     pub fn get_by_event_id_mut(&mut self, event_id: &EventId) -> Option<&mut EventMeta> {
         self.0.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
+    }
+
+    /// Get an immutable reference to a specific remote event by its ID.
+    pub fn get_by_event_id(&self, event_id: &EventId) -> Option<&EventMeta> {
+        self.0.iter().rev().find(|event_meta| event_meta.event_id == event_id)
     }
 
     /// Shift to the right all timeline item indexes that are equal to or

@@ -1009,7 +1009,8 @@ unsafe impl<const CAP: usize, Item: Sync, Gap: Sync> Sync for LinkedChunk<CAP, I
 /// (see [`ChunkIdentifier`]). Generating a new unique identifier boils down to
 /// incrementing by one the previous identifier. Note that this is not an index:
 /// it _is_ an identifier.
-struct ChunkIdentifierGenerator {
+#[derive(Debug)]
+pub struct ChunkIdentifierGenerator {
     next: AtomicU64,
 }
 
@@ -1033,7 +1034,7 @@ impl ChunkIdentifierGenerator {
     ///
     /// Note that it can fail if there is no more unique identifier available.
     /// In this case, this method will panic.
-    pub fn next(&self) -> ChunkIdentifier {
+    fn next(&self) -> ChunkIdentifier {
         let previous = self.next.fetch_add(1, Ordering::Relaxed);
 
         // Check for overflows.
@@ -1043,6 +1044,14 @@ impl ChunkIdentifierGenerator {
         }
 
         ChunkIdentifier(previous + 1)
+    }
+
+    /// Get the current chunk identifier.
+    //
+    // This is hidden because it's used only in the tests.
+    #[doc(hidden)]
+    pub fn current(&self) -> ChunkIdentifier {
+        ChunkIdentifier(self.next.load(Ordering::Relaxed))
     }
 }
 
@@ -1175,6 +1184,12 @@ pub struct Chunk<const CAPACITY: usize, Item, Gap> {
     /// The previous chunk.
     previous: Option<NonNull<Chunk<CAPACITY, Item, Gap>>>,
 
+    /// If this chunk is the first one, and if the `LinkedChunk` is loaded
+    /// lazily, chunk-by-chunk, this is the identifier of the previous chunk.
+    /// This previous chunk is not loaded yet, so it's impossible to get a
+    /// pointer to it yet. However we know its identifier.
+    lazy_previous: Option<ChunkIdentifier>,
+
     /// The next chunk.
     next: Option<NonNull<Chunk<CAPACITY, Item, Gap>>>,
 
@@ -1197,7 +1212,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     }
 
     fn new(identifier: ChunkIdentifier, content: ChunkContent<Item, Gap>) -> Self {
-        Self { previous: None, next: None, identifier, content }
+        Self { previous: None, lazy_previous: None, next: None, identifier, content }
     }
 
     /// Create a new chunk given some content, but box it and leak it.
@@ -1447,6 +1462,11 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
             // Link the new chunk to the next chunk.
             new_chunk.previous = self.previous;
         }
+        // No previous: `self` is the first! We need to move the `lazy_previous` from `self` to
+        // `new_chunk`.
+        else {
+            new_chunk.lazy_previous = self.lazy_previous.take();
+        }
 
         // Link to the new chunk.
         self.previous = Some(new_chunk_ptr);
@@ -1454,7 +1474,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         new_chunk.next = Some(self.as_ptr());
 
         if let Some(updates) = updates.as_mut() {
-            let previous = new_chunk.previous().map(Chunk::identifier);
+            let previous = new_chunk.previous().map(Chunk::identifier).or(new_chunk.lazy_previous);
             let new = new_chunk.identifier();
             let next = new_chunk.next().map(Chunk::identifier);
 
@@ -1479,6 +1499,10 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     fn unlink(&mut self, updates: &mut Option<ObservableUpdates<Item, Gap>>) {
         let previous_ptr = self.previous;
         let next_ptr = self.next;
+        // If `self` is not the first, `lazy_previous` might be set on its previous
+        // chunk. Otherwise, if `lazy_previous` is set on `self`, it means it's the
+        // first chunk and it must be moved onto the next chunk.
+        let lazy_previous = self.lazy_previous.take();
 
         if let Some(previous) = self.previous_mut() {
             previous.next = next_ptr;
@@ -1486,6 +1510,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
 
         if let Some(next) = self.next_mut() {
             next.previous = previous_ptr;
+            next.lazy_previous = lazy_previous;
         }
 
         if let Some(updates) = updates.as_mut() {
@@ -3409,5 +3434,208 @@ mod tests {
             linked_chunk.replace_item_at(Position(ChunkIdentifier(1), 0), 'Z'),
             Err(Error::ChunkIsAGap { .. })
         );
+    }
+
+    #[test]
+    fn test_lazy_previous() {
+        use std::marker::PhantomData;
+
+        use super::{Ends, ObservableUpdates, Update::*};
+
+        // Imagine the linked chunk is lazily loaded.
+        let first_chunk_identifier = ChunkIdentifier(0);
+        let mut first_loaded_chunk = Chunk::new_items_leaked(ChunkIdentifier(1));
+        unsafe { first_loaded_chunk.as_mut() }.lazy_previous = Some(first_chunk_identifier);
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()> {
+            links: Ends { first: first_loaded_chunk, last: None },
+            chunk_identifier_generator:
+                ChunkIdentifierGenerator::new_from_previous_chunk_identifier(ChunkIdentifier(1)),
+            updates: Some(ObservableUpdates::new()),
+            marker: PhantomData,
+        };
+
+        // Insert items in the first loaded chunk (chunk 1), with an overflow to a new
+        // chunk.
+        {
+            linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+
+            assert_items_eq!(linked_chunk, ['a', 'b', 'c']['d']);
+
+            // Assert where `lazy_previous` is set.
+            {
+                let mut chunks = linked_chunk.chunks();
+
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 1);
+                    assert_eq!(chunk.lazy_previous, Some(ChunkIdentifier(0)));
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 2);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert!(chunks.next().is_none());
+            }
+
+            // In the updates, we observe nothing else than the usual bits.
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[
+                    PushItems { at: Position(ChunkIdentifier(1), 0), items: vec!['a', 'b', 'c'] },
+                    NewItemsChunk {
+                        previous: Some(ChunkIdentifier(1)),
+                        new: ChunkIdentifier(2),
+                        next: None,
+                    },
+                    PushItems { at: Position(ChunkIdentifier(2), 0), items: vec!['d'] }
+                ]
+            );
+        }
+
+        // Now insert a gap at the head of the loaded linked chunk.
+        {
+            linked_chunk.insert_gap_at((), Position(ChunkIdentifier(1), 0)).unwrap();
+
+            assert_items_eq!(linked_chunk, [-] ['a', 'b', 'c'] ['d']);
+
+            // Assert where `lazy_previous` is set.
+            {
+                let mut chunks = linked_chunk.chunks();
+
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 3);
+                    // `lazy_previous` has moved here!
+                    assert_eq!(chunk.lazy_previous, Some(ChunkIdentifier(0)));
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 1);
+                    // `lazy_previous` has moved from here.
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 2);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert!(chunks.next().is_none());
+            }
+
+            // In the updates, we observe that the new gap **has** a previous chunk!
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[NewGapChunk {
+                    // 0 is the lazy, not-loaded-yet chunk.
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(3),
+                    next: Some(ChunkIdentifier(1)),
+                    gap: ()
+                }]
+            );
+        }
+
+        // Next, replace the gap by items to see how it reacts to unlink.
+        {
+            linked_chunk.replace_gap_at(['w', 'x', 'y', 'z'], ChunkIdentifier(3)).unwrap();
+
+            assert_items_eq!(linked_chunk, ['w', 'x', 'y'] ['z'] ['a', 'b', 'c'] ['d']);
+
+            // Assert where `lazy_previous` is set.
+            {
+                let mut chunks = linked_chunk.chunks();
+
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 4);
+                    // `lazy_previous` has moved here!
+                    assert_eq!(chunk.lazy_previous, Some(ChunkIdentifier(0)));
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 5);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 1);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 2);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert!(chunks.next().is_none());
+            }
+
+            // In the updates, we observe nothing than the usual bits.
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[
+                    // The new chunk is inserted…
+                    NewItemsChunk {
+                        previous: Some(ChunkIdentifier(3)),
+                        new: ChunkIdentifier(4),
+                        next: Some(ChunkIdentifier(1)),
+                    },
+                    // … and new items are pushed in it.
+                    PushItems { at: Position(ChunkIdentifier(4), 0), items: vec!['w', 'x', 'y'] },
+                    // Another new chunk is inserted…
+                    NewItemsChunk {
+                        previous: Some(ChunkIdentifier(4)),
+                        new: ChunkIdentifier(5),
+                        next: Some(ChunkIdentifier(1)),
+                    },
+                    // … and new items are pushed in it.
+                    PushItems { at: Position(ChunkIdentifier(5), 0), items: vec!['z'] },
+                    // Finally, the gap is removed!
+                    RemoveChunk(ChunkIdentifier(3)),
+                ]
+            );
+        }
+
+        // Finally, let's re-insert a gap to ensure the lazy-previous is set
+        // correctly. It is similar to the beginning of this test, but this is a
+        // frequent pattern in how the linked chunk is used.
+        {
+            linked_chunk.insert_gap_at((), Position(ChunkIdentifier(4), 0)).unwrap();
+
+            assert_items_eq!(linked_chunk, [-] ['w', 'x', 'y'] ['z'] ['a', 'b', 'c'] ['d']);
+
+            // Assert where `lazy_previous` is set.
+            {
+                let mut chunks = linked_chunk.chunks();
+
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 6);
+                    // `lazy_previous` has moved here!
+                    assert_eq!(chunk.lazy_previous, Some(ChunkIdentifier(0)));
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 4);
+                    // `lazy_previous` has moved from here.
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 5);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 1);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert_matches!(chunks.next(), Some(chunk) => {
+                    assert_eq!(chunk.identifier(), 2);
+                    assert!(chunk.lazy_previous.is_none());
+                });
+                assert!(chunks.next().is_none());
+            }
+
+            // In the updates, we observe that the new gap **has** a previous chunk!
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[NewGapChunk {
+                    // 0 is the lazy, not-loaded-yet chunk.
+                    previous: Some(ChunkIdentifier(0)),
+                    new: ChunkIdentifier(6),
+                    next: Some(ChunkIdentifier(4)),
+                    gap: ()
+                }]
+            );
+        }
     }
 }
