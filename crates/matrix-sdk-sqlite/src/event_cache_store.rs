@@ -670,7 +670,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     )
                     .optional()?
                 else {
-                    // Chunk is not found and there is zero chunk for this room, this is consistent, all
+                    // Chunk is not found and there are zero chunks for this room, this is consistent, all
                     // good.
                     if number_of_chunks == 0 {
                         return Ok((None, chunk_identifier_generator));
@@ -2093,7 +2093,7 @@ mod tests {
         let event = |msg: &str| make_test_event(room_id, msg);
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        // Case #1: no chunk at all, equivalent to having an inexistent
+        // Case #1: no chunk at all, equivalent to having an nonexistent
         // `before_chunk_identifier`.
         {
             let previous_chunk =
@@ -2123,7 +2123,7 @@ mod tests {
             assert!(previous_chunk.is_none());
         }
 
-        // Case #3: there is two chunks.
+        // Case #3: there are two chunks.
         {
             store
                 .handle_linked_chunk_updates(
