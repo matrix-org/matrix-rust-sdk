@@ -51,7 +51,7 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    algorithms::{rfind_event_by_id, rfind_event_by_item_id},
+    algorithms::rfind_event_by_item_id,
     controller::{
         find_item_and_apply_aggregation, Aggregation, AggregationKind, ApplyAggregationResult,
         ObservableItemsTransaction, PendingEdit, PendingEditKind, TimelineMetadata,
@@ -778,7 +778,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
     ) {
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) else {
+        let Some((item_pos, item)) = self.items.event_item_by_event_id(&replacement.event_id)
+        else {
             if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
                 let replaced_event_id = replacement.event_id.clone();
                 let replacement = PendingEdit {
@@ -918,7 +919,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         // General path: redact another kind of (non-reaction) event.
-        if let Some((idx, item)) = rfind_event_by_id(self.items, &redacted) {
+        if let Some((idx, item)) = self.items.event_item_by_event_id(&redacted) {
             if item.as_remote().is_some() {
                 if let TimelineItemContent::RedactedMessage = &item.content {
                     debug!("event item is already redacted");

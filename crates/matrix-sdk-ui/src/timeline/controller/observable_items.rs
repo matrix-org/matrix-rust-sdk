@@ -122,6 +122,15 @@ impl ObservableItems {
     {
         self.items.for_each(|entry| f(ObservableItemsEntry(entry)))
     }
+
+    /// Return an event item, given its event id, and its timeline item index,
+    /// if it exists.
+    pub fn event_item_by_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Option<(usize, EventTimelineItemWithId<'_>)> {
+        event_item_by_event_id(&self.all_remote_events, &self.items, event_id)
+    }
 }
 
 // It's fine to deref to an immutable reference to `Vector`.
@@ -311,12 +320,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         &self,
         event_id: &EventId,
     ) -> Option<(usize, EventTimelineItemWithId<'_>)> {
-        let meta = self.all_remote_events.get_by_event_id(event_id)?;
-        let idx = meta.timeline_item_index?;
-        let item = self.items.get(idx)?;
-        let event_item = item.as_event()?;
-        debug_assert_eq!(event_item.event_id(), Some(event_id));
-        Some((idx, EventTimelineItemWithId { inner: event_item, internal_id: &item.internal_id }))
+        event_item_by_event_id(&self.all_remote_events, &self.items, event_id)
     }
 
     /// Call the given closure for every element in this `ObservableItems`,
@@ -335,6 +339,19 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     pub fn commit(self) {
         self.items.commit()
     }
+}
+
+fn event_item_by_event_id<'a>(
+    all_remote_events: &AllRemoteEvents,
+    items: &'a Vector<Arc<TimelineItem>>,
+    event_id: &EventId,
+) -> Option<(usize, EventTimelineItemWithId<'a>)> {
+    let meta = all_remote_events.get_by_event_id(event_id)?;
+    let idx = meta.timeline_item_index?;
+    let item = items.get(idx)?;
+    let event_item = item.as_event()?;
+    debug_assert_eq!(event_item.event_id(), Some(event_id));
+    Some((idx, EventTimelineItemWithId { inner: event_item, internal_id: &item.internal_id }))
 }
 
 // It's fine to deref to an immutable reference to `Vector`.

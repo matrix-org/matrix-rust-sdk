@@ -56,9 +56,7 @@ use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
-use self::{
-    algorithms::rfind_event_by_id, controller::TimelineController, futures::SendAttachment,
-};
+use self::{controller::TimelineController, futures::SendAttachment};
 
 mod algorithms;
 mod builder;
@@ -247,14 +245,8 @@ impl Timeline {
     ///
     /// Will return a remote event, *or* a local echo that has been sent but not
     /// yet replaced by a remote echo.
-    ///
-    /// It's preferable to store the timeline items in the model for your UI, if
-    /// possible, instead of just storing IDs and coming back to the timeline
-    /// object to look up items.
     pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
-        let items = self.controller.items().await;
-        let (_, item) = rfind_event_by_id(&items, event_id)?;
-        Some(item.to_owned())
+        self.controller.event_item_by_event_id(event_id).await
     }
 
     /// Get the latest of the timeline's event items.

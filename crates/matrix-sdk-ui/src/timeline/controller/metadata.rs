@@ -23,10 +23,7 @@ use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
 use tracing::trace;
 
 use super::{
-    super::{
-        rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem, TimelineItemKind,
-        TimelineUniqueId,
-    },
+    super::{subscriber::skip::SkipCount, TimelineItem, TimelineItemKind, TimelineUniqueId},
     read_receipts::ReadReceipts,
     Aggregations, AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
 };
@@ -199,7 +196,7 @@ impl TimelineMetadata {
         let read_marker_idx = items.iter().rposition(|item| item.is_read_marker());
 
         let mut fully_read_event_idx =
-            rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
+            items.event_item_by_event_id(fully_read_event).map(|(idx, _)| idx);
 
         if let Some(i) = &mut fully_read_event_idx {
             // The item at position `i` is the first item that's fully read, we're about to

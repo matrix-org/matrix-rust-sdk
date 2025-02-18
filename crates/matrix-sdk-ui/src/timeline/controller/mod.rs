@@ -64,7 +64,7 @@ pub(super) use self::{
     state_transaction::TimelineStateTransaction,
 };
 use super::{
-    algorithms::{rfind_event_by_id, rfind_event_item},
+    algorithms::rfind_event_item,
     event_handler::TimelineEventKind,
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
@@ -509,6 +509,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.state.read().await.items.clone_items()
     }
 
+    /// Return an event timeline item, given its event id.
+    ///
+    /// This is fast, using a lookup to find the item.
+    pub(super) async fn event_item_by_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Option<EventTimelineItem> {
+        let state = self.state.read().await;
+        state.items.event_item_by_event_id(event_id).map(|(_, item)| item.to_owned())
+    }
+
     #[cfg(test)]
     pub(super) async fn subscribe_raw(
         &self,
@@ -656,7 +667,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                         let mut state = self.state.write().await;
                         if let Some((item_pos, item)) =
-                            rfind_event_by_id(&state.items, &annotated_event_id)
+                            state.items.event_item_by_event_id(&annotated_event_id)
                         {
                             // Re-add the reaction to the mapping.
                             let mut reactions = item.content().reactions();
@@ -1443,7 +1454,9 @@ impl TimelineController {
     #[instrument(skip(self))]
     pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<(), Error> {
         let state = self.state.write().await;
-        let (index, item) = rfind_event_by_id(&state.items, event_id)
+        let (index, item) = state
+            .items
+            .event_item_by_event_id(event_id)
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?;
         let remote_item = item
             .as_remote()
@@ -1483,7 +1496,9 @@ impl TimelineController {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.write().await;
-        let (index, item) = rfind_event_by_id(&state.items, &remote_item.event_id)
+        let (index, item) = state
+            .items
+            .event_item_by_event_id(&remote_item.event_id)
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?;
 
         // Check the state of the event again, it might have been redacted while
@@ -1607,7 +1622,7 @@ async fn fetch_replied_to_event(
     in_reply_to: &EventId,
     room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
-    if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
+    if let Some((_, item)) = state.items.event_item_by_event_id(in_reply_to) {
         let details = TimelineDetails::Ready(Box::new(RepliedToEvent {
             content: item.content.clone(),
             sender: item.sender().to_owned(),

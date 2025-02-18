@@ -25,8 +25,8 @@ use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, warn};
 
 use super::{
-    rfind_event_by_id, AllRemoteEvents, FullEventMeta, ObservableItemsTransaction,
-    RelativePosition, RoomDataProvider, TimelineMetadata, TimelineState,
+    AllRemoteEvents, FullEventMeta, ObservableItemsTransaction, RelativePosition, RoomDataProvider,
+    TimelineMetadata, TimelineState,
 };
 use crate::timeline::{controller::TimelineStateTransaction, TimelineItem};
 
@@ -521,7 +521,7 @@ impl TimelineStateTransaction<'_> {
         };
 
         let Some((prev_item_pos, prev_event_item)) =
-            rfind_event_by_id(&self.items, &prev_event_meta.event_id)
+            self.items.event_item_by_event_id(&prev_event_meta.event_id)
         else {
             error!("inconsistent state: timeline item of visible event was not found");
             return;

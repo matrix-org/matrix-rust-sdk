@@ -15,7 +15,6 @@
 use std::{ops::Deref, sync::Arc};
 
 use imbl::Vector;
-use ruma::EventId;
 
 #[cfg(doc)]
 use super::controller::TimelineMetadata;
@@ -81,17 +80,6 @@ pub(super) fn rfind_event_item(
     rfind_event_item_internal(items, |item_with_id| f(item_with_id.inner))
 }
 
-/// Find the timeline item that matches the given event id, if any.
-///
-/// WARNING: Linear scan of the items, see documentation of
-/// [`rfind_event_item`].
-pub(super) fn rfind_event_by_id<'a>(
-    items: &'a Vector<Arc<TimelineItem>>,
-    event_id: &EventId,
-) -> Option<(usize, EventTimelineItemWithId<'a>)> {
-    rfind_event_item(items, |it| it.event_id() == Some(event_id))
-}
-
 /// Find the timeline item that matches the given item (event or transaction)
 /// id, if any.
 ///
@@ -110,6 +98,8 @@ pub(super) fn rfind_event_by_item_id<'a>(
                 }
             })
         }
-        TimelineEventItemId::EventId(event_id) => rfind_event_by_id(items, event_id),
+        TimelineEventItemId::EventId(event_id) => {
+            rfind_event_item(items, |it| it.event_id() == Some(event_id))
+        }
     }
 }
