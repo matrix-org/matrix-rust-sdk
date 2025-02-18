@@ -52,10 +52,13 @@ impl Deref for EventTimelineItemWithId<'_> {
     }
 }
 
-#[inline(always)]
-fn rfind_event_item_internal(
+/// Finds an item in the vector of `items` given a predicate `f`.
+///
+/// WARNING/FIXME: this does a linear scan of the items, so this can be slow if
+/// there are many items in the timeline.
+pub(super) fn rfind_event_item(
     items: &Vector<Arc<TimelineItem>>,
-    mut f: impl FnMut(&EventTimelineItemWithId<'_>) -> bool,
+    mut f: impl FnMut(&EventTimelineItem) -> bool,
 ) -> Option<(usize, EventTimelineItemWithId<'_>)> {
     items
         .iter()
@@ -66,18 +69,7 @@ fn rfind_event_item_internal(
                 EventTimelineItemWithId { inner: item.as_event()?, internal_id: &item.internal_id },
             ))
         })
-        .rfind(|(_, it)| f(it))
-}
-
-/// Finds an item in the vector of `items` given a predicate `f`.
-///
-/// WARNING/FIXME: this does a linear scan of the items, so this can be slow if
-/// there are many items in the timeline.
-pub(super) fn rfind_event_item(
-    items: &Vector<Arc<TimelineItem>>,
-    mut f: impl FnMut(&EventTimelineItem) -> bool,
-) -> Option<(usize, EventTimelineItemWithId<'_>)> {
-    rfind_event_item_internal(items, |item_with_id| f(item_with_id.inner))
+        .rfind(|(_, it)| f(it.inner))
 }
 
 /// Find the timeline item that matches the given item (event or transaction)
