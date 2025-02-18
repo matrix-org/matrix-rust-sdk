@@ -184,6 +184,8 @@ mod backend;
 mod cross_process;
 mod data_serde;
 mod end_session_builder;
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+pub mod qrcode;
 pub mod registrations;
 #[cfg(test)]
 mod tests;
@@ -196,13 +198,11 @@ pub use self::{
 use self::{
     backend::{server::OidcServer, OidcBackend},
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
+    qrcode::LoginWithQrCode,
     registrations::{ClientId, OidcRegistrations},
 };
-use crate::{
-    authentication::{qrcode::LoginWithQrCode, AuthData},
-    client::SessionChange,
-    Client, HttpError, RefreshTokenError, Result,
-};
+use super::AuthData;
+use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
 
 pub(crate) struct OidcCtx {
     /// Lock and state when multiple processes may refresh an OIDC session.
@@ -344,8 +344,8 @@ impl Oidc {
     /// use anyhow::bail;
     /// use futures_util::StreamExt;
     /// use matrix_sdk::{
-    ///     authentication::{
-    ///         oidc::types::registration::VerifiedClientMetadata,
+    ///     authentication::oidc::{
+    ///         types::registration::VerifiedClientMetadata,
     ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
     ///     },
     ///     Client,

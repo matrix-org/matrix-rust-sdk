@@ -28,20 +28,14 @@ use tracing::trace;
 use vodozemac::ecies::CheckCode;
 
 use super::{
-    messages::LoginFailureReason, oauth_client::OauthClient, DeviceAuthorizationOauthError,
-    SecureChannelError,
+    messages::{LoginFailureReason, QrAuthMessage},
+    oauth_client::OauthClient,
+    secure_channel::EstablishedSecureChannel,
+    DeviceAuthorizationOauthError, QRCodeLoginError, SecureChannelError,
 };
 #[cfg(doc)]
 use crate::authentication::oidc::Oidc;
-use crate::{
-    authentication::{
-        oidc::OidcError,
-        qrcode::{
-            messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,
-        },
-    },
-    Client,
-};
+use crate::{authentication::oidc::OidcError, Client};
 
 async fn send_unexpected_message_error(
     channel: &mut EstablishedSecureChannel,
@@ -330,7 +324,7 @@ mod test {
 
     use super::*;
     use crate::{
-        authentication::qrcode::{
+        authentication::oidc::qrcode::{
             messages::LoginProtocolType,
             secure_channel::{test::MockedRendezvousServer, SecureChannel},
         },
