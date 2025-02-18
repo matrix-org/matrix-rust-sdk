@@ -1342,7 +1342,7 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({prepend_module_to_snapshot => false}, {
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
                     assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
                 });
             }
@@ -1398,7 +1398,7 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, false)
                 .build_response();
             allow_duplicates! {
-                with_settings!({prepend_module_to_snapshot => false}, {
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
                     assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
                 });
             }
@@ -1466,7 +1466,7 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({prepend_module_to_snapshot => false}, {
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
                     assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
                 });
             }
@@ -1597,7 +1597,7 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({prepend_module_to_snapshot => false}, {
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
                     assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
                 });
             }
