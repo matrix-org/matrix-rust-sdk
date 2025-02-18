@@ -657,10 +657,6 @@ mod private {
         }
 
         /// Load more events backwards if the last chunk is **not** a gap.
-        ///
-        /// Return `Ok(Some((events, reached_start), _))` if events have been
-        /// inserted, `Ok(None)` if a gap has been inserted or if the
-        /// store is disabled.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub(in super::super) async fn load_more_events_backwards(
             &mut self,
