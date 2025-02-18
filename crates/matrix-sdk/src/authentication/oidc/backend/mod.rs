@@ -87,4 +87,29 @@ pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
         token: String,
         token_type_hint: Option<OAuthTokenTypeHint>,
     ) -> Result<(), OidcError>;
+
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    async fn request_device_authorization(
+        &self,
+        device_authorization_endpoint: Url,
+        client_id: oauth2::ClientId,
+        scopes: Vec<oauth2::Scope>,
+    ) -> Result<
+        oauth2::StandardDeviceAuthorizationResponse,
+        oauth2::basic::BasicRequestTokenError<oauth2::HttpClientError<reqwest::Error>>,
+    >;
+
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    async fn exchange_device_code(
+        &self,
+        token_endpoint: Url,
+        client_id: oauth2::ClientId,
+        device_authorization_response: &oauth2::StandardDeviceAuthorizationResponse,
+    ) -> Result<
+        OidcSessionTokens,
+        oauth2::RequestTokenError<
+            oauth2::HttpClientError<reqwest::Error>,
+            oauth2::DeviceCodeErrorResponse,
+        >,
+    >;
 }

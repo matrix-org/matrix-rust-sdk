@@ -38,7 +38,6 @@ use crate::{authentication::oidc::CrossProcessRefreshLockError, HttpError};
 
 mod login;
 mod messages;
-mod oauth_client;
 mod rendezvous_channel;
 mod secure_channel;
 
