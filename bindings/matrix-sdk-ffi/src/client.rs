@@ -285,27 +285,18 @@ impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let oidc = self.inner.oidc();
-        let (supports_oidc_login, supported_oidc_prompts) = match oidc
-            .fetch_authentication_issuer()
-            .await
-        {
-            Ok(issuer) => match &oidc.given_provider_metadata(&issuer).await {
-                Ok(metadata) => {
-                    let prompts = metadata
-                        .prompt_values_supported
-                        .as_ref()
-                        .map_or_else(Vec::new, |prompts| prompts.iter().map(Into::into).collect());
+        let (supports_oidc_login, supported_oidc_prompts) = match &oidc.provider_metadata().await {
+            Ok(metadata) => {
+                let prompts = metadata
+                    .prompt_values_supported
+                    .as_ref()
+                    .map_or_else(Vec::new, |prompts| prompts.iter().map(Into::into).collect());
 
-                    (true, prompts)
-                }
-                Err(error) => {
-                    error!("Failed to fetch OIDC provider metadata: {error}");
-                    (true, Default::default())
-                }
-            },
+                (true, prompts)
+            }
             Err(error) => {
-                error!("Failed to fetch authentication issuer: {error}");
-                (false, Default::default())
+                error!("Failed to fetch OIDC provider metadata: {error}");
+                (true, Default::default())
             }
         };
 

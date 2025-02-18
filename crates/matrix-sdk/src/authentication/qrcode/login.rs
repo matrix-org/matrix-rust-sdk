@@ -34,8 +34,11 @@ use super::{
 #[cfg(doc)]
 use crate::authentication::oidc::Oidc;
 use crate::{
-    authentication::qrcode::{
-        messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,
+    authentication::{
+        oidc::OidcError,
+        qrcode::{
+            messages::QrAuthMessage, secure_channel::EstablishedSecureChannel, QRCodeLoginError,
+        },
     },
     Client,
 };
@@ -293,21 +296,14 @@ impl<'a> LoginWithQrCode<'a> {
     async fn register_client(&self) -> Result<OauthClient, DeviceAuthorizationOauthError> {
         let oidc = self.client.oidc();
 
-        // Let's figure out the OAuth 2.0 issuer, this fetches the info from the
-        // homeserver.
-        let issuer = oidc
-            .fetch_authentication_issuer()
-            .await
-            .map_err(DeviceAuthorizationOauthError::AuthenticationIssuer)?;
-
         // Now we register the client with the OAuth 2.0 authorization server.
         let registration_response =
-            oidc.register_client(&issuer, self.client_metadata.clone(), None).await?;
+            oidc.register_client(self.client_metadata.clone(), None).await?;
 
         // We're now switching to the oauth2 crate, it has a bit of a strange API
         // where you need to provide the HTTP client in every call you make.
         let http_client = self.client.inner.http_client.clone();
-        let server_metadata = oidc.provider_metadata().await?;
+        let server_metadata = oidc.provider_metadata().await.map_err(OidcError::from)?;
 
         OauthClient::new(registration_response.client_id, &server_metadata, http_client)
     }
@@ -617,21 +613,10 @@ mod test {
         token_response: ResponseTemplate,
     ) {
         Mock::given(method("GET"))
-            .and(path("/_matrix/client/unstable/org.matrix.msc2965/auth_issuer"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "issuer": server.uri(),
-
-            })))
-            .expect(1)
-            .named("auth_issuer")
-            .mount(server)
-            .await;
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/openid-configuration"))
+            .and(path("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"))
             .respond_with(ResponseTemplate::new(200).set_body_json(open_id_configuration(server)))
             .expect(1..)
-            .named("server_metadata")
+            .named("auth_metadata")
             .mount(server)
             .await;
 

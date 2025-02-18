@@ -36,11 +36,7 @@
 //! # Homeserver support
 //!
 //! After building the client, you can check that the homeserver supports
-//! logging in via OIDC when [`Oidc::fetch_authentication_issuer()`] succeeds.
-//!
-//! If the homeserver doesn't advertise its support for OIDC, but the issuer URL
-//! is known by some other method, it can be provided manually during
-//! registration.
+//! logging in via OAuth 2.0 when [`Oidc::provider_metadata()`] succeeds.
 //!
 //! # Registration
 //!
@@ -155,7 +151,6 @@ use std::{collections::HashMap, fmt, sync::Arc};
 use as_variant::as_variant;
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use http::StatusCode;
 pub use mas_oidc_client::{error, requests, types};
 use mas_oidc_client::{
     requests::{
@@ -177,7 +172,6 @@ use mas_oidc_client::{
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use ruma::api::client::discovery::get_authentication_issuer;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use thiserror::Error;
@@ -333,19 +327,6 @@ impl Oidc {
         as_variant!(data, AuthData::Oidc)
     }
 
-    /// Get the authentication issuer advertised by the homeserver.
-    ///
-    /// Returns an error if the request fails. An error with a
-    /// `StatusCode::NOT_FOUND` should mean that the homeserver does not support
-    /// authenticating via OpenID Connect ([MSC3861]).
-    ///
-    /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
-    pub async fn fetch_authentication_issuer(&self) -> Result<String, HttpError> {
-        let response = self.client.send(get_authentication_issuer::msc2965::Request::new()).await?;
-
-        Ok(response.issuer)
-    }
-
     /// Log in using a QR code.
     ///
     /// This method allows you to log in with a QR code, the existing device
@@ -442,26 +423,14 @@ impl Oidc {
         registrations: OidcRegistrations,
         prompt: Prompt,
     ) -> Result<OidcAuthorizationData, OidcError> {
-        let issuer = match self.fetch_authentication_issuer().await {
-            Ok(issuer) => issuer,
-            Err(error) => {
-                if error
-                    .as_client_api_error()
-                    .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
-                {
-                    return Err(OidcError::MissingAuthenticationIssuer);
-                } else {
-                    return Err(OidcError::UnknownError(Box::new(error)));
-                }
-            }
-        };
+        let metadata = self.provider_metadata().await?;
 
         let redirect_uris =
             client_metadata.redirect_uris.clone().ok_or(OidcError::MissingRedirectUri)?;
 
         let redirect_url = redirect_uris.first().ok_or(OidcError::MissingRedirectUri)?;
 
-        self.configure(issuer, client_metadata, registrations).await?;
+        self.configure(metadata.issuer().to_owned(), client_metadata, registrations).await?;
 
         let mut data_builder = self.login(redirect_url.clone(), None)?;
         data_builder = data_builder.prompt(vec![prompt]);
@@ -524,7 +493,7 @@ impl Oidc {
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(&issuer, client_metadata.clone(), None).await?;
+        self.register_client(client_metadata.clone(), None).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -539,7 +508,7 @@ impl Oidc {
         &self,
         registrations: &OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
-        let issuer = Url::parse(self.issuer().ok_or(OidcError::MissingAuthenticationIssuer)?)
+        let issuer = Url::parse(self.issuer().expect("issuer should be set after registration"))
             .map_err(OidcError::Url)?;
         let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.to_owned();
 
@@ -669,24 +638,12 @@ impl Oidc {
         self.management_url_from_provider_metadata(metadata, action)
     }
 
-    /// Fetch the OpenID Connect metadata of the given issuer.
+    /// Fetch the OAuth 2.0 server metadata of the homeserver.
     ///
-    /// Returns an error if fetching the metadata failed.
-    pub async fn given_provider_metadata(
-        &self,
-        issuer: &str,
-    ) -> Result<VerifiedProviderMetadata, OidcError> {
-        self.backend.discover(issuer, self.ctx().insecure_discover).await
-    }
-
-    /// Fetch the OpenID Connect metadata of the issuer.
-    ///
-    /// Returns an error if the client registration was not restored, or if an
-    /// error occurred when fetching the metadata.
-    pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OidcError> {
-        let issuer = self.issuer().ok_or(OidcError::MissingAuthenticationIssuer)?;
-
-        self.given_provider_metadata(issuer).await
+    /// Returns an error if a problem occurred when fetching or validating the
+    /// metadata.
+    pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+        self.backend.discover(self.ctx().insecure_discover).await
     }
 
     /// The OpenID Connect metadata of this client used during registration.
@@ -825,10 +782,10 @@ impl Oidc {
         })
     }
 
-    /// Register a client with an OpenID Connect Provider.
+    /// Register a client with the OAuth 2.0 server.
     ///
     /// This should be called before any authorization request with an unknown
-    /// authentication issuer. If the client is already registered with the
+    /// authorization server. If the client is already registered with the
     /// given issuer, it should use [`Oidc::restore_registered_client()`].
     ///
     /// Note that this method only supports public clients, i.e. clients with
@@ -837,12 +794,9 @@ impl Oidc {
     ///
     /// The client should adapt the security measures enabled in its metadata
     /// according to the capabilities advertised in
-    /// [`Oidc::given_provider_metadata()`].
+    /// [`Oidc::provider_metadata()`].
     ///
     /// # Arguments
-    ///
-    /// * `issuer` - The OpenID Connect Provider to register with. Can be
-    ///   obtained with [`Oidc::fetch_authentication_issuer()`].
     ///
     /// * `client_metadata` - The [`VerifiedClientMetadata`] to register.
     ///
@@ -854,12 +808,13 @@ impl Oidc {
     ///   allowing to update the registered client metadata.
     ///
     /// The client ID in the response should be persisted for future use and
-    /// reused for the same issuer, along with the client metadata sent to the
-    /// provider, even for different sessions or user accounts.
+    /// reused for the same authorization server, identified by the
+    /// [`Oidc::issuer()`], along with the client metadata sent to the provider,
+    /// even for different sessions or user accounts.
     ///
     /// # Panic
     ///
-    /// Panics if authentication data was already set.
+    /// Panics if the authentication data was already set.
     ///
     /// # Example
     ///
@@ -870,36 +825,42 @@ impl Oidc {
     /// # let client_metadata = ClientMetadata::default().validate().unwrap();
     /// # fn persist_client_registration (_: &str, _: &ClientMetadata, _: &ClientId) {}
     /// # _ = async {
-    /// let server_name = ServerName::parse("myhomeserver.org").unwrap();
+    /// let server_name = ServerName::parse("myhomeserver.org")?;
     /// let client = Client::builder().server_name(&server_name).build().await?;
     /// let oidc = client.oidc();
     ///
-    /// if let Ok(issuer) = oidc.fetch_authentication_issuer().await {
-    ///     let response = oidc
-    ///         .register_client(&issuer, client_metadata.clone(), None)
-    ///         .await?;
+    /// if let Err(error) = oidc.provider_metadata().await {
+    ///     if error.is_not_supported() {
+    ///         println!("OAuth 2.0 is not supported");
+    ///     }
     ///
-    ///     println!(
-    ///         "Registered with client_id: {}",
-    ///         response.client_id
-    ///     );
-    ///
-    ///     // The API only supports clients without secrets.
-    ///     let client_id = ClientId(response.client_id);
-    ///
-    ///     persist_client_registration(&issuer, &client_metadata, &client_id);
+    ///     return Err(error.into());
     /// }
+    ///
+    /// let response = oidc
+    ///     .register_client(client_metadata.clone(), None)
+    ///     .await?;
+    ///
+    /// println!(
+    ///     "Registered with client_id: {}",
+    ///     response.client_id
+    /// );
+    ///
+    /// // The API only supports clients without secrets.
+    /// let client_id = ClientId(response.client_id);
+    /// let issuer = oidc.issuer().expect("issuer should be set after registration");
+    ///
+    /// persist_client_registration(issuer, &client_metadata, &client_id);
     /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [software statement]: https://datatracker.ietf.org/doc/html/rfc7591#autoid-8
     pub async fn register_client(
         &self,
-        issuer: &str,
         client_metadata: VerifiedClientMetadata,
         software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        let provider_metadata = self.given_provider_metadata(issuer).await?;
+        let provider_metadata = self.provider_metadata().await?;
 
         let registration_endpoint = provider_metadata
             .registration_endpoint
@@ -914,7 +875,7 @@ impl Oidc {
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
-            issuer.to_owned(),
+            provider_metadata.issuer().to_owned(),
             client_metadata,
             ClientId(registration_response.client_id.clone()),
         );
@@ -933,7 +894,8 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `issuer` - The OpenID Connect Provider we're interacting with.
+    /// * `issuer` - The authorization server that was used to register the
+    ///   client.
     ///
     /// * `client_metadata` - The [`VerifiedClientMetadata`] that was
     ///   registered.
@@ -1455,9 +1417,8 @@ impl Oidc {
         let provider_metadata = match self.provider_metadata().await {
             Ok(metadata) => metadata,
             Err(err) => {
-                let err = Arc::new(err);
-                warn!("couldn't get provider metadata: {err}");
-                fail!(refresh_status_guard, RefreshTokenError::Oidc(err));
+                warn!("couldn't get authorization server metadata: {err}");
+                fail!(refresh_status_guard, RefreshTokenError::Oidc(Arc::new(err.into())));
             }
         };
 
@@ -1689,9 +1650,9 @@ pub enum OidcError {
     #[error(transparent)]
     Oidc(error::Error),
 
-    /// No authentication issuer was provided by the homeserver or by the user.
-    #[error("client missing authentication issuer")]
-    MissingAuthenticationIssuer,
+    /// An error occurred when discovering the authorization server's issuer.
+    #[error("authorization server discovery failed: {0}")]
+    Discovery(#[from] OauthDiscoveryError),
 
     /// The OpenID Connect Provider doesn't support dynamic client registration.
     ///
@@ -1764,6 +1725,35 @@ where
 {
     fn from(value: E) -> Self {
         Self::Oidc(value.into())
+    }
+}
+
+/// All errors that can occur when discovering the OAuth 2.0 server metadata.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum OauthDiscoveryError {
+    /// OAuth 2.0 is not supported by the homeserver.
+    #[error("OAuth 2.0 is not supported by the homeserver")]
+    NotSupported,
+
+    /// An error occurred when making a request to the homeserver.
+    #[error(transparent)]
+    Http(#[from] HttpError),
+
+    /// The server metadata is invalid.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+
+    /// An error occurred when making a request to the OpenID Connect provider.
+    #[error(transparent)]
+    Oidc(#[from] error::DiscoveryError),
+}
+
+impl OauthDiscoveryError {
+    /// Whether this error occurred because OAuth 2.0 is not supported by the
+    /// homeserver.
+    pub fn is_not_supported(&self) -> bool {
+        matches!(self, Self::NotSupported)
     }
 }
 

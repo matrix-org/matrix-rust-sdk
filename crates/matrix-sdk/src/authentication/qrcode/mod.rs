@@ -121,11 +121,6 @@ pub enum DeviceAuthorizationOauthError {
     #[error("OAuth 2.0 server doesn't support the device authorization grant")]
     NoDeviceAuthorizationEndpoint,
 
-    /// An error happened while we attempted to discover the authentication
-    /// issuer URL.
-    #[error(transparent)]
-    AuthenticationIssuer(HttpError),
-
     /// An error happened while we attempted to request a device authorization
     /// from the Oauth 2.0 authorization server.
     #[error(transparent)]
