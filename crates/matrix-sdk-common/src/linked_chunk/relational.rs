@@ -345,13 +345,41 @@ where
         };
 
         // Find the last chunk.
-        let Some(chunk_row) = self
-            .chunks
-            .iter()
-            .find(|chunk_row| chunk_row.room_id == room_id && chunk_row.next_chunk.is_none())
-        else {
-            // Chunk is not found.
-            return Ok((None, chunk_identifier_generator));
+        let mut number_of_chunks = 0;
+        let mut chunk_row = None;
+
+        for chunk_row_candidate in &self.chunks {
+            if chunk_row_candidate.room_id == room_id {
+                number_of_chunks += 1;
+
+                if chunk_row_candidate.next_chunk.is_none() {
+                    chunk_row = Some(chunk_row_candidate);
+
+                    break;
+                }
+            }
+        }
+
+        let chunk_row = match chunk_row {
+            // Chunk has been found, all good.
+            Some(chunk_row) => chunk_row,
+
+            // Chunk is not found and there is zero chunk for this room, this is consistent, all
+            // good.
+            None if number_of_chunks == 0 => {
+                return Ok((None, chunk_identifier_generator));
+            }
+
+            // Chunk is not found **but** there are chunks for this room, this is inconsistent. The
+            // linked chunk is malformed.
+            //
+            // Returning `Ok(None)` would be invalid here: we must return an error.
+            None => {
+                return Err(
+                    "last chunk is not found but chunks exist: the linked chunk contains a cycle"
+                        .to_owned(),
+                );
+            }
         };
 
         // Build the chunk.
@@ -1186,6 +1214,29 @@ mod tests {
             });
             assert_eq!(chunk_identifier_generator.current(), 42);
         }
+    }
+
+    #[test]
+    fn test_load_last_chunk_with_a_cycle() {
+        let room_id = room_id!("!r0:matrix.org");
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
+
+        relational_linked_chunk.apply_updates(
+            room_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::NewItemsChunk {
+                    // Because `previous` connects to chunk #0, it will create a cycle.
+                    // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
+                    // **does not exist**. We have to detect this cycle.
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: Some(CId::new(0)),
+                },
+            ],
+        );
+
+        relational_linked_chunk.load_last_chunk(room_id).unwrap_err();
     }
 
     #[test]
