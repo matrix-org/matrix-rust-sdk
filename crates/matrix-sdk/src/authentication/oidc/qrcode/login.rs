@@ -16,26 +16,31 @@ use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use mas_oidc_client::types::registration::VerifiedClientMetadata;
+use mas_oidc_client::types::{
+    registration::VerifiedClientMetadata,
+    scope::{MatrixApiScopeToken, ScopeToken},
+};
 use matrix_sdk_base::{
     boxed_into_future,
     crypto::types::qr_login::{QrCodeData, QrCodeMode},
     SessionMeta,
 };
-use oauth2::DeviceCodeErrorResponseType;
+use oauth2::{DeviceCodeErrorResponseType, Scope, StandardDeviceAuthorizationResponse};
 use ruma::OwnedDeviceId;
 use tracing::trace;
-use vodozemac::ecies::CheckCode;
+use vodozemac::{ecies::CheckCode, Curve25519PublicKey};
 
 use super::{
     messages::{LoginFailureReason, QrAuthMessage},
-    oauth_client::OauthClient,
     secure_channel::EstablishedSecureChannel,
     DeviceAuthorizationOauthError, QRCodeLoginError, SecureChannelError,
 };
 #[cfg(doc)]
 use crate::authentication::oidc::Oidc;
-use crate::{authentication::oidc::OidcError, Client};
+use crate::{
+    authentication::oidc::{OidcError, OidcSessionTokens},
+    Client,
+};
 
 async fn send_unexpected_message_error(
     channel: &mut EstablishedSecureChannel,
@@ -114,7 +119,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 
             // Register the client with the OAuth 2.0 authorization server.
             trace!("Registering the client with the OAuth 2.0 authorization server.");
-            let oauth_client = self.register_client().await?;
+            self.register_client().await?;
 
             // We want to use the Curve25519 public key for the device ID, so let's generate
             // a new vodozemac `Account` now.
@@ -125,7 +130,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // Let's tell the OAuth 2.0 authorization server that we want to log in using
             // the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
             trace!("Requesting device authorization.");
-            let auth_grant_response = oauth_client.request_device_authorization(device_id).await?;
+            let auth_grant_response = self.request_device_authorization(device_id).await?;
 
             // Now we need to inform the other device of the login protocols we picked and
             // the URL they should use to log us in.
@@ -162,7 +167,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // Let's now wait for the access token to be provided to use by the OAuth 2.0
             // authorization server.
             trace!("Waiting for the OAuth 2.0 authorization server to give us the access token.");
-            let session_tokens = match oauth_client.wait_for_tokens(&auth_grant_response).await {
+            let session_tokens = match self.wait_for_tokens(&auth_grant_response).await {
                 Ok(t) => t,
                 Err(e) => {
                     // If we received an error, and it's one of the ones we should report to the
@@ -287,19 +292,58 @@ impl<'a> LoginWithQrCode<'a> {
         Ok(channel)
     }
 
-    async fn register_client(&self) -> Result<OauthClient, DeviceAuthorizationOauthError> {
+    /// Register the client with the OAuth 2.0 authorization server.
+    async fn register_client(&self) -> Result<(), DeviceAuthorizationOauthError> {
         let oidc = self.client.oidc();
+        oidc.register_client(self.client_metadata.clone(), None).await?;
+        Ok(())
+    }
 
-        // Now we register the client with the OAuth 2.0 authorization server.
-        let registration_response =
-            oidc.register_client(self.client_metadata.clone(), None).await?;
+    async fn request_device_authorization(
+        &self,
+        device_id: Curve25519PublicKey,
+    ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOauthError> {
+        let scopes = [
+            ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
+            ScopeToken::try_with_matrix_device(device_id.to_base64()).expect(
+                "We should be able to create a scope token from a \
+                 Curve25519 public key encoded as base64",
+            ),
+        ]
+        .into_iter()
+        .map(|scope| Scope::new(scope.to_string()))
+        .collect();
 
-        // We're now switching to the oauth2 crate, it has a bit of a strange API
-        // where you need to provide the HTTP client in every call you make.
-        let http_client = self.client.inner.http_client.clone();
+        let oidc = self.client.oidc();
+        let client_id =
+            oauth2::ClientId::new(oidc.client_id().ok_or(OidcError::NotRegistered)?.0.clone());
         let server_metadata = oidc.provider_metadata().await.map_err(OidcError::from)?;
+        let device_authorization_endpoint =
+            server_metadata
+                .device_authorization_endpoint
+                .clone()
+                .ok_or(DeviceAuthorizationOauthError::NoDeviceAuthorizationEndpoint)?;
 
-        OauthClient::new(registration_response.client_id, &server_metadata, http_client)
+        let response = oidc
+            .backend
+            .request_device_authorization(device_authorization_endpoint, client_id, scopes)
+            .await?;
+        Ok(response)
+    }
+
+    async fn wait_for_tokens(
+        &self,
+        auth_response: &StandardDeviceAuthorizationResponse,
+    ) -> Result<OidcSessionTokens, DeviceAuthorizationOauthError> {
+        let oidc = self.client.oidc();
+        let client_id =
+            oauth2::ClientId::new(oidc.client_id().ok_or(OidcError::NotRegistered)?.0.clone());
+        let server_metadata = oidc.provider_metadata().await.map_err(OidcError::from)?;
+        let token_endpoint = server_metadata.token_endpoint().clone();
+
+        let tokens =
+            oidc.backend.exchange_device_code(token_endpoint, client_id, auth_response).await?;
+        Ok(tokens)
     }
 }
 

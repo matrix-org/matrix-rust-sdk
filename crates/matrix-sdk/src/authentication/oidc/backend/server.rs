@@ -15,6 +15,8 @@
 //! Actual implementation of the OIDC backend, using the mas_oidc_client
 //! implementation.
 
+use std::{future::Future, pin::Pin};
+
 use chrono::Utc;
 use http::StatusCode;
 use mas_oidc_client::{
@@ -39,12 +41,14 @@ use mas_oidc_client::{
         IdToken,
     },
 };
+use oauth2::{AsyncHttpClient, HttpClientError, HttpRequest, HttpResponse};
 use ruma::api::client::discovery::{get_authentication_issuer, get_authorization_server_metadata};
 use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
 use crate::{
     authentication::oidc::{rng, AuthorizationCode, OauthDiscoveryError, OidcSessionTokens},
+    http_client::HttpClient,
     Client,
 };
 
@@ -58,8 +62,12 @@ impl OidcServer {
         Self { client }
     }
 
+    fn http_client(&self) -> &HttpClient {
+        &self.client.inner.http_client
+    }
+
     fn http_service(&self) -> HttpService {
-        HttpService::new(self.client.inner.http_client.clone())
+        HttpService::new(self.http_client().clone())
     }
 
     /// Fetch the OpenID Connect JSON Web Key Set at the given URI.
@@ -253,5 +261,70 @@ impl OidcBackend for OidcServer {
             &mut rng()?,
         )
         .await?)
+    }
+
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    async fn request_device_authorization(
+        &self,
+        device_authorization_endpoint: Url,
+        client_id: oauth2::ClientId,
+        scopes: Vec<oauth2::Scope>,
+    ) -> Result<
+        oauth2::StandardDeviceAuthorizationResponse,
+        oauth2::basic::BasicRequestTokenError<HttpClientError<reqwest::Error>>,
+    > {
+        let device_authorization_url =
+            oauth2::DeviceAuthorizationUrl::from_url(device_authorization_endpoint);
+
+        oauth2::basic::BasicClient::new(client_id)
+            .set_device_authorization_url(device_authorization_url)
+            .exchange_device_code()
+            .add_scopes(scopes)
+            .request_async(self.http_client())
+            .await
+    }
+
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    async fn exchange_device_code(
+        &self,
+        token_endpoint: Url,
+        client_id: oauth2::ClientId,
+        device_authorization_response: &oauth2::StandardDeviceAuthorizationResponse,
+    ) -> Result<
+        OidcSessionTokens,
+        oauth2::RequestTokenError<HttpClientError<reqwest::Error>, oauth2::DeviceCodeErrorResponse>,
+    > {
+        use oauth2::TokenResponse;
+
+        let token_uri = oauth2::TokenUrl::from_url(token_endpoint);
+
+        let response = oauth2::basic::BasicClient::new(client_id)
+            .set_token_uri(token_uri)
+            .exchange_device_access_token(device_authorization_response)
+            .request_async(self.http_client(), tokio::time::sleep, None)
+            .await?;
+
+        let tokens = OidcSessionTokens {
+            access_token: response.access_token().secret().to_owned(),
+            refresh_token: response.refresh_token().map(|t| t.secret().to_owned()),
+            latest_id_token: None,
+        };
+
+        Ok(tokens)
+    }
+}
+
+impl<'c> AsyncHttpClient<'c> for HttpClient {
+    type Error = HttpClientError<reqwest::Error>;
+
+    type Future =
+        Pin<Box<dyn Future<Output = Result<HttpResponse, Self::Error>> + Send + Sync + 'c>>;
+
+    fn call(&'c self, request: HttpRequest) -> Self::Future {
+        Box::pin(async move {
+            let response = self.inner.call(request).await?;
+
+            Ok(response)
+        })
     }
 }
