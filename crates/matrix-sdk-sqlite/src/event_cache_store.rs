@@ -62,7 +62,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 4;
+const DATABASE_VERSION: u8 = 5;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -335,6 +335,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/event_cache_store/004_ignore_policy.sql"
             ))?;
             txn.set_db_version(4)
+        })
+        .await?;
+    }
+
+    if version < 5 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/005_events_index_on_event_id.sql"
+            ))?;
+            txn.set_db_version(5)
         })
         .await?;
     }
@@ -787,7 +797,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 txn.chunk_large_query_over(events, None, move |txn, events| {
                     let query = format!(
-                        "SELECT event_id FROM events WHERE room_id = ? AND event_id IN ({})",
+                        "SELECT event_id FROM events WHERE room_id = ? AND event_id IN ({}) ORDER BY chunk_id ASC, position ASC",
                         repeat_vars(events.len()),
                     );
                     let parameters = params_from_iter(
