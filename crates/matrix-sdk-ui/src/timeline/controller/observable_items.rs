@@ -1235,12 +1235,8 @@ impl AllRemoteEvents {
 
         // Incremental all indices in the event id mapping.
         {
-            for meta in &self.events {
-                let entry = self
-                    .event_id_to_index
-                    .get_mut(&meta.event_id)
-                    .expect("there should be an entry for every event");
-                *entry += 1;
+            for idx in self.event_id_to_index.values_mut() {
+                *idx += 1;
             }
             self.event_id_to_index.insert(event_meta.event_id.clone(), 0);
         }
@@ -1275,12 +1271,10 @@ impl AllRemoteEvents {
 
         // Increment all indices after the one we're shifting in the event id mapping.
         {
-            for meta in self.events.iter().skip(event_index) {
-                let entry = self
-                    .event_id_to_index
-                    .get_mut(&meta.event_id)
-                    .expect("there should be an entry for every event");
-                *entry += 1;
+            for idx in self.event_id_to_index.values_mut() {
+                if *idx >= event_index {
+                    *idx += 1;
+                }
             }
             self.event_id_to_index.insert(event_meta.event_id.clone(), event_index);
         }
@@ -1294,24 +1288,17 @@ impl AllRemoteEvents {
         // Remove the event.
         let event_meta = self.events.remove(event_index)?;
 
-        // In the event-id to index mapping, decrement all indices after the one we're
-        // going to remove.
-        //
-        // Note: we do this *after* the actual removal, because `event_index` is the
-        // number of entries to skip *after* the removal (if there was two
-        // events, and we're removing the first one, we need to decrement the
-        // second one, that's at `event_index` *after* the removal).
-
-        for meta in self.events.iter().skip(event_index) {
-            let entry = self
-                .event_id_to_index
-                .get_mut(&meta.event_id)
-                .expect("there should be an entry for every event");
-            *entry -= 1;
-        }
-
         // Remove its inverted mapping from event id.
         self.event_id_to_index.remove(&event_meta.event_id);
+
+        // In the event-id to index mapping, decrement all indices after the one we've
+        // removed.
+
+        for idx in self.event_id_to_index.values_mut() {
+            if *idx >= event_index {
+                *idx -= 1;
+            }
+        }
 
         // If there is an associated `timeline_item_index`, shift all the
         // `timeline_item_index` that come after this one.
