@@ -1,6 +1,7 @@
 ---
 source: crates/matrix-sdk-crypto/src/session_manager/group_sessions/share_strategy.rs
 expression: ruma_response_to_json(keys_query.clone())
+snapshot_kind: text
 ---
 {
   "device_keys": {
@@ -29,11 +30,11 @@ expression: ruma_response_to_json(keys_query.clone())
   "master_keys": {
     "@bob:localhost": {
       "keys": {
-        "ed25519:B2W5RIPXTnKtRhFATxcvrKzIOWVstpdNLkf2uOQNBOY": "B2W5RIPXTnKtRhFATxcvrKzIOWVstpdNLkf2uOQNBOY"
+        "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0"
       },
       "signatures": {
         "@bob:localhost": {
-          "ed25519:B2W5RIPXTnKtRhFATxcvrKzIOWVstpdNLkf2uOQNBOY": "vgFiLvyxYeiVxhpMV81Z4HTvjRhgmZgWn1ScnsLC+HojFwXckA6+/Aa9L/+sA1hzapNZJ4Vrbstl9c4Ep4nbAA"
+          "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "MalGqUfgScuZcEzFyBaJV0nXP6cBGaDz6LZtwrWmvAtfn3uDVatym+CX+YkKZmflog7XJogdeYtHuyn733tWBA"
         }
       },
       "usage": [
@@ -49,7 +50,7 @@ expression: ruma_response_to_json(keys_query.clone())
       },
       "signatures": {
         "@bob:localhost": {
-          "ed25519:B2W5RIPXTnKtRhFATxcvrKzIOWVstpdNLkf2uOQNBOY": "xQhtPoTJilhxKrruKAhrpQ1MJFKsCPh77R2WUrWHIB5Mi4sPbxpeU1MZvV/jCCfHrZ5ID40PG2EcEAPtPLYgAQ"
+          "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "h1sADa7kifsHyzGc0ZTGckzjEE15s2YVR9Tz6pdyOWoHJUUcOjBDz6aGNbDarcs/OY49rF3nNXUMsRXEW6ZCBA"
         }
       },
       "usage": [
@@ -65,7 +66,7 @@ expression: ruma_response_to_json(keys_query.clone())
       },
       "signatures": {
         "@bob:localhost": {
-          "ed25519:B2W5RIPXTnKtRhFATxcvrKzIOWVstpdNLkf2uOQNBOY": "d9lPdE5nqpl1euENWderCnPJRTClAcH11JMAIlKiPIWObL19U26zxuchBMEgVR4U7UN55ykDiWtPUlDCC7yvAg"
+          "ed25519:QK24BHjZnsDxe8rfCBHieNRG3MDNCcCMjBNhKCfNuC0": "gIfvMruwAbB7l7893w6bR/2dqTGTFM4qfSYWZWJ/i981zZYfTQv+8h91URCMhviKXQlelnVnMRrP6osssS8NAA"
         }
       },
       "usage": [
