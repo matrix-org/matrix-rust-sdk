@@ -61,7 +61,7 @@ impl LinkedChunkBuilder {
 
         // Create the `LinkedChunk` from a single chunk.
         {
-            // This is the only chunk. Pretend it has no previous chunk if any.
+            // Take the `previous` chunk and consider it becomes the `lazy_previous`.
             let lazy_previous = chunk.previous.take();
 
             // Transform the `RawChunk` into a `Chunk`.
@@ -184,7 +184,7 @@ impl LinkedChunkBuilder {
             }
         }
 
-        // Emit the updates..
+        // Emit the updates.
         if let Some(updates) = linked_chunk.updates.as_mut() {
             let first_chunk = linked_chunk.links.first_chunk();
 

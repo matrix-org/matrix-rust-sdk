@@ -238,7 +238,7 @@ impl RoomPagination {
             // Reverse the order of the events as `/messages` has been called with `dir=b`
             // (backwards). The `RoomEvents` API expects the first event to be the oldest.
             // Let's re-order them for this block.
-            let events = events
+            let reversed_events = events
                 .iter()
                 .rev()
                 .cloned()
@@ -258,7 +258,7 @@ impl RoomPagination {
                     trace!("replacing previous gap with the back-paginated events");
 
                     // Replace the gap with the events we just deduplicated.
-                    room_events.replace_gap_at(events.clone(), gap_id)
+                    room_events.replace_gap_at(reversed_events.clone(), gap_id)
                         .expect("gap_identifier is a valid chunk id we read previously")
                 }
             } else if let Some(pos) = first_event_pos {
@@ -267,7 +267,7 @@ impl RoomPagination {
                 trace!("inserted events before the first known event");
 
                 room_events
-                    .insert_events_at(events.clone(), pos)
+                    .insert_events_at(reversed_events.clone(), pos)
                     .expect("pos is a valid position we just read above");
 
                 Some(pos)
@@ -275,7 +275,7 @@ impl RoomPagination {
                 // No prior gap, and no prior events: push the events.
                 trace!("pushing events received from back-pagination");
 
-                room_events.push_events(events.clone());
+                room_events.push_events(reversed_events.clone());
 
                 // A new gap may be inserted before the new events, if there are any.
                 room_events.events().next().map(|(item_pos, _)| item_pos)
@@ -299,7 +299,7 @@ impl RoomPagination {
                 debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
             }
 
-            room_events.on_new_events(&self.inner.room_version, events.iter());
+            room_events.on_new_events(&self.inner.room_version, reversed_events.iter());
         })
         .await?;
 
