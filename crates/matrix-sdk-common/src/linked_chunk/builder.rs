@@ -101,6 +101,16 @@ impl LinkedChunkBuilder {
                 }
             }
 
+            // New chunk doesn't create a cycle.
+            if let Some(previous_chunk) = new_first_chunk.previous {
+                if linked_chunk.chunks().any(|chunk| chunk.identifier() == previous_chunk) {
+                    return Err(LinkedChunkBuilderError::Cycle {
+                        new_chunk: new_first_chunk.identifier,
+                        with_chunk: previous_chunk,
+                    });
+                }
+            }
+
             let expected_next_chunk = linked_chunk.links.first_chunk().identifier();
 
             // New chunk has a next chunk.
@@ -118,8 +128,7 @@ impl LinkedChunkBuilder {
                 });
             }
 
-            // Alright. It's not possible to have a cycle within the chunks or
-            // multiple connected components here. All checks are made.
+            // Alright. All checks are made.
         }
 
         // Insert the new first chunk.
@@ -207,6 +216,9 @@ impl LinkedChunkBuilder {
 pub enum LinkedChunkBuilderError {
     #[error("chunk with id {} has a next chunk, it is supposed to be the last chunk", id.index())]
     ChunkIsNotLast { id: ChunkIdentifier },
+
+    #[error("chunk with id {} forms a cycle with chunk with id {}", new_chunk.index(), with_chunk.index())]
+    Cycle { new_chunk: ChunkIdentifier, with_chunk: ChunkIdentifier },
 
     #[error("chunk with id {} is supposed to have a next chunk", id.index())]
     MissingNextChunk { id: ChunkIdentifier },
@@ -340,6 +352,24 @@ mod tests {
 
         assert_matches!(result, Err(LinkedChunkBuilderError::ChunkTooLarge { id }) => {
             assert_eq!(id, 0);
+        });
+    }
+
+    #[test]
+    fn test_insert_new_first_chunk_err_cycle() {
+        let new_first_chunk = RawChunk {
+            previous: Some(ChunkIdentifier::new(0)),
+            identifier: ChunkIdentifier::new(1),
+            next: Some(ChunkIdentifier(0)),
+            content: ChunkContent::Gap(()),
+        };
+
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
+        let result = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, new_first_chunk);
+
+        assert_matches!(result, Err(LinkedChunkBuilderError::Cycle { new_chunk, with_chunk }) => {
+            assert_eq!(new_chunk, 1);
+            assert_eq!(with_chunk, 0);
         });
     }
 
