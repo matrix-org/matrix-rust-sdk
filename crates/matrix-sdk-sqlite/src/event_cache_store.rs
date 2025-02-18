@@ -625,24 +625,26 @@ impl EventCacheStore for SqliteEventCacheStore {
             .acquire()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                // Find the latest chunk identifier to generate a `ChunkIdentifierGenerator`.
-                let chunk_identifier_generator = match txn
+                // Find the latest chunk identifier to generate a `ChunkIdentifierGenerator`, and count the number of chunks.
+                let (chunk_identifier_generator, number_of_chunks) = txn
                     .prepare(
-                        "SELECT MAX(id) FROM linked_chunks WHERE room_id = ?"
+                        "SELECT MAX(id), COUNT(*) FROM linked_chunks WHERE room_id = ?"
                     )?
                     .query_row(
                         (&hashed_room_id,),
                         |row| {
-                            // Read the `MAX(id)` as an `Option<u64>` instead
-                            // of `u64` in case the `SELECT` returns nothing.
-                            // Indeed, if it returns no line, the `MAX(id)` is
-                            // set to `Null`.
-                            row.get::<_, Option<u64>>(0)
+                            Ok((
+                                // Read the `MAX(id)` as an `Option<u64>` instead
+                                // of `u64` in case the `SELECT` returns nothing.
+                                // Indeed, if it returns no line, the `MAX(id)` is
+                                // set to `Null`.
+                                row.get::<_, Option<u64>>(0)?,
+                                row.get::<_, u64>(1)?,
+                            ))
                         }
-                    )
-                    .optional()?
-                    .flatten()
-                {
+                    )?;
+
+                let chunk_identifier_generator = match chunk_identifier_generator {
                     Some(last_chunk_identifier) => {
                         ChunkIdentifierGenerator::new_from_previous_chunk_identifier(
                             ChunkIdentifier::new(last_chunk_identifier)
@@ -668,8 +670,23 @@ impl EventCacheStore for SqliteEventCacheStore {
                     )
                     .optional()?
                 else {
-                    // Chunk is not found.
-                    return Ok((None, chunk_identifier_generator));
+                    // Chunk is not found and there is zero chunk for this room, this is consistent, all
+                    // good.
+                    if number_of_chunks == 0 {
+                        return Ok((None, chunk_identifier_generator));
+                    }
+                    // Chunk is not found **but** there are chunks for this room, this is inconsistent. The
+                    // linked chunk is malformed.
+                    //
+                    // Returning `Ok((None, _))` would be invalid here: we must return an error.
+                    else {
+                        return Err(Error::InvalidData {
+                            details:
+                                "last chunk is not found but chunks exist: the linked chunk contains a cycle"
+                                    .to_owned()
+                            }
+                        )
+                    }
                 };
 
                 // Build the chunk.
@@ -2038,6 +2055,36 @@ mod tests {
             });
             assert_eq!(chunk_identifier_generator.current(), 42);
         }
+    }
+
+    #[async_test]
+    async fn test_load_last_chunk_with_a_cycle() {
+        let room_id = room_id!("!r0:matrix.org");
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::NewItemsChunk {
+                        // Because `previous` connects to chunk #0, it will create a cycle.
+                        // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
+                        // **does not exist**. We have to detect this cycle.
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: Some(ChunkIdentifier::new(0)),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        store.load_last_chunk(room_id).await.unwrap_err();
     }
 
     #[async_test]
