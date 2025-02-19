@@ -1,11 +1,10 @@
-use std::{ops::ControlFlow, time::Duration};
+use std::time::Duration;
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
     config::SyncSettings,
-    event_cache::{BackPaginationOutcome, TimelineHasBeenResetWhilePaginating},
     test_utils::{
         logged_in_client_with_server,
         mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
@@ -428,17 +427,10 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
 
     let (event_cache, _) = room.event_cache().await.expect("Event cache should be accessible");
 
-    async fn once(
-        outcome: BackPaginationOutcome,
-        _timeline_has_been_reset: TimelineHasBeenResetWhilePaginating,
-    ) -> ControlFlow<BackPaginationOutcome, ()> {
-        ControlFlow::Break(outcome)
-    }
-
     // Paginate backwards once using the event cache to load the event
     event_cache
         .pagination()
-        .run_backwards(10, once)
+        .run_backwards_once(10)
         .await
         .expect("Pagination of events should successful");
 

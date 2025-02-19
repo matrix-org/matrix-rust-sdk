@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**]: The `RoomPagination::run_backwards` method has been removed, and replaced by two
+simpler methods:
+  - `RoomPagination::run_backwards_until()`, which will retrigger back-paginations until a certain
+  number of events have been received (and retry if the timeline has been reset in the background).
+  - `RoomPagination::run_backwards_once()`, which will run a single back-pagination (and retry if
+  the timeline has been reset in the background).
+  ([#4689](https://github.com/matrix-org/matrix-rust-sdk/pull/4689))
 - [**breaking**]: The `Oidc::account_management_url` method now caches the
   result of a call, subsequent calls to the method will not contact the OIDC
   provider for a while, instead the cached URI will be returned. If caching of
