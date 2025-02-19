@@ -105,7 +105,6 @@ use std::{
 };
 
 pub use as_vector::*;
-pub use lazy_loader::{LinkedChunkBuilderTest, LinkedChunkBuilderTestError};
 pub use updates::*;
 
 /// Errors of [`LinkedChunk`].

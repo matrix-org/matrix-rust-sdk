@@ -1137,7 +1137,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage() {
-        use matrix_sdk_base::linked_chunk::LinkedChunkBuilderTest;
+        use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
 
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
@@ -1175,9 +1175,10 @@ mod tests {
             .await
             .unwrap();
 
-        let raws = event_cache_store.load_all_chunks(room_id).await.unwrap();
         let linked_chunk =
-            LinkedChunkBuilderTest::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
+            from_all_chunks::<3, _, _>(event_cache_store.load_all_chunks(room_id).await.unwrap())
+                .unwrap()
+                .unwrap();
 
         assert_eq!(linked_chunk.chunks().count(), 3);
 
@@ -1208,7 +1209,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage_strips_bundled_relations() {
-        use matrix_sdk_base::linked_chunk::LinkedChunkBuilderTest;
+        use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
         use ruma::events::BundledMessageLikeRelations;
 
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1265,9 +1266,10 @@ mod tests {
         }
 
         // The one in storage does not.
-        let raws = event_cache_store.load_all_chunks(room_id).await.unwrap();
         let linked_chunk =
-            LinkedChunkBuilderTest::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
+            from_all_chunks::<3, _, _>(event_cache_store.load_all_chunks(room_id).await.unwrap())
+                .unwrap()
+                .unwrap();
 
         assert_eq!(linked_chunk.chunks().count(), 1);
 
@@ -1291,7 +1293,7 @@ mod tests {
     #[async_test]
     async fn test_clear() {
         use eyeball_im::VectorDiff;
-        use matrix_sdk_base::linked_chunk::LinkedChunkBuilderTest;
+        use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
 
         use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
 
@@ -1418,13 +1420,14 @@ mod tests {
         assert!(items.is_empty());
 
         // The event cache store too.
-        let raws = event_cache_store.load_all_chunks(room_id).await.unwrap();
-        let linked_chunk = LinkedChunkBuilderTest::<3, _, _>::from_raw_parts(raws).build().unwrap();
+        let linked_chunk =
+            from_all_chunks::<3, _, _>(event_cache_store.load_all_chunks(room_id).await.unwrap())
+                .unwrap()
+                .unwrap();
 
         // Note: while the event cache store could return `None` here, clearing it will
         // reset it to its initial form, maintaining the invariant that it
         // contains a single items chunk that's empty.
-        let linked_chunk = linked_chunk.unwrap();
         assert_eq!(linked_chunk.num_items(), 0);
     }
 
