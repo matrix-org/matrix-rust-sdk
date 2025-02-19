@@ -524,7 +524,7 @@ mod private {
     use matrix_sdk_base::{
         deserialized_responses::{TimelineEvent, TimelineEventKind},
         event_cache::{store::EventCacheStoreLock, Event},
-        linked_chunk::{ChunkContent, LinkedChunkBuilder, Update},
+        linked_chunk::{lazy_loader, ChunkContent, Update},
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
@@ -583,7 +583,7 @@ mod private {
                     .await
                     .map_err(EventCacheError::from)
                     .and_then(|(last_chunk, chunk_identifier_generator)| {
-                        LinkedChunkBuilder::from_last_chunk(last_chunk, chunk_identifier_generator)
+                        lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
                             .map_err(EventCacheError::from)
                     }) {
                     Ok(linked_chunk) => linked_chunk,

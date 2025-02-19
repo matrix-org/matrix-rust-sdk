@@ -92,7 +92,7 @@ macro_rules! assert_items_eq {
 }
 
 mod as_vector;
-mod builder;
+pub mod lazy_loader;
 pub mod relational;
 mod updates;
 
@@ -105,7 +105,7 @@ use std::{
 };
 
 pub use as_vector::*;
-pub use builder::*;
+pub use lazy_loader::{LinkedChunkBuilderTest, LinkedChunkBuilderTestError};
 pub use updates::*;
 
 /// Errors of [`LinkedChunk`].

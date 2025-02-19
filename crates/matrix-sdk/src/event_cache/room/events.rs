@@ -17,7 +17,10 @@ pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
     apply_redaction,
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
-    linked_chunk::{ChunkContent, LinkedChunkBuilder, LinkedChunkBuilderError, RawChunk},
+    linked_chunk::{
+        lazy_loader::{self, LazyLoaderError},
+        ChunkContent, RawChunk,
+    },
 };
 use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, IterBackward, LinkedChunk,
@@ -335,8 +338,8 @@ impl RoomEvents {
     pub(super) fn insert_new_chunk_as_first(
         &mut self,
         raw_new_first_chunk: RawChunk<Event, Gap>,
-    ) -> Result<(), LinkedChunkBuilderError> {
-        LinkedChunkBuilder::insert_new_first_chunk(&mut self.chunks, raw_new_first_chunk)
+    ) -> Result<(), LazyLoaderError> {
+        lazy_loader::insert_new_first_chunk(&mut self.chunks, raw_new_first_chunk)
     }
 }
 
