@@ -40,8 +40,9 @@ pub trait EventType {
 
     /// Get the event type of the event content.
     ///
-    /// **Note**: This should never be implemented manually, this takes the
-    /// event type from the constant.
+    /// **Note**: This usually doesn't need to be implemented. The default
+    /// implementation will take the event type from the
+    /// [`EventType::EVENT_TYPE`] constant.
     fn event_type(&self) -> &str {
         Self::EVENT_TYPE
     }
