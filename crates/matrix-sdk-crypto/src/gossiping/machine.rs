@@ -539,13 +539,15 @@ impl GossipMachine {
         device: &Device,
         content: SecretSendContent,
     ) -> OlmResult<Session> {
-        let event_type = content.event_type();
-        let (used_session, content) = device.encrypt(event_type, content).await?;
+        let event_type = content.event_type().to_owned();
+        let (used_session, content) = device.encrypt(&event_type, content).await?;
+
+        let encrypted_event_type = content.event_type().to_owned();
 
         let request = ToDeviceRequest::new(
             device.user_id(),
             device.device_id().to_owned(),
-            content.event_type(),
+            &encrypted_event_type,
             content.cast(),
         );
 
@@ -568,10 +570,12 @@ impl GossipMachine {
         let (used_session, content) =
             device.encrypt_room_key_for_forwarding(session.clone(), message_index).await?;
 
+        let event_type = content.event_type().to_owned();
+
         let request = ToDeviceRequest::new(
             device.user_id(),
             device.device_id().to_owned(),
-            content.event_type(),
+            &event_type,
             content.cast(),
         );
 
