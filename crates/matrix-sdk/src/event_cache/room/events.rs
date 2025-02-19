@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
     linked_chunk::{
         lazy_loader::{self, LazyLoaderError},
-        ChunkContent, RawChunk,
+        ChunkContent, ChunkIdentifierGenerator, RawChunk,
     },
 };
 use matrix_sdk_common::linked_chunk::{
@@ -84,6 +84,18 @@ impl RoomEvents {
     /// the ether, forever.
     pub fn reset(&mut self) {
         self.chunks.clear();
+    }
+
+    /// Replace the events with the given last chunk of events and generator.
+    ///
+    /// This clears all the chunks in memory before resetting to the new chunk,
+    /// if provided.
+    pub(super) fn replace_with(
+        &mut self,
+        last_chunk: Option<RawChunk<Event, Gap>>,
+        chunk_identifier_generator: ChunkIdentifierGenerator,
+    ) -> Result<(), LazyLoaderError> {
+        lazy_loader::replace_with(&mut self.chunks, last_chunk, chunk_identifier_generator)
     }
 
     /// If the given event is a redaction, try to retrieve the to-be-redacted

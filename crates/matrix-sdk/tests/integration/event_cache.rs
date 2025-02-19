@@ -1175,6 +1175,8 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     drop(events);
 
+    let pagination = room_event_cache.pagination();
+
     // Backpagination will return nothing.
     server
         .mock_room_messages()
@@ -1183,13 +1185,17 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
         .mount()
         .await;
 
-    let pagination = room_event_cache.pagination();
-
-    // Run pagination once: it will consume the unique gap we had.
-    pagination.run_backwards_once(20).await.unwrap();
+    // The first sync was limited, so we have unloaded the full linked chunk, and it
+    // only contains the events returned by the sync.
+    //
+    // The first back-pagination will hit the network, and let us know we've reached
+    // the end of the room.
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
+    assert!(outcome.reached_start);
+    assert!(outcome.events.is_empty());
 
     // Now simulate that the sync returns the same events (which can happen with
-    // simplified sliding sync).
+    // simplified sliding sync), also as a limited sync.
     server
         .sync_room(
             &client,
@@ -1202,18 +1208,43 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     assert!(stream.is_empty());
 
-    // If this back-pagination fails, that's because we've stored a gap that's
-    // useless. It should be short-circuited because there's no previous gap.
+    {
+        let (events, _) = room_event_cache.subscribe().await;
+        assert_event_matches_msg(&events[0], "hello");
+        assert_event_matches_msg(&events[1], "world");
+        assert_event_matches_msg(&events[2], "sup");
+        assert_eq!(events.len(), 3);
+    }
+
+    // If any of the following back-paginations fail with a network error, that's
+    // because we've stored a gap that's useless. All back-paginations must be
+    // loading from the store.
+    //
+    // The sync was limited, which unloaded the linked chunk, and reloaded only the
+    // final events chunk.
+    //
+    // There's an empty events chunk at the start of *every* linked chunk, so the
+    // next pagination will return it, and since the chunk is lazily loaded, the
+    // pagination doesn't know *yet* it's reached the start of the linked chunk.
+
     let outcome = pagination.run_backwards_once(20).await.unwrap();
+    assert!(outcome.events.is_empty());
+    assert!(!outcome.reached_start);
+
+    {
+        let (events, _) = room_event_cache.subscribe().await;
+        assert_event_matches_msg(&events[0], "hello");
+        assert_event_matches_msg(&events[1], "world");
+        assert_event_matches_msg(&events[2], "sup");
+        assert_eq!(events.len(), 3);
+    }
+
+    // Now, lazy-loading notices we've reached the start of the chunk, and reports
+    // it as such.
+
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
+    assert!(outcome.events.is_empty());
     assert!(outcome.reached_start);
-
-    let (events, stream) = room_event_cache.subscribe().await;
-    assert_event_matches_msg(&events[0], "hello");
-    assert_event_matches_msg(&events[1], "world");
-    assert_event_matches_msg(&events[2], "sup");
-    assert_eq!(events.len(), 3);
-
-    assert!(stream.is_empty());
 }
 
 #[async_test]
@@ -1273,10 +1304,11 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     );
     assert_eq!(diffs.len(), 2);
 
-    // `$ev3` is duplicated, the older `$ev3` event is removed
-    assert_matches!(&diffs[0], VectorDiff::Remove { index } => {
-        assert_eq!(*index, 0);
-    });
+    // The linked chunk is unloaded, because of the limited sync with a gap:
+    // It's first cleared…
+    assert_matches!(&diffs[0], VectorDiff::Clear);
+
+    // Then the latest event chunk is reloaded.
     // `$ev1`, `$ev2` and `$ev3` are added.
     assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
         assert_eq!(events.len(), 3);
@@ -1296,6 +1328,24 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
         .mount()
         .await;
 
+    // Run pagination once: it will consume prev-batch2 first, which is the most
+    // recent token, which returns an empty batch, thus indicating the start of the
+    // room; but we still have a chunk in storage, so it appears like it's not the
+    // start *yet*.
+    let pagination = room_event_cache.pagination();
+
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
+    assert!(outcome.reached_start);
+    assert!(outcome.events.is_empty());
+    assert!(stream.is_empty());
+
+    // Next, we lazy-load a next chunk from the store, and get the initial, empty
+    // default events chunk.
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
+    assert!(outcome.reached_start.not());
+    assert!(outcome.events.is_empty());
+    assert!(stream.is_empty());
+
     // For prev-batch, the back-pagination returns two events we already know, and a
     // previous batch token.
     server
@@ -1310,30 +1360,25 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
         .mount()
         .await;
 
-    let pagination = room_event_cache.pagination();
-
-    // Run pagination once: it will consume prev-batch2 first, which is the most
-    // recent token.
-    let outcome = pagination.run_backwards_once(20).await.unwrap();
-
-    // The pagination is empty: no new event.
-    assert!(outcome.reached_start);
-    assert!(outcome.events.is_empty());
-    assert!(stream.is_empty());
-
     // Run pagination a second time: it will consume prev-batch, which is the least
     // recent token.
     let outcome = pagination.run_backwards_once(20).await.unwrap();
-
-    // The pagination contains deduplicated events; they are all deduplicated; the
-    // gap is replaced by zero event: nothing happens.
     assert!(outcome.reached_start.not());
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
-    // If this back-pagination fails, that's because we've stored a gap that's
-    // useless. It should be short-circuited because storing the previous gap was
-    // useless.
+    // If this back-pagination fails, that's because it's trying to hit network. In
+    // that case, it means we stored the gap with the prev-batch3 token, while
+    // we shouldn't have to, since it is useless; all events were deduplicated
+    // from the previous pagination.
+
+    // Instead, we're lazy-loading an empty events chunks.
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
+    assert!(outcome.reached_start.not());
+    assert!(outcome.events.is_empty());
+    assert!(stream.is_empty());
+
+    // And finally hit the start of the timeline.
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
