@@ -1290,8 +1290,6 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_clear() {
-        use std::ops::ControlFlow;
-
         use eyeball_im::VectorDiff;
         use matrix_sdk_base::linked_chunk::LinkedChunkBuilderTest;
 
@@ -1388,11 +1386,7 @@ mod tests {
 
         // Let's load more chunks to get all events.
         {
-            room_event_cache
-                .pagination()
-                .run_backwards(20, |outcome, _| async move { ControlFlow::Break(outcome) })
-                .await
-                .unwrap();
+            room_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
             assert_let_timeout!(
                 Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
@@ -1437,8 +1431,6 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_load_from_storage() {
-        use std::ops::ControlFlow;
-
         use eyeball_im::VectorDiff;
 
         use super::RoomEventCacheUpdate;
@@ -1530,11 +1522,7 @@ mod tests {
         assert!(room_event_cache.event(event_id2).await.is_some());
 
         // Let's paginate to load more events.
-        room_event_cache
-            .pagination()
-            .run_backwards(20, |outcome, _| async move { ControlFlow::Break(outcome) })
-            .await
-            .unwrap();
+        room_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()

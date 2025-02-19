@@ -1,8 +1,4 @@
-use std::{
-    future::ready,
-    ops::{ControlFlow, Not},
-    time::Duration,
-};
+use std::{ops::Not, time::Duration};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -13,7 +9,7 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, PaginationToken,
-        RoomEventCacheUpdate, TimelineHasBeenResetWhilePaginating,
+        RoomEventCacheUpdate,
     },
     linked_chunk::{ChunkIdentifier, Position, Update},
     test_utils::{
@@ -32,13 +28,6 @@ use ruma::{
 };
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
-
-async fn once(
-    outcome: BackPaginationOutcome,
-    _timeline_has_been_reset: TimelineHasBeenResetWhilePaginating,
-) -> ControlFlow<BackPaginationOutcome, ()> {
-    ControlFlow::Break(outcome)
-}
 
 #[async_test]
 async fn test_must_explicitly_subscribe() {
@@ -284,7 +273,7 @@ async fn test_backpaginate_once() {
 
         assert_matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_));
 
-        pagination.run_backwards(20, once).await.unwrap()
+        pagination.run_backwards_once(20).await.unwrap()
     };
 
     // I'll get all the previous events, in "reverse" order (same as the response).
@@ -351,7 +340,6 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     wait_for_initial_events(events, &mut room_stream).await;
 
     let mut num_iterations = 0;
-    let mut num_paginations = 0;
     let mut global_events = Vec::new();
     let mut global_reached_start = false;
 
@@ -380,29 +368,18 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
     while matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_)) {
-        pagination
-            .run_backwards(20, |outcome, timeline_has_been_reset| {
-                num_paginations += 1;
+        let outcome = pagination.run_backwards_once(20).await.unwrap();
 
-                assert_matches!(timeline_has_been_reset, TimelineHasBeenResetWhilePaginating::No);
-
-                if !global_reached_start {
-                    global_reached_start = outcome.reached_start;
-                }
-
-                global_events.extend(outcome.events);
-
-                ready(ControlFlow::Break(()))
-            })
-            .await
-            .unwrap();
+        global_events.extend(outcome.events);
+        if !global_reached_start {
+            global_reached_start = outcome.reached_start;
+        }
 
         num_iterations += 1;
     }
 
     // I'll get all the previous events,
-    assert_eq!(num_iterations, 2); // in two iterations…
-    assert_eq!(num_paginations, 2); // … we get two paginations.
+    assert_eq!(num_iterations, 2); // in two iterations
     assert!(global_reached_start);
 
     assert_event_matches_msg(&global_events[0], "world");
@@ -489,7 +466,6 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     wait_for_initial_events(events, &mut room_stream).await;
 
     let mut num_iterations = 0;
-    let mut num_paginations = 0;
     let mut global_events = Vec::new();
     let mut global_reached_start = false;
 
@@ -518,33 +494,16 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
     while matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_)) {
-        pagination
-            .run_backwards(20, |outcome, timeline_has_been_reset| {
-                num_paginations += 1;
-
-                assert_matches!(timeline_has_been_reset, TimelineHasBeenResetWhilePaginating::No);
-
-                if !global_reached_start {
-                    global_reached_start = outcome.reached_start;
-                }
-
-                global_events.extend(outcome.events);
-
-                ready(if outcome.reached_start {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                })
-            })
-            .await
-            .unwrap();
-
+        let outcome = pagination.run_backwards_until(20).await.unwrap();
+        if !global_reached_start {
+            global_reached_start = outcome.reached_start;
+        }
+        global_events.extend(outcome.events);
         num_iterations += 1;
     }
 
     // I'll get all the previous events,
-    assert_eq!(num_iterations, 1); // in one iteration…
-    assert_eq!(num_paginations, 2); // … we get two paginations!
+    assert_eq!(num_iterations, 1); // in one iteration
     assert!(global_reached_start);
 
     assert_event_matches_msg(&global_events[0], "world");
@@ -669,18 +628,7 @@ async fn test_reset_while_backpaginating() {
 
     let backpagination = spawn({
         let pagination = room_event_cache.pagination();
-        async move {
-            pagination
-                .run_backwards(20, |outcome, timeline_has_been_reset| {
-                    assert_matches!(
-                        timeline_has_been_reset,
-                        TimelineHasBeenResetWhilePaginating::Yes
-                    );
-
-                    ready(ControlFlow::Break(outcome))
-                })
-                .await
-        }
+        async move { pagination.run_backwards_once(20).await }
     });
 
     // Receive the sync response (which clears the timeline).
@@ -785,7 +733,7 @@ async fn test_backpaginating_without_token() {
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
     let BackPaginationOutcome { events, reached_start } =
-        pagination.run_backwards(20, once).await.unwrap();
+        pagination.run_backwards_once(20).await.unwrap();
 
     assert!(reached_start);
 
@@ -844,7 +792,7 @@ async fn test_limited_timeline_resets_pagination() {
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
     let BackPaginationOutcome { events, reached_start } =
-        pagination.run_backwards(20, once).await.unwrap();
+        pagination.run_backwards_once(20).await.unwrap();
 
     assert_eq!(events.len(), 1);
     assert!(reached_start);
@@ -1011,7 +959,7 @@ async fn test_limited_timeline_without_storage() {
         .await;
 
     // We run back-pagination with success.
-    room_event_cache.pagination().run_backwards(20, once).await.unwrap();
+    room_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
     // And we get the back-paginated event.
     assert_let_timeout!(
@@ -1096,7 +1044,7 @@ async fn test_backpaginate_with_no_initial_events() {
     // timeline.
     let pagination_clone = pagination.clone();
 
-    let first_pagination = spawn(async move { pagination_clone.run_backwards(20, once).await });
+    let first_pagination = spawn(async move { pagination_clone.run_backwards_once(20).await });
 
     // Make sure we've waited for the initial token long enough (3 seconds, as of
     // 2024-12-16).
@@ -1112,7 +1060,7 @@ async fn test_backpaginate_with_no_initial_events() {
     first_pagination.await.expect("joining must work").expect("first backpagination must work");
 
     // Second pagination will be instant.
-    pagination.run_backwards(20, once).await.unwrap();
+    pagination.run_backwards_once(20).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
     let (events, _stream) = room_event_cache.subscribe().await;
@@ -1174,8 +1122,8 @@ async fn test_backpaginate_replace_empty_gap() {
     let pagination = room_event_cache.pagination();
 
     // Run pagination twice.
-    pagination.run_backwards(20, once).await.unwrap();
-    pagination.run_backwards(20, once).await.unwrap();
+    pagination.run_backwards_once(20).await.unwrap();
+    pagination.run_backwards_once(20).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
     let (events, _stream) = room_event_cache.subscribe().await;
@@ -1238,7 +1186,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     let pagination = room_event_cache.pagination();
 
     // Run pagination once: it will consume the unique gap we had.
-    pagination.run_backwards(20, once).await.unwrap();
+    pagination.run_backwards_once(20).await.unwrap();
 
     // Now simulate that the sync returns the same events (which can happen with
     // simplified sliding sync).
@@ -1256,7 +1204,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     // If this back-pagination fails, that's because we've stored a gap that's
     // useless. It should be short-circuited because there's no previous gap.
-    let outcome = pagination.run_backwards(20, once).await.unwrap();
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
 
     let (events, stream) = room_event_cache.subscribe().await;
@@ -1366,7 +1314,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     // Run pagination once: it will consume prev-batch2 first, which is the most
     // recent token.
-    let outcome = pagination.run_backwards(20, once).await.unwrap();
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
 
     // The pagination is empty: no new event.
     assert!(outcome.reached_start);
@@ -1375,7 +1323,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     // Run pagination a second time: it will consume prev-batch, which is the least
     // recent token.
-    let outcome = pagination.run_backwards(20, once).await.unwrap();
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
 
     // The pagination contains deduplicated events; they are all deduplicated; the
     // gap is replaced by zero event: nothing happens.
@@ -1386,7 +1334,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // If this back-pagination fails, that's because we've stored a gap that's
     // useless. It should be short-circuited because storing the previous gap was
     // useless.
-    let outcome = pagination.run_backwards(20, once).await.unwrap();
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
@@ -1443,7 +1391,7 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
         .mock_once()
         .mount()
         .await;
-    room_event_cache.pagination().run_backwards(20, once).await.unwrap();
+    room_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
     // This doesn't cause an update, because nothing changed.
     assert!(stream.is_empty());
@@ -1623,17 +1571,6 @@ async fn test_lazy_loading() {
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
-    async fn until_at_least_one_event(
-        outcome: BackPaginationOutcome,
-        _timeline_has_been_reset: TimelineHasBeenResetWhilePaginating,
-    ) -> ControlFlow<BackPaginationOutcome, ()> {
-        if outcome.reached_start || outcome.events.is_empty().not() {
-            ControlFlow::Break(outcome)
-        } else {
-            ControlFlow::Continue(())
-        }
-    }
-
     // Set up the event cache store.
     {
         let event_cache_store = client.event_cache_store().lock().await.unwrap();
@@ -1748,25 +1685,21 @@ async fn test_lazy_loading() {
     // One more chunk will be loaded from the store. This new chunk contains 5
     // items. No need to reach the network.
     {
-        let pagination_outcome = room_event_cache
-            .pagination()
-            .run_backwards(10, until_at_least_one_event)
-            .await
-            .unwrap();
+        let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
         // Oh! 5 events! How classy.
-        assert_eq!(pagination_outcome.events.len(), 5);
+        assert_eq!(outcome.events.len(), 5);
 
         // Hello you. Well… Uoy olleh! Remember, this is a backwards pagination, so
         // events are returned in reverse order.
-        assert_event_id!(pagination_outcome.events[0], "$ev2_4");
-        assert_event_id!(pagination_outcome.events[1], "$ev2_3");
-        assert_event_id!(pagination_outcome.events[2], "$ev2_2");
-        assert_event_id!(pagination_outcome.events[3], "$ev2_1");
-        assert_event_id!(pagination_outcome.events[4], "$ev2_0");
+        assert_event_id!(outcome.events[0], "$ev2_4");
+        assert_event_id!(outcome.events[1], "$ev2_3");
+        assert_event_id!(outcome.events[2], "$ev2_2");
+        assert_event_id!(outcome.events[3], "$ev2_1");
+        assert_event_id!(outcome.events[4], "$ev2_0");
 
         // And there is more, but this, kids, is for later.
-        assert!(pagination_outcome.reached_start.not());
+        assert!(outcome.reached_start.not());
 
         // Let's check the stream. It should reflect what the
         // `pagination_outcome` provides.
@@ -1823,23 +1756,19 @@ async fn test_lazy_loading() {
             .mount_as_scoped()
             .await;
 
-        let pagination_outcome = room_event_cache
-            .pagination()
-            .run_backwards(10, until_at_least_one_event)
-            .await
-            .unwrap();
+        let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
         // 🙈… 4 events! Of course. We've never doubt.
-        assert_eq!(pagination_outcome.events.len(), 4);
+        assert_eq!(outcome.events.len(), 4);
 
         // Hello you, in reverse order because this is a backward pagination.
-        assert_event_id!(pagination_outcome.events[0], "$ev1_4");
-        assert_event_id!(pagination_outcome.events[1], "$ev1_3");
-        assert_event_id!(pagination_outcome.events[2], "$ev1_2");
-        assert_event_id!(pagination_outcome.events[3], "$ev1_1");
+        assert_event_id!(outcome.events[0], "$ev1_4");
+        assert_event_id!(outcome.events[1], "$ev1_3");
+        assert_event_id!(outcome.events[2], "$ev1_2");
+        assert_event_id!(outcome.events[3], "$ev1_1");
 
         // And there is more because we didn't reach the start of the timeline yet.
-        assert!(pagination_outcome.reached_start.not());
+        assert!(outcome.reached_start.not());
 
         // Let's check the stream. It should reflect what the
         // `pagination_outcome` provides.
@@ -1894,20 +1823,16 @@ async fn test_lazy_loading() {
             .mount_as_scoped()
             .await;
 
-        let pagination_outcome = room_event_cache
-            .pagination()
-            .run_backwards(10, until_at_least_one_event)
-            .await
-            .unwrap();
+        let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
         // 🙊… 1 event! Indeed, `$ev0_5` has been filtered out.
-        assert_eq!(pagination_outcome.events.len(), 1);
+        assert_eq!(outcome.events.len(), 1);
 
         // Hello lonely.
-        assert_event_id!(pagination_outcome.events[0], "$ev1_0");
+        assert_event_id!(outcome.events[0], "$ev1_0");
 
         // Still not the start of the timeline.
-        assert!(pagination_outcome.reached_start.not());
+        assert!(outcome.reached_start.not());
 
         // Let's check the stream.
         //
@@ -1961,29 +1886,25 @@ async fn test_lazy_loading() {
             .mount_as_scoped()
             .await;
 
-        let pagination_outcome = room_event_cache
-            .pagination()
-            .run_backwards(10, until_at_least_one_event)
-            .await
-            .unwrap();
+        let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
         // 🙊 … 6 events! Wait, what? Yes! The network has returned 2 known events, they
         // have all been deduplicated, resulting in the removal of the gap chunk.
         // `until_at_least_one_event` re-runs the pagination, and this time the store is
         // reached.
-        assert_eq!(pagination_outcome.events.len(), 6);
+        assert_eq!(outcome.events.len(), 6);
 
         // Hello to all of you!
-        assert_event_id!(pagination_outcome.events[0], "$ev0_5");
-        assert_event_id!(pagination_outcome.events[1], "$ev0_4");
-        assert_event_id!(pagination_outcome.events[2], "$ev0_3");
-        assert_event_id!(pagination_outcome.events[3], "$ev0_2");
-        assert_event_id!(pagination_outcome.events[4], "$ev0_1");
-        assert_event_id!(pagination_outcome.events[5], "$ev0_0");
+        assert_event_id!(outcome.events[0], "$ev0_5");
+        assert_event_id!(outcome.events[1], "$ev0_4");
+        assert_event_id!(outcome.events[2], "$ev0_3");
+        assert_event_id!(outcome.events[3], "$ev0_2");
+        assert_event_id!(outcome.events[4], "$ev0_1");
+        assert_event_id!(outcome.events[5], "$ev0_0");
 
         // The start of the timeline isn't reached yet. What we know for the moment is
         // that we get new events.
-        assert!(pagination_outcome.reached_start.not());
+        assert!(outcome.reached_start.not());
 
         // Let's check the stream for the last time.
         let update = updates_stream.recv().await.unwrap();
@@ -2019,16 +1940,12 @@ async fn test_lazy_loading() {
     // This time, the first chunk is loaded and there is nothing else to do, no gap,
     // nothing. We've reached the start of the timeline!
     {
-        let pagination_outcome = room_event_cache
-            .pagination()
-            .run_backwards(10, until_at_least_one_event)
-            .await
-            .unwrap();
+        let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
         // No events, hmmm…
-        assert!(pagination_outcome.events.is_empty());
+        assert!(outcome.events.is_empty());
 
         // … that's because the start of the timeline is finally reached!
-        assert!(pagination_outcome.reached_start);
+        assert!(outcome.reached_start);
     }
 }
