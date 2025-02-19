@@ -461,6 +461,8 @@ impl RoomEventCacheInner {
                 })
                 .await?;
 
+                // If there was a previous batch token, and there's at least one non-duplicated
+                // We must do this *after* the above call to `.with_events_mut`, so the new
             {
                 // Fill the AllEventsCache.
                 let mut all_events = self.all_events.write().await;
@@ -530,12 +532,12 @@ mod private {
     use matrix_sdk_base::{
         deserialized_responses::{TimelineEvent, TimelineEventKind},
         event_cache::{store::EventCacheStoreLock, Event},
-        linked_chunk::{lazy_loader, ChunkContent, Update},
+        linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Update},
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedEventId, OwnedRoomId};
-    use tracing::{error, instrument, trace};
+    use tracing::{debug, error, instrument, trace};
 
     use super::{events::RoomEvents, LoadMoreEventsBackwardsOutcome};
     use crate::event_cache::{deduplicator::Deduplicator, EventCacheError};
@@ -738,6 +740,60 @@ mod private {
                     LoadMoreEventsBackwardsOutcome::Events(events, updates_as_vector_diffs)
                 }
             })
+        }
+
+        /// If storage is enabled, unload all the chunks, then reloads only the
+        /// last one.
+        ///
+        /// Will return `Some` updates to be consumed by the caller, if and only
+        /// if storage is enabled. Otherwise, is a no-op.
+        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        pub(super) async fn shrink_to_last_chunk(
+            &mut self,
+        ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
+            let Some(store) = self.store.get() else {
+                // No need to do anything if there's no storage; we'll already reset the
+                // timeline after a limited response.
+                // TODO: that might be a way to unify our code, though?
+                return Ok(None);
+            };
+
+            let store_lock = store.lock().await?;
+
+            // Attempt to load the last chunk.
+            let (last_chunk, chunk_identifier_generator) = match store_lock
+                .load_last_chunk(&self.room)
+                .await
+            {
+                Ok(pair) => pair,
+
+                Err(err) => {
+                    // If loading the last chunk failed, clear the entire linked chunk.
+                    error!("error when reloading a linked chunk from memory: {err}");
+
+                    // Clear storage for this room.
+                    store_lock.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
+
+                    // Restart with an empty linked chunk.
+                    (None, ChunkIdentifierGenerator::new_from_scratch())
+                }
+            };
+
+            debug!("unloading the linked chunk, and resetting it to its last chunk");
+
+            // Remove all the chunks from the linked chunks, except for the last one, and
+            // updates the chunk identifier generator.
+            if let Err(err) = self.events.replace_with(last_chunk, chunk_identifier_generator) {
+                error!("error when replacing the linked chunk: {err}");
+                return self.reset().await.map(Some);
+            }
+
+            // Don't propagate those updates to the store; this is only for the in-memory
+            // representation that we're doing this. Let's drain those store updates.
+            let _ = self.events.store_updates().take();
+
+            // However, we want to get updates as `VectorDiff`s, for the external listeners.
+            Ok(Some(self.events.updates_as_vector_diffs()))
         }
 
         /// Removes the bundled relations from an event, if they were present.
@@ -1766,5 +1822,123 @@ mod tests {
         assert_eq!(related_events.len(), 1);
         let related_event_id = related_events[0].event_id().unwrap();
         assert_eq!(related_event_id, related_id);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_shrink_to_last_chunk() {
+        use std::ops::Not as _;
+
+        use eyeball_im::VectorDiff;
+
+        use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+
+        let f = EventFactory::new().room(room_id);
+
+        let evid1 = event_id!("$1");
+        let evid2 = event_id!("$2");
+
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(evid1).into_event();
+        let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
+
+        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        {
+            let store = client.event_cache_store();
+            let store = store.lock().await.unwrap();
+            store
+                .handle_linked_chunk_updates(
+                    room_id,
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![ev1],
+                        },
+                        Update::NewItemsChunk {
+                            previous: Some(ChunkIdentifier::new(0)),
+                            new: ChunkIdentifier::new(1),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(1), 0),
+                            items: vec![ev2],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Sanity check: lazily loaded, so only includes one item at start.
+        let (events, mut stream) = room_event_cache.subscribe().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+        assert!(stream.is_empty());
+
+        // Force loading the full linked chunk by back-paginating.
+        let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+        assert_eq!(outcome.events.len(), 1);
+        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert!(outcome.reached_start.not());
+
+        // We also get an update about the loading from the store.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
+            assert_eq!(value.event_id().as_deref(), Some(evid1));
+        });
+
+        assert!(stream.is_empty());
+
+        // Shrink the linked chunk to the last chunk.
+        let diffs = room_event_cache
+            .inner
+            .state
+            .write()
+            .await
+            .shrink_to_last_chunk()
+            .await
+            .expect("shrinking should succeed")
+            .expect("there must be updates");
+
+        // We receive updates about the changes to the linked chunk.
+        assert_eq!(diffs.len(), 2);
+        assert_matches!(&diffs[0], VectorDiff::Clear);
+        assert_matches!(&diffs[1], VectorDiff::Append { values} => {
+            assert_eq!(values.len(), 1);
+            assert_eq!(values[0].event_id().as_deref(), Some(evid2));
+        });
+
+        assert!(stream.is_empty());
+
+        // When reading the events, we do get only the last one.
+        let (events, _) = room_event_cache.subscribe().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+
+        // But if we back-paginate, we don't need access to network to find out about
+        // the previous event.
+        let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+        assert_eq!(outcome.events.len(), 1);
+        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert!(outcome.reached_start.not());
     }
 }
