@@ -56,7 +56,7 @@ use crate::{
     },
 };
 
-// TODO add creation times to the inbound group sessions so we can export
+// TODO: add creation times to the inbound group sessions so we can export
 // sessions that were created between some time period, this should only be set
 // for non-imported sessions.
 
@@ -210,23 +210,17 @@ impl InboundGroupSession {
         })
     }
 
-    /// Create a InboundGroupSession from an exported version of the group
-    /// session.
+    /// Create a new [`InboundGroupSession`] from an exported version of the
+    /// group session.
     ///
-    /// Most notably this can be called with an `ExportedRoomKey` from a
-    /// previous [`export()`] call.
-    ///
-    /// [`export()`]: #method.export
+    /// Most notably this can be called with an [`ExportedRoomKey`] from a
+    /// previous [`InboundGroupSession::export()`] call.
     pub fn from_export(exported_session: &ExportedRoomKey) -> Result<Self, SessionCreationError> {
         Self::try_from(exported_session)
     }
 
-    /// Store the group session as a base64 encoded string.
-    ///
-    /// # Arguments
-    ///
-    /// * `pickle_mode` - The mode that was used to pickle the group session,
-    ///   either an unencrypted mode or an encrypted using passphrase.
+    /// Convert the [`InboundGroupSession`] into a
+    /// [`PickledInboundGroupSession`] which can be serialized.
     pub async fn pickle(&self) -> PickledInboundGroupSession {
         let pickle = self.inner.lock().await.pickle();
 
@@ -246,7 +240,7 @@ impl InboundGroupSession {
     /// Export this session at the first known message index.
     ///
     /// If only a limited part of this session should be exported use
-    /// [`export_at_index()`](#method.export_at_index).
+    /// [`InboundGroupSession::export_at_index()`].
     pub async fn export(&self) -> ExportedRoomKey {
         self.export_at_index(self.first_known_index()).await
     }
