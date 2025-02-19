@@ -153,10 +153,12 @@ impl SessionManager {
                 let (_, content) =
                     device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await?;
 
+                let event_type = content.event_type().to_owned();
+
                 let request = ToDeviceRequest::new(
                     device.user_id(),
                     device.device_id().to_owned(),
-                    content.event_type(),
+                    &event_type,
                     content.cast(),
                 );
 

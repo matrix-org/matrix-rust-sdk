@@ -42,7 +42,7 @@ pub trait EventType {
     ///
     /// **Note**: This should never be implemented manually, this takes the
     /// event type from the constant.
-    fn event_type(&self) -> &'static str {
+    fn event_type(&self) -> &str {
         Self::EVENT_TYPE
     }
 }
