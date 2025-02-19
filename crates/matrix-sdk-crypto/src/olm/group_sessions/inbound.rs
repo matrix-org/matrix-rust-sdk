@@ -51,6 +51,7 @@ use crate::{
             },
             olm_v1::DecryptedForwardedRoomKeyEvent,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
+            room_key,
         },
         serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
     },
@@ -208,6 +209,36 @@ impl InboundGroupSession {
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
         })
+    }
+
+    /// Create a new [`InboundGroupSession`] from a `m.room_key` event with an
+    /// `m.megolm.v1.aes-sha2` content.
+    ///
+    /// The `m.room_key` event **must** have been encrypted using the
+    /// `m.olm.v1.curve25519-aes-sha2` algorithm and the `sender_key` **must**
+    /// be the long-term [`Curve25519PublicKey`] that was used to establish
+    /// the 1-to-1 Olm session.
+    ///
+    /// The `signing_key` **must** be the [`Ed25519PublicKey`] contained in the
+    /// `keys` field of the [decrypted payload].
+    ///
+    /// [decrypted payload]: https://spec.matrix.org/unstable/client-server-api/#molmv1curve25519-aes-sha2
+    pub fn from_room_key_content(
+        sender_key: Curve25519PublicKey,
+        signing_key: Ed25519PublicKey,
+        content: &room_key::MegolmV1AesSha2Content,
+    ) -> Result<Self, SessionCreationError> {
+        let room_key::MegolmV1AesSha2Content { room_id, session_id: _, session_key, .. } = content;
+
+        Self::new(
+            sender_key,
+            signing_key,
+            room_id,
+            session_key,
+            SenderData::unknown(),
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            None,
+        )
     }
 
     /// Create a new [`InboundGroupSession`] from an exported version of the
