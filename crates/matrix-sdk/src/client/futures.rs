@@ -46,7 +46,6 @@ use crate::{
 #[allow(missing_debug_implementations)]
 pub struct SendRequest<R> {
     pub(crate) client: Client,
-    pub(crate) homeserver_override: Option<String>,
     pub(crate) request: R,
     pub(crate) config: Option<RequestConfig>,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
@@ -64,15 +63,6 @@ impl<R> SendRequest<R> {
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Self {
         self.send_progress = send_progress;
-        self
-    }
-
-    /// Replace this request's target (homeserver) with a custom one.
-    ///
-    /// This is useful at the moment because the current sliding sync
-    /// implementation uses a proxy server.
-    pub fn with_homeserver_override(mut self, homeserver_override: Option<String>) -> Self {
-        self.homeserver_override = homeserver_override;
         self
     }
 
@@ -101,16 +91,11 @@ where
     boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { client, request, config, send_progress, homeserver_override } = self;
+        let Self { client, request, config, send_progress } = self;
 
         Box::pin(async move {
-            let res = Box::pin(client.send_inner(
-                request.clone(),
-                config,
-                homeserver_override.clone(),
-                send_progress.clone(),
-            ))
-            .await;
+            let res =
+                Box::pin(client.send_inner(request.clone(), config, send_progress.clone())).await;
 
             // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
             if let Err(Some(ErrorKind::UnknownToken { soft_logout })) =
@@ -172,13 +157,7 @@ where
                     }
                 } else {
                     trace!("Token refresh: Refresh succeeded, retrying request.");
-                    return Box::pin(client.send_inner(
-                        request,
-                        config,
-                        homeserver_override,
-                        send_progress,
-                    ))
-                    .await;
+                    return Box::pin(client.send_inner(request, config, send_progress)).await;
                 }
             }
 

@@ -38,6 +38,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    linked_chunk::lazy_loader::LazyLoaderError,
     store_locks::LockStoreError,
     sync::RoomUpdates,
 };
@@ -109,6 +110,13 @@ pub enum EventCacheError {
     /// times where we try to use the client.
     #[error("The owning client of the event cache has been dropped.")]
     ClientDropped,
+
+    /// An error happening when interacting with the [`LinkedChunk`]'s lazy
+    /// loader.
+    ///
+    /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
+    #[error(transparent)]
+    LinkedChunkLoader(#[from] LazyLoaderError),
 }
 
 /// A result using the [`EventCacheError`].
@@ -664,8 +672,6 @@ pub struct BackPaginationOutcome {
     /// Events are presented in reverse order: the first element of the vec,
     /// if present, is the most "recent" event from the chunk (or
     /// technically, the last one in the topological ordering).
-    ///
-    /// Note: they're not deduplicated (TODO: smart reconciliation).
     pub events: Vec<TimelineEvent>,
 }
 
@@ -754,7 +760,7 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
 
-        let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+        let (events, mut stream) = room_event_cache.subscribe().await;
 
         assert!(events.is_empty());
 
@@ -912,7 +918,7 @@ mod tests {
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (initial_events, _) = room_event_cache.subscribe().await.unwrap();
+        let (initial_events, _) = room_event_cache.subscribe().await;
         // `add_initial_events` had an effect.
         assert_eq!(initial_events.len(), 1);
     }

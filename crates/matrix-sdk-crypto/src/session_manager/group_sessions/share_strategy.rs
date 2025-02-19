@@ -676,7 +676,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use insta::assert_snapshot;
+    use insta::{assert_snapshot, with_settings};
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_test::{
         async_test, test_json,
@@ -746,7 +746,9 @@ mod tests {
     fn test_serialize_device_based_strategy() {
         let encryption_settings = all_devices_strategy_settings();
         let serialized = serde_json::to_string(&encryption_settings).unwrap();
-        assert_snapshot!(serialized);
+        with_settings!({prepend_module_to_snapshot => false}, {
+            assert_snapshot!(serialized)
+        });
     }
 
     /// [`CollectStrategy::AllDevices`] used to be known as
@@ -1340,7 +1342,9 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -1394,7 +1398,9 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, false)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -1460,7 +1466,9 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -1589,7 +1597,9 @@ mod tests {
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
             allow_duplicates! {
-                with_settings!({sort_maps => true}, { assert_json_snapshot!(ruma_response_to_json(keys_query.clone())) });
+                with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 

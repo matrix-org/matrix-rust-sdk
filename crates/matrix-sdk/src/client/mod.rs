@@ -22,6 +22,7 @@ use std::{
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
 };
 
+use caches::ClientCaches;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
@@ -35,6 +36,8 @@ use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
+#[cfg(feature = "experimental-oidc")]
+use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
@@ -103,6 +106,7 @@ use crate::{
 };
 
 mod builder;
+pub(crate) mod caches;
 pub(crate) mod futures;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
@@ -263,9 +267,8 @@ pub(crate) struct ClientInner {
     /// User session data.
     pub(super) base_client: BaseClient,
 
-    /// Server capabilities, either prefilled during building or fetched from
-    /// the server.
-    server_capabilities: RwLock<ClientServerCapabilities>,
+    /// Collection of in-memory caches for the [`Client`].
+    pub(crate) caches: ClientCaches,
 
     /// Collection of locks individual client methods might want to use, either
     /// to ensure that only a single call to a method happens at once or to
@@ -351,6 +354,12 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         cross_process_store_locks_holder_name: String,
     ) -> Arc<Self> {
+        let caches = ClientCaches {
+            server_capabilities: server_capabilities.into(),
+            #[cfg(feature = "experimental-oidc")]
+            provider_metadata: Mutex::new(TtlCache::new()),
+        };
+
         let client = Self {
             server,
             homeserver: StdRwLock::new(homeserver),
@@ -358,9 +367,9 @@ impl ClientInner {
             sliding_sync_version: StdRwLock::new(sliding_sync_version),
             http_client,
             base_client,
+            caches,
             locks: Default::default(),
             cross_process_store_locks_holder_name,
-            server_capabilities: RwLock::new(server_capabilities),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -1611,7 +1620,6 @@ impl Client {
             request,
             config: None,
             send_progress: Default::default(),
-            homeserver_override: None,
         }
     }
 
@@ -1619,18 +1627,13 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        homeserver_override: Option<String>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let homeserver = match homeserver_override {
-            Some(hs) => hs,
-            None => self.homeserver().to_string(),
-        };
-
+        let homeserver = self.homeserver().to_string();
         let access_token = self.access_token();
 
         self.inner
@@ -1730,7 +1733,7 @@ impl Client {
         &self,
         f: F,
     ) -> HttpResult<T> {
-        let caps = &self.inner.server_capabilities;
+        let caps = &self.inner.caches.server_capabilities;
         if let Some(val) = f(&*caps.read().await) {
             return Ok(val);
         }
@@ -1799,7 +1802,7 @@ impl Client {
     /// functions makes it possible to force reset it.
     pub async fn reset_server_capabilities(&self) -> Result<()> {
         // Empty the in-memory caches.
-        let mut guard = self.inner.server_capabilities.write().await;
+        let mut guard = self.inner.caches.server_capabilities.write().await;
         guard.server_versions = None;
         guard.unstable_features = None;
 
@@ -2421,7 +2424,7 @@ impl Client {
                     .base_client
                     .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name)
                     .await?,
-                self.inner.server_capabilities.read().await.clone(),
+                self.inner.caches.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),

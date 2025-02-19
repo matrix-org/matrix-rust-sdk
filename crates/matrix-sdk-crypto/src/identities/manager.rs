@@ -687,7 +687,7 @@ impl IdentityManager {
                 .await
             {
                 Ok(IdentityUpdateResult::Updated(identity)) => {
-                    trace!(?identity, "Updated a user identity");
+                    debug!(?identity, "Updated a user identity");
                     changes.changed.push(identity);
                 }
                 Ok(IdentityUpdateResult::Unchanged(identity)) => {

@@ -284,7 +284,7 @@ impl UpdateToVectorDiff {
                         }
 
                         // New chunk is inserted between 2 chunks.
-                        (Some(previous), Some(next)) => {
+                        (Some(_previous), Some(next)) => {
                             let next_chunk_index = self
                                 .chunks
                                 .iter()
@@ -296,10 +296,9 @@ impl UpdateToVectorDiff {
                                 // or `ObservableUpdates` contain a bug.
                                 .expect("Inserting new chunk: The chunk is not found");
 
-                            debug_assert!(
-                                matches!(self.chunks.get(next_chunk_index - 1), Some((p, _)) if p == previous),
-                                "Inserting new chunk: The previous chunk is invalid"
-                            );
+                            // No need to check `previous`. It's possible that the linked chunk is
+                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // `previous` might not exist in-memory yet.
 
                             self.chunks.insert(next_chunk_index, (*new, 0));
                         }

@@ -12,20 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
-use matrix_sdk::{locks::RwLock, ring_buffer::RingBuffer};
+use matrix_sdk::ring_buffer::RingBuffer;
 use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
 use tracing::trace;
 
 use super::{
     super::{
-        reactions::Reactions, rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem,
-        TimelineItemKind, TimelineUniqueId,
+        rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem, TimelineItemKind,
+        TimelineUniqueId,
     },
     read_receipts::ReadReceipts,
-    state::PendingPollEvents,
-    AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
+    Aggregations, AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
 };
 use crate::unable_to_decrypt_hook::UtdHookManager;
 
@@ -49,7 +52,9 @@ pub(in crate::timeline) struct TimelineMetadata {
 
     /// A boolean indicating whether the room the timeline is attached to is
     /// actually encrypted or not.
-    pub is_room_encrypted: Arc<RwLock<Option<bool>>>,
+    ///
+    /// May be false until we fetch the actual room encryption state.
+    pub is_room_encrypted: bool,
 
     /// Matrix room version of the timeline's room, or a sensible default.
     ///
@@ -71,12 +76,11 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// the device has terabytes of RAM.
     next_internal_id: u64,
 
-    /// State helping matching reactions to their associated events, and
-    /// stashing pending reactions.
-    pub reactions: Reactions,
+    /// Aggregation metadata and pending aggregations.
+    pub aggregations: Aggregations,
 
-    /// Associated poll events received before their original poll start event.
-    pub pending_poll_events: PendingPollEvents,
+    /// Given an event, what are all the events that are replies to it?
+    pub replies: HashMap<OwnedEventId, BTreeSet<OwnedEventId>>,
 
     /// Edit events received before the related event they're editing.
     pub pending_edits: RingBuffer<PendingEdit>,
@@ -109,15 +113,15 @@ impl TimelineMetadata {
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: Option<bool>,
+        is_room_encrypted: bool,
     ) -> Self {
         Self {
             subscriber_skip_count: SkipCount::new(),
             own_user_id,
             next_internal_id: Default::default(),
-            reactions: Default::default(),
-            pending_poll_events: Default::default(),
+            aggregations: Default::default(),
             pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
+            replies: Default::default(),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
             // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
@@ -126,15 +130,15 @@ impl TimelineMetadata {
             room_version,
             unable_to_decrypt_hook,
             internal_id_prefix,
-            is_room_encrypted: Arc::new(RwLock::new(is_room_encrypted)),
+            is_room_encrypted,
         }
     }
 
     pub(super) fn clear(&mut self) {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
-        self.reactions.clear();
-        self.pending_poll_events.clear();
+        self.aggregations.clear();
+        self.replies.clear();
         self.pending_edits.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one

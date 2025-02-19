@@ -62,7 +62,7 @@ pin_project! {
     /// all consumers expecting an `impl Stream`.
     ///
     /// This `Stream` pipes `VectorDiff`s from [`ObservableItems`] into a batched
-    /// stream ([`VectorSubscriberBatchedStream`]), and then apply a skip
+    /// stream ([`VectorSubscriberBatchedStream`]), and then applies a skip
     /// higher-order stream ([`Skip`]).
     ///
     /// `Skip` works by skipping the first _n_ values, where _n_ is referred

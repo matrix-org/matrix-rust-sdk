@@ -11,7 +11,6 @@ use matrix_sdk::{
         registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
         types::{
-            client_credentials::ClientCredentials,
             registration::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
@@ -23,7 +22,6 @@ use matrix_sdk::{
         MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
         MediaThumbnailSettings,
     },
-    reqwest::StatusCode,
     ruma::{
         api::client::{
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
@@ -42,7 +40,7 @@ use matrix_sdk::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
-    AuthApi, AuthSession, Client as MatrixClient, HttpError, SessionChange, SessionTokens,
+    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient,
@@ -52,12 +50,13 @@ use mime::Mime;
 use ruma::{
     api::client::{
         alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo,
-        uiaa::UserIdentifier,
+        error::ErrorKind, uiaa::UserIdentifier,
     },
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
         room::{
+            history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::{
                 AllowRule as RumaAllowRule, JoinRule as RumaJoinRule, RoomJoinRulesEventContent,
             },
@@ -82,6 +81,7 @@ use crate::{
     encryption::Encryption,
     notification::NotificationClient,
     notification_settings::NotificationSettings,
+    room::RoomHistoryVisibility,
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{AuthData, MediaSource},
@@ -285,27 +285,18 @@ impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let oidc = self.inner.oidc();
-        let (supports_oidc_login, supported_oidc_prompts) = match oidc
-            .fetch_authentication_issuer()
-            .await
-        {
-            Ok(issuer) => match &oidc.given_provider_metadata(&issuer).await {
-                Ok(metadata) => {
-                    let prompts = metadata
-                        .prompt_values_supported
-                        .as_ref()
-                        .map_or_else(Vec::new, |prompts| prompts.iter().map(Into::into).collect());
+        let (supports_oidc_login, supported_oidc_prompts) = match &oidc.provider_metadata().await {
+            Ok(metadata) => {
+                let prompts = metadata
+                    .prompt_values_supported
+                    .as_ref()
+                    .map_or_else(Vec::new, |prompts| prompts.iter().map(Into::into).collect());
 
-                    (true, prompts)
-                }
-                Err(error) => {
-                    error!("Failed to fetch OIDC provider metadata: {error}");
-                    (true, Default::default())
-                }
-            },
+                (true, prompts)
+            }
             Err(error) => {
-                error!("Failed to fetch authentication issuer: {error}");
-                (false, Default::default())
+                error!("Failed to fetch OIDC provider metadata: {error}");
+                (true, Default::default())
             }
         };
 
@@ -1067,11 +1058,12 @@ impl Client {
         let room_alias = RoomAliasId::parse(&room_alias)?;
         match self.inner.resolve_room_alias(&room_alias).await {
             Ok(response) => Ok(Some(response.into())),
-            Err(HttpError::Reqwest(http_error)) => match http_error.status() {
-                Some(StatusCode::NOT_FOUND) => Ok(None),
-                _ => Err(http_error.into()),
+            Err(error) => match error.client_api_error_kind() {
+                // The room alias wasn't found, so we return None.
+                Some(ErrorKind::NotFound) => Ok(None),
+                // In any other case we just return the error, mapped.
+                _ => Err(error.into()),
             },
-            Err(error) => Err(error.into()),
         }
     }
 
@@ -1401,6 +1393,8 @@ pub struct CreateRoomParameters {
     #[uniffi(default = None)]
     pub join_rule_override: Option<JoinRule>,
     #[uniffi(default = None)]
+    pub history_visibility_override: Option<RoomHistoryVisibility>,
+    #[uniffi(default = None)]
     pub canonical_alias: Option<String>,
 }
 
@@ -1445,6 +1439,12 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
 
         if let Some(join_rule_override) = value.join_rule_override {
             let content = RoomJoinRulesEventContent::new(join_rule_override.try_into()?);
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
+        if let Some(history_visibility_override) = value.history_visibility_override {
+            let content =
+                RoomHistoryVisibilityEventContent::new(history_visibility_override.try_into()?);
             initial_state.push(InitialStateEvent::new(content).to_raw_any());
         }
 
@@ -1589,11 +1589,7 @@ impl Session {
                         },
                     issuer,
                 } = api.user_session().context("Missing session")?;
-                let client_id = api
-                    .client_credentials()
-                    .context("OIDC client credentials are missing.")?
-                    .client_id()
-                    .to_owned();
+                let client_id = api.client_id().context("OIDC client ID is missing.")?.0.clone();
                 let client_metadata =
                     api.client_metadata().context("OIDC client metadata is missing.")?.clone();
                 let oidc_data = OidcSessionData {
@@ -1657,7 +1653,7 @@ impl TryFrom<Session> for AuthSession {
             };
 
             let session = OidcSession {
-                credentials: ClientCredentials::None { client_id: oidc_data.client_id },
+                client_id: ClientId(oidc_data.client_id),
                 metadata: oidc_data.client_metadata,
                 user: user_session,
             };
@@ -1821,7 +1817,6 @@ impl MediaFileHandle {
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersion {
     None,
-    Proxy { url: String },
     Native,
 }
 
@@ -1829,7 +1824,6 @@ impl From<SdkSlidingSyncVersion> for SlidingSyncVersion {
     fn from(value: SdkSlidingSyncVersion) -> Self {
         match value {
             SdkSlidingSyncVersion::None => Self::None,
-            SdkSlidingSyncVersion::Proxy { url } => Self::Proxy { url: url.to_string() },
             SdkSlidingSyncVersion::Native => Self::Native,
         }
     }
@@ -1841,9 +1835,6 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
     fn try_from(value: SlidingSyncVersion) -> Result<Self, Self::Error> {
         Ok(match value {
             SlidingSyncVersion::None => Self::None,
-            SlidingSyncVersion::Proxy { url } => Self::Proxy {
-                url: Url::parse(&url).map_err(|e| ClientError::Generic { msg: e.to_string() })?,
-            },
             SlidingSyncVersion::Native => Self::Native,
         })
     }

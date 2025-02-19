@@ -20,13 +20,16 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{relational::RelationalLinkedChunk, RawChunk, Update},
+    linked_chunk::{
+        relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator, RawChunk,
+        Update,
+    },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
     time::{Instant, SystemTime},
-    MxcUri, OwnedMxcUri, RoomId,
+    MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
 };
 
 use super::{
@@ -132,20 +135,72 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
-    async fn reload_linked_chunk(
+    async fn load_all_chunks(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         let inner = self.inner.read().unwrap();
         inner
             .events
-            .reload_chunks(room_id)
+            .load_all_chunks(room_id)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })
+    }
+
+    async fn load_last_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .events
+            .load_last_chunk(room_id)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })
+    }
+
+    async fn load_previous_chunk(
+        &self,
+        room_id: &RoomId,
+        before_chunk_identifier: ChunkIdentifier,
+    ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .events
+            .load_previous_chunk(room_id, before_chunk_identifier)
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
         self.inner.write().unwrap().events.clear();
         Ok(())
+    }
+
+    async fn filter_duplicated_events(
+        &self,
+        room_id: &RoomId,
+        mut events: Vec<OwnedEventId>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        // Collect all duplicated events.
+        let inner = self.inner.read().unwrap();
+
+        let mut duplicated_events = Vec::new();
+
+        for event in inner.events.unordered_events(room_id) {
+            // If `events` is empty, we can short-circuit.
+            if events.is_empty() {
+                break;
+            }
+
+            if let Some(known_event_id) = event.event_id() {
+                // This event exists in the store event!
+                if let Some(position) =
+                    events.iter().position(|new_event_id| &known_event_id == new_event_id)
+                {
+                    duplicated_events.push(events.remove(position));
+                }
+            }
+        }
+
+        Ok(duplicated_events)
     }
 
     async fn add_media_content(

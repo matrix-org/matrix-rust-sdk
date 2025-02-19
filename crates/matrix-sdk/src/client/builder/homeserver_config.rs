@@ -52,7 +52,6 @@ pub(super) enum UrlScheme {
 pub(super) struct HomeserverDiscoveryResult {
     pub server: Option<Url>,
     pub homeserver: Url,
-    pub well_known: Option<discover_homeserver::Response>,
     pub supported_versions: Option<get_supported_versions::Response>,
 }
 
@@ -68,7 +67,6 @@ impl HomeserverConfig {
                 HomeserverDiscoveryResult {
                     server: None, // We can't know the `server` if we only have a `homeserver`.
                     homeserver,
-                    well_known: None,
                     supported_versions: None,
                 }
             }
@@ -80,20 +78,19 @@ impl HomeserverConfig {
                 HomeserverDiscoveryResult {
                     server: Some(server),
                     homeserver: Url::parse(&well_known.homeserver.base_url)?,
-                    well_known: Some(well_known),
                     supported_versions: None,
                 }
             }
 
             Self::ServerNameOrHomeserverUrl(server_name_or_url) => {
-                let (server, homeserver, well_known, supported_versions) =
+                let (server, homeserver, supported_versions) =
                     discover_homeserver_from_server_name_or_url(
                         server_name_or_url.to_owned(),
                         http_client,
                     )
                     .await?;
 
-                HomeserverDiscoveryResult { server, homeserver, well_known, supported_versions }
+                HomeserverDiscoveryResult { server, homeserver, supported_versions }
             }
         })
     }
@@ -105,15 +102,7 @@ impl HomeserverConfig {
 async fn discover_homeserver_from_server_name_or_url(
     mut server_name_or_url: String,
     http_client: &HttpClient,
-) -> Result<
-    (
-        Option<Url>,
-        Url,
-        Option<discover_homeserver::Response>,
-        Option<get_supported_versions::Response>,
-    ),
-    ClientBuildError,
-> {
+) -> Result<(Option<Url>, Url, Option<get_supported_versions::Response>), ClientBuildError> {
     let mut discovery_error: Option<ClientBuildError> = None;
 
     // Attempt discovery as a server name first.
@@ -128,12 +117,7 @@ async fn discover_homeserver_from_server_name_or_url(
 
         match discover_homeserver(server_name, &protocol, http_client).await {
             Ok((server, well_known)) => {
-                return Ok((
-                    Some(server),
-                    Url::parse(&well_known.homeserver.base_url)?,
-                    Some(well_known),
-                    None,
-                ));
+                return Ok((Some(server), Url::parse(&well_known.homeserver.base_url)?, None));
             }
             Err(e) => {
                 debug!(error = %e, "Well-known discovery failed.");
@@ -154,7 +138,7 @@ async fn discover_homeserver_from_server_name_or_url(
         // Make sure the URL is definitely for a homeserver.
         match get_supported_versions(&homeserver_url, http_client).await {
             Ok(response) => {
-                return Ok((None, homeserver_url, None, Some(response)));
+                return Ok((None, homeserver_url, Some(response)));
             }
             Err(e) => {
                 debug!(error = %e, "Checking supported versions failed.");
@@ -240,7 +224,6 @@ mod tests {
 
         assert_eq!(result.server, None);
         assert_eq!(result.homeserver, Url::parse("https://matrix-client.matrix.org").unwrap());
-        assert!(result.well_known.is_none());
         assert!(result.supported_versions.is_none());
     }
 
@@ -272,7 +255,6 @@ mod tests {
 
         assert_eq!(result.server, Some(Url::parse(&server.uri()).unwrap()));
         assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
-        assert!(result.well_known.is_some());
         assert!(result.supported_versions.is_none());
     }
 
@@ -301,7 +283,6 @@ mod tests {
 
         assert_eq!(result.server, Some(Url::parse(&server.uri()).unwrap()));
         assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
-        assert!(result.well_known.is_some());
         assert!(result.supported_versions.is_none());
     }
 
@@ -327,7 +308,6 @@ mod tests {
 
         assert!(result.server.is_none());
         assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
-        assert!(result.well_known.is_none());
         assert!(result.supported_versions.is_some());
     }
 }

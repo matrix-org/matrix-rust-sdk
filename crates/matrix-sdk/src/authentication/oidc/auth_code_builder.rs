@@ -32,8 +32,7 @@ use crate::Result;
 /// Builder type used to configure optional settings for authorization with an
 /// OpenID Connect Provider via the Authorization Code flow.
 ///
-/// Created with [`Oidc::authorize_scope()`] or [`Oidc::login()`]. Finalized
-/// with [`Self::build()`].
+/// Created with [`Oidc::login()`]. Finalized with [`Self::build()`].
 #[allow(missing_debug_implementations)]
 pub struct OidcAuthCodeUrlBuilder {
     oidc: Oidc,
@@ -156,11 +155,8 @@ impl OidcAuthCodeUrlBuilder {
 
         let provider_metadata = oidc.provider_metadata().await?;
 
-        let mut authorization_data = AuthorizationRequestData::new(
-            data.credentials.client_id().to_owned(),
-            scope,
-            redirect_uri,
-        );
+        let mut authorization_data =
+            AuthorizationRequestData::new(data.client_id.0.clone(), scope, redirect_uri);
         authorization_data.code_challenge_methods_supported =
             provider_metadata.code_challenge_methods_supported.clone();
         authorization_data.display = display;
@@ -181,8 +177,7 @@ impl OidcAuthCodeUrlBuilder {
         let (url, validation_data) = if let Some(par_endpoint) =
             &provider_metadata.pushed_authorization_request_endpoint
         {
-            let client_credentials =
-                oidc.client_credentials().ok_or(OidcError::NotAuthenticated)?;
+            let client_credentials = oidc.data().ok_or(OidcError::NotAuthenticated)?.credentials();
 
             let res = oidc
                 .backend

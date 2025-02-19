@@ -643,8 +643,16 @@ async fn test_recovery_disabling() {
                 ResponseTemplate::new(404)
             }
         })
-        .expect(2)
+        .expect(3)
         .named("m.secret_storage.default_key account data GET")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.megolm_backup.v1",)))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1..)
         .mount(&server)
         .await;
 

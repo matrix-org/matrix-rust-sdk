@@ -40,9 +40,8 @@ use matrix_sdk::{
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
     Client, Room, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
-use matrix_sdk_base::{
-    ruma::{owned_room_id, room_alias_id},
-    sliding_sync::http,
+use matrix_sdk_base::ruma::{
+    api::client::sync::sync_events::v5 as http, owned_room_id, room_alias_id,
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{

@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_when_user_becomes_verified_we_dont_report_it() {
+    async fn test_when_user_becomes_verified_we_report_it() {
         // Given a room containing us and Bob
         let t = TestSetup::new_room_with_other_bob().await;
 
@@ -287,10 +287,16 @@ mod tests {
         // When Bob becomes verified
         t.verify_bob().await;
 
+        // Then we are notified about Bob being verified
+        let change = assert_next_with_timeout!(stream);
+        assert_eq!(change[0].user_id, t.bob_user_id());
+        assert_eq!(change[0].changed_to, IdentityState::Verified);
+        assert_eq!(change.len(), 1);
+
         // (And then unpinned, so we have something to come through the stream)
         t.unpin_bob().await;
 
-        // Then we are only notified about the unpinning part
+        // Then we are notified about the unpinning part
         let change = assert_next_with_timeout!(stream);
         assert_eq!(change[0].user_id, t.bob_user_id());
         assert_eq!(change[0].changed_to, IdentityState::VerificationViolation);

@@ -5,10 +5,11 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
+    assert_next_eq_with_timeout,
     crypto::{format_emojis, SasState},
     encryption::{
         backups::BackupState,
-        recovery::RecoveryState,
+        recovery::{Recovery, RecoveryState},
         verification::{
             QrVerificationData, QrVerificationState, Verification, VerificationRequestState,
         },
@@ -22,13 +23,14 @@ use matrix_sdk::{
                 MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
                 SyncRoomMessageEvent,
             },
-            OriginalSyncMessageLikeEvent,
+            secret_storage::secret::SecretEventContent,
+            GlobalAccountDataEventType, OriginalSyncMessageLikeEvent,
         },
     },
     Client,
 };
 use similar_asserts::assert_eq;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
@@ -971,6 +973,83 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
         message.body, "It's a secret to everybody",
         "The decrypted message should match the text we encrypted."
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_recovery_disabling_deletes_secret_storage_secrets() -> Result<()> {
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_enable_backups: true,
+        ..Default::default()
+    };
+    let client = SyncTokenAwareClient::new(
+        TestClientBuilder::new("alice_recovery_deletion_test")
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+
+    debug!("Enabling recovery");
+
+    client.encryption().wait_for_e2ee_initialization_tasks().await;
+    client.encryption().recovery().enable().await?;
+
+    // Let's wait for recovery to become enabled.
+    let mut recovery_state = client.encryption().recovery().state_stream();
+
+    debug!("Checking that recovery has been enabled");
+
+    assert_next_eq_with_timeout!(
+        recovery_state,
+        RecoveryState::Enabled,
+        "Recovery should have been enabled"
+    );
+
+    debug!("Checking that the secrets have been stored on the server");
+
+    for event_type in Recovery::KNOWN_SECRETS {
+        let event_type = GlobalAccountDataEventType::from(event_type.clone());
+        let event = client
+            .account()
+            .fetch_account_data(event_type.clone())
+            .await?
+            .expect("The secret event should still exist");
+
+        let event = event
+            .deserialize_as::<SecretEventContent>()
+            .expect("We should be able to deserialize the content of known secrets");
+
+        assert!(
+            !event.encrypted.is_empty(),
+            "The known secret {event_type} should exist on the server"
+        );
+    }
+
+    debug!("Disabling recovery");
+
+    client.encryption().recovery().disable().await?;
+
+    debug!("Checking that the secrets have been removed from the server");
+
+    for event_type in Recovery::KNOWN_SECRETS {
+        let event_type = GlobalAccountDataEventType::from(event_type.clone());
+        let event = client
+            .account()
+            .fetch_account_data(event_type.clone())
+            .await?
+            .expect("The secret event should still exist");
+
+        let event = event
+            .deserialize_as::<SecretEventContent>()
+            .expect("We should be able to deserialize the content since that's what we uploaded");
+
+        assert!(
+            event.encrypted.is_empty(),
+            "The known secret {event_type} should have been deleted from the server"
+        );
+    }
 
     Ok(())
 }

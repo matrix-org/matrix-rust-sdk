@@ -95,10 +95,13 @@ use futures_util::StreamExt as _;
 use ruma::{
     api::client::keys::get_keys,
     events::{
-        secret::send::ToDeviceSecretSendEvent,
-        secret_storage::default_key::SecretStorageDefaultKeyEvent,
+        secret::{request::SecretName, send::ToDeviceSecretSendEvent},
+        secret_storage::{default_key::SecretStorageDefaultKeyEvent, secret::SecretEventContent},
+        GlobalAccountDataEventType,
     },
+    serde::Raw,
 };
+use serde_json::{json, value::to_raw_value};
 use tracing::{error, info, instrument, warn};
 
 #[cfg(doc)]
@@ -124,6 +127,15 @@ pub struct Recovery {
 }
 
 impl Recovery {
+    /// The list of known secrets that are contained in secret storage once
+    /// recover is enabled.
+    pub const KNOWN_SECRETS: &[SecretName] = &[
+        SecretName::CrossSigningMasterKey,
+        SecretName::CrossSigningUserSigningKey,
+        SecretName::CrossSigningSelfSigningKey,
+        SecretName::RecoveryKey,
+    ];
+
     /// Get the current [`RecoveryState`] for this [`Client`].
     pub fn state(&self) -> RecoveryState {
         self.client.inner.e2ee.recovery_state.get()
@@ -285,11 +297,36 @@ impl Recovery {
     #[instrument(skip_all)]
     pub async fn disable(&self) -> Result<()> {
         self.client.encryption().backups().disable().await?;
+
         // Why oh why, can't we delete account data events?
+        //
+        // Alright, let's attempt to "delete" the content of our current default key,
+        // for this we first need to check if there is a default key, then
+        // deserialize the content and find out the key ID.
+        //
+        // Then we finally set the event to an empty JSON content.
+        if let Ok(Some(default_event)) =
+            self.client.encryption().secret_storage().fetch_default_key_id().await
+        {
+            if let Ok(default_event) = default_event.deserialize() {
+                let key_id = default_event.key_id;
+                let event_type = GlobalAccountDataEventType::SecretStorageKey(key_id);
+
+                self.client
+                    .account()
+                    .set_account_data_raw(event_type, Raw::new(&json!({})).expect("").cast())
+                    .await?;
+            }
+        }
+
+        // Now let's "delete" the actual `m.secret.storage.default_key` event.
         self.client.account().set_account_data(SecretStorageDisabledContent {}).await?;
+        // Make sure that we don't re-enable backups automatically.
         self.client.account().set_account_data(BackupDisabledContent { disabled: true }).await?;
+        // Finally, "delete" all the known secrets we have in the account data.
+        self.delete_all_known_secrets().await?;
+
         self.update_recovery_state().await?;
-        // TODO: Do we want to "delete" the known secrets as well?
 
         Ok(())
     }
@@ -522,6 +559,28 @@ impl Recovery {
             if let Err(e) = self.enable_backup().await {
                 warn!("Could not automatically enable backups: {e:?}");
             }
+        }
+
+        Ok(())
+    }
+
+    /// Delete all the known secrets we are keeping in secret storage.
+    ///
+    /// The exact list of secrets is defined in [`Recovery::KNOWN_SECRETS`] and
+    /// might change over time.
+    ///
+    /// Since account data events can't actually be deleted, due to a missing
+    /// DELETE API, we're replacing the events with an empty
+    /// [`SecretEventContent`].
+    async fn delete_all_known_secrets(&self) -> Result<()> {
+        for secret_name in Self::KNOWN_SECRETS {
+            let event_type = GlobalAccountDataEventType::from(secret_name.to_owned());
+            let content = SecretEventContent::new(Default::default());
+            let secret_content = Raw::from_json(
+                to_raw_value(&content)
+                    .expect("We should be able to serialize a raw empty secret event content"),
+            );
+            self.client.account().set_account_data_raw(event_type, secret_content).await?;
         }
 
         Ok(())

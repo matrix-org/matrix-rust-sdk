@@ -16,13 +16,14 @@ use std::{sync::Mutex, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
-use futures_util::{FutureExt as _, StreamExt as _};
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use futures_util::StreamExt as _;
+use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
-use matrix_sdk_ui::timeline::{ReactionStatus, RoomExt as _};
+use matrix_sdk_ui::timeline::{EventSendState, ReactionStatus, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use serde_json::json;
 use stream_assert::assert_pending;
+use tokio::sync::oneshot;
 use wiremock::ResponseTemplate;
 
 #[async_test]
@@ -54,16 +55,21 @@ async fn test_abort_before_being_sent() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
+    let item_id = {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-    let item = first.as_event().unwrap();
-    let item_id = item.identifier();
-    assert_eq!(item.content().as_message().unwrap().body(), "hello");
+        assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
+        let item = first.as_event().unwrap();
+        assert_eq!(item.content().as_message().unwrap().body(), "hello");
 
-    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
-    assert!(date_divider.is_date_divider());
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
+        assert!(date_divider.is_date_divider());
+
+        assert_pending!(stream);
+
+        item.identifier()
+    };
 
     // Now we try to add two reactions to this message…
 
@@ -78,25 +84,41 @@ async fn test_abort_before_being_sent() {
                 .set_delay(Duration::from_millis(150)),
         )
         .mock_once()
-        .named("send")
+        .named("send for the first reaction")
         .mount()
         .await;
 
-    server.mock_room_redact().ok(event_id!("$3")).mock_once().mount().await;
+    let (tx, rx) = oneshot::channel();
+    let tx = Mutex::new(Some(tx));
 
-    // We add the reaction…
+    server
+        .mock_room_redact()
+        .respond_with(move |_req: &wiremock::Request| {
+            // Notify the main task that we're done with handling the request.
+            let mut tx_guard = tx.lock().unwrap();
+            let tx = tx_guard.take().expect("this endpoint called only once");
+            tx.send(()).unwrap();
+            // Return a response.
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$2" }))
+        })
+        .named("redact for the first reaction")
+        .mock_once()
+        .mount()
+        .await;
+
+    // We add a first reaction…
     timeline.toggle_reaction(&item_id, "👍").await.unwrap();
 
     let user_id = client.user_id().unwrap();
 
-    // First toggle (local echo).
+    // First toggle (adding the local echo for the first reaction).
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().reactions();
+        let reactions = item.as_event().unwrap().content().reactions();
         assert_eq!(reactions.len(), 1);
         assert_matches!(
             &reactions.get("👍").unwrap().get(user_id).unwrap().status,
@@ -106,16 +128,17 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // We toggle another reaction at the same time…
+    // We toggle (add) another reaction at the same time…
     timeline.toggle_reaction(&item_id, "🥰").await.unwrap();
 
+    // Second toggle (adding the local echo for the second reaction).
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().reactions();
+        let reactions = item.as_event().unwrap().content().reactions();
         assert_eq!(reactions.len(), 2);
         assert_matches!(
             &reactions.get("👍").unwrap().get(user_id).unwrap().status,
@@ -126,7 +149,7 @@ async fn test_abort_before_being_sent() {
             ReactionStatus::LocalToRemote(_)
         );
 
-        assert!(stream.next().now_or_never().is_none());
+        assert_pending!(stream);
     }
 
     // Then we remove the first one; because it was being sent, it should lead to a
@@ -134,19 +157,19 @@ async fn test_abort_before_being_sent() {
     timeline.toggle_reaction(&item_id, "👍").await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().reactions();
+        let reactions = item.as_event().unwrap().content().reactions();
         assert_eq!(reactions.len(), 1);
         assert_matches!(
             &reactions.get("🥰").unwrap().get(user_id).unwrap().status,
             ReactionStatus::LocalToRemote(_)
         );
 
-        assert!(stream.next().now_or_never().is_none());
+        assert_pending!(stream);
     }
 
     // But because the first one was being sent, this one won't and the local echo
@@ -154,22 +177,24 @@ async fn test_abort_before_being_sent() {
     timeline.toggle_reaction(&item_id, "🥰").await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().reactions();
+        let reactions = item.as_event().unwrap().content().reactions();
         assert!(reactions.is_empty());
 
-        assert!(stream.next().now_or_never().is_none());
+        assert_pending!(stream);
     }
 
     // In a real-world setup with a background sync, the reaction may flash to the
     // user, because the sync may return the reaction event, and later the
     // redaction of the reaction. In our case, we're done here.
 
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Wait for the redaction to be done in the background.
+    tokio::time::timeout(Duration::from_secs(2), rx).await.expect("timeout").expect("recv error");
+
     assert_pending!(stream);
 }
 
@@ -212,13 +237,13 @@ async fn test_redact_failed() {
 
         let item = item.as_event().unwrap();
         assert_eq!(item.content().as_message().unwrap().body(), "hello");
-        assert!(item.reactions().is_empty());
+        assert!(item.content().reactions().is_empty());
 
         item.identifier()
     };
 
     assert_let!(VectorDiff::Set { index: 0, value: item } = &timeline_updates[1]);
-    assert_eq!(item.as_event().unwrap().reactions().len(), 1);
+    assert_eq!(item.as_event().unwrap().content().reactions().len(), 1);
 
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
     assert!(date_divider.is_date_divider());
@@ -234,11 +259,11 @@ async fn test_redact_failed() {
 
     // The local echo is removed (assuming the redaction works)…
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    assert!(item.as_event().unwrap().reactions().is_empty());
+    assert!(item.as_event().unwrap().content().reactions().is_empty());
 
     // …then added back, after redaction failed.
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
-    assert_eq!(item.as_event().unwrap().reactions().len(), 1);
+    assert_eq!(item.as_event().unwrap().content().reactions().len(), 1);
 
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert_pending!(stream);
@@ -289,83 +314,119 @@ async fn test_local_reaction_to_local_echo() {
     // Send a local event.
     let _ = timeline.send(RoomMessageEventContent::text_plain("lol").into()).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
-    assert_eq!(timeline_updates.len(), 2);
-
-    // Receive a local echo.
-
     let item_id = {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 2);
+
+        // Receive a local echo.
         assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
 
         let item = item.as_event().unwrap();
         assert!(item.is_local_echo());
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+
         assert_eq!(item.content().as_message().unwrap().body(), "lol");
-        assert!(item.reactions().is_empty());
+        assert!(item.content().reactions().is_empty());
+
+        // Good ol' date divider.
+        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
+        assert!(date_divider.is_date_divider());
+
+        assert_pending!(stream);
+
         item.identifier()
     };
-
-    // Good ol' date divider.
-    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
-    assert!(date_divider.is_date_divider());
 
     // Add a reaction before the remote echo comes back.
     let key1 = "🤣";
     timeline.toggle_reaction(&item_id, key1).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
+    {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 1);
 
-    // The reaction is added to the local echo.
-    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    let reactions = item.as_event().unwrap().reactions();
-    assert_eq!(reactions.len(), 1);
-    let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-    assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+        // The reaction is added to the local echo.
+        assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+        let item = item.as_event().unwrap();
+        assert!(item.is_local_echo());
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+
+        let reactions = item.content().reactions();
+        assert_eq!(reactions.len(), 1);
+        let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
+        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+
+        assert_pending!(stream);
+    }
 
     // Add another reaction.
     let key2 = "😈";
     timeline.toggle_reaction(&item_id, key2).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
+    {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 1);
 
-    // Also comes as a local echo.
-    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    let reactions = item.as_event().unwrap().reactions();
-    assert_eq!(reactions.len(), 2);
-    let reaction_info = reactions.get(key2).unwrap().get(user_id).unwrap();
-    assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+        // Also comes as a local echo.
+        assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+        let item = item.as_event().unwrap();
+        assert!(item.is_local_echo());
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+
+        let reactions = item.content().reactions();
+        assert_eq!(reactions.len(), 2);
+        let reaction_info = reactions.get(key2).unwrap().get(user_id).unwrap();
+        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+
+        assert_pending!(stream);
+    }
 
     // Remove second reaction. It's immediately removed, since it was a local echo,
     // and it wasn't being sent.
     timeline.toggle_reaction(&item_id, key2).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
+    {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 1);
 
-    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    let reactions = item.as_event().unwrap().reactions();
-    assert_eq!(reactions.len(), 1);
-    let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-    assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+        assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+        let item = item.as_event().unwrap();
+        assert!(item.is_local_echo());
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
-    assert_eq!(timeline_updates.len(), 1);
+        let reactions = item.content().reactions();
+        assert_eq!(reactions.len(), 1);
+        let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
+        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+
+        assert_pending!(stream);
+    }
 
     // Now, wait for the remote echo for the message itself.
-    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    let reactions = item.as_event().unwrap().reactions();
-    assert_eq!(reactions.len(), 1);
-    let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-    // TODO(bnjbvr): why not LocalToRemote here?
-    assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+    {
+        assert_let_timeout!(Duration::from_secs(2), Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 1);
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
+        assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+        let item = item.as_event().unwrap();
+
+        // Still a local echo, but now has a send state set to Sent.
+        assert!(item.is_local_echo());
+        assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
+
+        let reactions = item.content().reactions();
+        assert_eq!(reactions.len(), 1);
+        let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
+        // TODO(bnjbvr): why not LocalToRemote here?
+        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+    }
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     // And then the remote echo for the reaction itself.
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    let reactions = item.as_event().unwrap().reactions();
+    let reactions = item.as_event().unwrap().content().reactions();
     assert_eq!(reactions.len(), 1);
     let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
     assert_matches!(&reaction_info.status, ReactionStatus::RemoteToRemote(..));

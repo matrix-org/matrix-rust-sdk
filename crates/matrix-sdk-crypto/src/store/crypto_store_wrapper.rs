@@ -175,7 +175,9 @@ impl CryptoStoreWrapper {
             if let Some(own_identity_after) = maybe_own_identity.as_ref() {
                 // Only do this if our identity is passing from not verified to verified,
                 // the previously_verified can only change in that case.
-                if !own_identity_was_verified_before_change && own_identity_after.is_verified() {
+                let own_identity_is_verified = own_identity_after.is_verified();
+
+                if !own_identity_was_verified_before_change && own_identity_is_verified {
                     debug!("Own identity is now verified, check all known identities for verification status changes");
                     // We need to review all the other identities to see if they are verified now
                     // and mark them as such
@@ -183,6 +185,12 @@ impl CryptoStoreWrapper {
                         own_identity_after,
                     )
                     .await?;
+                } else if own_identity_was_verified_before_change != own_identity_is_verified {
+                    // Log that the verification state of the identity changed.
+                    debug!(
+                        own_identity_is_verified,
+                        "The verification state of our own identity has changed",
+                    );
                 }
             }
 

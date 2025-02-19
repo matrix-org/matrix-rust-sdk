@@ -1,6 +1,5 @@
 use std::{ops::ControlFlow, time::Duration};
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
@@ -19,7 +18,7 @@ use matrix_sdk_test::{
     SyncResponseBuilder, BOB,
 };
 use matrix_sdk_ui::{
-    timeline::{RoomExt, TimelineFocus, TimelineItemContent},
+    timeline::{RoomExt, TimelineFocus},
     Timeline,
 };
 use ruma::{
@@ -49,7 +48,7 @@ use wiremock::{
 use crate::mock_sync;
 
 #[async_test]
-async fn test_new_pinned_events_are_added_on_sync() {
+async fn test_new_pinned_events_are_not_added_on_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
@@ -76,7 +75,7 @@ async fn test_new_pinned_events_are_added_on_sync() {
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
-        "there should be no live back-pagination status for a focused timeline"
+        "there should be no live back-pagination status for a pinned events timeline"
     );
 
     // Load timeline items
@@ -94,44 +93,33 @@ async fn test_new_pinned_events_are_added_on_sync() {
         .event_id(event_id!("$2"))
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
-    let event_3 = f
-        .text_msg("normal message")
-        .event_id(event_id!("$3"))
-        .server_ts(MilliSecondsSinceUnixEpoch::now())
-        .into_raw_sync();
-    mock_events_endpoint(&server, room_id, vec![event_2.clone(), event_3.clone()]).await;
 
     let _ = PinnedEventsSync::new(room_id)
-        .with_timeline_events(vec![event_2, event_3])
+        .with_timeline_events(vec![event_2])
         .mock_and_sync(&client, &server)
         .await
         .expect("Room should be synced");
 
-    // If the test runs fast, we receive 1 update, then 4 updates. If the test runs
-    // slow, we receive 5 updates directly. Let's solve this flakiness with a
+    // If the test runs fast, we receive 1 update, then 2 updates. If the test runs
+    // slow, we receive 3 updates directly. Let's solve this flakiness with a
     // `sleep`.
     sleep(Duration::from_millis(500)).await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 5);
-
-    // The item is added automatically
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
-    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
+    assert_eq!(timeline_updates.len(), 3);
 
     // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[1]);
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
 
-    // Then the loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
+    // The loaded list items are added
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
     assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
 
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
-    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
     assert!(value.is_date_divider());
 
+    // Event $2 was received through sync, but it wasn't added to the pinned event
+    // timeline
     assert_pending!(timeline_stream);
 }
 
@@ -492,7 +480,7 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
 }
 
 #[async_test]
-async fn test_edited_events_are_reflected_in_sync() {
+async fn test_edited_events_are_not_reflected_in_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
@@ -551,7 +539,7 @@ async fn test_edited_events_are_reflected_in_sync() {
         .expect("Sync failed");
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 4);
+    assert_eq!(timeline_updates.len(), 3);
 
     // The list is reloaded, so it's reset
     assert_let!(VectorDiff::Clear = &timeline_updates[0]);
@@ -564,21 +552,12 @@ async fn test_edited_events_are_reflected_in_sync() {
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
     assert!(value.is_date_divider());
 
-    // The edit replaces the original event
-    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[3]);
-    assert_eq!(*index, 1);
-    match value.as_event().unwrap().content() {
-        TimelineItemContent::Message(m) => {
-            assert_eq!(m.body(), "* edited message!")
-        }
-        _ => panic!("Should be a message event"),
-    }
-
+    // The edit does not replace the original event
     assert_pending!(timeline_stream);
 }
 
 #[async_test]
-async fn test_redacted_events_are_reflected_in_sync() {
+async fn test_redacted_events_are_not_reflected_in_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
@@ -633,7 +612,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
         .expect("Sync failed");
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 4);
+    assert_eq!(timeline_updates.len(), 3);
 
     // The list is reloaded, so it's reset
     assert_let!(VectorDiff::Clear = &timeline_updates[0]);
@@ -646,154 +625,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
     assert!(value.is_date_divider());
 
-    // The redaction replaces the original event
-    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[3]);
-    assert_eq!(*index, 1);
-    assert_matches!(value.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
-
-    assert_pending!(timeline_stream);
-}
-
-#[async_test]
-async fn test_edited_events_survive_pinned_event_ids_change() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-    let room_id = room_id!("!test:localhost");
-
-    let f = EventFactory::new().room(room_id).sender(*BOB);
-    let pinned_event = f
-        .text_msg("in the end")
-        .event_id(event_id!("$1"))
-        .server_ts(MilliSecondsSinceUnixEpoch::now())
-        .into_raw_sync();
-
-    // Mock /event for some timeline events
-    mock_events_endpoint(&server, room_id, vec![pinned_event]).await;
-
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
-    let room = PinnedEventsSync::new(room_id)
-        .with_pinned_event_ids(vec!["$1"])
-        .mock_and_sync(&client, &server)
-        .await
-        .expect("Sync failed");
-    let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
-
-    assert!(
-        timeline.live_back_pagination_status().await.is_none(),
-        "there should be no live back-pagination status for a focused timeline"
-    );
-
-    // Load timeline items
-    let (items, mut timeline_stream) = timeline.subscribe().await;
-
-    assert_eq!(items.len(), 1 + 1); // event item + a date divider
-    assert!(items[0].is_date_divider());
-    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
-    assert_pending!(timeline_stream);
-
-    let edited_pinned_event = f
-        .text_msg("* edited message!")
-        .edit(
-            event_id!("$1"),
-            RoomMessageEventContentWithoutRelation::text_plain("edited message!"),
-        )
-        .event_id(event_id!("$2"))
-        .server_ts(MilliSecondsSinceUnixEpoch::now())
-        .into_raw_sync();
-
-    // Mock /event for some timeline events
-    mock_events_endpoint(&server, room_id, vec![edited_pinned_event.clone()]).await;
-
-    // Load new pinned event contents from sync, $2 was pinned but wasn't available
-    // before
-    let _ = PinnedEventsSync::new(room_id)
-        .with_timeline_events(vec![edited_pinned_event])
-        .mock_and_sync(&client, &server)
-        .await
-        .expect("Sync failed");
-
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 4);
-
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
-
-    // Then the loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
-    let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
-    assert!(value.is_date_divider());
-
-    // The edit replaces the original event
-    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[3]);
-    assert_eq!(*index, 1);
-    match value.as_event().unwrap().content() {
-        TimelineItemContent::Message(m) => {
-            assert_eq!(m.body(), "edited message!")
-        }
-        _ => panic!("Should be a message event"),
-    }
-
-    assert_pending!(timeline_stream);
-
-    let new_pinned_event = f
-        .text_msg("new message")
-        .event_id(event_id!("$3"))
-        .server_ts(MilliSecondsSinceUnixEpoch::now())
-        .into_raw_sync();
-
-    // Mock /event for some timeline events
-    mock_events_endpoint(&server, room_id, vec![new_pinned_event.clone()]).await;
-
-    // Load new pinned event contents from sync: $3
-    let _ = PinnedEventsSync::new(room_id)
-        .with_timeline_events(vec![new_pinned_event])
-        .with_pinned_event_ids(vec!["$1", "$3"])
-        .mock_and_sync(&client, &server)
-        .await
-        .expect("Sync failed");
-
-    // If the test runs fast, we receive 1 update, then 5 updates. If the test runs
-    // slow, we receive 6 updates directly. Let's solve this flakiness with a
-    // `sleep`.
-    sleep(Duration::from_millis(500)).await;
-
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 6);
-
-    // New item gets added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
-    let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$3"));
-
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[1]);
-
-    // Then the loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
-    let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-
-    // The edit replaces the original event
-    assert_let!(VectorDiff::Set { index, value } = &timeline_updates[3]);
-    assert_eq!(*index, 0);
-    match value.as_event().unwrap().content() {
-        TimelineItemContent::Message(m) => {
-            assert_eq!(m.body(), "edited message!")
-        }
-        _ => panic!("Should be a message event"),
-    }
-    // The new pinned event is added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[4]);
-    let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$3"));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[5]);
-    assert!(value.is_date_divider());
-
+    // The redaction does not replace the original event
     assert_pending!(timeline_stream);
 }
 

@@ -230,7 +230,7 @@ async fn test_sync_service_offline_mode() {
 
     mock_server.mock_versions().ok().expect(1..).mount().await;
 
-    assert_next_eq_with_timeout!(states, State::Running, 500 ms,  "We should have continued to sync");
+    assert_next_eq_with_timeout!(states, State::Running, 1000 ms,  "We should have continued to sync");
 }
 
 #[async_test]

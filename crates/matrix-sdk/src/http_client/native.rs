@@ -24,7 +24,7 @@ use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
-use reqwest::Certificate;
+use reqwest::{tls, Certificate};
 use ruma::api::{error::FromHttpResponseError, IncomingResponse, OutgoingRequest};
 use tracing::{debug, info, warn};
 
@@ -148,8 +148,12 @@ impl HttpSettings {
     /// Build a client with the specified configuration.
     pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
-        let mut http_client =
-            reqwest::Client::builder().user_agent(user_agent).timeout(self.timeout);
+        let mut http_client = reqwest::Client::builder()
+            .user_agent(user_agent)
+            .timeout(self.timeout)
+            // As recommended by BCP 195.
+            // See: https://datatracker.ietf.org/doc/bcp195/
+            .min_tls_version(tls::Version::TLS_1_2);
 
         if self.disable_ssl_verification {
             warn!("SSL verification disabled in the HTTP client!");

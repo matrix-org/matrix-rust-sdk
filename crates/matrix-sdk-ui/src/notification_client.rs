@@ -21,10 +21,9 @@ use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     room::Room, sleep::sleep, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
 };
-use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent, sliding_sync::http, RoomState, StoreError,
-};
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
 use ruma::{
+    api::client::sync::sync_events::v5 as http,
     assign,
     directory::RoomTypeFilter,
     events::{
@@ -177,8 +176,8 @@ impl NotificationClient {
         //
         // Spawn an `EncryptionSync` that runs two iterations of the sliding sync loop:
         // - the first iteration allows to get SS events as well as send e2ee requests.
-        // - the second one let the SS proxy forward events triggered by the sending of
-        // e2ee requests.
+        // - the second one let the SS homeserver forward events triggered by the
+        //   sending of e2ee requests.
         //
         // Keep timeouts small for both, since we might be short on time.
 

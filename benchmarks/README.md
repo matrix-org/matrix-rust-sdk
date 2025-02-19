@@ -8,13 +8,20 @@ can be found [here](https://bheisler.github.io/criterion.rs/book/criterion_rs.ht
 
 ## Running the benchmarks
 
-The benchmark can be simply run by using the `bench` command of `cargo`:
+The benchmark can be run by using the `bench` command of `cargo`:
 
 ```bash
 $ cargo bench
 ```
 
 This will work from the workspace directory of the rust-sdk.
+
+To lower compile times, you might be interested in using the `profiling` profile, that's optimized
+for a fair tradeoff between compile times and runtime performance:
+
+```bash
+$ cargo bench --profile profiling
+```
 
 If you want to pass options to the benchmark [you'll need to specify the name of
 the benchmark](https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options):
@@ -23,7 +30,7 @@ the benchmark](https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench
 $ cargo bench --bench crypto_bench -- # Your options go here
 ```
 
-If you want to run only a specific benchmark, simply pass the name of the
+If you want to run only a specific benchmark, pass the name of the
 benchmark as an argument:
 
 ```bash
@@ -65,7 +72,7 @@ permisive value is `-1`:
 $ echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
 ```
 
-To generate flame graphs feature simply enable the profiling mode using the
+To generate flame graphs feature, enable the profiling mode using the
 `--profile-time` command line flag:
 
 ```bash

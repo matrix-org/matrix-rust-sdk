@@ -14,7 +14,7 @@ matrix-sdk-crypto = { workspace = true }
 matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
 matrix-sdk-test = { workspace = true }
 matrix-sdk-ui = { workspace = true }
-matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite"] }
+matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite", "testing"] }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -35,6 +35,10 @@ harness = false
 
 [[bench]]
 name = "room_bench"
+harness = false
+
+[[bench]]
+name = "timeline"
 harness = false
 
 [package.metadata.release]

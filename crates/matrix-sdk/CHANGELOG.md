@@ -8,9 +8,61 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**]: The `Oidc::account_management_url` method now caches the
+  result of a call, subsequent calls to the method will not contact the OIDC
+  provider for a while, instead the cached URI will be returned. If caching of
+  this URI is not desirable, the `Oidc::fetch_account_management_url` method
+  can be used.
+  ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
+
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+- [**breaking**] The HTTP client only allows TLS 1.2 or newer, as recommended by
+  [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
+  ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
+
+### Bug Fixes
+
+- Ensure all known secrets are removed from secret storage when invoking the
+  `Recovery::disable()` method. While the server is not guaranteed to delete
+  these secrets, making an attempt to remove them is considered good practice.
+  Note that all secrets are uploaded to the server in an encrypted form.
+  ([#4629](https://github.com/matrix-org/matrix-rust-sdk/pull/4629))
+
+### Refactor
+
+- [**breaking**]: The `Oidc` API only supports public clients, i.e. clients
+  without a secret.
+  ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
+  - `Oidc::restore_registered_client()` takes a `ClientId` instead of
+    `ClientCredentials`
+  - `Oidc::restore_registered_client()` must NOT be called after
+    `Oidc::register_client()` anymore.
+- [**breaking**]: The `authentication::qrcode` module now reexports types from
+  `oauth2` rather than `openidconnect`. Some type names might have changed.
+  ([#4604](https://github.com/matrix-org/matrix-rust-sdk/pull/4604))
+- [**breaking**] `Oidc::authorize_scope()` was removed because it has no use
+  case anymore, according to the latest version of
+  [MSC2967](https://github.com/matrix-org/matrix-spec-proposals/pull/2967).
+  ([#4664](https://github.com/matrix-org/matrix-rust-sdk/pull/4664))
+- The `UserSession` type cannot be deserialized from its old format anymore. The
+  old format used an `issuer_info` field instead of an `issuer` field.
+- [**breaking**]: The `Oidc` API uses the `GET /auth_metadata` endpoint from the
+  latest version of [MSC2965](https://github.com/matrix-org/matrix-spec-proposals/pull/2965)
+  by default. The previous `GET /auth_issuer` endpoint is still supported as a
+  fallback for now.
+  ([#4673](https://github.com/matrix-org/matrix-rust-sdk/pull/4673))
+  - It is not possible to provide a custom issuer anymore:
+    `Oidc::given_provider_metadata()` was removed, and the parameter was removed
+    from `Oidc::register_client()`.
+  - `Oidc::fetch_authentication_issuer()` was removed. To check if the
+    homeserver supports OAuth 2.0, use `Oidc::provider_metadata()`. To get the
+    issuer, use `VerifiedProviderMetadata::issuer()`.
+  - `Oidc::provider_metadata()` returns an `OauthDiscoveryError`. It has a
+    `NotSupported` variant and an `is_not_supported()` method to check if the
+    error is due to the server not supporting OAuth 2.0.
+  - `OidcError::MissingAuthenticationIssuer` was removed.
 
 ## [0.10.0] - 2025-02-04
 

@@ -4,8 +4,8 @@ use std::{
 };
 
 use eyeball_im::Vector;
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, sliding_sync::http};
-use ruma::{OwnedRoomId, RoomId};
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// The state of a [`SlidingSyncRoom`].

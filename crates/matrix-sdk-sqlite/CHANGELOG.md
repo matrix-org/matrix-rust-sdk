@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 
 - Implement the new method of `EventCacheStoreMedia` for `SqliteEventCacheStore`.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
+- Defragment an sqlite state store after removing a room.
+  ([#4651](https://github.com/matrix-org/matrix-rust-sdk/pull/4651))
 
 ## [0.10.0] - 2025-02-04
 

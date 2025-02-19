@@ -1,22 +1,17 @@
 use std::collections::BTreeMap;
 
-use as_variant::as_variant;
 use imbl::Vector;
-use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
+use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider};
 use ruma::{
-    api::{
-        client::discovery::{discover_homeserver, get_supported_versions},
-        MatrixVersion,
-    },
+    api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http},
     events::AnyToDeviceEvent,
     serde::Raw,
     OwnedRoomId,
 };
 use tracing::error;
-use url::Url;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{config::RequestConfig, http_client::HttpClient, Client, Result, SlidingSyncRoom};
+use crate::{Client, Result, SlidingSyncRoom};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
@@ -25,24 +20,15 @@ pub enum Version {
     /// example, and that the version is unknown.
     None,
 
-    /// Use the version of the sliding sync proxy, i.e. MSC3575.
-    Proxy {
-        /// URL to the proxy.
-        url: Url,
-    },
-
     /// Use the version of the sliding sync implementation inside Synapse, i.e.
     /// MSC4186.
     Native,
 }
 
 impl Version {
+    #[cfg(test)]
     pub(crate) fn is_native(&self) -> bool {
         matches!(self, Self::Native)
-    }
-
-    pub(crate) fn overriding_url(&self) -> Option<&Url> {
-        as_variant!(self, Self::Proxy { url } => url)
     }
 }
 
@@ -52,14 +38,6 @@ pub enum VersionBuilderError {
     /// The `.well-known` response is not set.
     #[error("`.well-known` is not set")]
     WellKnownNotSet,
-
-    /// `.well-known` does not contain a `sliding_sync_proxy` entry.
-    #[error("`.well-known` does not contain a `sliding_sync_proxy` entry")]
-    NoSlidingSyncInWellKnown,
-
-    /// The `sliding_sync_proxy` URL in .well-known` is not valid ({0}).
-    #[error("the `sliding_sync_proxy` URL in .well-known` is not valid ({0})")]
-    UnparsableSlidingSyncUrl(url::ParseError),
 
     /// The `/versions` response is not set.
     #[error("The `/versions` response is not set")]
@@ -77,19 +55,8 @@ pub enum VersionBuilder {
     /// Build a [`Version::None`].
     None,
 
-    /// Build a [`Version::Proxy`].
-    Proxy {
-        /// Coerced URL to the proxy.
-        url: Url,
-    },
-
     /// Build a [`Version::Native`].
     Native,
-
-    /// Build a [`Version::Proxy`] by auto-discovering it.
-    ///
-    /// It is available if the server enables it via `.well-known`.
-    DiscoverProxy,
 
     /// Build a [`Version::Native`] by auto-discovering it.
     ///
@@ -104,34 +71,16 @@ impl VersionBuilder {
 
     /// Build a [`Version`].
     ///
-    /// It can fail if auto-discovering fails, e.g. if `.well-known`
-    /// or `/versions` do contain invalid data.
+    /// It can fail if auto-discovering fails, e.g. if `/versions` do contain
+    /// invalid data.
     pub fn build(
         self,
-        well_known: Option<&discover_homeserver::Response>,
         versions: Option<&get_supported_versions::Response>,
     ) -> Result<Version, VersionBuilderError> {
         Ok(match self {
             Self::None => Version::None,
 
-            Self::Proxy { url } => Version::Proxy { url },
-
             Self::Native => Version::Native,
-
-            Self::DiscoverProxy => {
-                let Some(well_known) = well_known else {
-                    return Err(VersionBuilderError::WellKnownNotSet);
-                };
-
-                let Some(info) = &well_known.sliding_sync_proxy else {
-                    return Err(VersionBuilderError::NoSlidingSyncInWellKnown);
-                };
-
-                let url =
-                    Url::parse(&info.url).map_err(VersionBuilderError::UnparsableSlidingSyncUrl)?;
-
-                Version::Proxy { url }
-            }
 
             Self::DiscoverNative => {
                 let Some(versions) = versions else {
@@ -156,55 +105,6 @@ impl Client {
     /// If `.well-known` or `/versions` is unreachable, it will simply move
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<Version> {
-        async fn discover_homeserver(
-            http_client: &HttpClient,
-            server: Option<String>,
-        ) -> Option<discover_homeserver::Response> {
-            if let Some(server) = server {
-                http_client
-                    .send(
-                        discover_homeserver::Request::new(),
-                        Some(RequestConfig::short_retry()),
-                        server,
-                        None,
-                        &[MatrixVersion::V1_0],
-                        Default::default(),
-                    )
-                    .await
-                    .ok()
-            } else {
-                None
-            }
-        }
-
-        let http_client = &self.inner.http_client;
-
-        // Discover the homeserver by using:
-        //
-        // * the server if any,
-        // * by using the user ID's server name (if any) with `https://`,
-        // * by using the user ID's server name (if any) with `http://`.
-        //
-        // Otherwise, `well_known` is `None`.
-        let well_known = if let Some(well_known) =
-            discover_homeserver(http_client, self.server().map(ToString::to_string)).await
-        {
-            Some(well_known)
-        } else if let Some(well_known) = discover_homeserver(
-            http_client,
-            self.user_id().map(|user_id| format!("https://{}", user_id.server_name())),
-        )
-        .await
-        {
-            Some(well_known)
-        } else {
-            discover_homeserver(
-                http_client,
-                self.user_id().map(|user_id| format!("http://{}", user_id.server_name())),
-            )
-            .await
-        };
-
         let supported_versions = self.unstable_features().await.ok().map(|unstable_features| {
             let mut response = get_supported_versions::Response::new(vec![]);
             response.unstable_features = unstable_features;
@@ -212,11 +112,9 @@ impl Client {
             response
         });
 
-        [VersionBuilder::DiscoverNative, VersionBuilder::DiscoverProxy]
+        [VersionBuilder::DiscoverNative]
             .into_iter()
-            .filter_map(|version_builder| {
-                version_builder.build(well_known.as_ref(), supported_versions.as_ref()).ok()
-            })
+            .filter_map(|version_builder| version_builder.build(supported_versions.as_ref()).ok())
             .collect()
     }
 
@@ -239,10 +137,7 @@ impl Client {
         &self,
         response: &http::Response,
     ) -> Result<SyncResponse> {
-        let response = self
-            .base_client()
-            .process_sliding_sync(response, &(), self.sliding_sync_version().is_native())
-            .await?;
+        let response = self.base_client().process_sliding_sync(response, &()).await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
@@ -306,19 +201,11 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         Ok(())
     }
 
-    pub async fn handle_room_response(
-        &mut self,
-        response: &http::Response,
-        with_msc4186: bool,
-    ) -> Result<()> {
+    pub async fn handle_room_response(&mut self, response: &http::Response) -> Result<()> {
         self.response = Some(
             self.client
                 .base_client()
-                .process_sliding_sync(
-                    response,
-                    &SlidingSyncPreviousEventsProvider(self.rooms),
-                    with_msc4186,
-                )
+                .process_sliding_sync(response, &SlidingSyncPreviousEventsProvider(self.rooms))
                 .await?,
         );
         self.post_process().await
@@ -366,101 +253,31 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_base::{notification_settings::RoomNotificationMode, SessionMeta};
+    use matrix_sdk_base::notification_settings::RoomNotificationMode;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        api::MatrixVersion, assign, owned_device_id, room_id, serde::Raw, OwnedUserId, ServerName,
-    };
+    use ruma::{assign, room_id, serde::Raw};
     use serde_json::json;
-    use url::Url;
     use wiremock::{
         matchers::{method, path},
-        Mock, MockServer, ResponseTemplate,
+        Mock, ResponseTemplate,
     };
 
-    use super::{discover_homeserver, get_supported_versions, Version, VersionBuilder};
+    use super::{get_supported_versions, Version, VersionBuilder};
     use crate::{
-        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         error::Result,
         sliding_sync::{http, VersionBuilderError},
         test_utils::logged_in_client_with_server,
-        Client, SlidingSyncList, SlidingSyncMode,
+        SlidingSyncList, SlidingSyncMode,
     };
 
     #[test]
     fn test_version_builder_none() {
-        assert_matches!(VersionBuilder::None.build(None, None), Ok(Version::None));
-    }
-
-    #[test]
-    fn test_version_builder_proxy() {
-        let expected_url = Url::parse("https://matrix.org:1234").unwrap();
-
-        assert_matches!(
-            VersionBuilder::Proxy { url: expected_url.clone() }.build(None, None),
-            Ok(Version::Proxy { url }) => {
-                assert_eq!(url, expected_url);
-            }
-        );
+        assert_matches!(VersionBuilder::None.build(None), Ok(Version::None));
     }
 
     #[test]
     fn test_version_builder_native() {
-        assert_matches!(VersionBuilder::Native.build(None, None), Ok(Version::Native));
-    }
-
-    #[test]
-    fn test_version_builder_discover_proxy() {
-        let expected_url = Url::parse("https://matrix.org:1234").unwrap();
-        let mut response = discover_homeserver::Response::new(
-            discover_homeserver::HomeserverInfo::new("matrix.org".to_owned()),
-        );
-        response.sliding_sync_proxy =
-            Some(discover_homeserver::SlidingSyncProxyInfo::new(expected_url.to_string()));
-
-        assert_matches!(
-            VersionBuilder::DiscoverProxy.build(Some(&response), None),
-            Ok(Version::Proxy { url }) => {
-                assert_eq!(url, expected_url);
-            }
-        );
-    }
-
-    #[test]
-    fn test_version_builder_discover_proxy_no_well_known() {
-        assert_matches!(
-            VersionBuilder::DiscoverProxy.build(None, None),
-            Err(VersionBuilderError::WellKnownNotSet)
-        );
-    }
-
-    #[test]
-    fn test_version_builder_discover_proxy_no_sliding_sync_proxy_in_well_known() {
-        let mut response = discover_homeserver::Response::new(
-            discover_homeserver::HomeserverInfo::new("matrix-client.matrix.org".to_owned()),
-        );
-        response.sliding_sync_proxy = None; // already `None` but the test is clearer now.
-
-        assert_matches!(
-            VersionBuilder::DiscoverProxy.build(Some(&response), None),
-            Err(VersionBuilderError::NoSlidingSyncInWellKnown)
-        );
-    }
-
-    #[test]
-    fn test_version_builder_discover_proxy_invalid_sliding_sync_proxy_in_well_known() {
-        let mut response = discover_homeserver::Response::new(
-            discover_homeserver::HomeserverInfo::new("matrix-client.matrix.org".to_owned()),
-        );
-        response.sliding_sync_proxy =
-            Some(discover_homeserver::SlidingSyncProxyInfo::new("💥".to_owned()));
-
-        assert_matches!(
-            VersionBuilder::DiscoverProxy.build(Some(&response), None),
-            Err(VersionBuilderError::UnparsableSlidingSyncUrl(err)) => {
-                assert_eq!(err.to_string(), "relative URL without a base");
-            }
-        );
+        assert_matches!(VersionBuilder::Native.build(None), Ok(Version::Native));
     }
 
     #[test]
@@ -468,16 +285,13 @@ mod tests {
         let mut response = get_supported_versions::Response::new(vec![]);
         response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
 
-        assert_matches!(
-            VersionBuilder::DiscoverNative.build(None, Some(&response)),
-            Ok(Version::Native)
-        );
+        assert_matches!(VersionBuilder::DiscoverNative.build(Some(&response)), Ok(Version::Native));
     }
 
     #[test]
     fn test_version_builder_discover_native_no_supported_versions() {
         assert_matches!(
-            VersionBuilder::DiscoverNative.build(None, None),
+            VersionBuilder::DiscoverNative.build(None),
             Err(VersionBuilderError::MissingVersionsResponse)
         );
     }
@@ -488,7 +302,7 @@ mod tests {
         response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), false)].into();
 
         assert_matches!(
-            VersionBuilder::DiscoverNative.build(None, Some(&response)),
+            VersionBuilder::DiscoverNative.build(Some(&response)),
             Err(VersionBuilderError::NativeVersionIsUnset)
         );
     }
@@ -501,102 +315,6 @@ mod tests {
         // `.well-known` and `/versions` aren't available. It's impossible to find any
         // versions.
         assert!(available_versions.is_empty());
-    }
-
-    #[async_test]
-    async fn test_available_sliding_sync_versions_proxy_with_server() {
-        let server = MockServer::start().await;
-        let homeserver = format!("https://{}/homeserver", server.address());
-        let proxy = format!("https://{}/sliding-sync-proxy", server.address());
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "m.homeserver": {
-                    "base_url": homeserver,
-                },
-                "org.matrix.msc3575.proxy": {
-                    "url": proxy,
-                },
-            })))
-            .mount(&server)
-            .await;
-
-        // The server knows the server.
-        let client = Client::builder()
-            .insecure_server_name_no_tls(
-                <&ServerName>::try_from(server.address().to_string().as_str()).unwrap(),
-            )
-            .server_versions([MatrixVersion::V1_0])
-            .build()
-            .await
-            .unwrap();
-
-        let available_versions = client.available_sliding_sync_versions().await;
-
-        // `.well-known` is available.
-        assert_eq!(available_versions.len(), 1);
-        assert_matches!(
-            &available_versions[0],
-            Version::Proxy { url } => {
-                assert_eq!(url, &Url::parse(&proxy).unwrap());
-            }
-        );
-    }
-
-    #[async_test]
-    async fn test_available_sliding_sync_versions_proxy_with_user_id() {
-        let server = MockServer::start().await;
-        let homeserver = format!("https://{}/homeserver", server.address());
-        let proxy = format!("https://{}/sliding-sync-proxy", server.address());
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "m.homeserver": {
-                    "base_url": homeserver,
-                },
-                "org.matrix.msc3575.proxy": {
-                    "url": proxy,
-                },
-            })))
-            .mount(&server)
-            .await;
-
-        // The client doesn't know the server.
-        let client = Client::builder()
-            .homeserver_url(homeserver)
-            .server_versions([MatrixVersion::V1_0])
-            .build()
-            .await
-            .unwrap();
-
-        // The client knows a user.
-        client
-            .matrix_auth()
-            .restore_session(MatrixSession {
-                meta: SessionMeta {
-                    user_id: OwnedUserId::try_from(format!("@alice:{}", server.address())).unwrap(),
-                    device_id: owned_device_id!("DEVICEID"),
-                },
-                tokens: MatrixSessionTokens {
-                    access_token: "1234".to_owned(),
-                    refresh_token: None,
-                },
-            })
-            .await
-            .unwrap();
-
-        let available_versions = client.available_sliding_sync_versions().await;
-
-        // `.well-known` is available.
-        assert_eq!(available_versions.len(), 1);
-        assert_matches!(
-            &available_versions[0],
-            Version::Proxy { url } => {
-                assert_eq!(url, &Url::parse(&proxy).unwrap());
-            }
-        );
     }
 
     #[async_test]

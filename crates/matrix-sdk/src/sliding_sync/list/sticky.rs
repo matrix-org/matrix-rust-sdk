@@ -1,5 +1,4 @@
-use matrix_sdk_base::sliding_sync::http;
-use ruma::events::StateEventType;
+use ruma::{api::client::sync::sync_events::v5 as http, events::StateEventType};
 
 use crate::sliding_sync::sticky_parameters::StickyData;
 

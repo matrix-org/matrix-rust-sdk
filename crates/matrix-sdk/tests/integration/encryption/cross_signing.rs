@@ -124,12 +124,13 @@ async fn test_reset_oidc() {
 
     use assert_matches2::assert_let;
     use mas_oidc_client::types::{
-        client_credentials::ClientCredentials,
         iana::oauth::OAuthClientAuthenticationMethod,
         registration::{ClientMetadata, VerifiedClientMetadata},
     };
     use matrix_sdk::{
-        authentication::oidc::{OidcSession, OidcSessionTokens, UserSession},
+        authentication::oidc::{
+            registrations::ClientId, OidcSession, OidcSessionTokens, UserSession,
+        },
         encryption::CrossSigningResetAuthType,
     };
     use similar_asserts::assert_eq;
@@ -141,9 +142,9 @@ async fn test_reset_oidc() {
 
     let (client, server) = no_retry_test_client_with_server().await;
 
-    pub fn mock_registered_client_data() -> (ClientCredentials, VerifiedClientMetadata) {
+    pub fn mock_registered_client_data() -> (ClientId, VerifiedClientMetadata) {
         (
-            ClientCredentials::None { client_id: CLIENT_ID.to_owned() },
+            ClientId(CLIENT_ID.to_owned()),
             ClientMetadata {
                 redirect_uris: Some(vec![Url::parse(REDIRECT_URI_STRING).unwrap()]),
                 token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
@@ -155,9 +156,9 @@ async fn test_reset_oidc() {
     }
 
     pub fn mock_session(tokens: OidcSessionTokens, server: &MockServer) -> OidcSession {
-        let (credentials, metadata) = mock_registered_client_data();
+        let (client_id, metadata) = mock_registered_client_data();
         OidcSession {
-            credentials,
+            client_id,
             metadata,
             user: UserSession {
                 meta: SessionMeta {
