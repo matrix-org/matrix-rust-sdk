@@ -63,6 +63,8 @@ All notable changes to this project will be documented in this file.
     `NotSupported` variant and an `is_not_supported()` method to check if the
     error is due to the server not supporting OAuth 2.0.
   - `OidcError::MissingAuthenticationIssuer` was removed.
+- [**breaking**]: The `authentication::qrcode` module was moved inside
+  `authentication::oidc`, because it is only available through the `Oidc` API.
 
 ## [0.10.0] - 2025-02-04
 
