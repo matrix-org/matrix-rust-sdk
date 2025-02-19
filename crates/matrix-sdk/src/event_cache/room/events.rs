@@ -312,8 +312,13 @@ impl RoomEvents {
     }
 
     /// Get a mutable reference to the [`LinkedChunk`] updates, aka
-    /// [`ObservableUpdates`].
-    pub(super) fn updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
+    /// [`ObservableUpdates`] to be consumed by the store.
+    ///
+    /// These updates are expected to be *only* forwarded to storage, as they
+    /// might hide some underlying updates to the in-memory chunk; those
+    /// updates should be reflected with manual updates to
+    /// [`Self::chunks_updates_as_vectordiffs`].
+    pub(super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
         self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 

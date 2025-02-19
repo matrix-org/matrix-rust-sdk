@@ -721,7 +721,7 @@ mod private {
 
             // ⚠️ Let's not propagate the updates to the store! We already have these data
             // in the store! Let's drain them.
-            let _ = self.events.updates().take();
+            let _ = self.events.store_updates().take();
 
             // However, we want to get updates as `VectorDiff`s.
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
@@ -733,6 +733,7 @@ mod private {
                 }
             })
         }
+
         /// Removes the bundled relations from an event, if they were present.
         ///
         /// Only replaces the present if it contained bundled relations.
@@ -780,7 +781,7 @@ mod private {
         /// Propagate changes to the underlying storage.
         #[instrument(skip_all)]
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
-            let mut updates = self.events.updates().take();
+            let mut updates = self.events.store_updates().take();
 
             if updates.is_empty() {
                 return Ok(());
