@@ -22,8 +22,8 @@ use matrix_sdk_common::{
         VerificationState,
     },
     linked_chunk::{
-        ChunkContent, ChunkIdentifier as CId, LinkedChunk, LinkedChunkBuilder,
-        LinkedChunkBuilderTest, Position, RawChunk, Update,
+        lazy_loader, ChunkContent, ChunkIdentifier as CId, LinkedChunk, LinkedChunkBuilderTest,
+        Position, RawChunk, Update,
     },
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
@@ -448,7 +448,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
             assert_eq!(chunk_identifier_generator.current(), 2);
 
-            let linked_chunk = LinkedChunkBuilder::from_last_chunk::<DEFAULT_CHUNK_CAPACITY, _, _>(
+            let linked_chunk = lazy_loader::from_last_chunk::<DEFAULT_CHUNK_CAPACITY, _, _>(
                 last_chunk,
                 chunk_identifier_generator,
             )
@@ -483,8 +483,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // Pretend it's the first chunk.
             previous_chunk.previous = None;
 
-            let _ = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, previous_chunk)
-                .unwrap();
+            let _ = lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
             let mut rchunks = linked_chunk.rchunks();
 
@@ -519,8 +518,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             let previous_chunk =
                 self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
 
-            let _ = LinkedChunkBuilder::insert_new_first_chunk(&mut linked_chunk, previous_chunk)
-                .unwrap();
+            let _ = lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
             let mut rchunks = linked_chunk.rchunks();
 
