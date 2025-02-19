@@ -1,7 +1,6 @@
 ---
 source: crates/matrix-sdk-crypto/src/session_manager/group_sessions/share_strategy.rs
 expression: ruma_response_to_json(keys_query.clone())
-snapshot_kind: text
 ---
 {
   "device_keys": {
