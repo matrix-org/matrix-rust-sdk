@@ -499,8 +499,7 @@ mod tests {
     use assert_matches::assert_matches;
     use ruma::room_id;
 
-    use super::{ChunkIdentifier as CId, *};
-    use crate::linked_chunk::LinkedChunkBuilderTest;
+    use super::{super::lazy_loader::from_all_chunks, ChunkIdentifier as CId, *};
 
     #[test]
     fn test_new_items_chunk() {
@@ -1011,11 +1010,10 @@ mod tests {
         );
 
         // It correctly gets reloaded as such.
-        let raws = relational_linked_chunk.load_all_chunks(room_id).unwrap();
-        let lc = LinkedChunkBuilderTest::<3, _, _>::from_raw_parts(raws)
-            .build()
-            .expect("building succeeds")
-            .expect("this leads to a non-empty linked chunk");
+        let lc =
+            from_all_chunks::<3, _, _>(relational_linked_chunk.load_all_chunks(room_id).unwrap())
+                .expect("building succeeds")
+                .expect("this leads to a non-empty linked chunk");
 
         assert_items_eq!(lc, []);
     }
@@ -1046,11 +1044,10 @@ mod tests {
             ],
         );
 
-        let raws = relational_linked_chunk.load_all_chunks(room_id).unwrap();
-        let lc = LinkedChunkBuilderTest::<3, _, _>::from_raw_parts(raws)
-            .build()
-            .expect("building succeeds")
-            .expect("this leads to a non-empty linked chunk");
+        let lc =
+            from_all_chunks::<3, _, _>(relational_linked_chunk.load_all_chunks(room_id).unwrap())
+                .expect("building succeeds")
+                .expect("this leads to a non-empty linked chunk");
 
         // The linked chunk is correctly reloaded.
         assert_items_eq!(lc, ['a', 'b', 'c'] [-] ['d', 'e', 'f']);
