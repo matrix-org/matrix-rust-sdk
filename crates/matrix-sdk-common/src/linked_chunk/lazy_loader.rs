@@ -196,6 +196,65 @@ where
     Ok(())
 }
 
+/// A pretty inefficient, test-only, function to rebuild a full `LinkedChunk`.
+#[doc(hidden)]
+pub fn from_all_chunks<const CAP: usize, Item, Gap>(
+    mut chunks: Vec<RawChunk<Item, Gap>>,
+) -> Result<Option<LinkedChunk<CAP, Item, Gap>>, LazyLoaderError>
+where
+    Item: Clone,
+    Gap: Clone,
+{
+    if chunks.is_empty() {
+        return Ok(None);
+    }
+
+    // Sort by `next` so that the search for the next chunk is faster (it should
+    // come first). The chunk with the biggest next chunk identifier comes first.
+    // Chunk with no next chunk comes last.
+    chunks.sort_by(|a, b| b.next.cmp(&a.next));
+
+    let last_chunk = chunks
+        .pop()
+        // SAFETY: `chunks` is guaranteed to not be empty, `pop` cannot fail.
+        .expect("`chunks` is supposed to not be empty, we must be able to `pop` an item");
+    let last_chunk_identifier = last_chunk.identifier;
+    let chunk_identifier_generator =
+        ChunkIdentifierGenerator::new_from_previous_chunk_identifier(last_chunk_identifier);
+
+    let Some(mut linked_chunk) = from_last_chunk(Some(last_chunk), chunk_identifier_generator)?
+    else {
+        return Ok(None);
+    };
+
+    let mut next_chunk = last_chunk_identifier;
+
+    while let Some(chunk) = chunks
+        .iter()
+        .position(|chunk| chunk.next == Some(next_chunk))
+        .map(|index| chunks.remove(index))
+    {
+        next_chunk = chunk.identifier;
+        insert_new_first_chunk(&mut linked_chunk, chunk)?;
+    }
+
+    let first_chunk = linked_chunk.links.first_chunk();
+
+    // It is expected that **all chunks** are passed to this function. If there was
+    // a previous chunk, `insert_new_first_chunk` has erased it and moved it to
+    // `lazy_previous`. Hence, let's check both (the former condition isn't
+    // necessary, but better be robust).
+    if first_chunk.previous().is_some() || first_chunk.lazy_previous.is_some() {
+        return Err(LazyLoaderError::ChunkIsNotFirst { id: first_chunk.identifier() });
+    }
+
+    if !chunks.is_empty() {
+        return Err(LazyLoaderError::MultipleConnectedComponents);
+    }
+
+    Ok(Some(linked_chunk))
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum LazyLoaderError {
     #[error("chunk with id {} has a next chunk, it is supposed to be the last chunk", id.index())]
@@ -216,6 +275,18 @@ pub enum LazyLoaderError {
 
     #[error("chunk with id {} is too large", id.index())]
     ChunkTooLarge { id: ChunkIdentifier },
+
+    #[doc(hidden)]
+    #[error("the last chunk is missing")]
+    MissingLastChunk,
+
+    #[doc(hidden)]
+    #[error("chunk with id {} has a previous chunk, it is supposed to be the first chunk", id.index())]
+    ChunkIsNotFirst { id: ChunkIdentifier },
+
+    #[doc(hidden)]
+    #[error("multiple connected components")]
+    MultipleConnectedComponents,
 }
 
 #[cfg(test)]
