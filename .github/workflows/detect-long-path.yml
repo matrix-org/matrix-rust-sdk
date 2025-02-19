@@ -27,7 +27,7 @@ jobs:
         run: |
           for file in ${ALL_CHANGED_FILES}; do
             if [ ${#file} -gt $MAX_LENGTH ]; then
-              echo "File path is too long. Length: ${#file}"
+              echo "File path is too long. Length: ${#file}, Path: $file"
               exit 1
             fi
           done
