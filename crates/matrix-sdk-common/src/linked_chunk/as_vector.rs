@@ -14,6 +14,7 @@
 
 use std::{
     collections::VecDeque,
+    iter::repeat_n,
     ops::{ControlFlow, Not},
     sync::{Arc, RwLock},
 };
@@ -133,7 +134,8 @@ impl UpdateToVectorDiff {
     ///
     /// * [`Update::NewItemsChunk`] and [`Update::NewGapChunk`] are inserting a
     ///   new pair with a chunk length of 0 at the appropriate index,
-    /// * [`Update::RemoveChunk`] is removing a pair,
+    /// * [`Update::RemoveChunk`] is removing a pair, and is potentially
+    ///   emitting [`VectorDiff`],
     /// * [`Update::PushItems`] is increasing the length of the appropriate pair
     ///   by the number of new items, and is potentially emitting
     ///   [`VectorDiff`],
@@ -318,22 +320,17 @@ impl UpdateToVectorDiff {
                     }
                 }
 
-                Update::RemoveChunk(expected_chunk_identifier) => {
-                    let chunk_index = self
-                        .chunks
-                        .iter()
-                        .position(|(chunk_identifier, _)| {
-                            chunk_identifier == expected_chunk_identifier
-                        })
-                        // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
-                        // assuming `Self::chunks` is correctly initialized, it is not possible to
-                        // remove a chunk that does not exist. If this predicate fails, it means
-                        // `LinkedChunk` or `ObservableUpdates` contain a bug.
-                        .expect("Removing a chunk: The chunk is not found");
+                Update::RemoveChunk(chunk_identifier) => {
+                    let (offset, (chunk_index, _)) =
+                        self.map_to_offset(&Position(*chunk_identifier, 0));
 
-                    // It's OK to ignore the result. The `chunk_index` exists because it's been
-                    // found, and we don't care about its associated value.
-                    let _ = self.chunks.remove(chunk_index);
+                    let (_, number_of_items) = self
+                        .chunks
+                        .remove(chunk_index)
+                        .expect("Removing an index out of the bounds");
+
+                    // Removing at the same index because each `Remove` shifts items to the left.
+                    diffs.extend(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
                 }
 
                 Update::PushItems { at: position, items } => {
