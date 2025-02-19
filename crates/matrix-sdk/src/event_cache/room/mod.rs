@@ -667,21 +667,16 @@ mod private {
                 return Ok(LoadMoreEventsBackwardsOutcome::Gap);
             };
 
-            let first_chunk = self
-                .events
-                .chunks()
-                .next()
-                // SAFETY: A `LinkedChunk` is never empty, it always contains at least one chunk.
-                .expect("The `LinkedChunk` in `RoomEvents` cannot be empty");
-
-            // The first chunk is a gap. Don't load more events! The gap must be resolved.
-            if first_chunk.is_gap() {
+            // If any in-memory chunk is a gap, don't load more events, and let the caller
+            // resolve the gap.
+            if self.events.chunks().any(|chunk| chunk.is_gap()) {
                 return Ok(LoadMoreEventsBackwardsOutcome::Gap);
             }
 
             // Because `first_chunk` is `not `Send`, get this information before the
             // `.await` point, so that this `Future` can implement `Send`.
-            let first_chunk_identifier = first_chunk.identifier();
+            let first_chunk_identifier =
+                self.events.chunks().next().expect("a linked chunk is never empty").identifier();
 
             let room_id = &self.room;
             let store = store.lock().await?;
