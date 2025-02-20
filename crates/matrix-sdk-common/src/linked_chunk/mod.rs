@@ -602,7 +602,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
                     let new_chunk = chunk.insert_before(
                         Chunk::new_gap_leaked(self.chunk_identifier_generator.next(), content),
-                        &mut self.updates,
+                        self.updates.as_mut(),
                     );
 
                     let new_chunk_ptr = new_chunk.as_ptr();
@@ -1452,7 +1452,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     fn insert_before(
         &mut self,
         mut new_chunk_ptr: NonNull<Self>,
-        updates: &mut Option<ObservableUpdates<Item, Gap>>,
+        updates: Option<&mut ObservableUpdates<Item, Gap>>,
     ) -> &mut Self
     where
         Gap: Clone,
@@ -1478,7 +1478,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         // Link the new chunk to this one.
         new_chunk.next = Some(self.as_ptr());
 
-        if let Some(updates) = updates.as_mut() {
+        if let Some(updates) = updates {
             let previous = new_chunk.previous().map(Chunk::identifier).or(new_chunk.lazy_previous);
             let new = new_chunk.identifier();
             let next = new_chunk.next().map(Chunk::identifier);
