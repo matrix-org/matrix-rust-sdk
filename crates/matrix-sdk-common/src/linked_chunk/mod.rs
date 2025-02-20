@@ -197,34 +197,36 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
         }
     }
 
-    /// Drop all chunks, and re-create the first one.
-    fn clear(&mut self) {
+    /// Drop all chunks, and replace the first one with the one provided as an
+    /// argument.
+    fn replace_with(&mut self, first_chunk: NonNull<Chunk<CAP, Item, Gap>>) {
         // Loop over all chunks, from the last to the first chunk, and drop them.
-        {
-            // Take the latest chunk.
-            let mut current_chunk_ptr = self.last.or(Some(self.first));
+        // Take the latest chunk.
+        let mut current_chunk_ptr = self.last.or(Some(self.first));
 
-            // As long as we have another chunk…
-            while let Some(chunk_ptr) = current_chunk_ptr {
-                // Fetch the previous chunk pointer.
-                let previous_ptr = unsafe { chunk_ptr.as_ref() }.previous;
+        // As long as we have another chunk…
+        while let Some(chunk_ptr) = current_chunk_ptr {
+            // Fetch the previous chunk pointer.
+            let previous_ptr = unsafe { chunk_ptr.as_ref() }.previous;
 
-                // Re-box the chunk, and let Rust does its job.
-                let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
+            // Re-box the chunk, and let Rust does its job.
+            let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
-                // Update the `current_chunk_ptr`.
-                current_chunk_ptr = previous_ptr;
-            }
-
-            // At this step, all chunks have been dropped, including
-            // `self.first`.
+            // Update the `current_chunk_ptr`.
+            current_chunk_ptr = previous_ptr;
         }
 
-        // Recreate the first chunk.
-        self.first = Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER);
-
-        // Reset the last chunk.
+        // At this step, all chunks have been dropped, including `self.first`.
+        self.first = first_chunk;
         self.last = None;
+    }
+
+    /// Drop all chunks, and re-create the default first one.
+    ///
+    /// The default first chunk is an empty items chunk, with the identifier
+    /// [`ChunkIdentifierGenerator::FIRST_IDENTIFIER`].
+    fn clear(&mut self) {
+        self.replace_with(Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER));
     }
 }
 
