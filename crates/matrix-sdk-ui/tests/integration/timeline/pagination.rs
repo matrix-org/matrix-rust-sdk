@@ -1001,7 +1001,7 @@ async fn test_lazy_back_pagination() {
     {
         let network_pagination = mock_server
             .mock_room_messages()
-            .from("back_pagination_token_1")
+            .match_from("back_pagination_token_1")
             .ok(RoomMessagesResponseTemplate::default()
                 .end_token("back_pagination_token_2")
                 .events({
@@ -1050,7 +1050,7 @@ async fn test_lazy_back_pagination() {
     {
         let network_pagination = mock_server
             .mock_room_messages()
-            .from("back_pagination_token_2")
+            .match_from("back_pagination_token_2")
             .ok(RoomMessagesResponseTemplate::default()
                 // No previous batch token, the beginning of the timeline is reached.
                 .events({

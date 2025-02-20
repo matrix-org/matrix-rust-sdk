@@ -1332,6 +1332,8 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
 
     /// Ensures the event was sent as a delayed event.
     ///
+    /// See also [the MSC](https://github.com/matrix-org/matrix-spec-proposals/pull/4140).
+    ///
     /// Note: works with *any* room.
     ///
     /// # Examples
@@ -1362,7 +1364,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     ///
     /// mock_server
     ///     .mock_room_send()
-    ///     .with_delay(Duration::from_millis(500))
+    ///     .match_delayed_event(Duration::from_millis(500))
     ///     .respond_with(ResponseTemplate::new(200).set_body_json(json!({"delay_id":"$some_id"})))
     ///     .mock_once()
     ///     .mount()
@@ -1387,7 +1389,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// assert_eq!("$some_id", response.delay_id);
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn with_delay(self, delay: Duration) -> Self {
+    pub fn match_delayed_event(self, delay: Duration) -> Self {
         Self {
             mock: self
                 .mock
@@ -1563,6 +1565,8 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
 
     /// Ensures the event was sent as a delayed event.
     ///
+    /// See also [the MSC](https://github.com/matrix-org/matrix-spec-proposals/pull/4140).
+    ///
     /// Note: works with *any* room.
     ///
     /// # Examples
@@ -1592,7 +1596,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///
     /// mock_server
     ///     .mock_room_send_state()
-    ///     .with_delay(Duration::from_millis(500))
+    ///     .match_delayed_event(Duration::from_millis(500))
     ///     .respond_with(ResponseTemplate::new(200).set_body_json(json!({"delay_id":"$some_id"})))
     ///     .mock_once()
     ///     .mount()
@@ -1615,7 +1619,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn with_delay(self, delay: Duration) -> Self {
+    pub fn match_delayed_event(self, delay: Duration) -> Self {
         Self {
             mock: self
                 .mock
@@ -1911,12 +1915,12 @@ pub struct RoomMessagesEndpoint;
 /// A prebuilt mock for getting a room messages in a room.
 impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
     /// Expects an optional limit to be set on the request.
-    pub fn limit(self, limit: u32) -> Self {
+    pub fn match_limit(self, limit: u32) -> Self {
         Self { mock: self.mock.and(query_param("limit", limit.to_string())), ..self }
     }
 
     /// Expects an optional `from` to be set on the request.
-    pub fn from(self, from: &str) -> Self {
+    pub fn match_from(self, from: &str) -> Self {
         Self { mock: self.mock.and(query_param("from", from)), ..self }
     }
 
@@ -1971,7 +1975,7 @@ impl RoomMessagesResponseTemplate {
     }
 
     /// Respond with a given delay to the query.
-    pub fn delayed(mut self, delay: Duration) -> Self {
+    pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = Some(delay);
         self
     }
