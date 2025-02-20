@@ -437,8 +437,14 @@ impl RoomEventCacheInner {
             // events themselves.
             let (_, sync_timeline_events_diffs) = state
                 .with_events_mut(|room_events| {
-                    if let Some(prev_token) = &prev_batch {
-                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                    // If we only received duplicated events, we don't need to store the gap: if
+                    // there was a gap, we'd have received an unknown event at the tail of
+                    // the room's timeline (unless the server reordered sync events since the last
+                    // time we sync'd).
+                    if !all_duplicates {
+                        if let Some(prev_token) = &prev_batch {
+                            room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                        }
                     }
 
                     // Remove the old duplicated events.
