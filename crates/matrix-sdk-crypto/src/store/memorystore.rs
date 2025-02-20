@@ -806,6 +806,7 @@ mod tests {
             SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
+            false,
         )
         .unwrap();
 
@@ -1203,6 +1204,7 @@ mod tests {
             SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
+            false,
         )
         .unwrap()
     }

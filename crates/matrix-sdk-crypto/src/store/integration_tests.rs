@@ -1308,6 +1308,7 @@ macro_rules! cryptostore_integration_tests {
                     sender_data,
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     None,
+                    false,
                 )
                 .unwrap()
             }
