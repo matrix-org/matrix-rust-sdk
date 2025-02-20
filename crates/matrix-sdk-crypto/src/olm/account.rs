@@ -1580,16 +1580,16 @@ mod tests {
     use anyhow::Result;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, user_id, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
-        OneTimeKeyId, UserId,
+        device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
+        MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, UserId,
     };
     use serde_json::json;
 
     use super::Account;
     use crate::{
-        olm::SignedJsonObject,
+        olm::{account::shared_history_from_history_visibility, SignedJsonObject},
         types::{DeviceKeys, SignedKey},
-        DeviceData,
+        DeviceData, EncryptionSettings,
     };
 
     fn user_id() -> &'static UserId {
@@ -1784,5 +1784,54 @@ mod tests {
             .expect("The fallback key should pass the signature verification");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_shared_history_flag_from_history_visibility() {
+        assert!(
+            shared_history_from_history_visibility(&HistoryVisibility::WorldReadable),
+            "The world readable visibility should set the shared history flag to true"
+        );
+
+        assert!(
+            shared_history_from_history_visibility(&HistoryVisibility::Shared),
+            "The shared visibility should set the shared history flag to true"
+        );
+
+        assert!(
+            !shared_history_from_history_visibility(&HistoryVisibility::Joined),
+            "The joined visibility should set the shared history flag to false"
+        );
+
+        assert!(
+            !shared_history_from_history_visibility(&HistoryVisibility::Invited),
+            "The invited visibility should set the shared history flag to false"
+        );
+
+        let visibility = HistoryVisibility::from("custom_visibility");
+        assert!(
+            !shared_history_from_history_visibility(&visibility),
+            "A custom visibility should set the shared history flag to false"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_set_when_creating_group_sessions() {
+        let account = Account::new(user_id());
+        let room_id = room_id!("!room:id");
+        let settings = EncryptionSettings {
+            history_visibility: HistoryVisibility::Shared,
+            ..Default::default()
+        };
+
+        let (_, session) = account
+            .create_group_session_pair(room_id, settings, Default::default())
+            .await
+            .expect("We should be able to create a group session pair");
+
+        assert!(
+            session.shared_history(),
+            "The shared history flag should have been set when we created the new session"
+        );
     }
 }
