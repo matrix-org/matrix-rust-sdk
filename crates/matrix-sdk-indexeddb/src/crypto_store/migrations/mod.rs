@@ -478,6 +478,7 @@ mod tests {
             SenderData::unknown(),
             encryption_algorithm,
             history_visibility,
+            false,
         )
         .unwrap()
     }
@@ -636,6 +637,7 @@ mod tests {
             SenderData::legacy(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
+            false,
         )
         .unwrap();
         backed_up_session.mark_as_backed_up();
@@ -655,6 +657,7 @@ mod tests {
             SenderData::legacy(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
+            false,
         )
         .unwrap();
 

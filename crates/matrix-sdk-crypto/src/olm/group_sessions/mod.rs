@@ -98,6 +98,14 @@ pub struct ExportedRoomKey {
         serialize_with = "serialize_curve_key_vec"
     )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
+
+    /// Whether this [`ExportedRoomKey`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    #[serde(default, rename = "org.matrix.msc3061.shared_history")]
+    pub shared_history: bool,
 }
 
 impl ExportedRoomKey {
@@ -115,6 +123,7 @@ impl ExportedRoomKey {
             session_key,
             sender_claimed_keys,
             forwarding_curve25519_key_chain,
+            shared_history,
         } = room_key;
 
         Self {
@@ -125,6 +134,7 @@ impl ExportedRoomKey {
             session_key,
             sender_claimed_keys,
             forwarding_curve25519_key_chain,
+            shared_history,
         }
     }
 }
@@ -152,13 +162,21 @@ pub struct BackedUpRoomKey {
     pub sender_claimed_keys: SigningKeys<DeviceKeyAlgorithm>,
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
-    /// m.forwarded_room_key events.
+    /// `m.forwarded_room_key` events.
     #[serde(
         default,
         deserialize_with = "deserialize_curve_key_vec",
         serialize_with = "serialize_curve_key_vec"
     )]
     pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
+
+    /// Whether this [`BackedUpRoomKey`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    #[serde(default, rename = "org.matrix.msc3061.shared_history")]
+    pub shared_history: bool,
 }
 
 impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
@@ -228,6 +246,7 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
             session_key,
             sender_claimed_keys,
             forwarding_curve25519_key_chain,
+            shared_history,
         } = value;
 
         Self {
@@ -236,6 +255,7 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
             session_key,
             sender_claimed_keys,
             forwarding_curve25519_key_chain,
+            shared_history,
         }
     }
 }
@@ -261,6 +281,7 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
                     sender_claimed_keys,
                     sender_key: content.claimed_sender_key,
                     session_key: content.session_key,
+                    shared_history: false,
                 })
             }
             #[cfg(feature = "experimental-algorithms")]
@@ -272,6 +293,7 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
                 sender_claimed_keys: content.claimed_signing_keys,
                 sender_key: content.claimed_sender_key,
                 session_key: content.session_key,
+                shared_history: false,
             }),
             ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
         }

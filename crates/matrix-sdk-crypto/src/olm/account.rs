@@ -32,7 +32,7 @@ use ruma::{
             upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
         },
     },
-    events::AnyToDeviceEvent,
+    events::{room::history_visibility::HistoryVisibility, AnyToDeviceEvent},
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
     OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId, OwnedUserId, RoomId,
@@ -220,6 +220,7 @@ impl StaticAccountData {
 
         let sender_key = identity_keys.curve25519;
         let signing_key = identity_keys.ed25519;
+        let shared_history = shared_history_from_history_visibility(&visibility);
 
         let inbound = InboundGroupSession::new(
             sender_key,
@@ -229,6 +230,7 @@ impl StaticAccountData {
             own_sender_data,
             algorithm,
             Some(visibility),
+            shared_history,
         )?;
 
         Ok((outbound, inbound))
@@ -1508,6 +1510,34 @@ impl Account {
 impl PartialEq for Account {
     fn eq(&self, other: &Self) -> bool {
         self.identity_keys() == other.identity_keys() && self.shared() == other.shared()
+    }
+}
+
+/// Calculate the shared history flag from the history visibility as defined in
+/// [MSC3061]
+///
+/// The MSC defines that the shared history flag should be set to true when the
+/// history visibility setting is set to `shared` or `world_readable`:
+///
+/// > A room key is flagged as having been used for shared history when it was
+/// > used to encrypt a message while the room's history visibility setting
+/// > was set to world_readable or shared.
+///
+/// In all other cases, even if we encounter a custom history visibility, we
+/// should return false:
+///
+/// > If the client does not have an m.room.history_visibility state event for
+/// > the room, or its value is not understood, the client should treat it as if
+/// > its value is joined for the purposes of determining whether the key is
+/// > used for shared history.
+///
+/// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+pub(crate) fn shared_history_from_history_visibility(
+    history_visibility: &HistoryVisibility,
+) -> bool {
+    match history_visibility {
+        HistoryVisibility::Shared | HistoryVisibility::WorldReadable => true,
+        HistoryVisibility::Invited | HistoryVisibility::Joined | _ => false,
     }
 }
 

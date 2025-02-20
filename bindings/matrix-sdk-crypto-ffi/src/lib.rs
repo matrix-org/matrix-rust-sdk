@@ -507,6 +507,7 @@ fn collect_sessions(
             imported: session.imported,
             backed_up: session.backed_up,
             history_visibility: None,
+            shared_history: false,
             algorithm: RustEventEncryptionAlgorithm::MegolmV1AesSha2,
         };
 

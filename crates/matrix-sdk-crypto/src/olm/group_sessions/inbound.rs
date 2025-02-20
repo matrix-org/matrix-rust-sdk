@@ -154,6 +154,13 @@ pub struct InboundGroupSession {
 
     /// Was this room key backed up to the server.
     backed_up: Arc<AtomicBool>,
+
+    /// Whether this [`InboundGroupSession`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    shared_history: bool,
 }
 
 impl InboundGroupSession {
@@ -176,6 +183,7 @@ impl InboundGroupSession {
     ///
     /// * `sender_data` - Information about the sender of the to-device message
     ///   that established this session.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sender_key: Curve25519PublicKey,
         signing_key: Ed25519PublicKey,
@@ -184,6 +192,7 @@ impl InboundGroupSession {
         sender_data: SenderData,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
+        shared_history: bool,
     ) -> Result<Self, SessionCreationError> {
         let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
 
@@ -208,6 +217,7 @@ impl InboundGroupSession {
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
+            shared_history,
         })
     }
 
@@ -228,7 +238,13 @@ impl InboundGroupSession {
         signing_key: Ed25519PublicKey,
         content: &room_key::MegolmV1AesSha2Content,
     ) -> Result<Self, SessionCreationError> {
-        let room_key::MegolmV1AesSha2Content { room_id, session_id: _, session_key, .. } = content;
+        let room_key::MegolmV1AesSha2Content {
+            room_id,
+            session_id: _,
+            session_key,
+            shared_history,
+            ..
+        } = content;
 
         Self::new(
             sender_key,
@@ -238,6 +254,7 @@ impl InboundGroupSession {
             SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
+            *shared_history,
         )
     }
 
@@ -265,6 +282,7 @@ impl InboundGroupSession {
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
             algorithm: (*self.algorithm).to_owned(),
+            shared_history: self.shared_history,
         }
     }
 
@@ -317,6 +335,7 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             sender_claimed_keys: (*self.creator_info.signing_keys).clone(),
             session_key,
+            shared_history: self.shared_history,
         }
     }
 
@@ -342,6 +361,7 @@ impl InboundGroupSession {
             backed_up,
             history_visibility,
             algorithm,
+            shared_history,
         } = pickle;
 
         let session: InnerSession = pickle.into();
@@ -362,6 +382,7 @@ impl InboundGroupSession {
             backed_up: AtomicBool::from(backed_up).into(),
             algorithm: algorithm.into(),
             imported,
+            shared_history,
         })
     }
 
@@ -511,6 +532,15 @@ impl InboundGroupSession {
     pub fn sender_data_type(&self) -> SenderDataType {
         self.sender_data.to_type()
     }
+
+    /// Whether this [`InboundGroupSession`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    pub fn shared_history(&self) -> bool {
+        self.shared_history
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -556,6 +586,13 @@ pub struct PickledInboundGroupSession {
     /// The algorithm of this inbound group session.
     #[serde(default = "default_algorithm")]
     pub algorithm: EventEncryptionAlgorithm,
+    /// Whether this [`InboundGroupSession`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    #[serde(default)]
+    pub shared_history: bool,
 }
 
 fn default_algorithm() -> EventEncryptionAlgorithm {
@@ -574,6 +611,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             session_key,
             sender_claimed_keys,
             forwarding_curve25519_key_chain: _,
+            shared_history,
         } = key;
 
         let config = OutboundGroupSession::session_config(algorithm)?;
@@ -596,6 +634,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
             imported: true,
             algorithm: algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
+            shared_history: *shared_history,
         })
     }
 }
@@ -626,6 +665,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            shared_history: false,
         }
     }
 }
@@ -652,6 +692,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            shared_history: false,
         }
     }
 }
@@ -768,6 +809,7 @@ mod tests {
             SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(HistoryVisibility::Shared),
+            false,
         )
         .unwrap();
 
@@ -814,6 +856,7 @@ mod tests {
                 "room_id":"!test:localhost",
                 "imported":false,
                 "backed_up":false,
+                "shared_history":false,
                 "history_visibility":"shared",
                 "algorithm":"m.megolm.v1.aes-sha2"
             })

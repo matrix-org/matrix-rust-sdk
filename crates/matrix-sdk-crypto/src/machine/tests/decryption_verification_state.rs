@@ -353,6 +353,7 @@ async fn test_verification_states_multiple_device() {
         SenderData::unknown(),
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
+        false,
     )
     .unwrap();
 
@@ -370,6 +371,7 @@ async fn test_verification_states_multiple_device() {
         SenderData::unknown(),
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
+        false,
     )
     .unwrap();
 

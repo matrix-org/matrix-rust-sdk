@@ -113,6 +113,13 @@ pub struct MegolmV1AesSha2Content {
     ///
     /// [`InboundGroupSession`]: vodozemac::megolm::InboundGroupSession
     pub session_key: SessionKey,
+    /// Whether this room key can be shared with users who are invited to the
+    /// room in the future, allowing access to history, as defined in
+    /// [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    #[serde(default, rename = "org.matrix.msc3061.shared_history")]
+    pub shared_history: bool,
     /// Any other, custom and non-specced fields of the content.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -120,8 +127,13 @@ pub struct MegolmV1AesSha2Content {
 
 impl MegolmV1AesSha2Content {
     /// Create a new `m.megolm.v1.aes-sha2` `m.room_key` content.
-    pub fn new(room_id: OwnedRoomId, session_id: String, session_key: SessionKey) -> Self {
-        Self { room_id, session_id, session_key, other: Default::default() }
+    pub fn new(
+        room_id: OwnedRoomId,
+        session_id: String,
+        session_key: SessionKey,
+        shared_history: bool,
+    ) -> Self {
+        Self { room_id, session_id, session_key, other: Default::default(), shared_history }
     }
 }
 
@@ -206,6 +218,7 @@ impl Serialize for RoomKeyContent {
 pub(super) mod tests {
     use assert_matches::assert_matches;
     use serde_json::{json, Value};
+    use similar_asserts::assert_eq;
 
     use super::RoomKeyEvent;
     use crate::types::events::room_key::RoomKeyContent;
@@ -217,6 +230,7 @@ pub(super) mod tests {
                 "m.custom": "something custom",
                 "algorithm": "m.megolm.v1.aes-sha2",
                 "room_id": "!Cuyf34gef24t:localhost",
+                "org.matrix.msc3061.shared_history": false,
                 "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
                 "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
                                 SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
