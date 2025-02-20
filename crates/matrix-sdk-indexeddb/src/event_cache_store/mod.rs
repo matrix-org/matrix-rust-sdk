@@ -23,6 +23,7 @@ use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
 use indexed_db_futures::IdbQuerySource;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_base::linked_chunk;
 use matrix_sdk_base::{
     event_cache::{
         store::{
@@ -46,6 +47,7 @@ use matrix_sdk_base::{
     // UniqueKey
 };
 
+use ruma::events::policy::rule::room;
 use ruma::{
     // time::SystemTime,
     MilliSecondsSinceUnixEpoch,
@@ -57,6 +59,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing::trace;
 use wasm_bindgen::JsValue;
+use web_sys::IdbKeyRange;
 use web_sys::IdbTransactionMode;
 
 pub use builder::IndexeddbEventCacheStoreBuilder;
@@ -106,11 +109,23 @@ impl IndexeddbEventCacheStore {
         let id_raw = format!("{}-{}", chunk_id, index);
         self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
     }
+
+    pub fn get_chunk_id(&self, id: &Option<String>) -> Option<u64> {
+        match id {
+            Some(id) => {
+                let mut parts = id.splitn(2, '-');
+                let room_id = parts.next().unwrap().to_owned();
+                let object_id = parts.next().unwrap().parse::<u64>().unwrap();
+                Some(object_id)
+            }
+            None => None,
+        }
+    }
 }
 
 type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Chunk {
     id: String,
     previous: Option<String>,
@@ -118,13 +133,12 @@ struct Chunk {
     type_str: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct IndexedDbGap {
-    id: String,
     prev_token: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct TimelineEventForCache {
     id: String,
     content: TimelineEvent,
@@ -166,7 +180,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
         for update in updates {
-            web_sys::console::log_1(&format!("🟦 Trying to handle update {:?}", update).into());
+            // web_sys::console::log_1(&format!("🟦 Trying to handle update {:?}", update).into());
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
                     let tx = self.inner.transaction_on_one_with_mode(
@@ -180,15 +194,14 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         .as_ref()
                         .map(ChunkIdentifier::index)
                         .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
-                    let new = new.index();
+
+                    let id = self.get_id(room_id.as_ref(), new.index().to_string().as_ref());
                     let next = next
                         .as_ref()
                         .map(ChunkIdentifier::index)
                         .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
 
-                    trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={new}, next={next:?})");
-
-                    let id = self.get_id(room_id.as_ref(), new.to_string().as_ref());
+                    trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={id}, next={next:?})");
 
                     let chunk = Chunk {
                         id: id.clone(),
@@ -214,7 +227,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                             self.serializer.deserialize_into_object(previous_chunk_js_value)?;
 
                         let updated_previous_chunk = Chunk {
-                            id: previous.clone(),
+                            id: previous_chunk.id,
                             previous: previous_chunk.previous,
                             next: Some(id.clone()),
                             type_str: previous_chunk.type_str,
@@ -234,7 +247,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                             self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
                         let updated_next_chunk = Chunk {
-                            id: next.clone(),
+                            id: next_chunk.id,
                             previous: Some(id),
                             next: next_chunk.next,
                             type_str: next_chunk.type_str,
@@ -258,20 +271,19 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         .as_ref()
                         .map(ChunkIdentifier::index)
                         .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
-                    let new = new.index();
+
+                    let id = self.get_id(room_id.as_ref(), new.index().to_string().as_ref());
                     let next = next
                         .as_ref()
                         .map(ChunkIdentifier::index)
                         .map(|n| self.get_id(room_id.as_ref(), n.to_string().as_ref()));
 
-                    let id = self.get_id(room_id.as_ref(), new.to_string().as_ref());
-
-                    trace!(%room_id,"Inserting new gap (prev={previous:?}, new={new}, next={next:?})");
+                    trace!(%room_id,"Inserting new gap (prev={previous:?}, new={id}, next={next:?})");
 
                     let chunk = Chunk {
                         id: id.clone(),
-                        previous,
-                        next,
+                        previous: previous.clone(),
+                        next: next.clone(),
                         type_str: CHUNK_TYPE_GAP_TYPE_STRING.to_owned(),
                     };
 
@@ -279,13 +291,55 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     object_store.add_val(&serialized_value)?;
 
+                    if let Some(previous) = previous {
+                        let previous_chunk_js_value = object_store
+                            .get_owned(&previous)?
+                            .await?
+                            .expect("Previous chunk not found");
+
+                        let previous_chunk: Chunk =
+                            self.serializer.deserialize_into_object(previous_chunk_js_value)?;
+
+                        let updated_previous_chunk = Chunk {
+                            id: previous_chunk.id,
+                            previous: previous_chunk.previous,
+                            next: Some(id.clone()),
+                            type_str: previous_chunk.type_str,
+                        };
+
+                        let updated_previous_value = self
+                            .serializer
+                            .serialize_into_object(&previous, &updated_previous_chunk)?;
+
+                        object_store.put_val(&updated_previous_value)?;
+                    }
+
+                    // update next if there
+                    if let Some(next) = next {
+                        let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
+                        let next_chunk: Chunk =
+                            self.serializer.deserialize_into_object(next_chunk_js_value)?;
+
+                        let updated_next_chunk = Chunk {
+                            id: next_chunk.id,
+                            previous: Some(id.clone()),
+                            next: next_chunk.next,
+                            type_str: next_chunk.type_str,
+                        };
+
+                        let updated_next_value =
+                            self.serializer.serialize_into_object(&next, &updated_next_chunk)?;
+
+                        object_store.put_val(&updated_next_value)?;
+                    }
+
                     let tx = self
                         .inner
                         .transaction_on_one_with_mode(keys::GAPS, IdbTransactionMode::Readwrite)?;
 
                     let object_store = tx.object_store(keys::GAPS)?;
 
-                    let gap = IndexedDbGap { id: id.clone(), prev_token: gap.prev_token };
+                    let gap = IndexedDbGap { prev_token: gap.prev_token };
 
                     let serialized_gap = self.serializer.serialize_into_object(&id, &gap)?;
 
@@ -510,8 +564,107 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
     /// Return all the raw components of a linked chunk, so the caller may
     /// reconstruct the linked chunk later.
-    async fn reload_linked_chunk(&self, _room_id: &RoomId) -> Result<Vec<RawChunk<Event, Gap>>> {
-        Ok(vec![])
+    async fn reload_linked_chunk(&self, room_id: &RoomId) -> Result<Vec<RawChunk<Event, Gap>>> {
+        // web_sys::console::log_1(&format!("🟦 reload_linked_chunk for room {}", room_id).into());
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::LINKED_CHUNKS, IdbTransactionMode::Readonly)?;
+
+        let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+
+        // let key_range = self.serializer.encode_to_range(room_id.as_ref(), room_id)?;
+        let key_range = IdbKeyRange::bound(
+            &JsValue::from_str(&format!("{}-", room_id)),
+            &JsValue::from_str(&format!("{}-\u{FFFF}", room_id)),
+        )
+        .unwrap();
+
+        let linked_chunks = object_store.get_all_with_key_owned(&key_range)?.await?;
+
+        // web_sys::console::log_1(&format!("🟦 found chunks: {}", linked_chunks.length()).into());
+
+        let mut raw_chunks = Vec::new();
+
+        for linked_chunk in linked_chunks {
+            let linked_chunk: Chunk = self.serializer.deserialize_into_object(linked_chunk)?;
+            // TODO unwrap
+            let chunk_id = self.get_chunk_id(&Some(linked_chunk.id.clone())).unwrap();
+            let previous_chunk_id = self.get_chunk_id(&linked_chunk.previous);
+            let next_chunk_id = self.get_chunk_id(&linked_chunk.next);
+
+            if (linked_chunk.type_str == CHUNK_TYPE_GAP_TYPE_STRING) {
+                let gaps_tx = self
+                    .inner
+                    .transaction_on_one_with_mode(keys::GAPS, IdbTransactionMode::Readonly)?;
+
+                let gaps_object_store = gaps_tx.object_store(keys::GAPS)?;
+
+                let gap_id = linked_chunk.id;
+                // web_sys::console::log_1(&format!("🟦 Trying to get gap {:?}", gap_id).into());
+                let gap_id_js_value = JsValue::from_str(&gap_id);
+                let gap_js_value = gaps_object_store.get(&gap_id_js_value)?.await?;
+                // web_sys::console::log_1(&format!("🟦 got gap {:?}", gap_js_value).into());
+                let gap: IndexedDbGap =
+                    self.serializer.deserialize_into_object(gap_js_value.unwrap())?;
+                // web_sys::console::log_1(&format!("🟦 deserializing gap {:?}", gap).into());
+
+                let gap = Gap { prev_token: gap.prev_token };
+
+                let raw_chunk = RawChunk {
+                    identifier: ChunkIdentifier::new(chunk_id),
+                    content: linked_chunk::ChunkContent::Gap(gap),
+                    previous: previous_chunk_id.map(ChunkIdentifier::new),
+                    next: next_chunk_id.map(ChunkIdentifier::new),
+                };
+
+                // web_sys::console::log_1(&format!("🟩 pushing gap chunk {:?}", raw_chunk).into());
+                raw_chunks.push(raw_chunk);
+            } else {
+                let events_tx = self
+                    .inner
+                    .transaction_on_one_with_mode(keys::EVENTS, IdbTransactionMode::Readonly)?;
+
+                let events_object_store = events_tx.object_store(keys::EVENTS)?;
+
+                // let events_key_range =
+                //     self.serializer.encode_to_range(room_id.as_ref(), linked_chunk.id)?;
+                let events_key_range = IdbKeyRange::bound(
+                    &JsValue::from_str(&format!("{}-", chunk_id)),
+                    &JsValue::from_str(&format!("{}-\u{FFFF}", chunk_id)),
+                )
+                .unwrap();
+
+                let events = events_object_store.get_all_with_key(&events_key_range)?.await?;
+                // web_sys::console::log_1(
+                //     &format!("🟦 Found events for chunk {:?}", events.length()).into(),
+                // );
+                let mut events_vec = Vec::new();
+
+                for event in events {
+                    // web_sys::console::log_1(&format!("🟦 deserializing {:?}", event).into());
+                    let event: TimelineEventForCache =
+                        self.serializer.deserialize_into_object(event)?;
+                    // web_sys::console::log_1(&format!("🟦 Event for chunk {:?}", event).into());
+                    events_vec.push(event.content);
+                }
+
+                let raw_chunk = RawChunk {
+                    identifier: ChunkIdentifier::new(chunk_id),
+                    content: linked_chunk::ChunkContent::Items(events_vec),
+                    previous: previous_chunk_id.map(ChunkIdentifier::new),
+                    next: next_chunk_id.map(ChunkIdentifier::new),
+                };
+
+                // web_sys::console::log_1(&format!("🟩 pushing event chunk {:?}", raw_chunk).into());
+                raw_chunks.push(raw_chunk);
+            }
+        }
+
+        // web_sys::console::log_1(
+        //     &format!("🟦 Returning reconstructed chunks {:?}", raw_chunks).into(),
+        // );
+
+        Ok(raw_chunks)
     }
 
     /// Clear persisted events for all the rooms.
