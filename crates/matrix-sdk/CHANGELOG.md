@@ -80,6 +80,10 @@ simpler methods:
   - Only one request is made to revoke the access token, since the server is
     supposed to revoke both the access token and the associated refresh token
     when the request is made.
+- [**breaking**]: Remove most of the parameter methods of
+  `OidcAuthCodeUrlBuilder`, since they were parameters defined in OpenID
+  Connect. Only the `prompt` and `user_id_hint` parameters are still supported.
+  ([#4699](https://github.com/matrix-org/matrix-rust-sdk/pull/4699))
 
 ## [0.10.0] - 2025-02-04
 
