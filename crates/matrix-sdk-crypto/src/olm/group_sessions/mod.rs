@@ -109,21 +109,32 @@ impl ExportedRoomKey {
         session_id: String,
         room_key: BackedUpRoomKey,
     ) -> Self {
+        let BackedUpRoomKey {
+            algorithm,
+            sender_key,
+            session_key,
+            sender_claimed_keys,
+            forwarding_curve25519_key_chain,
+        } = room_key;
+
         Self {
-            algorithm: room_key.algorithm,
+            algorithm,
             room_id,
-            sender_key: room_key.sender_key,
+            sender_key,
             session_id,
-            session_key: room_key.session_key,
-            sender_claimed_keys: room_key.sender_claimed_keys,
-            forwarding_curve25519_key_chain: room_key.forwarding_curve25519_key_chain,
+            session_key,
+            sender_claimed_keys,
+            forwarding_curve25519_key_chain,
         }
     }
 }
 
-/// A backed up version of an `InboundGroupSession`
+/// A backed up version of an [`InboundGroupSession`].
 ///
-/// This can be used to backup the `InboundGroupSession` to the server.
+/// This can be used to back up the [`InboundGroupSession`] to the server using
+/// [server-side key backups].
+///
+/// [server-side key backups]: https://spec.matrix.org/unstable/client-server-api/#server-side-key-backups
 #[derive(Deserialize, Serialize)]
 #[allow(missing_debug_implementations)]
 pub struct BackedUpRoomKey {
@@ -208,13 +219,23 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
 }
 
 impl From<ExportedRoomKey> for BackedUpRoomKey {
-    fn from(k: ExportedRoomKey) -> Self {
+    fn from(value: ExportedRoomKey) -> Self {
+        let ExportedRoomKey {
+            algorithm,
+            room_id: _,
+            sender_key,
+            session_id: _,
+            session_key,
+            sender_claimed_keys,
+            forwarding_curve25519_key_chain,
+        } = value;
+
         Self {
-            algorithm: k.algorithm,
-            sender_key: k.sender_key,
-            session_key: k.session_key,
-            sender_claimed_keys: k.sender_claimed_keys,
-            forwarding_curve25519_key_chain: k.forwarding_curve25519_key_chain,
+            algorithm,
+            sender_key,
+            session_key,
+            sender_claimed_keys,
+            forwarding_curve25519_key_chain,
         }
     }
 }

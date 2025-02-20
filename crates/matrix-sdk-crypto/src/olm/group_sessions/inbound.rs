@@ -332,7 +332,19 @@ impl InboundGroupSession {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(pickle: PickledInboundGroupSession) -> Result<Self, PickleError> {
-        let session: InnerSession = pickle.pickle.into();
+        let PickledInboundGroupSession {
+            pickle,
+            sender_key,
+            signing_key,
+            sender_data,
+            room_id,
+            imported,
+            backed_up,
+            history_visibility,
+            algorithm,
+        } = pickle;
+
+        let session: InnerSession = pickle.into();
         let first_known_index = session.first_known_index();
         let session_id = session.session_id();
 
@@ -340,16 +352,16 @@ impl InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: session_id.into(),
             creator_info: SessionCreatorInfo {
-                curve25519_key: pickle.sender_key,
-                signing_keys: pickle.signing_key.into(),
+                curve25519_key: sender_key,
+                signing_keys: signing_key.into(),
             },
-            sender_data: pickle.sender_data,
-            history_visibility: pickle.history_visibility.into(),
+            sender_data,
+            history_visibility: history_visibility.into(),
             first_known_index,
-            room_id: (*pickle.room_id).into(),
-            backed_up: AtomicBool::from(pickle.backed_up).into(),
-            algorithm: pickle.algorithm.into(),
-            imported: pickle.imported,
+            room_id,
+            backed_up: AtomicBool::from(backed_up).into(),
+            algorithm: algorithm.into(),
+            imported,
         })
     }
 
@@ -554,25 +566,35 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
     type Error = SessionCreationError;
 
     fn try_from(key: &ExportedRoomKey) -> Result<Self, Self::Error> {
-        let config = OutboundGroupSession::session_config(&key.algorithm)?;
-        let session = InnerSession::import(&key.session_key, config);
+        let ExportedRoomKey {
+            algorithm,
+            room_id,
+            sender_key,
+            session_id,
+            session_key,
+            sender_claimed_keys,
+            forwarding_curve25519_key_chain: _,
+        } = key;
+
+        let config = OutboundGroupSession::session_config(algorithm)?;
+        let session = InnerSession::import(session_key, config);
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
-            session_id: key.session_id.to_owned().into(),
+            session_id: session_id.to_owned().into(),
             creator_info: SessionCreatorInfo {
-                curve25519_key: key.sender_key,
-                signing_keys: key.sender_claimed_keys.to_owned().into(),
+                curve25519_key: *sender_key,
+                signing_keys: sender_claimed_keys.to_owned().into(),
             },
             // TODO: In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
             history_visibility: None.into(),
             first_known_index,
-            room_id: key.room_id.to_owned(),
+            room_id: room_id.to_owned(),
             imported: true,
-            algorithm: key.algorithm.to_owned().into(),
+            algorithm: algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
         })
     }
