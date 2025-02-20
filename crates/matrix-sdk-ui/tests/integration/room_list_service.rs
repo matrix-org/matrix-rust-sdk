@@ -2848,7 +2848,7 @@ async fn test_multiple_timeline_init() {
         .mock_room_messages()
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("hello").into_raw_timeline()])
-            .delayed(Duration::from_millis(500)))
+            .with_delay(Duration::from_millis(500)))
         .mount()
         .await;
 

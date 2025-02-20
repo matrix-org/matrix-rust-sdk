@@ -237,7 +237,7 @@ async fn test_read_messages() {
         });
         mock_server
             .mock_room_messages()
-            .limit(2)
+            .match_limit(2)
             .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
             .mock_once()
             .mount()
@@ -302,7 +302,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
         ];
         mock_server
             .mock_room_messages()
-            .limit(3)
+            .match_limit(3)
             .ok(RoomMessagesResponseTemplate::default().end_token(end).events(chunk2))
             .mock_once()
             .mount()
@@ -539,7 +539,7 @@ async fn test_send_delayed_message_event() {
     .await;
     mock_server
         .mock_room_send()
-        .with_delay(Duration::from_millis(1000))
+        .match_delayed_event(Duration::from_millis(1000))
         .for_type(MessageLikeEventType::RoomMessage)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
@@ -586,7 +586,7 @@ async fn test_send_delayed_state_event() {
 
     mock_server
         .mock_room_send_state()
-        .with_delay(Duration::from_millis(1000))
+        .match_delayed_event(Duration::from_millis(1000))
         .for_type(StateEventType::RoomName)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",

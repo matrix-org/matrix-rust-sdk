@@ -259,7 +259,7 @@ async fn test_backpaginate_once() {
         // back-pagination.
         server
             .mock_room_messages()
-            .from("prev_batch")
+            .match_from("prev_batch")
             .ok(RoomMessagesResponseTemplate::default().events(vec![
                 f.text_msg("world").event_id(event_id!("$2")),
                 f.text_msg("hello").event_id(event_id!("$3")),
@@ -346,7 +346,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     // The first back-pagination will return these two.
     server
         .mock_room_messages()
-        .from("prev_batch")
+        .match_from("prev_batch")
         .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch2").events(vec![
             f.text_msg("world").event_id(event_id!("$2")),
             f.text_msg("hello").event_id(event_id!("$3")),
@@ -358,7 +358,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     // The second round of back-pagination will return this one.
     server
         .mock_room_messages()
-        .from("prev_batch2")
+        .match_from("prev_batch2")
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$4"))]))
         .mock_once()
@@ -472,7 +472,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     // The first back-pagination will return these two.
     server
         .mock_room_messages()
-        .from("prev_batch")
+        .match_from("prev_batch")
         .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch2").events(vec![
             f.text_msg("world").event_id(event_id!("$2")),
             f.text_msg("hello").event_id(event_id!("$3")),
@@ -484,7 +484,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     // The second round of back-pagination will return this one.
     server
         .mock_room_messages()
-        .from("prev_batch2")
+        .match_from("prev_batch2")
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$4"))]))
         .mock_once()
@@ -599,10 +599,10 @@ async fn test_reset_while_backpaginating() {
     // Mock the first back-pagination request, with a delay.
     server
         .mock_room_messages()
-        .from("first_backpagination")
+        .match_from("first_backpagination")
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("lalala").into_raw_timeline()])
-            .delayed(Duration::from_millis(500)))
+            .with_delay(Duration::from_millis(500)))
         .mock_once()
         .mount()
         .await;
@@ -611,7 +611,7 @@ async fn test_reset_while_backpaginating() {
     // caused by the sync.
     server
         .mock_room_messages()
-        .from("second_backpagination")
+        .match_from("second_backpagination")
         .ok(RoomMessagesResponseTemplate::default()
             .end_token("third_backpagination")
             .events(vec![f.text_msg("finally!").into_raw_timeline()]))
@@ -951,7 +951,7 @@ async fn test_limited_timeline_without_storage() {
     // call, which checks this endpoint is called once.
     server
         .mock_room_messages()
-        .from("prev-batch")
+        .match_from("prev-batch")
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$1"))]))
         .mock_once()
@@ -1022,7 +1022,7 @@ async fn test_backpaginate_with_no_initial_events() {
                 f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
                 f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
             ])
-            .delayed(2 * wait_time))
+            .with_delay(2 * wait_time))
         .mock_once()
         .mount()
         .await;
@@ -1030,7 +1030,7 @@ async fn test_backpaginate_with_no_initial_events() {
     // The second round of back-pagination will return this one.
     server
         .mock_room_messages()
-        .from("prev_batch")
+        .match_from("prev_batch")
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("oh well").event_id(event_id!("$1"))]))
         .mock_once()
@@ -1112,7 +1112,7 @@ async fn test_backpaginate_replace_empty_gap() {
     // The second round of back-pagination will return this one.
     server
         .mock_room_messages()
-        .from("prev_batch")
+        .match_from("prev_batch")
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("hello").event_id(event_id!("$1"))]))
         .mock_once()
@@ -1290,7 +1290,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // For prev-batch2, the back-pagination returns nothing.
     server
         .mock_room_messages()
-        .from("prev-batch2")
+        .match_from("prev-batch2")
         .ok(RoomMessagesResponseTemplate::default())
         .mock_once()
         .mount()
@@ -1300,7 +1300,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // previous batch token.
     server
         .mock_room_messages()
-        .from("prev-batch")
+        .match_from("prev-batch")
         .ok(RoomMessagesResponseTemplate::default().end_token("prev-batch3").events(vec![
             // Items in reverse order, since this is back-pagination.
             f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
@@ -1386,7 +1386,7 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
     // Say the back-pagination doesn't return anything.
     server
         .mock_room_messages()
-        .from("prev-batch")
+        .match_from("prev-batch")
         .ok(RoomMessagesResponseTemplate::default())
         .mock_once()
         .mount()
@@ -1740,7 +1740,7 @@ async fn test_lazy_loading() {
     {
         let _network_pagination = mock_server
             .mock_room_messages()
-            .from("raclette")
+            .match_from("raclette")
             .ok(RoomMessagesResponseTemplate::default().end_token("numerobis").events(
                 (1..5) // Yes, the 0nth will be fetched with the next pagination.
                     // Backwards pagination implies events are in “reverse order”.
@@ -1809,7 +1809,7 @@ async fn test_lazy_loading() {
     {
         let _network_pagination = mock_server
             .mock_room_messages()
-            .from("numerobis")
+            .match_from("numerobis")
             .ok(RoomMessagesResponseTemplate::default().end_token("trois").events(vec![
                 // Backwards pagination implies events are in “reverse order”.
                 //
@@ -1869,7 +1869,7 @@ async fn test_lazy_loading() {
     {
         let _network_pagination = mock_server
             .mock_room_messages()
-            .from("trois")
+            .match_from("trois")
             .ok(RoomMessagesResponseTemplate::default().end_token("quattuor").events(
                 // Only events we already know about in the store.
                 (4..6)
