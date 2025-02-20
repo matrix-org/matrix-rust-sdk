@@ -474,7 +474,7 @@ mod tests {
     use imbl::{vector, Vector};
 
     use super::{
-        super::{ChunkIdentifierGenerator, EmptyChunk, LinkedChunk},
+        super::{Chunk, ChunkIdentifierGenerator, EmptyChunk, LinkedChunk, Update},
         VectorDiff,
     };
 
@@ -846,6 +846,100 @@ mod tests {
         assert_matches!(&diffs[1], VectorDiff::Append { values } => {
             assert_eq!(*values, ['g'].into());
         });
+    }
+
+    #[test]
+    fn test_as_vector_remove_chunk() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+        let mut as_vector = linked_chunk.as_vector().unwrap();
+
+        let mut accumulator = Vector::new();
+
+        assert!(as_vector.take().is_empty());
+
+        linked_chunk.push_items_back(['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['c']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['d', 'e', 'f', 'g']);
+
+        assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['c'] [-] ['d', 'e', 'f'] ['g']);
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7
+        // +---+---+---+---+---+---+---+
+        // | a | b | c | d | e | f | g |
+        // +---+---+---+---+---+---+---+
+        // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        // |
+        // new
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[
+                VectorDiff::Append { values: vector!['a', 'b'] },
+                VectorDiff::Append { values: vector!['c'] },
+                VectorDiff::Append { values: vector!['d', 'e', 'f'] },
+                VectorDiff::Append { values: vector!['g'] },
+            ],
+        );
+
+        // Empty a chunk, and remove it once it is empty.
+        linked_chunk
+            .remove_item_at(
+                linked_chunk.item_position(|item| *item == 'c').unwrap(),
+                EmptyChunk::Remove,
+            )
+            .unwrap();
+
+        assert_items_eq!(linked_chunk, ['a', 'b'] [-] [-] ['d', 'e', 'f'] ['g']);
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6
+        // +---+---+---+---+---+---+
+        // | a | b | d | e | f | g |
+        // +---+---+---+---+---+---+
+        //         ^
+        //         |
+        //         `c` has been removed
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 2 }]);
+
+        // Remove a gap.
+        linked_chunk.remove_gap_at(linked_chunk.chunk_identifier(Chunk::is_gap).unwrap()).unwrap();
+
+        assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['d', 'e', 'f'] ['g']);
+
+        // From an `ObservableVector` point of view, nothing changes.
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[]);
+
+        // Remove a non-empty chunk. This is not possible with the public
+        // `LinkedChunk` API yet, but let's try.
+        let d_e_and_f = linked_chunk.item_position(|item| *item == 'f').unwrap().chunk_identifier();
+        let updates = linked_chunk.updates().unwrap();
+        updates.push(Update::RemoveChunk(d_e_and_f));
+        // Note that `linked_chunk` is getting out of sync with `AsVector`
+        // but it's just a test. Better, it's the end of the test.
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3
+        // +---+---+---+
+        // | a | b | g |
+        // +---+---+---+
+        //         ^
+        //         |
+        //         `d`, `e` and `f` have been removed
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[
+                VectorDiff::Remove { index: 2 },
+                VectorDiff::Remove { index: 2 },
+                VectorDiff::Remove { index: 2 },
+            ],
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
