@@ -266,11 +266,10 @@ impl UpdateToVectorDiff {
                 | Update::NewGapChunk { previous, new, next, .. } => {
                     match (previous, next) {
                         // New chunk at the end.
-                        (Some(previous), None) => {
-                            debug_assert!(
-                                matches!(self.chunks.back(), Some((p, _)) if p == previous),
-                                "Inserting new chunk at the end: The previous chunk is invalid"
-                            );
+                        (Some(_previous), None) => {
+                            // No need to check `previous`. It's possible that the linked chunk is
+                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // `previous` might not exist in-memory yet.
 
                             self.chunks.push_back((*new, 0));
                         }

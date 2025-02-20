@@ -170,24 +170,91 @@ where
     // Emit the updates.
     if let Some(updates) = linked_chunk.updates.as_mut() {
         let first_chunk = linked_chunk.links.first_chunk();
+        emit_new_first_chunk_updates(first_chunk, updates);
+    }
 
-        let previous = first_chunk.previous().map(Chunk::identifier).or(first_chunk.lazy_previous);
-        let new = first_chunk.identifier();
-        let next = first_chunk.next().map(Chunk::identifier);
+    Ok(())
+}
 
-        match first_chunk.content() {
-            ChunkContent::Gap(gap) => {
-                updates.push(Update::NewGapChunk { previous, new, next, gap: gap.clone() });
-            }
+/// Emit updates whenever a new first chunk is inserted at the front of a
+/// `LinkedChunk`.
+fn emit_new_first_chunk_updates<const CAP: usize, Item, Gap>(
+    chunk: &Chunk<CAP, Item, Gap>,
+    updates: &mut ObservableUpdates<Item, Gap>,
+) where
+    Item: Clone,
+    Gap: Clone,
+{
+    let previous = chunk.previous().map(Chunk::identifier).or(chunk.lazy_previous);
+    let new = chunk.identifier();
+    let next = chunk.next().map(Chunk::identifier);
 
-            ChunkContent::Items(items) => {
-                updates.push(Update::NewItemsChunk { previous, new, next });
-                updates.push(Update::PushItems {
-                    at: first_chunk.first_position(),
-                    items: items.clone(),
-                });
-            }
+    match chunk.content() {
+        ChunkContent::Gap(gap) => {
+            updates.push(Update::NewGapChunk { previous, new, next, gap: gap.clone() });
         }
+        ChunkContent::Items(items) => {
+            updates.push(Update::NewItemsChunk { previous, new, next });
+            updates.push(Update::PushItems { at: chunk.first_position(), items: items.clone() });
+        }
+    }
+}
+
+/// Replace the items with the given last chunk of items and generator.
+///
+/// This clears all the chunks in memory before resetting to the new chunk,
+/// if provided.
+pub fn replace_with<const CAP: usize, Item, Gap>(
+    linked_chunk: &mut LinkedChunk<CAP, Item, Gap>,
+    chunk: Option<RawChunk<Item, Gap>>,
+    chunk_identifier_generator: ChunkIdentifierGenerator,
+) -> Result<(), LazyLoaderError>
+where
+    Item: Clone,
+    Gap: Clone,
+{
+    let Some(mut chunk) = chunk else {
+        // This is equivalent to clearing the linked chunk, and overriding the chunk ID
+        // generator afterwards. But, if there was no chunks in the DB, the generator
+        // should be reset too, so it's entirely equivalent to a clear.
+        linked_chunk.clear();
+        return Ok(());
+    };
+
+    // Check consistency before replacing the `LinkedChunk`.
+    // The number of items is not too large.
+    if let ChunkContent::Items(items) = &chunk.content {
+        if items.len() > CAP {
+            return Err(LazyLoaderError::ChunkTooLarge { id: chunk.identifier });
+        }
+    }
+
+    // Chunk has no next chunk.
+    if chunk.next.is_some() {
+        return Err(LazyLoaderError::ChunkIsNotLast { id: chunk.identifier });
+    }
+
+    // The last chunk is now valid.
+    linked_chunk.chunk_identifier_generator = chunk_identifier_generator;
+
+    // Take the `previous` chunk and consider it becomes the `lazy_previous`.
+    let lazy_previous = chunk.previous.take();
+
+    // Transform the `RawChunk` into a `Chunk`.
+    let mut chunk_ptr = Chunk::new_leaked(chunk.identifier, chunk.content);
+
+    // Set the `lazy_previous` value!
+    //
+    // SAFETY: Pointer is convertible to a reference.
+    unsafe { chunk_ptr.as_mut() }.lazy_previous = lazy_previous;
+
+    // Replace the first link with the new pointer.
+    linked_chunk.links.replace_with(chunk_ptr);
+
+    if let Some(updates) = linked_chunk.updates.as_mut() {
+        // TODO: clear updates first? (see same comment in `clear`).
+        updates.push(Update::Clear);
+        emit_new_first_chunk_updates(linked_chunk.links.first_chunk(), updates);
     }
 
     Ok(())
@@ -291,8 +358,9 @@ mod tests {
     use assert_matches::assert_matches;
 
     use super::{
-        super::Position, from_all_chunks, from_last_chunk, insert_new_first_chunk, ChunkContent,
-        ChunkIdentifier, ChunkIdentifierGenerator, LazyLoaderError, LinkedChunk, RawChunk, Update,
+        super::Position, from_all_chunks, from_last_chunk, insert_new_first_chunk, replace_with,
+        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LazyLoaderError, LinkedChunk,
+        RawChunk, Update,
     };
 
     #[test]
@@ -568,6 +636,177 @@ mod tests {
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(1), 0),
                         items: vec!['c', 'd']
+                    }
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn test_replace_with_chunk_too_large() {
+        // Start with a linked chunk with 3 chunks: one item, one gap, one item.
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
+        linked_chunk.push_items_back(vec!['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(vec!['c', 'd']);
+
+        // Try to replace it with a last chunk that has too many items.
+        let chunk_identifier_generator = ChunkIdentifierGenerator::new_from_scratch();
+
+        let chunk_id = ChunkIdentifier::new(1);
+        let raw_chunk = RawChunk {
+            previous: Some(ChunkIdentifier::new(0)),
+            identifier: chunk_id,
+            next: None,
+            content: ChunkContent::Items(vec!['e', 'f', 'g', 'h']),
+        };
+
+        let err = replace_with(&mut linked_chunk, Some(raw_chunk), chunk_identifier_generator)
+            .unwrap_err();
+        assert_matches!(err, LazyLoaderError::ChunkTooLarge { id } => {
+            assert_eq!(chunk_id, id);
+        });
+    }
+
+    #[test]
+    fn test_replace_with_next_chunk() {
+        // Start with a linked chunk with 3 chunks: one item, one gap, one item.
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new();
+        linked_chunk.push_items_back(vec!['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(vec!['c', 'd']);
+
+        // Try to replace it with a last chunk that has too many items.
+        let chunk_identifier_generator = ChunkIdentifierGenerator::new_from_scratch();
+
+        let chunk_id = ChunkIdentifier::new(1);
+        let raw_chunk = RawChunk {
+            previous: Some(ChunkIdentifier::new(0)),
+            identifier: chunk_id,
+            next: Some(ChunkIdentifier::new(2)),
+            content: ChunkContent::Items(vec!['e', 'f']),
+        };
+
+        let err = replace_with(&mut linked_chunk, Some(raw_chunk), chunk_identifier_generator)
+            .unwrap_err();
+        assert_matches!(err, LazyLoaderError::ChunkIsNotLast { id } => {
+            assert_eq!(chunk_id, id);
+        });
+    }
+
+    #[test]
+    fn test_replace_with_empty() {
+        // Start with a linked chunk with 3 chunks: one item, one gap, one item.
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new_with_update_history();
+        linked_chunk.push_items_back(vec!['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(vec!['c', 'd']);
+
+        // Drain initial updates.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        // Replace it with… you know, nothing (jon snow).
+        let chunk_identifier_generator =
+            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(
+                ChunkIdentifierGenerator::FIRST_IDENTIFIER,
+            );
+        replace_with(&mut linked_chunk, None, chunk_identifier_generator).unwrap();
+
+        // The linked chunk still has updates enabled.
+        assert!(linked_chunk.updates().is_some());
+
+        // Check the linked chunk only contains the default empty events chunk.
+        let mut it = linked_chunk.chunks();
+
+        assert_matches!(it.next(), Some(chunk) => {
+            assert_eq!(chunk.identifier(), ChunkIdentifier::new(0));
+            assert!(chunk.is_items());
+            assert!(chunk.next().is_none());
+            assert_matches!(chunk.content(), ChunkContent::Items(items) => {
+                assert!(items.is_empty());
+            });
+        });
+
+        // And there's no other chunk.
+        assert_matches!(it.next(), None);
+
+        // Check updates.
+        {
+            let updates = linked_chunk.updates().unwrap().take();
+
+            assert_eq!(updates.len(), 2);
+            assert_eq!(
+                updates,
+                [
+                    Update::Clear,
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn test_replace_with_non_empty() {
+        // Start with a linked chunk with 3 chunks: one item, one gap, one item.
+        let mut linked_chunk = LinkedChunk::<2, char, ()>::new_with_update_history();
+        linked_chunk.push_items_back(vec!['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(vec!['c', 'd']);
+
+        // Drain initial updates.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        // Replace it with a single chunk (sorry, jon).
+        let chunk_identifier_generator =
+            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(ChunkIdentifier::new(42));
+
+        let chunk_id = ChunkIdentifier::new(1);
+        let chunk = RawChunk {
+            previous: Some(ChunkIdentifier::new(0)),
+            identifier: chunk_id,
+            next: None,
+            content: ChunkContent::Items(vec!['e', 'f']),
+        };
+        replace_with(&mut linked_chunk, Some(chunk), chunk_identifier_generator).unwrap();
+
+        // The linked chunk still has updates enabled.
+        assert!(linked_chunk.updates().is_some());
+
+        let mut it = linked_chunk.chunks();
+
+        // The first chunk is an event chunks with the expected items.
+        assert_matches!(it.next(), Some(chunk) => {
+            assert_eq!(chunk.identifier(), chunk_id);
+            assert!(chunk.next().is_none());
+            assert_matches!(chunk.content(), ChunkContent::Items(items) => {
+                assert_eq!(*items, vec!['e', 'f']);
+            });
+        });
+
+        // Nothing more.
+        assert!(it.next().is_none());
+
+        // Check updates.
+        {
+            let updates = linked_chunk.updates().unwrap().take();
+
+            assert_eq!(updates.len(), 3);
+            assert_eq!(
+                updates,
+                [
+                    Update::Clear,
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: chunk_id,
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec!['e', 'f']
                     }
                 ]
             );
