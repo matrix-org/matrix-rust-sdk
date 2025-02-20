@@ -24,7 +24,7 @@ pub use bytes;
 pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
     deserialized_responses,
-    store::{DynStateStore, MemoryStore, StateStoreExt},
+    store::{self, DynStateStore, MemoryStore, StateStoreExt},
     ComposerDraft, ComposerDraftType, QueueWedgeError, Room as BaseRoom,
     RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
