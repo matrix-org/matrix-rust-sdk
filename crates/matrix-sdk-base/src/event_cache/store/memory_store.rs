@@ -78,8 +78,7 @@ struct MediaContent {
     last_access: SystemTime,
 }
 
-// SAFETY: `new_unchecked` is safe because 20 is not zero.
-const NUMBER_OF_MEDIAS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(20) };
+const NUMBER_OF_MEDIAS: NonZeroUsize = NonZeroUsize::new(20).unwrap();
 
 impl Default for MemoryStore {
     fn default() -> Self {
