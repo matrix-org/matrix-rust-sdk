@@ -22,7 +22,7 @@ use mas_oidc_client::{
         DiscoveryError as OidcDiscoveryError, Error as OidcClientError, ErrorBody as OidcErrorBody,
         HttpError as OidcHttpError, TokenRefreshError, TokenRequestError,
     },
-    requests::authorization_code::{AuthorizationRequestData, AuthorizationValidationData},
+    requests::authorization_code::AuthorizationValidationData,
     types::{
         client_credentials::ClientCredentials,
         errors::ClientErrorCode,
@@ -190,16 +190,6 @@ impl OidcBackend for MockImpl {
             client_id_issued_at: None,
             client_secret_expires_at: None,
         })
-    }
-
-    async fn build_par_authorization_url(
-        &self,
-        _client_credentials: ClientCredentials,
-        _par_endpoint: &Url,
-        _authorization_endpoint: Url,
-        _authorization_data: AuthorizationRequestData,
-    ) -> Result<(Url, AuthorizationValidationData), OidcError> {
-        unimplemented!()
     }
 
     async fn revoke_token(

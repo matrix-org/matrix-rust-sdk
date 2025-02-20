@@ -23,10 +23,7 @@ use mas_oidc_client::{
     http_service::HttpService,
     jose::jwk::PublicJsonWebKeySet,
     requests::{
-        authorization_code::{
-            access_token_with_authorization_code, build_par_authorization_url,
-            AuthorizationRequestData, AuthorizationValidationData,
-        },
+        authorization_code::{access_token_with_authorization_code, AuthorizationValidationData},
         discovery::{discover, insecure_discover},
         jose::{fetch_jwks, JwtVerificationData},
         refresh_token::refresh_access_token,
@@ -223,25 +220,6 @@ impl OidcBackend for OidcServer {
         )
         .await
         .map_err(Into::into)
-    }
-
-    async fn build_par_authorization_url(
-        &self,
-        client_credentials: ClientCredentials,
-        par_endpoint: &Url,
-        authorization_endpoint: Url,
-        authorization_data: AuthorizationRequestData,
-    ) -> Result<(Url, AuthorizationValidationData), OidcError> {
-        Ok(build_par_authorization_url(
-            &self.http_service(),
-            client_credentials,
-            par_endpoint,
-            authorization_endpoint,
-            authorization_data,
-            Utc::now(),
-            &mut rng()?,
-        )
-        .await?)
     }
 
     async fn revoke_token(

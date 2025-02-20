@@ -23,7 +23,7 @@ use mas_oidc_client::{
     },
 };
 use ruma::UserId;
-use tracing::{error, info, instrument};
+use tracing::{info, instrument};
 use url::Url;
 
 use super::{Oidc, OidcError};
@@ -171,55 +171,12 @@ impl OidcAuthCodeUrlBuilder {
         }
 
         let authorization_endpoint = provider_metadata.authorization_endpoint();
-        let mut rng = super::rng()?;
 
-        // Try a pushed authorization request if the provider supports it.
-        let (url, validation_data) = if let Some(par_endpoint) =
-            &provider_metadata.pushed_authorization_request_endpoint
-        {
-            let client_credentials = oidc.data().ok_or(OidcError::NotAuthenticated)?.credentials();
-
-            let res = oidc
-                .backend
-                .build_par_authorization_url(
-                    client_credentials.clone(),
-                    par_endpoint,
-                    authorization_endpoint.clone(),
-                    authorization_data.clone(),
-                )
-                .await;
-
-            match res {
-                Ok(res) => res,
-                Err(error) => {
-                    // Keycloak doesn't allow public clients to use the PAR endpoint, so we
-                    // should try a regular authorization URL instead.
-                    // See: <https://github.com/keycloak/keycloak/issues/8939>
-                    let client_metadata =
-                        oidc.client_metadata().ok_or(OidcError::NotAuthenticated)?;
-
-                    // If the client said that PAR should be enforced, we should not try without
-                    // it, so just return the error.
-                    if client_metadata.require_pushed_authorization_requests.unwrap_or(false) {
-                        return Err(error);
-                    }
-
-                    error!(
-                        ?error,
-                        "Error making a request to the Pushed Authorization Request endpoint. \
-                        Falling back to a regular authorization URL"
-                    );
-
-                    build_authorization_url(
-                        authorization_endpoint.clone(),
-                        authorization_data,
-                        &mut rng,
-                    )?
-                }
-            }
-        } else {
-            build_authorization_url(authorization_endpoint.clone(), authorization_data, &mut rng)?
-        };
+        let (url, validation_data) = build_authorization_url(
+            authorization_endpoint.clone(),
+            authorization_data,
+            &mut super::rng()?,
+        )?;
 
         let state = validation_data.state.clone();
 
