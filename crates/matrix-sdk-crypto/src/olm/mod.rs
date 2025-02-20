@@ -55,13 +55,10 @@ pub(crate) mod tests {
         user_id, DeviceId, UserId,
     };
     use serde_json::{from_value, json, Value};
-    use vodozemac::{
-        olm::{OlmMessage, SessionConfig},
-        Curve25519PublicKey, Ed25519PublicKey,
-    };
+    use vodozemac::olm::{OlmMessage, SessionConfig};
 
     use crate::{
-        olm::{Account, ExportedRoomKey, InboundGroupSession, SenderData, Session},
+        olm::{Account, ExportedRoomKey, InboundGroupSession, Session},
         types::events::{
             forwarded_room_key::ForwardedRoomKeyContent, room::encrypted::EncryptedEvent,
         },
@@ -175,27 +172,14 @@ pub(crate) mod tests {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = alice.create_group_session_pair_with_defaults(room_id).await;
+        let (outbound, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
         outbound.mark_as_shared();
         assert!(outbound.shared());
 
-        let inbound = InboundGroupSession::new(
-            Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw")
-                .unwrap(),
-            Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
-            room_id,
-            &outbound.session_key().await,
-            SenderData::unknown(),
-            outbound.settings().algorithm.to_owned(),
-            None,
-        )
-        .expect("We can always create an inbound group session from an outbound one");
-
         assert_eq!(0, inbound.first_known_index());
-
         assert_eq!(outbound.session_id(), inbound.session_id());
 
         let plaintext = "This is a secret to everybody".to_owned();
@@ -213,7 +197,7 @@ pub(crate) mod tests {
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
 
-        let (outbound, _) = alice.create_group_session_pair_with_defaults(room_id).await;
+        let (outbound, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
@@ -226,20 +210,7 @@ pub(crate) mod tests {
             RoomMessageEventContent::text_plain("Hello edit").into(),
         )));
 
-        let inbound = InboundGroupSession::new(
-            Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw")
-                .unwrap(),
-            Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
-            room_id,
-            &outbound.session_key().await,
-            SenderData::unknown(),
-            outbound.settings().algorithm.to_owned(),
-            None,
-        )
-        .unwrap();
-
         assert_eq!(0, inbound.first_known_index());
-
         assert_eq!(outbound.session_id(), inbound.session_id());
 
         let encrypted_content =
