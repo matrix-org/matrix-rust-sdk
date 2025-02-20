@@ -435,7 +435,7 @@ impl RoomEventCacheInner {
         } else {
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
-            let (_, sync_timeline_events_diffs) = state
+            let ((), mut sync_timeline_events_diffs) = state
                 .with_events_mut(|room_events| {
                     // If we only received duplicated events, we don't need to store the gap: if
                     // there was a gap, we'd have received an unknown event at the tail of
@@ -461,8 +461,21 @@ impl RoomEventCacheInner {
                 })
                 .await?;
 
+            if prev_batch.is_some() && !all_duplicates {
                 // If there was a previous batch token, and there's at least one non-duplicated
+                // new event, unload the chunks so it only contains the last
+                // one; otherwise, there might be a valid gap in between, and
+                // observers may not render it (yet). In this case, extend the
+                // updates with those from the unload; the new updates include a `clear` (as of
+                // 2025-02-24), so they will remove all the previous ones first.
+                //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
+                // events and gaps are properly persisted to storage.
+                if let Some(new_events_diffs) = state.shrink_to_last_chunk().await? {
+                    sync_timeline_events_diffs.extend(new_events_diffs);
+                }
+            }
+
             {
                 // Fill the AllEventsCache.
                 let mut all_events = self.all_events.write().await;
@@ -1690,6 +1703,8 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_no_useless_gaps() {
+        use crate::event_cache::room::LoadMoreEventsBackwardsOutcome;
+
         let room_id = room_id!("!galette:saucisse.bzh");
 
         let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
@@ -1725,11 +1740,31 @@ mod tests {
             .unwrap();
 
         {
-            let state = room_event_cache.inner.state.read().await;
+            let mut state = room_event_cache.inner.state.write().await;
 
             let mut num_gaps = 0;
             let mut num_events = 0;
 
+            for c in state.events().chunks() {
+                match c.content() {
+                    ChunkContent::Items(items) => num_events += items.len(),
+                    ChunkContent::Gap(_) => num_gaps += 1,
+                }
+            }
+
+            // The limited sync unloads the chunk, so it will appear as if there are only
+            // the events.
+            assert_eq!(num_gaps, 0);
+            assert_eq!(num_events, 1);
+
+            // But if I manually reload more of the chunk, the gap will be present.
+            assert_matches!(
+                state.load_more_events_backwards().await.unwrap(),
+                LoadMoreEventsBackwardsOutcome::Gap
+            );
+
+            num_gaps = 0;
+            num_events = 0;
             for c in state.events().chunks() {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),
