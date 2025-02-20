@@ -717,17 +717,19 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
-        UserId,
+        device_id, events::room::history_visibility::HistoryVisibility, owned_room_id, room_id,
+        user_id, DeviceId, UserId,
     };
+    use serde_json::json;
+    use similar_asserts::assert_eq;
     use vodozemac::{
         megolm::{SessionKey, SessionOrdering},
         Curve25519PublicKey, Ed25519PublicKey,
     };
 
     use crate::{
-        olm::{InboundGroupSession, KnownSenderData, SenderData},
-        types::EventEncryptionAlgorithm,
+        olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, KnownSenderData, SenderData},
+        types::{events::room_key, EventEncryptionAlgorithm},
         Account,
     };
 
@@ -982,5 +984,163 @@ mod tests {
             ",
         )
         .unwrap()
+    }
+
+    #[async_test]
+    async fn test_shared_history_from_m_room_key_content() {
+        let content = json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "room_id": "!Cuyf34gef24t:localhost",
+            "org.matrix.msc3061.shared_history": true,
+            "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
+            "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
+                            SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
+                            jVv80fMPHfGc49hPdu8A+xnwD4SQiYdFmSWJOIqsxeo/fiH\
+                            tino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31\
+                            QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaY\
+                            U5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80\
+                            gdHUwHSgMk77vCc2a5KHKLDA",
+        });
+
+        let sender_key = Curve25519PublicKey::from_bytes([0; 32]);
+        let signing_key = Ed25519PublicKey::from_slice(&[0; 32]).expect("");
+        let mut content: room_key::MegolmV1AesSha2Content = serde_json::from_value(content)
+            .expect("We should be able to deserialize the m.room_key content");
+
+        let session = InboundGroupSession::from_room_key_content(sender_key, signing_key, &content)
+            .expect(
+                "We should be able to create an inbound group session from the room key content",
+            );
+
+        assert!(
+            session.shared_history,
+            "The shared history flag should be set as it was set in the m.room_key content"
+        );
+
+        content.shared_history = false;
+        let session = InboundGroupSession::from_room_key_content(sender_key, signing_key, &content)
+            .expect(
+                "We should be able to create an inbound group session from the room key content",
+            );
+
+        assert!(
+            !session.shared_history,
+            "The shared history flag should not be set as it was not set in the m.room_key content"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_from_exported_room_key() {
+        let content = json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!room:id",
+                "sender_key": "FOvlmz18LLI3k/llCpqRoKT90+gFF8YhuL+v1YBXHlw",
+                "session_id": "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0",
+                "session_key": "AQAAAAAclzWVMeWBKH+B/WMowa3rb4ma3jEl6n5W4GCs9ue65CruzD3ihX+85pZ9hsV9Bf6fvhjp76WNRajoJYX0UIt7aosjmu0i+H+07hEQ0zqTKpVoSH0ykJ6stAMhdr6Q4uW5crBmdTTBIsqmoWsNJZKKoE2+ldYrZ1lrFeaJbjBIY/9ivle++74qQsT2dIKWPanKc9Q2Gl8LjESLtFBD9Fmt",
+                "sender_claimed_keys": {
+                    "ed25519": "F4P7f1Z0RjbiZMgHk1xBCG3KC4/Ng9PmxLJ4hQ13sHA"
+                },
+                "forwarding_curve25519_key_chain": [],
+                "org.matrix.msc3061.shared_history": true
+
+        });
+
+        let mut content: ExportedRoomKey = serde_json::from_value(content)
+            .expect("We should be able to deserialize the m.room_key content");
+
+        let session = InboundGroupSession::from_export(&content).expect(
+            "We should be able to create an inbound group session from the room key export",
+        );
+        assert!(
+            session.shared_history,
+            "The shared history flag should be set as it was set in the exported room key"
+        );
+
+        content.shared_history = false;
+
+        let session = InboundGroupSession::from_export(&content).expect(
+            "We should be able to create an inbound group session from the room key export",
+        );
+        assert!(
+            !session.shared_history,
+            "The shared history flag should not be set as it was not set in the exported room key"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_from_backed_up_room_key() {
+        let content = json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "sender_key": "FOvlmz18LLI3k/llCpqRoKT90+gFF8YhuL+v1YBXHlw",
+                "session_key": "AQAAAAAclzWVMeWBKH+B/WMowa3rb4ma3jEl6n5W4GCs9ue65CruzD3ihX+85pZ9hsV9Bf6fvhjp76WNRajoJYX0UIt7aosjmu0i+H+07hEQ0zqTKpVoSH0ykJ6stAMhdr6Q4uW5crBmdTTBIsqmoWsNJZKKoE2+ldYrZ1lrFeaJbjBIY/9ivle++74qQsT2dIKWPanKc9Q2Gl8LjESLtFBD9Fmt",
+                "sender_claimed_keys": {
+                    "ed25519": "F4P7f1Z0RjbiZMgHk1xBCG3KC4/Ng9PmxLJ4hQ13sHA"
+                },
+                "forwarding_curve25519_key_chain": [],
+                "org.matrix.msc3061.shared_history": true
+
+        });
+
+        let session_id = "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0";
+        let room_id = owned_room_id!("!room:id");
+        let room_key: BackedUpRoomKey = serde_json::from_value(content)
+            .expect("We should be able to deserialize the backed up room key");
+
+        let room_key =
+            ExportedRoomKey::from_backed_up_room_key(room_id, session_id.to_owned(), room_key);
+
+        let session = InboundGroupSession::from_export(&room_key).expect(
+            "We should be able to create an inbound group session from the room key export",
+        );
+        assert!(
+            session.shared_history,
+            "The shared history flag should be set as it was set in the backed up room key"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_in_pickle() {
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, mut inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        inbound.shared_history = true;
+        let pickle = inbound.pickle().await;
+
+        assert!(
+            pickle.shared_history,
+            "The set shared history flag should have been copied to the pickle"
+        );
+
+        inbound.shared_history = false;
+        let pickle = inbound.pickle().await;
+
+        assert!(
+            !pickle.shared_history,
+            "The unset shared history flag should have been copied to the pickle"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_in_export() {
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, mut inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        inbound.shared_history = true;
+        let export = inbound.export().await;
+        assert!(
+            export.shared_history,
+            "The set shared history flag should have been copied to the room key export"
+        );
+
+        inbound.shared_history = false;
+        let export = inbound.export().await;
+        assert!(
+            !export.shared_history,
+            "The unset shared history flag should have been copied to the room key export"
+        );
     }
 }
