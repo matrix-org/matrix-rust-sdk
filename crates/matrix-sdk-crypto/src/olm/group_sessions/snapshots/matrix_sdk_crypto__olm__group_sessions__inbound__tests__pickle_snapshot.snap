@@ -1,0 +1,32 @@
+---
+source: crates/matrix-sdk-crypto/src/olm/group_sessions/inbound.rs
+expression: pickle
+---
+{
+  "pickle": {
+    "initial_ratchet": {
+      "inner": "[ratchet]",
+      "counter": 0
+    },
+    "signing_key": "[signing_key]",
+    "signing_key_verified": true,
+    "config": {
+      "version": "V1"
+    }
+  },
+  "sender_key": "[sender_key]",
+  "signing_key": {
+    "ed25519": "[ed25519_key]"
+  },
+  "sender_data": {
+    "UnknownDevice": {
+      "legacy_session": false
+    }
+  },
+  "room_id": "!test:localhost",
+  "imported": false,
+  "backed_up": false,
+  "history_visibility": "shared",
+  "algorithm": "m.megolm.v1.aes-sha2",
+  "shared_history": true
+}
