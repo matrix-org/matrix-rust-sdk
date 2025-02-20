@@ -277,6 +277,7 @@ impl TimelineBuilder {
                                     match origin {
                                         EventsOrigin::Sync => RemoteEventOrigin::Sync,
                                         EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                                        EventsOrigin::Cache => RemoteEventOrigin::Cache,
                                     },
                                 )
                                 .await;
