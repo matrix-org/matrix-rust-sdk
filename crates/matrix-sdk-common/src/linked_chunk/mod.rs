@@ -502,7 +502,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             // if the `chunk` is not the first one, we can remove it.
             if empty_chunk.remove() && can_unlink_chunk && chunk.is_first_chunk().not() {
                 // Unlink `chunk`.
-                chunk.unlink(&mut self.updates);
+                chunk.unlink(self.updates.as_mut());
 
                 chunk_ptr = Some(chunk.as_ptr());
 
@@ -705,7 +705,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         let previous_ptr = chunk.previous;
         let position_of_next = chunk.next().map(|next| next.first_position());
 
-        chunk.unlink(&mut self.updates);
+        chunk.unlink(self.updates.as_mut());
 
         let chunk_ptr = chunk.as_ptr();
 
@@ -783,7 +783,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 .unwrap();
 
             // Now that new items have been pushed, we can unlink the gap chunk.
-            chunk.unlink(&mut self.updates);
+            chunk.unlink(self.updates.as_mut());
 
             // Get the pointer to `chunk`.
             chunk_ptr = chunk.as_ptr();
@@ -1501,7 +1501,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     ///
     /// Be careful: `self` won't belong to `LinkedChunk` anymore, and should be
     /// dropped appropriately.
-    fn unlink(&mut self, updates: &mut Option<ObservableUpdates<Item, Gap>>) {
+    fn unlink(&mut self, updates: Option<&mut ObservableUpdates<Item, Gap>>) {
         let previous_ptr = self.previous;
         let next_ptr = self.next;
         // If `self` is not the first, `lazy_previous` might be set on its previous
@@ -1518,7 +1518,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
             next.lazy_previous = lazy_previous;
         }
 
-        if let Some(updates) = updates.as_mut() {
+        if let Some(updates) = updates {
             updates.push(Update::RemoveChunk(self.identifier()));
         }
     }
