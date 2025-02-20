@@ -17,7 +17,7 @@
 //! Used mostly for testing purposes.
 
 use mas_oidc_client::{
-    requests::authorization_code::{AuthorizationRequestData, AuthorizationValidationData},
+    requests::authorization_code::AuthorizationValidationData,
     types::{
         client_credentials::ClientCredentials,
         iana::oauth::OAuthTokenTypeHint,
@@ -71,14 +71,6 @@ pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
         refresh_token: String,
         latest_id_token: Option<IdToken<'static>>,
     ) -> Result<RefreshedSessionTokens, OidcError>;
-
-    async fn build_par_authorization_url(
-        &self,
-        client_credentials: ClientCredentials,
-        par_endpoint: &Url,
-        authorization_endpoint: Url,
-        authorization_data: AuthorizationRequestData,
-    ) -> Result<(Url, AuthorizationValidationData), OidcError>;
 
     async fn revoke_token(
         &self,
