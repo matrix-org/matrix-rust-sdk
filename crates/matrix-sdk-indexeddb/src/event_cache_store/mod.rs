@@ -77,6 +77,7 @@ mod keys {
     // pub const MEDIA: &str = "media";
 }
 
+pub const KEY_SEPARATOR: &str = "\u{001D}";
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
 const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
@@ -101,19 +102,19 @@ impl IndexeddbEventCacheStore {
     }
 
     pub fn get_id(&self, room_id: &str, object_id: &str) -> String {
-        let id_raw = format!("{}-{}", room_id, object_id);
+        let id_raw = [room_id, KEY_SEPARATOR, object_id].concat();
         self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
     }
 
     pub fn get_event_id(&self, room_id: &str, chunk_id: &str, index: usize) -> String {
-        let id_raw = format!("{}-{}", chunk_id, index);
+        let id_raw = [chunk_id, KEY_SEPARATOR, &index.to_string()].concat();
         self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
     }
 
     pub fn get_chunk_id(&self, id: &Option<String>) -> Option<u64> {
         match id {
             Some(id) => {
-                let mut parts = id.splitn(2, '-');
+                let mut parts = id.splitn(2, KEY_SEPARATOR);
                 let room_id = parts.next().unwrap().to_owned();
                 let object_id = parts.next().unwrap().parse::<u64>().unwrap();
                 Some(object_id)
@@ -476,7 +477,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let event_id = format!("{}-{}", chunk_id, index);
+                    let event_id = format!("{}{}{}", chunk_id, KEY_SEPARATOR, index);
                     let event_id_js_value = JsValue::from_str(&event_id);
 
                     object_store.delete(&event_id_js_value)?;
@@ -532,7 +533,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         // Delete all events for chunk
                         let events_key_range = self.serializer.encode_to_range(
                             keys::EVENTS,
-                            format!("{}-{}", room_id, linked_chunk.id),
+                            format!("{}{}{}", room_id, KEY_SEPARATOR, linked_chunk.id),
                         )?;
 
                         let events_tx = self.inner.transaction_on_one_with_mode(
@@ -565,23 +566,17 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     /// Return all the raw components of a linked chunk, so the caller may
     /// reconstruct the linked chunk later.
     async fn reload_linked_chunk(&self, room_id: &RoomId) -> Result<Vec<RawChunk<Event, Gap>>> {
-        // web_sys::console::log_1(&format!("🟦 reload_linked_chunk for room {}", room_id).into());
         let tx = self
             .inner
             .transaction_on_one_with_mode(keys::LINKED_CHUNKS, IdbTransactionMode::Readonly)?;
 
         let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-        // let key_range = self.serializer.encode_to_range(room_id.as_ref(), room_id)?;
-        let key_range = IdbKeyRange::bound(
-            &JsValue::from_str(&format!("{}-", room_id)),
-            &JsValue::from_str(&format!("{}-\u{FFFF}", room_id)),
-        )
-        .unwrap();
+        let key_range = IdbKeyRange::lower_bound(&JsValue::from_str(&room_id.as_str())).unwrap();
 
-        let linked_chunks = object_store.get_all_with_key_owned(&key_range)?.await?;
+        let linked_chunks = object_store.get_all_with_key_owned(key_range)?.await?;
 
-        // web_sys::console::log_1(&format!("🟦 found chunks: {}", linked_chunks.length()).into());
+        web_sys::console::log_1(&format!("🟦 found chunks: {}", linked_chunks.length()).into());
 
         let mut raw_chunks = Vec::new();
 
@@ -626,13 +621,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                 let events_object_store = events_tx.object_store(keys::EVENTS)?;
 
-                // let events_key_range =
-                //     self.serializer.encode_to_range(room_id.as_ref(), linked_chunk.id)?;
-                let events_key_range = IdbKeyRange::bound(
-                    &JsValue::from_str(&format!("{}-", chunk_id)),
-                    &JsValue::from_str(&format!("{}-\u{FFFF}", chunk_id)),
-                )
-                .unwrap();
+                let events_key_range =
+                    IdbKeyRange::lower_bound(&JsValue::from_str(&chunk_id.to_string())).unwrap();
 
                 let events = events_object_store.get_all_with_key(&events_key_range)?.await?;
                 // web_sys::console::log_1(
