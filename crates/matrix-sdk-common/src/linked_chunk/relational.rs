@@ -295,11 +295,14 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
 
     /// Return an iterator that yields events of a particular room with no
     /// particular order.
-    pub fn unordered_events<'a>(&'a self, room_id: &'a RoomId) -> impl Iterator<Item = &'a Item> {
+    pub fn unordered_events<'a>(
+        &'a self,
+        room_id: &'a RoomId,
+    ) -> impl Iterator<Item = (&'a Item, Position)> {
         self.items.iter().filter_map(move |item_row| {
             if item_row.room_id == room_id {
                 match &item_row.item {
-                    Either::Item(item) => Some(item),
+                    Either::Item(item) => Some((item, item_row.position)),
                     Either::Gap(..) => None,
                 }
             } else {
@@ -1116,7 +1119,7 @@ mod tests {
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
                 Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
-                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['d', 'e', 'f'] },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec!['d', 'e', 'f'] },
             ],
         );
 
@@ -1130,12 +1133,12 @@ mod tests {
 
         let mut events = relational_linked_chunk.unordered_events(room_id);
 
-        assert_eq!(*events.next().unwrap(), 'a');
-        assert_eq!(*events.next().unwrap(), 'b');
-        assert_eq!(*events.next().unwrap(), 'c');
-        assert_eq!(*events.next().unwrap(), 'd');
-        assert_eq!(*events.next().unwrap(), 'e');
-        assert_eq!(*events.next().unwrap(), 'f');
+        assert_eq!(events.next().unwrap(), (&'a', Position::new(CId::new(0), 0)));
+        assert_eq!(events.next().unwrap(), (&'b', Position::new(CId::new(0), 1)));
+        assert_eq!(events.next().unwrap(), (&'c', Position::new(CId::new(0), 2)));
+        assert_eq!(events.next().unwrap(), (&'d', Position::new(CId::new(1), 0)));
+        assert_eq!(events.next().unwrap(), (&'e', Position::new(CId::new(1), 1)));
+        assert_eq!(events.next().unwrap(), (&'f', Position::new(CId::new(1), 2)));
         assert!(events.next().is_none());
     }
 

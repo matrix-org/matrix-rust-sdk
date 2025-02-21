@@ -21,8 +21,8 @@ use std::{
 use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
-        relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator, RawChunk,
-        Update,
+        relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator, Position,
+        RawChunk, Update,
     },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
@@ -177,24 +177,24 @@ impl EventCacheStore for MemoryStore {
         &self,
         room_id: &RoomId,
         mut events: Vec<OwnedEventId>,
-    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
         // Collect all duplicated events.
         let inner = self.inner.read().unwrap();
 
         let mut duplicated_events = Vec::new();
 
-        for event in inner.events.unordered_events(room_id) {
+        for (event, position) in inner.events.unordered_events(room_id) {
             // If `events` is empty, we can short-circuit.
             if events.is_empty() {
                 break;
             }
 
             if let Some(known_event_id) = event.event_id() {
-                // This event exists in the store event!
-                if let Some(position) =
+                // This event is a duplicate!
+                if let Some(index) =
                     events.iter().position(|new_event_id| &known_event_id == new_event_id)
                 {
-                    duplicated_events.push(events.remove(position));
+                    duplicated_events.push((events.remove(index), position));
                 }
             }
         }
