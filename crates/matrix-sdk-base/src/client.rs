@@ -409,10 +409,8 @@ impl BaseClient {
         limited: bool,
         events: Vec<Raw<AnySyncTimelineEvent>>,
         ignore_state_events: bool,
-        #[cfg(feature = "e2e-encryption")]
-        ignore_verification_requests: bool,
-        #[cfg(not(feature = "e2e-encryption"))]
-        _ignore_verification_requests: bool,
+        #[cfg(feature = "e2e-encryption")] ignore_verification_requests: bool,
+        #[cfg(not(feature = "e2e-encryption"))] _ignore_verification_requests: bool,
         prev_batch: Option<String>,
         push_rules: &Ruleset,
         user_ids: &mut BTreeSet<OwnedUserId>,
