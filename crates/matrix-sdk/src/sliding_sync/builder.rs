@@ -34,6 +34,8 @@ pub struct SlidingSyncBuilder {
     network_timeout: Duration,
     #[cfg(feature = "e2e-encryption")]
     share_pos: bool,
+    #[cfg(feature = "e2e-encryption")]
+    ignore_verification_requests: bool,
 }
 
 impl SlidingSyncBuilder {
@@ -56,6 +58,7 @@ impl SlidingSyncBuilder {
                 network_timeout: Duration::from_secs(30),
                 #[cfg(feature = "e2e-encryption")]
                 share_pos: false,
+                ignore_verification_requests: false,
             })
         }
     }
@@ -222,6 +225,18 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Ignore any verification requests received by this Sliding Sync instance.
+    ///
+    /// This is especially useful when several instances will be running
+    /// simultaneously, as only one of them should handle verification requests,
+    /// otherwise those would be processed several times and the verification
+    /// flow will be broken.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn ignore_verification_requests(mut self) -> Self {
+        self.ignore_verification_requests = true;
+        self
+    }
+
     /// Build the Sliding Sync.
     ///
     /// If `self.storage_key` is `Some(_)`, load the cached data from cold
@@ -291,6 +306,7 @@ impl SlidingSyncBuilder {
 
             poll_timeout: self.poll_timeout,
             network_timeout: self.network_timeout,
+            ignore_verification_requests: self.ignore_verification_requests,
         }))
     }
 }

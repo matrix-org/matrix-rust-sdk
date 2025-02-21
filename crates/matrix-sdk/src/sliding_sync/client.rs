@@ -137,7 +137,7 @@ impl Client {
         &self,
         response: &http::Response,
     ) -> Result<SyncResponse> {
-        let response = self.base_client().process_sliding_sync(response, &()).await?;
+        let response = self.base_client().process_sliding_sync(response, &(), false).await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
@@ -168,11 +168,22 @@ pub(crate) struct SlidingSyncResponseProcessor<'a> {
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,
     response: Option<SyncResponse>,
     rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+    ignore_verification_requests: bool,
 }
 
 impl<'a> SlidingSyncResponseProcessor<'a> {
-    pub fn new(client: Client, rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>) -> Self {
-        Self { client, to_device_events: Vec::new(), response: None, rooms }
+    pub fn new(
+        client: Client,
+        rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+        ignore_verification_requests: bool,
+    ) -> Self {
+        Self {
+            client,
+            to_device_events: Vec::new(),
+            response: None,
+            rooms,
+            ignore_verification_requests,
+        }
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -205,7 +216,11 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         self.response = Some(
             self.client
                 .base_client()
-                .process_sliding_sync(response, &SlidingSyncPreviousEventsProvider(self.rooms))
+                .process_sliding_sync(
+                    response,
+                    &SlidingSyncPreviousEventsProvider(self.rooms),
+                    self.ignore_verification_requests,
+                )
                 .await?,
         );
         self.post_process().await

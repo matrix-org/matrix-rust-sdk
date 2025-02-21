@@ -120,6 +120,9 @@ pub(super) struct SlidingSyncInner {
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
+
+    /// Ignore any verification requests received in the sync.
+    ignore_verification_requests: bool,
 }
 
 impl SlidingSync {
@@ -285,8 +288,11 @@ impl SlidingSync {
             let _sync_lock = self.inner.client.base_client().sync_lock().lock().await;
 
             let rooms = &*self.inner.rooms.read().await;
-            let mut response_processor =
-                SlidingSyncResponseProcessor::new(self.inner.client.clone(), rooms);
+            let mut response_processor = SlidingSyncResponseProcessor::new(
+                self.inner.client.clone(),
+                rooms,
+                self.inner.ignore_verification_requests,
+            );
 
             #[cfg(feature = "e2e-encryption")]
             if self.is_e2ee_enabled() {

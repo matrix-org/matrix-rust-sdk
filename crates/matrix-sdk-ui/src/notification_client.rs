@@ -427,6 +427,7 @@ impl NotificationClient {
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
             .add_list(invites)
+            .ignore_verification_requests()
             .build()
             .await?;
 

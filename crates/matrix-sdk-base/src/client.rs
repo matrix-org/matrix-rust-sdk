@@ -409,6 +409,7 @@ impl BaseClient {
         limited: bool,
         events: Vec<Raw<AnySyncTimelineEvent>>,
         ignore_state_events: bool,
+        ignore_verification_requests: bool,
         prev_batch: Option<String>,
         push_rules: &Ruleset,
         user_ids: &mut BTreeSet<OwnedUserId>,
@@ -496,13 +497,18 @@ impl BaseClient {
                                 SyncMessageLikeEvent::Original(original_event),
                             ) => match &original_event.content.msgtype {
                                 MessageType::VerificationRequest(_) => {
-                                    Box::pin(self.handle_verification_event(e, room.room_id()))
-                                        .await?;
+                                    if !ignore_verification_requests {
+                                        Box::pin(self.handle_verification_event(e, room.room_id()))
+                                            .await?;
+                                    }
                                 }
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                Box::pin(self.handle_verification_event(e, room.room_id())).await?;
+                                if !ignore_verification_requests {
+                                    Box::pin(self.handle_verification_event(e, room.room_id()))
+                                        .await?;
+                                }
                             }
                             _ => (),
                         },
@@ -1039,6 +1045,7 @@ impl BaseClient {
                     new_info.timeline.limited,
                     new_info.timeline.events,
                     false,
+                    false,
                     new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
@@ -1133,6 +1140,7 @@ impl BaseClient {
                     &room,
                     new_info.timeline.limited,
                     new_info.timeline.events,
+                    false,
                     false,
                     new_info.timeline.prev_batch,
                     &push_rules,
