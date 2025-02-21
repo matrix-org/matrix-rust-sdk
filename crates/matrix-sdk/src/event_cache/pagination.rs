@@ -22,6 +22,7 @@ use matrix_sdk_common::linked_chunk::ChunkContent;
 use tracing::{debug, instrument, trace};
 
 use super::{
+    deduplicator::DeduplicationOutcome,
     paginator::{PaginationResult, PaginatorState},
     room::{
         events::{Gap, RoomEvents},
@@ -177,18 +178,33 @@ impl RoomPagination {
         // The new prev token from this pagination.
         let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
 
-        let (mut events, duplicated_event_ids, all_deduplicated) =
-            state.collect_valid_and_duplicated_events(events).await?;
+        let (
+            DeduplicationOutcome {
+                all_events: mut events,
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+            },
+            all_duplicates,
+        ) = state.collect_valid_and_duplicated_events(events).await?;
 
         // During a backwards pagination, when a duplicated event is found, the old
         // event is kept and the new event is ignored. This is the opposite strategy
         // than during a sync where the old event is removed and the new event is added.
-        if !all_deduplicated {
+        if !all_duplicates {
             // Let's forget the new events that are duplicated.
             events.retain(|new_event| {
                 new_event
                     .event_id()
-                    .map(|event_id| !duplicated_event_ids.contains(&event_id))
+                    .map(|event_id| {
+                        !in_memory_duplicated_event_ids
+                            .iter()
+                            .chain(in_store_duplicated_event_ids.iter())
+                            .any(|(duplicated_event_id, _position)| {
+                                duplicated_event_id == &event_id
+                            })
+                    })
+                    // Forget event with no ID, should be unreachable because of
+                    // `collect_valid_and_duplicated_events` though.
                     .unwrap_or(false)
             });
         } else {
@@ -212,7 +228,7 @@ impl RoomPagination {
             // First, insert events.
             let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
                 // There is a prior gap, let's replace it by new events!
-                if all_deduplicated {
+                if all_duplicates {
                     // All the events were duplicated; don't act upon them, and only remove the
                     // prior gap that we just filled.
                     trace!("removing previous gap, as all events have been deduplicated");
@@ -248,7 +264,7 @@ impl RoomPagination {
             //
             // We only do this when at least one new, non-duplicated event, has been added to
             // the chunk. Otherwise it means we've back-paginated all the known events.
-            if !all_deduplicated {
+            if !all_duplicates {
                 if let Some(new_gap) = new_gap {
                     if let Some(new_pos) = insert_new_gap_pos {
                         room_events
