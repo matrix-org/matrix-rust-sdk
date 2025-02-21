@@ -29,7 +29,9 @@ use matrix_sdk_base::{
         },
         Event, Gap,
     },
-    linked_chunk::{ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, RawChunk, Update},
+    linked_chunk::{
+        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update,
+    },
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -780,7 +782,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         room_id: &RoomId,
         events: Vec<OwnedEventId>,
-    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
         // If there's no events for which we want to check duplicates, we can return
         // early. It's not only an optimization to do so: it's required, otherwise the
         // `repeat_vars` call below will panic.
@@ -797,7 +799,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 txn.chunk_large_query_over(events, None, move |txn, events| {
                     let query = format!(
-                        "SELECT event_id FROM events WHERE room_id = ? AND event_id IN ({}) ORDER BY chunk_id ASC, position ASC",
+                        "SELECT event_id, chunk_id, position FROM events WHERE room_id = ? AND event_id IN ({}) ORDER BY chunk_id ASC, position ASC",
                         repeat_vars(events.len()),
                     );
                     let parameters = params_from_iter(
@@ -822,9 +824,15 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                     for duplicated_event in txn
                         .prepare(&query)?
-                        .query_map(parameters, |row| row.get::<_, Option<String>>(0))?
+                        .query_map(parameters, |row| {
+                            Ok((
+                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, u64>(1)?,
+                                row.get::<_, usize>(2)?
+                            ))
+                        })?
                     {
-                        let duplicated_event = duplicated_event?;
+                        let (duplicated_event, chunk_identifier, index) = duplicated_event?;
 
                         let Some(duplicated_event) = duplicated_event else {
                             // Event ID is malformed, let's skip it.
@@ -837,7 +845,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
-                        duplicated_events.push(duplicated_event);
+                        duplicated_events.push((duplicated_event, Position::new(ChunkIdentifier::new(chunk_identifier), index)));
                     }
 
                     Ok(duplicated_events)

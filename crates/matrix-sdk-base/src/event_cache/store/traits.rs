@@ -16,7 +16,7 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, RawChunk, Update},
+    linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
     AsyncTraitDeps,
 };
 use ruma::{MxcUri, OwnedEventId, RoomId};
@@ -101,13 +101,13 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// using the above [`Self::handle_linked_chunk_updates`] methods.
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error>;
 
-    /// Given a set of event ID, remove the unique events and return the
-    /// duplicated events.
+    /// Given a set of event IDs, return the duplicated events along with their
+    /// position if there are any.
     async fn filter_duplicated_events(
         &self,
         room_id: &RoomId,
         events: Vec<OwnedEventId>,
-    ) -> Result<Vec<OwnedEventId>, Self::Error>;
+    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -295,7 +295,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         &self,
         room_id: &RoomId,
         events: Vec<OwnedEventId>,
-    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+    ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
         self.0.filter_duplicated_events(room_id, events).await.map_err(Into::into)
     }
 

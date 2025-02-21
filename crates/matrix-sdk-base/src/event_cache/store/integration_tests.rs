@@ -793,9 +793,18 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .unwrap();
 
         assert_eq!(duplicated_events.len(), 3);
-        assert_eq!(duplicated_events[0], event_comte.event_id().unwrap());
-        assert_eq!(duplicated_events[1], event_morbier.event_id().unwrap());
-        assert_eq!(duplicated_events[2], event_mont_dor.event_id().unwrap());
+        assert_eq!(
+            duplicated_events[0],
+            (event_comte.event_id().unwrap(), Position::new(CId::new(0), 0))
+        );
+        assert_eq!(
+            duplicated_events[1],
+            (event_morbier.event_id().unwrap(), Position::new(CId::new(2), 0))
+        );
+        assert_eq!(
+            duplicated_events[2],
+            (event_mont_dor.event_id().unwrap(), Position::new(CId::new(2), 1))
+        );
     }
 }
 
