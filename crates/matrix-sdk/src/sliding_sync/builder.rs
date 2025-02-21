@@ -58,6 +58,7 @@ impl SlidingSyncBuilder {
                 network_timeout: Duration::from_secs(30),
                 #[cfg(feature = "e2e-encryption")]
                 share_pos: false,
+                #[cfg(feature = "e2e-encryption")]
                 ignore_verification_requests: false,
             })
         }
@@ -306,7 +307,10 @@ impl SlidingSyncBuilder {
 
             poll_timeout: self.poll_timeout,
             network_timeout: self.network_timeout,
+            #[cfg(feature = "e2e-encryption")]
             ignore_verification_requests: self.ignore_verification_requests,
+            #[cfg(not(feature = "e2e-encryption"))]
+            ignore_verification_requests: false,
         }))
     }
 }
