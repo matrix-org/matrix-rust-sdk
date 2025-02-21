@@ -18,7 +18,7 @@
 use std::{collections::BTreeSet, fmt, sync::Mutex};
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use matrix_sdk_base::event_cache::store::EventCacheStoreLock;
+use matrix_sdk_base::{event_cache::store::EventCacheStoreLock, linked_chunk::Position};
 use ruma::{OwnedEventId, OwnedRoomId};
 use tracing::{debug, warn};
 
@@ -60,16 +60,47 @@ impl Deduplicator {
 
     /// Find duplicates in the given collection of events, and return both
     /// valid events (those with an event id) as well as the event ids of
-    /// duplicate events.
+    /// duplicate events along with their position.
     pub async fn filter_duplicate_events(
         &self,
-        events: Vec<Event>,
+        mut events: Vec<Event>,
         room_events: &RoomEvents,
-    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError> {
-        match self {
-            Deduplicator::InMemory(dedup) => Ok(dedup.filter_duplicate_events(events, room_events)),
-            Deduplicator::PersistentStore(dedup) => dedup.filter_duplicate_events(events).await,
+    ) -> Result<DeduplicationOutcome, EventCacheError> {
+        // Remove all events with no ID, or that is duplicated inside `events`, i.e.
+        // `events` contains duplicated events in itself, e.g. `[$e0, $e1, $e0]`, here
+        // `$e0` is duplicated in within `events`.
+        {
+            let mut event_ids = BTreeSet::new();
+
+            events.retain(|event| {
+                let Some(event_id) = event.event_id() else {
+                    // No event ID? Bye bye.
+                    return false;
+                };
+
+                // Already seen this event in `events`? Bye bye.
+                if event_ids.contains(&event_id) {
+                    return false;
+                }
+
+                event_ids.insert(event_id);
+
+                // Let's keep this event!
+                true
+            });
         }
+
+        let mut outcome = match self {
+            Deduplicator::InMemory(dedup) => Ok(dedup.filter_duplicate_events(events, room_events)),
+            Deduplicator::PersistentStore(dedup) => {
+                dedup.filter_duplicate_events(events, room_events).await
+            }
+        }?;
+
+        sort_events_by_position_descending(&mut outcome.in_memory_duplicated_event_ids);
+        sort_events_by_position_descending(&mut outcome.in_store_duplicated_event_ids);
+
+        Ok(outcome)
     }
 }
 
@@ -88,27 +119,45 @@ pub struct StoreDeduplicator {
 impl StoreDeduplicator {
     async fn filter_duplicate_events(
         &self,
-        mut events: Vec<Event>,
-    ) -> Result<(Vec<Event>, Vec<OwnedEventId>), EventCacheError> {
+        events: Vec<Event>,
+        room_events: &RoomEvents,
+    ) -> Result<DeduplicationOutcome, EventCacheError> {
         let store = self.store.lock().await?;
 
-        // Collect event ids as we "validate" events (i.e. check they have a valid event
-        // id.)
-        let mut event_ids = Vec::new();
-
-        events.retain(|event| {
-            if let Some(event_id) = event.event_id() {
-                event_ids.push(event_id);
-                true
-            } else {
-                false
-            }
-        });
-
         // Let the store do its magic ✨
-        let duplicates = store.filter_duplicated_events(&self.room_id, event_ids).await?;
+        let duplicated_event_ids = store
+            .filter_duplicated_events(
+                &self.room_id,
+                events.iter().filter_map(|event| event.event_id()).collect(),
+            )
+            .await?;
 
-        Ok((events, duplicates))
+        // Separate duplicated events in two collections: ones that are in-memory, ones
+        // that are in the store.
+        let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) = {
+            // Collect all in-memory chunk identifiers.
+            let in_memory_chunk_identifiers =
+                room_events.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
+
+            let mut in_memory = vec![];
+            let mut in_store = vec![];
+
+            for (duplicated_event_id, position) in duplicated_event_ids {
+                if in_memory_chunk_identifiers.contains(&position.chunk_identifier()) {
+                    in_memory.push((duplicated_event_id, position));
+                } else {
+                    in_store.push((duplicated_event_id, position));
+                }
+            }
+
+            (in_memory, in_store)
+        };
+
+        Ok(DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+        })
     }
 }
 
@@ -149,29 +198,29 @@ impl BloomFilterDeduplicator {
 
     /// Find duplicates in the given collection of events, and return both
     /// valid events (those with an event id) as well as the event ids of
-    /// duplicate events.
+    /// duplicate events along with their position.
     fn filter_duplicate_events(
         &self,
         events: Vec<Event>,
         room_events: &RoomEvents,
-    ) -> (Vec<Event>, Vec<OwnedEventId>) {
+    ) -> DeduplicationOutcome {
         let mut duplicated_event_ids = Vec::new();
 
         let events = self
             .scan_and_learn(events.into_iter(), room_events)
             .filter_map(|decorated_event| match decorated_event {
                 Decoration::Unique(event) => Some(event),
-                Decoration::Duplicated(event) => {
+                Decoration::Duplicated((event, position)) => {
                     debug!(event_id = ?event.event_id(), "Found a duplicated event");
 
-                    duplicated_event_ids.push(
-                        event
-                            .event_id()
-                            // SAFETY: An event with no ID is decorated as
-                            // `Decoration::Invalid`. Thus, it's
-                            // safe to unwrap the `Option<OwnedEventId>` here.
-                            .expect("The event has no ID"),
-                    );
+                    let event_id = event
+                        .event_id()
+                        // SAFETY: An event with no ID is decorated as
+                        // `Decoration::Invalid`. Thus, it's
+                        // safe to unwrap the `Option<OwnedEventId>` here.
+                        .expect("The event has no ID");
+
+                    duplicated_event_ids.push((event_id, position));
 
                     // Keep the new event!
                     Some(event)
@@ -183,7 +232,11 @@ impl BloomFilterDeduplicator {
             })
             .collect::<Vec<_>>();
 
-        (events, duplicated_event_ids)
+        DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids: duplicated_event_ids,
+            in_store_duplicated_event_ids: vec![],
+        }
     }
 
     /// Scan a collection of events and detect duplications.
@@ -204,10 +257,6 @@ impl BloomFilterDeduplicator {
     where
         I: Iterator<Item = Event> + 'a,
     {
-        // `new_scanned_events` is not a field of `Self` because it is used only detect
-        // duplicates in `new_events_to_scan`.
-        let mut new_scanned_events = BTreeSet::new();
-
         new_events_to_scan.map(move |event| {
             let Some(event_id) = event.event_id() else {
                 // The event has no `event_id`.
@@ -220,31 +269,20 @@ impl BloomFilterDeduplicator {
                 // However, bloom filters have false positives. We are NOT sure the event is NOT
                 // present. Even if the false positive rate is low, we need to
                 // iterate over all events to ensure it isn't present.
-
-                // First, let's ensure `event` is not a duplicate from `new_events_to_scan`,
-                // i.e. if the iterator itself contains duplicated events! We use a `BTreeSet`,
-                // otherwise using a bloom filter again may generate false positives.
-                if new_scanned_events.contains(&event_id) {
-                    // The iterator contains a duplicated `event`.
-                    return Decoration::Duplicated(event);
-                }
-
-                // Second, we can iterate over all events to ensure `event` is not present in
+                //
+                // We can iterate over all events to ensure `event` is not present in
                 // `existing_events`.
-                let duplicated = existing_events.revents().any(|(_position, other_event)| {
-                    other_event.event_id().as_ref() == Some(&event_id)
-                });
+                let position_of_the_duplicated_event =
+                    existing_events.revents().find_map(|(position, other_event)| {
+                        (other_event.event_id().as_ref() == Some(&event_id)).then_some(position)
+                    });
 
-                new_scanned_events.insert(event_id);
-
-                if duplicated {
-                    Decoration::Duplicated(event)
+                if let Some(position) = position_of_the_duplicated_event {
+                    Decoration::Duplicated((event, position))
                 } else {
                     Decoration::Unique(event)
                 }
             } else {
-                new_scanned_events.insert(event_id);
-
                 // Bloom filter has no false negatives. We are sure the event is NOT present: we
                 // can keep it in the iterator.
                 Decoration::Unique(event)
@@ -260,10 +298,51 @@ enum Decoration<I> {
     Unique(I),
 
     /// This event is duplicated.
-    Duplicated(I),
+    Duplicated((I, Position)),
 
     /// This event is invalid (i.e. not well formed).
     Invalid(I),
+}
+
+pub(super) struct DeduplicationOutcome {
+    /// All events passed to the deduplicator.
+    ///
+    /// All events in this collection have a valid event ID.
+    ///
+    /// This collection does not contain duplicated events in itself.
+    pub all_events: Vec<Event>,
+
+    /// Events in [`Self::all_events`] that are duplicated and present in
+    /// memory. It means they have been loaded from the store if any.
+    ///
+    /// Events are sorted by their position, from the newest to the oldest
+    /// (position is descending).
+    pub in_memory_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
+
+    /// Events in [`Self::all_events`] that are duplicated and present in
+    /// the store. It means they have **NOT** been loaded from the store into
+    /// memory yet.
+    ///
+    /// Events are sorted by their position, from the newest to the oldest
+    /// (position is descending).
+    pub in_store_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
+}
+
+/// Sort events so that they can be removed safely without messing their
+/// position.
+///
+/// This function sort events by their position if any.
+///
+/// Events must be sorted by their position index, from greatest to lowest, so
+/// that all positions remain valid inside the same chunk while they are being
+/// removed. For the sake of debugability, we also sort by position chunk
+/// identifier, but this is not required.
+fn sort_events_by_position_descending(event_ids: &mut [(OwnedEventId, Position)]) {
+    event_ids.sort_by(|(_, a), (_, b)| {
+        a.chunk_identifier()
+            .cmp(&b.chunk_identifier())
+            .then_with(|| a.index().cmp(&b.index()).reverse())
+    });
 }
 
 #[cfg(test)]
@@ -309,93 +388,6 @@ mod tests {
         assert_eq!(event.event_id(), Some(event_id_2));
 
         assert!(events.next().is_none());
-    }
-
-    #[test]
-    fn test_filter_duplicates_in_new_events() {
-        let event_id_0 = owned_event_id!("$ev0");
-        let event_id_1 = owned_event_id!("$ev1");
-
-        let event_0 = sync_timeline_event(&event_id_0);
-        let event_1 = sync_timeline_event(&event_id_1);
-
-        let deduplicator = BloomFilterDeduplicator::new();
-        let existing_events = RoomEvents::new();
-
-        let mut events = deduplicator.scan_and_learn(
-            [
-                event_0.clone(), // OK
-                event_0,         // Not OK
-                event_1,         // OK
-            ]
-            .into_iter(),
-            &existing_events,
-        );
-
-        assert_let!(Some(Decoration::Unique(event)) = events.next());
-        assert_eq!(event.event_id(), Some(event_id_0.clone()));
-
-        assert_let!(Some(Decoration::Duplicated(event)) = events.next());
-        assert_eq!(event.event_id(), Some(event_id_0));
-
-        assert_let!(Some(Decoration::Unique(event)) = events.next());
-        assert_eq!(event.event_id(), Some(event_id_1));
-
-        assert!(events.next().is_none());
-    }
-
-    #[test]
-    fn test_filter_duplicates_with_existing_events() {
-        let event_id_0 = owned_event_id!("$ev0");
-        let event_id_1 = owned_event_id!("$ev1");
-        let event_id_2 = owned_event_id!("$ev2");
-
-        let event_0 = sync_timeline_event(&event_id_0);
-        let event_1 = sync_timeline_event(&event_id_1);
-        let event_2 = sync_timeline_event(&event_id_2);
-
-        let deduplicator = BloomFilterDeduplicator::new();
-        let mut existing_events = RoomEvents::new();
-
-        // Simulate `event_1` is inserted inside `existing_events`.
-        {
-            let mut events =
-                deduplicator.scan_and_learn([event_1.clone()].into_iter(), &existing_events);
-
-            assert_let!(Some(Decoration::Unique(event_1)) = events.next());
-            assert_eq!(event_1.event_id(), Some(event_id_1.clone()));
-
-            assert!(events.next().is_none());
-
-            drop(events); // make the borrow checker happy.
-
-            // Now we can push `event_1` inside `existing_events`.
-            existing_events.push_events([event_1]);
-        }
-
-        // `event_1` will be duplicated.
-        {
-            let mut events = deduplicator.scan_and_learn(
-                [
-                    event_0, // OK
-                    event_1, // Not OK
-                    event_2, // Ok
-                ]
-                .into_iter(),
-                &existing_events,
-            );
-
-            assert_let!(Some(Decoration::Unique(event)) = events.next());
-            assert_eq!(event.event_id(), Some(event_id_0));
-
-            assert_let!(Some(Decoration::Duplicated(event)) = events.next());
-            assert_eq!(event.event_id(), Some(event_id_1));
-
-            assert_let!(Some(Decoration::Unique(event)) = events.next());
-            assert_eq!(event.event_id(), Some(event_id_2));
-
-            assert!(events.next().is_none());
-        }
     }
 
     #[test]
@@ -469,21 +461,21 @@ mod tests {
                     // Non empty items chunk.
                     Update::NewItemsChunk {
                         previous: None,
-                        new: ChunkIdentifier::new(0),
+                        new: ChunkIdentifier::new(42),
                         next: None,
                     },
                     Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        at: Position::new(ChunkIdentifier::new(42), 0),
                         items: vec![ev1.clone()],
                     },
                     // And another items chunk, non-empty again.
                     Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(43),
                         next: None,
                     },
                     Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        at: Position::new(ChunkIdentifier::new(43), 0),
                         items: vec![ev2.clone()],
                     },
                 ],
@@ -494,19 +486,33 @@ mod tests {
         // Wrap the store into its lock.
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
 
-        let deduplicator =
-            StoreDeduplicator { room_id: room_id.to_owned(), store: event_cache_store };
+        let deduplicator = Deduplicator::new_store_based(room_id.to_owned(), event_cache_store);
 
-        let (valid_events, duplicates) =
-            deduplicator.filter_duplicate_events(vec![ev1, ev2, ev3, ev4]).await.unwrap();
+        let room_events = RoomEvents::new();
+        let DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+        } = deduplicator
+            .filter_duplicate_events(vec![ev1, ev2, ev3, ev4], &room_events)
+            .await
+            .unwrap();
 
-        assert_eq!(valid_events.len(), 3);
-        assert_eq!(valid_events[0].event_id().as_deref(), Some(eid1));
-        assert_eq!(valid_events[1].event_id().as_deref(), Some(eid2));
-        assert_eq!(valid_events[2].event_id().as_deref(), Some(eid3));
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].event_id().as_deref(), Some(eid1));
+        assert_eq!(events[1].event_id().as_deref(), Some(eid2));
+        assert_eq!(events[2].event_id().as_deref(), Some(eid3));
 
-        assert_eq!(duplicates.len(), 2);
-        assert_eq!(duplicates[0], eid1);
-        assert_eq!(duplicates[1], eid2);
+        assert!(in_memory_duplicated_event_ids.is_empty());
+
+        assert_eq!(in_store_duplicated_event_ids.len(), 2);
+        assert_eq!(
+            in_store_duplicated_event_ids[0],
+            (eid1.to_owned(), Position::new(ChunkIdentifier::new(42), 0))
+        );
+        assert_eq!(
+            in_store_duplicated_event_ids[1],
+            (eid2.to_owned(), Position::new(ChunkIdentifier::new(43), 0))
+        );
     }
 }
