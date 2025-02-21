@@ -107,7 +107,7 @@ impl IndexeddbEventCacheStore {
     }
 
     pub fn get_event_id(&self, room_id: &str, chunk_id: &str, index: usize) -> String {
-        let id_raw = [chunk_id, KEY_SEPARATOR, &index.to_string()].concat();
+        let id_raw = [room_id, KEY_SEPARATOR, chunk_id, KEY_SEPARATOR, &index.to_string()].concat();
         self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
     }
 
@@ -317,7 +317,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     // update next if there
                     if let Some(next) = next {
-                        let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
+                        let next_chunk_js_value =
+                            object_store.get_owned(&next)?.await?.expect("Next chunk not found");
                         let next_chunk: Chunk =
                             self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
@@ -495,9 +496,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let key_range = self
-                        .serializer
-                        .encode_to_range(keys::EVENTS, format!("{room_id}-{chunk_id}"))?;
+                    let key_range =
+                        IdbKeyRange::lower_bound(&JsValue::from_str(&chunk_id.to_string()))
+                            .unwrap();
 
                     let items = object_store.get_all_with_key(&key_range)?.await?;
 
@@ -572,11 +573,17 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-        let key_range = IdbKeyRange::lower_bound(&JsValue::from_str(&room_id.as_str())).unwrap();
+        let lower = JsValue::from_str(&room_id.as_ref());
+        let upper = JsValue::from_str(&(room_id.to_string() + "\u{FFFF}")); // Ensure all keys start with room_id
+
+        let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
         let linked_chunks = object_store.get_all_with_key_owned(key_range)?.await?;
 
-        web_sys::console::log_1(&format!("🟦 found chunks: {}", linked_chunks.length()).into());
+        // web_sys::console::log_1(
+        //     &format!("🟦 found chunks: {} for room: {}", linked_chunks.length(), room_id.as_str())
+        //         .into(),
+        // );
 
         let mut raw_chunks = Vec::new();
 
@@ -597,8 +604,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 let gap_id = linked_chunk.id;
                 // web_sys::console::log_1(&format!("🟦 Trying to get gap {:?}", gap_id).into());
                 let gap_id_js_value = JsValue::from_str(&gap_id);
-                let gap_js_value = gaps_object_store.get(&gap_id_js_value)?.await?;
+                let gap_js_value = gaps_object_store.get_owned(&gap_id_js_value)?.await?;
                 // web_sys::console::log_1(&format!("🟦 got gap {:?}", gap_js_value).into());
+
                 let gap: IndexedDbGap =
                     self.serializer.deserialize_into_object(gap_js_value.unwrap())?;
                 // web_sys::console::log_1(&format!("🟦 deserializing gap {:?}", gap).into());
@@ -621,8 +629,16 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                 let events_object_store = events_tx.object_store(keys::EVENTS)?;
 
-                let events_key_range =
-                    IdbKeyRange::lower_bound(&JsValue::from_str(&chunk_id.to_string())).unwrap();
+                // let events_key_range =
+                //     IdbKeyRange::lower_bound(&JsValue::from_str(&chunk_id.to_string())).unwrap();
+
+                let lower =
+                    JsValue::from_str(&self.get_id(room_id.as_ref(), &chunk_id.to_string()));
+                let upper = JsValue::from_str(
+                    &(self.get_id(room_id.as_ref(), &chunk_id.to_string()) + "\u{FFFF}"),
+                ); // Ensure all keys start with room_id
+
+                let events_key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
                 let events = events_object_store.get_all_with_key(&events_key_range)?.await?;
                 // web_sys::console::log_1(
