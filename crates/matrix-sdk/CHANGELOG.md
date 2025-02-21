@@ -29,6 +29,9 @@ simpler methods:
   [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
   ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
 - Add `Room::report_room` api. ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
+- `Client::notification_client` will create a copy of the existing `Client`, but now it'll make sure 
+  it doesn't handle any verification events to avoid an issue with these events being received and 
+  processed twice if `NotificationProcessSetup` was `SingleSetup`.
 
 ### Bug Fixes
 
