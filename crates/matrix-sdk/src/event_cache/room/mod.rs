@@ -20,6 +20,7 @@ use events::Gap;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
+    linked_chunk::Update,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -34,6 +35,7 @@ use tokio::sync::{
 use tracing::{trace, warn};
 
 use super::{
+    deduplicator::DeduplicationOutcome,
     paginator::{Paginator, PaginatorState},
     AllEventsCache, EventsOrigin, Result, RoomEventCacheUpdate, RoomPagination,
 };
@@ -421,8 +423,14 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        let (events, duplicated_event_ids, all_duplicates) =
-            state.collect_valid_and_duplicated_events(sync_timeline_events.clone()).await?;
+        let (
+            DeduplicationOutcome {
+                all_events: events,
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+            },
+            all_duplicates,
+        ) = state.collect_valid_and_duplicated_events(sync_timeline_events.clone()).await?;
 
         // During a sync, when a duplicated event is found, the old event is removed and
         // the new event is added. This is the opposite strategy than during a backwards
@@ -433,6 +441,15 @@ impl RoomEventCacheInner {
             // No new events, thus no need to change the room events.
             vec![]
         } else {
+            state
+                .send_updates_to_store(
+                    in_store_duplicated_event_ids
+                        .into_iter()
+                        .map(|(_event_id, position)| Update::RemoveItem { at: position })
+                        .collect(),
+                )
+                .await?;
+
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
             let ((), mut sync_timeline_events_diffs) = state
@@ -452,7 +469,13 @@ impl RoomEventCacheInner {
                     // We don't have to worry the removals can change the position of the
                     // existing events, because we are pushing all _new_
                     // `events` at the back.
-                    room_events.remove_events_by_id(duplicated_event_ids);
+                    room_events
+                        .remove_events_by_position(
+                            in_memory_duplicated_event_ids
+                                .into_iter()
+                                .map(|(_event_id, position)| position),
+                        )
+                        .unwrap();
 
                     // Push the new events.
                     room_events.push_events(events.clone());
@@ -548,16 +571,22 @@ mod private {
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         deserialized_responses::{TimelineEvent, TimelineEventKind},
-        event_cache::{store::EventCacheStoreLock, Event},
+        event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Update},
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, OwnedEventId, OwnedRoomId};
+    use ruma::{serde::Raw, OwnedRoomId};
     use tracing::{debug, error, instrument, trace};
 
-    use super::{events::RoomEvents, LoadMoreEventsBackwardsOutcome};
-    use crate::event_cache::{deduplicator::Deduplicator, EventCacheError};
+    use super::{
+        super::{
+            deduplicator::{DeduplicationOutcome, Deduplicator},
+            EventCacheError,
+        },
+        events::RoomEvents,
+        LoadMoreEventsBackwardsOutcome,
+    };
 
     /// State for a single room's event cache.
     ///
@@ -647,7 +676,7 @@ mod private {
         ///
         /// The returned tuple contains:
         /// - all events (duplicated or not) with an ID
-        /// - all the duplicated event IDs
+        /// - all the duplicated event IDs with their position,
         /// - a boolean indicating all events (at least one) are duplicates.
         ///
         /// This last boolean is useful to know whether we need to store a
@@ -672,13 +701,19 @@ mod private {
         pub async fn collect_valid_and_duplicated_events(
             &mut self,
             events: Vec<Event>,
-        ) -> Result<(Vec<Event>, Vec<OwnedEventId>, bool), EventCacheError> {
-            let (events, duplicated_event_ids) =
+        ) -> Result<(DeduplicationOutcome, bool), EventCacheError> {
+            let deduplication_outcome =
                 self.deduplicator.filter_duplicate_events(events, &self.events).await?;
 
-            let all_duplicates = !events.is_empty() && events.len() == duplicated_event_ids.len();
+            let number_of_events = deduplication_outcome.all_events.len();
+            let number_of_deduplicated_events =
+                deduplication_outcome.in_memory_duplicated_event_ids.len()
+                    + deduplication_outcome.in_store_duplicated_event_ids.len();
 
-            Ok((events, duplicated_event_ids, all_duplicates))
+            let all_duplicates =
+                number_of_events > 0 && number_of_events == number_of_deduplicated_events;
+
+            Ok((deduplication_outcome, all_duplicates))
         }
 
         /// Load more events backwards if the last chunk is **not** a gap.
@@ -868,17 +903,22 @@ mod private {
         /// Propagate changes to the underlying storage.
         #[instrument(skip_all)]
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
-            let mut updates = self.events.store_updates().take();
+            let updates = self.events.store_updates().take();
 
-            if updates.is_empty() {
-                return Ok(());
-            }
+            self.send_updates_to_store(updates).await
+        }
 
+        pub(super) async fn send_updates_to_store(
+            &mut self,
+            mut updates: Vec<Update<TimelineEvent, Gap>>,
+        ) -> Result<(), EventCacheError> {
             let Some(store) = self.store.get() else {
                 return Ok(());
             };
 
-            trace!("propagating {} updates", updates.len());
+            if updates.is_empty() {
+                return Ok(());
+            }
 
             // Strip relations from updates which insert or replace items.
             for update in updates.iter_mut() {
@@ -909,16 +949,14 @@ mod private {
             spawn(async move {
                 let store = store.lock().await?;
 
-                if let Err(err) = store.handle_linked_chunk_updates(&room_id, updates).await {
-                    error!("unable to handle linked chunk updates: {err}");
-                }
+                trace!("applying {} updates", updates.len());
+                store.handle_linked_chunk_updates(&room_id, updates).await?;
+                trace!("done applying store changes");
 
                 super::Result::Ok(())
             })
             .await
             .expect("joining failed")?;
-
-            trace!("done propagating store changes");
 
             Ok(())
         }

@@ -28,9 +28,9 @@ use matrix_sdk_common::linked_chunk::{
 };
 use ruma::{
     events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType},
-    OwnedEventId, RoomVersionId,
+    RoomVersionId,
 };
-use tracing::{error, instrument, trace, warn};
+use tracing::{instrument, trace, warn};
 
 /// This type represents all events of a single room.
 #[derive(Debug)]
@@ -253,27 +253,23 @@ impl RoomEvents {
 
     /// Remove some events from the linked chunk.
     ///
-    /// This method iterates over all event IDs in `event_ids` and removes the
-    /// associated event (if it exists) from `Self::chunks`.
-    pub fn remove_events_by_id(&mut self, event_ids: Vec<OwnedEventId>) {
-        for event_id in event_ids {
-            let Some(event_position) = self.revents().find_map(|(position, event)| {
-                (event.event_id().as_ref() == Some(&event_id)).then_some(position)
-            }) else {
-                error!(?event_id, "Cannot find the event to remove");
-
-                continue;
-            };
-
-            self.chunks
-                .remove_item_at(
-                    event_position,
-                    // If removing an event results in an empty chunk, the empty chunk is removed
-                    // because nothing is going to be inserted in it apparently.
-                    EmptyChunk::Remove,
-                )
-                .expect("Failed to remove an event we have just found");
+    /// Empty chunks are going to be removed.
+    ///
+    /// Events **must** be sorted by their position (descending, i.e. from
+    /// newest to oldest).
+    pub fn remove_events_by_position<P>(&mut self, positions: P) -> Result<(), Error>
+    where
+        P: Iterator<Item = Position>,
+    {
+        for position in positions {
+            self.chunks.remove_item_at(
+                position,
+                // If removing an event results in an empty chunk, the empty chunk is removed.
+                EmptyChunk::Remove,
+            )?;
         }
+
+        Ok(())
     }
 
     /// Search for a chunk, and return its identifier.
@@ -661,7 +657,15 @@ mod tests {
         assert_eq!(room_events.chunks().count(), 3);
 
         // Remove some events.
-        room_events.remove_events_by_id(vec![event_id_1, event_id_3]);
+        room_events
+            .remove_events_by_position(
+                [
+                    Position::new(ChunkIdentifier::new(2), 1),
+                    Position::new(ChunkIdentifier::new(0), 1),
+                ]
+                .into_iter(),
+            )
+            .unwrap();
 
         assert_events_eq!(
             room_events.events(),
@@ -672,7 +676,9 @@ mod tests {
         );
 
         // Ensure chunks are removed once empty.
-        room_events.remove_events_by_id(vec![event_id_2]);
+        room_events
+            .remove_events_by_position([Position::new(ChunkIdentifier::new(2), 0)].into_iter())
+            .unwrap();
 
         assert_events_eq!(
             room_events.events(),
@@ -685,16 +691,16 @@ mod tests {
 
     #[test]
     fn test_remove_events_unknown_event() {
-        let (event_id_0, _event_0) = new_event("$ev0");
-
         // Push ZERO event.
         let mut room_events = RoomEvents::new();
 
         assert_events_eq!(room_events.events(), []);
 
         // Remove one undefined event.
-        // No error is expected.
-        room_events.remove_events_by_id(vec![event_id_0]);
+        // An error is expected.
+        room_events
+            .remove_events_by_position([Position::new(ChunkIdentifier::new(42), 153)].into_iter())
+            .unwrap_err();
 
         assert_events_eq!(room_events.events(), []);
 
