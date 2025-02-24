@@ -98,6 +98,7 @@ impl RoomPagination {
 
         // Try to load one chunk backwards. If it returns events, no need to reach the
         // network!
+
         match self.inner.state.write().await.load_more_events_backwards().await? {
             LoadMoreEventsBackwardsOutcome::Gap => {
                 // continue, let's resolve this gap!
@@ -107,7 +108,11 @@ impl RoomPagination {
                 return Ok(Some(BackPaginationOutcome { reached_start: true, events: vec![] }))
             }
 
-            LoadMoreEventsBackwardsOutcome::Events(events, sync_timeline_events_diffs) => {
+            LoadMoreEventsBackwardsOutcome::Events {
+                events,
+                sync_timeline_events_diffs,
+                reached_start,
+            } => {
                 if !sync_timeline_events_diffs.is_empty() {
                     let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                         diffs: sync_timeline_events_diffs,
@@ -116,7 +121,7 @@ impl RoomPagination {
                 }
 
                 return Ok(Some(BackPaginationOutcome {
-                    reached_start: false,
+                    reached_start,
                     // This is a backwards pagination. `BackPaginationOutcome` expects events to
                     // be in “reverse order”.
                     events: events.into_iter().rev().collect(),
@@ -260,6 +265,20 @@ impl RoomPagination {
             room_events.on_new_events(&self.inner.room_version, reversed_events.iter());
         })
         .await?;
+
+        // There could be an inconsistency between the network (which thinks we hit the
+        // start of the timeline) and the disk (which has the initial empty
+        // chunks), so tweak the `reached_start` value so that it reflects the disk
+        // state in priority instead.
+        let reached_start = {
+            // There's no gaps.
+            !state.events().chunks().any(|chunk| chunk.is_gap()) &&
+            // The first chunk has no predecessor.
+            state.events()
+            .chunks()
+            .next()
+            .map_or(reached_start, |chunk| chunk.is_definitive_head())
+        };
 
         let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 

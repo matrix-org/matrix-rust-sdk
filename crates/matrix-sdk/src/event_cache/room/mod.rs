@@ -534,7 +534,11 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
     StartOfTimeline,
 
     /// Events have been inserted.
-    Events(Vec<TimelineEvent>, Vec<VectorDiff<TimelineEvent>>),
+    Events {
+        events: Vec<TimelineEvent>,
+        sync_timeline_events_diffs: Vec<VectorDiff<TimelineEvent>>,
+        reached_start: bool,
+    },
 }
 
 // Use a private module to hide `events` to this parent module.
@@ -727,7 +731,13 @@ mod private {
 
             let events = match &new_first_chunk.content {
                 ChunkContent::Gap(_) => None,
-                ChunkContent::Items(events) => Some(events.clone()),
+                ChunkContent::Items(events) => {
+                    // We've reached the start on disk, if and only if, there was no chunk prior to
+                    // the one we just loaded.
+                    let reached_start = new_first_chunk.previous.is_none();
+
+                    Some((events.clone(), reached_start))
+                }
             };
 
             if let Err(err) = self.events.insert_new_chunk_as_first(new_first_chunk) {
@@ -749,9 +759,11 @@ mod private {
 
             Ok(match events {
                 None => LoadMoreEventsBackwardsOutcome::Gap,
-                Some(events) => {
-                    LoadMoreEventsBackwardsOutcome::Events(events, updates_as_vector_diffs)
-                }
+                Some((events, reached_start)) => LoadMoreEventsBackwardsOutcome::Events {
+                    events,
+                    sync_timeline_events_diffs: updates_as_vector_diffs,
+                    reached_start,
+                },
             })
         }
 
@@ -1862,8 +1874,6 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_shrink_to_last_chunk() {
-        use std::ops::Not as _;
-
         use eyeball_im::VectorDiff;
 
         use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
@@ -1930,7 +1940,7 @@ mod tests {
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
-        assert!(outcome.reached_start.not());
+        assert!(outcome.reached_start);
 
         // We also get an update about the loading from the store.
         assert_let_timeout!(
@@ -1974,6 +1984,6 @@ mod tests {
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
-        assert!(outcome.reached_start.not());
+        assert!(outcome.reached_start);
     }
 }
