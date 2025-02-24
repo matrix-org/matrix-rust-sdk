@@ -457,6 +457,158 @@ mod tests {
         assert_eq!(outcome.all_events[1].event_id(), Some(event_id_1));
     }
 
+    #[async_test]
+    async fn test_memory_based_duplicated_event_ids_from_in_memory_vs_in_store() {
+        let event_id_0 = owned_event_id!("$ev0");
+        let event_id_1 = owned_event_id!("$ev1");
+
+        let event_0 = timeline_event(&event_id_0);
+        let event_1 = timeline_event(&event_id_1);
+
+        let mut deduplicator = Deduplicator::new_memory_based();
+        let mut room_events = RoomEvents::new();
+        // `event_0` is loaded in memory.
+        // `event_1` is not loaded in memory, it's new.
+        {
+            let Deduplicator::InMemory(bloom_filter) = &mut deduplicator else {
+                panic!("test is broken, but sky is beautiful");
+            };
+            bloom_filter.bloom_filter.lock().unwrap().insert(event_id_0.clone());
+            room_events.push_events([event_0.clone()]);
+        }
+
+        let outcome = deduplicator
+            .filter_duplicate_events(vec![event_0, event_1], &room_events)
+            .await
+            .unwrap();
+
+        // The deduplication says 2 events are valid.
+        assert_eq!(outcome.all_events.len(), 2);
+        assert_eq!(outcome.all_events[0].event_id(), Some(event_id_0.clone()));
+        assert_eq!(outcome.all_events[1].event_id(), Some(event_id_1));
+
+        // From these 2 events, 1 is duplicated and has been loaded in memory.
+        assert_eq!(outcome.in_memory_duplicated_event_ids.len(), 1);
+        assert_eq!(
+            outcome.in_memory_duplicated_event_ids[0],
+            (event_id_0, Position::new(ChunkIdentifier::new(0), 0))
+        );
+
+        // From these 2 events, 0 are duplicated and live in the store.
+        //
+        // Note: with the Bloom filter, this value is always empty because there is no
+        // store.
+        assert!(outcome.in_store_duplicated_event_ids.is_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_store_based_duplicated_event_ids_from_in_memory_vs_in_store() {
+        use std::sync::Arc;
+
+        use matrix_sdk_base::{
+            event_cache::store::{EventCacheStore, MemoryStore},
+            linked_chunk::Update,
+        };
+        use ruma::room_id;
+
+        let event_id_0 = owned_event_id!("$ev0");
+        let event_id_1 = owned_event_id!("$ev1");
+        let event_id_2 = owned_event_id!("$ev2");
+        let event_id_3 = owned_event_id!("$ev3");
+        let event_id_4 = owned_event_id!("$ev4");
+
+        // `event_0` and `event_1` are in the store.
+        // `event_2` and `event_3` is in the store, but also in memory: it's loaded in
+        // memory from the store.
+        // `event_4` is nowhere, it's new.
+        let event_0 = timeline_event(&event_id_0);
+        let event_1 = timeline_event(&event_id_1);
+        let event_2 = timeline_event(&event_id_2);
+        let event_3 = timeline_event(&event_id_3);
+        let event_4 = timeline_event(&event_id_4);
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+        let room_id = room_id!("!fondue:raclette.ch");
+
+        // Prefill the store with ev1 and ev2.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![event_0.clone(), event_1.clone()],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(0), // must match the chunk in `RoomEvents`, so 0. It simulates a lazy-load for example.
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_2.clone(), event_3.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+
+        let deduplicator = Deduplicator::new_store_based(room_id.to_owned(), event_cache_store);
+        let mut room_events = RoomEvents::new();
+        room_events.push_events([event_2.clone(), event_3.clone()]);
+
+        let outcome = deduplicator
+            .filter_duplicate_events(
+                vec![event_0, event_1, event_2, event_3, event_4],
+                &room_events,
+            )
+            .await
+            .unwrap();
+
+        // The deduplication says 5 events are valid.
+        assert_eq!(outcome.all_events.len(), 5);
+        assert_eq!(outcome.all_events[0].event_id(), Some(event_id_0.clone()));
+        assert_eq!(outcome.all_events[1].event_id(), Some(event_id_1.clone()));
+        assert_eq!(outcome.all_events[2].event_id(), Some(event_id_2.clone()));
+        assert_eq!(outcome.all_events[3].event_id(), Some(event_id_3.clone()));
+        assert_eq!(outcome.all_events[4].event_id(), Some(event_id_4.clone()));
+
+        // From these 5 events, 2 are duplicated and have been loaded in memory.
+        //
+        // Note that events are sorted by their descending position.
+        assert_eq!(outcome.in_memory_duplicated_event_ids.len(), 2);
+        assert_eq!(
+            outcome.in_memory_duplicated_event_ids[0],
+            (event_id_3, Position::new(ChunkIdentifier::new(0), 1))
+        );
+        assert_eq!(
+            outcome.in_memory_duplicated_event_ids[1],
+            (event_id_2, Position::new(ChunkIdentifier::new(0), 0))
+        );
+
+        // From these 4 events, 2 are duplicated and live in the store only, they have
+        // not been loaded in memory.
+        //
+        // Note that events are sorted by their descending position.
+        assert_eq!(outcome.in_store_duplicated_event_ids.len(), 2);
+        assert_eq!(
+            outcome.in_store_duplicated_event_ids[0],
+            (event_id_1, Position::new(ChunkIdentifier::new(42), 1))
+        );
+        assert_eq!(
+            outcome.in_store_duplicated_event_ids[1],
+            (event_id_0, Position::new(ChunkIdentifier::new(42), 0))
+        );
+    }
+
     #[test]
     fn test_bloom_filter_no_duplicate() {
         let event_id_0 = owned_event_id!("$ev0");
