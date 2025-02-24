@@ -351,7 +351,7 @@ mod tests {
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{owned_event_id, user_id, EventId};
+    use ruma::{owned_event_id, serde::Raw, user_id, EventId};
 
     use super::*;
 
@@ -419,6 +419,39 @@ mod tests {
             .unwrap();
 
         // We get 2 events, not 3, because one was duplicated.
+        assert_eq!(events.all_events.len(), 2);
+        assert_eq!(events.all_events[0].event_id(), Some(event_id_0));
+        assert_eq!(events.all_events[1].event_id(), Some(event_id_1));
+    }
+
+    #[async_test]
+    async fn test_filter_exclude_invalid_events_from_the_input() {
+        let event_id_0 = owned_event_id!("$ev0");
+        let event_id_1 = owned_event_id!("$ev1");
+
+        let event_0 = sync_timeline_event(&event_id_0);
+        let event_1 = sync_timeline_event(&event_id_1);
+        // An event with no ID.
+        let event_2 = TimelineEvent::new(Raw::from_json_string("{}".to_owned()).unwrap());
+
+        // It doesn't matter which deduplicator we peak, the feature is ensured by the
+        // “frontend”, not the “backend” of the deduplicator.
+        let deduplicator = Deduplicator::new_memory_based();
+        let room_events = RoomEvents::new();
+
+        let events = deduplicator
+            .filter_duplicate_events(
+                vec![
+                    event_0.clone(), // Ok
+                    event_1,         // Ok
+                    event_2,         // Invalid
+                ],
+                &room_events,
+            )
+            .await
+            .unwrap();
+
+        // We get 2 events, not 3, because one was invalid.
         assert_eq!(events.all_events.len(), 2);
         assert_eq!(events.all_events[0].event_id(), Some(event_id_0));
         assert_eq!(events.all_events[1].event_id(), Some(event_id_1));
@@ -498,7 +531,7 @@ mod tests {
             linked_chunk::{ChunkIdentifier, Position, Update},
         };
         use matrix_sdk_test::{ALICE, BOB};
-        use ruma::{event_id, room_id, serde::Raw};
+        use ruma::{event_id, room_id};
 
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
