@@ -47,6 +47,15 @@ impl<P: RoomDataProvider> DecryptionRetryTask<P> {
         decryptor: impl Decryptor,
         session_ids: Option<BTreeSet<String>>,
     ) {
+        let retry_indices = self.retry_indices(&session_ids).await;
+
+        if !retry_indices.is_empty() {
+            debug!("Retrying decryption");
+            self.decrypt_by_index(decryptor, session_ids, retry_indices).await;
+        }
+    }
+
+    async fn retry_indices(&self, session_ids: &Option<BTreeSet<String>>) -> Vec<usize> {
         let state = self.state.clone().read_owned().await;
 
         let should_retry = |session_id: &str| {
@@ -57,7 +66,7 @@ impl<P: RoomDataProvider> DecryptionRetryTask<P> {
             }
         };
 
-        let retry_indices: Vec<_> = state
+        state
             .items
             .iter()
             .enumerate()
@@ -71,17 +80,7 @@ impl<P: RoomDataProvider> DecryptionRetryTask<P> {
                 | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
                 | EncryptedMessage::Unknown => None,
             })
-            .collect();
-
-        if retry_indices.is_empty() {
-            return;
-        }
-
-        drop(state);
-
-        debug!("Retrying decryption");
-
-        self.decrypt_by_index(decryptor, session_ids, retry_indices).await;
+            .collect()
     }
 
     async fn decrypt_by_index(
