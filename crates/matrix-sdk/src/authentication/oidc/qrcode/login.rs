@@ -358,11 +358,11 @@ mod test {
         requests::GrantType,
     };
     use matrix_sdk_base::crypto::types::{qr_login::QrCodeModeData, SecretsBundle};
-    use matrix_sdk_test::{async_test, test_json};
+    use matrix_sdk_test::async_test;
     use serde_json::{json, Value};
     use url::Url;
     use wiremock::{
-        matchers::{header, method, path},
+        matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -374,6 +374,7 @@ mod test {
         },
         config::RequestConfig,
         http_client::HttpClient,
+        test_utils::mocks::MatrixMockServer,
     };
 
     enum AliceBehaviour {
@@ -521,7 +522,7 @@ mod test {
 
     fn token() -> Value {
         json!({
-            "access_token": "mat_z65RpDAbvR5aTr7MzD0aPw40xFbwch_09xTgn",
+            "access_token": "1234",
             "expires_in": 300,
             "refresh_token": "mar_CHFh124AMHsdishuHgLSx1svdKMVQA_080gj2",
             "scope": "urn:matrix:org.matrix.msc2967.client:api:* \
@@ -636,40 +637,20 @@ mod test {
 
     #[async_test]
     async fn test_qr_login() {
-        let server = MockServer::start().await;
-        let rendezvous_server = MockedRendezvousServer::new(&server, "abcdEFG12345").await;
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
-        mock_oauth_authorization_server(&server, ResponseTemplate::new(200).set_body_json(token()))
-            .await;
+        mock_oauth_authorization_server(
+            server.server(),
+            ResponseTemplate::new(200).set_body_json(token()),
+        )
+        .await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/r0/account/whoami"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
-            .mount(&server)
-            .await;
-
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/versions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
-            .mount(&server)
-            .await;
-
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/keys/upload"))
-            .and(header("authorization", "Bearer mat_z65RpDAbvR5aTr7MzD0aPw40xFbwch_09xTgn"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::KEYS_UPLOAD))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/keys/query"))
-            .and(header("authorization", "Bearer mat_z65RpDAbvR5aTr7MzD0aPw40xFbwch_09xTgn"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-            .expect(1)
-            .mount(&server)
-            .await;
+        server.mock_versions().ok().expect(1..).named("versions").mount().await;
+        server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server.mock_query_keys().ok().expect(1).named("query_keys").mount().await;
 
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
         let alice = SecureChannel::new(client, &rendezvous_server.homeserver_url)
@@ -732,23 +713,14 @@ mod test {
         token_response: ResponseTemplate,
         alice_behavior: AliceBehaviour,
     ) -> Result<(), QRCodeLoginError> {
-        let server = MockServer::start().await;
-        let rendezvous_server = MockedRendezvousServer::new(&server, "abcdEFG12345").await;
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server = MockedRendezvousServer::new(server.server(), "abcdEFG12345").await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
-        mock_oauth_authorization_server(&server, token_response).await;
+        mock_oauth_authorization_server(server.server(), token_response).await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/r0/account/whoami"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
-            .mount(&server)
-            .await;
-
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/versions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
-            .mount(&server)
-            .await;
+        server.mock_versions().ok().named("versions").mount().await;
+        server.mock_who_am_i().ok().named("whoami").mount().await;
 
         let client = HttpClient::new(reqwest::Client::new(), Default::default());
         let alice = SecureChannel::new(client, &rendezvous_server.homeserver_url)

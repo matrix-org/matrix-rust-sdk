@@ -940,6 +940,33 @@ impl MatrixMockServer {
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: SetRoomPinnedEventsEndpoint }
     }
+
+    /// Creates a prebuilt mock for the endpoint used to get information about
+    /// the owner of the current access token.
+    pub fn mock_who_am_i(&self) -> MockEndpoint<'_, WhoAmIEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/v3/account/whoami"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: WhoAmIEndpoint }
+    }
+
+    /// Creates a prebuilt mock for the endpoint used to publish end-to-end
+    /// encryption keys.
+    pub fn mock_upload_keys(&self) -> MockEndpoint<'_, UploadKeysEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/keys/upload"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: UploadKeysEndpoint }
+    }
+
+    /// Creates a prebuilt mock for the endpoint used to query end-to-end
+    /// encryption keys.
+    pub fn mock_query_keys(&self) -> MockEndpoint<'_, QueryKeysEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/keys/query"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: QueryKeysEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2339,6 +2366,51 @@ impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
     /// client is not authorized to set pinned events.
     pub fn unauthorized(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(400));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `GET /account/whoami` request.
+pub struct WhoAmIEndpoint;
+
+impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
+    /// Returns a successful response with the user ID `@joe:example.org` and no
+    /// device ID.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "user_id": "@joe:example.org",
+        })));
+
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `POST /keys/upload` request.
+pub struct UploadKeysEndpoint;
+
+impl<'a> MockEndpoint<'a, UploadKeysEndpoint> {
+    /// Returns a successful response with counts of 10 curve25519 keys and 20
+    /// signed curve25519 keys.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {
+                "curve25519": 10,
+                "signed_curve25519": 20,
+            },
+        })));
+
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `POST /keys/query` request.
+pub struct QueryKeysEndpoint;
+
+impl<'a> MockEndpoint<'a, QueryKeysEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+
         MatrixMock { server: self.server, mock }
     }
 }
