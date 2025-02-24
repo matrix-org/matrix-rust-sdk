@@ -91,12 +91,12 @@ impl Deduplicator {
             });
         }
 
-        match self {
-            Deduplicator::InMemory(dedup) => Ok(dedup.filter_duplicate_events(events, room_events)),
+        Ok(match self {
+            Deduplicator::InMemory(dedup) => dedup.filter_duplicate_events(events, room_events),
             Deduplicator::PersistentStore(dedup) => {
-                dedup.filter_duplicate_events(events, room_events).await
+                dedup.filter_duplicate_events(events, room_events).await?
             }
-        }
+        })
     }
 }
 
