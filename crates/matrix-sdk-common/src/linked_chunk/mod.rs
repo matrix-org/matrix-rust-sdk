@@ -1260,6 +1260,12 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         !self.is_gap()
     }
 
+    /// Is this the definitive first chunk, even in the presence of
+    /// lazy-loading?
+    pub fn is_definitive_head(&self) -> bool {
+        self.previous.is_none() && self.lazy_previous.is_none()
+    }
+
     /// Check whether this current chunk is the first chunk.
     fn is_first_chunk(&self) -> bool {
         self.previous.is_none()

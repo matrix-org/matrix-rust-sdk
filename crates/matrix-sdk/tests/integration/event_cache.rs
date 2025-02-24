@@ -1189,7 +1189,14 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     // only contains the events returned by the sync.
     //
     // The first back-pagination will hit the network, and let us know we've reached
-    // the end of the room.
+    // the end of the room, but! we do have the default initial events chunk in
+    // storage.
+
+    let outcome = pagination.run_backwards_once(20).await.unwrap();
+    assert!(outcome.reached_start.not());
+    assert!(outcome.events.is_empty());
+
+    // Loading the default initial event chunk.
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
@@ -1222,14 +1229,10 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     //
     // The sync was limited, which unloaded the linked chunk, and reloaded only the
     // final events chunk.
-    //
-    // There's an empty events chunk at the start of *every* linked chunk, so the
-    // next pagination will return it, and since the chunk is lazily loaded, the
-    // pagination doesn't know *yet* it's reached the start of the linked chunk.
 
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.events.is_empty());
-    assert!(!outcome.reached_start);
+    assert!(outcome.reached_start);
 
     {
         let (events, _) = room_event_cache.subscribe().await;
@@ -1238,13 +1241,6 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
         assert_event_matches_msg(&events[2], "sup");
         assert_eq!(events.len(), 3);
     }
-
-    // Now, lazy-loading notices we've reached the start of the chunk, and reports
-    // it as such.
-
-    let outcome = pagination.run_backwards_once(20).await.unwrap();
-    assert!(outcome.events.is_empty());
-    assert!(outcome.reached_start);
 }
 
 #[async_test]
@@ -1336,7 +1332,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     let pagination = room_event_cache.pagination();
 
     let outcome = pagination.run_backwards_once(20).await.unwrap();
-    assert!(outcome.reached_start);
+    assert!(outcome.reached_start.not());
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
@@ -1373,13 +1369,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // we shouldn't have to, since it is useless; all events were deduplicated
     // from the previous pagination.
 
-    // Instead, we're lazy-loading an empty events chunks.
-    let outcome = pagination.run_backwards_once(20).await.unwrap();
-    assert!(outcome.reached_start.not());
-    assert!(outcome.events.is_empty());
-    assert!(stream.is_empty());
-
-    // And finally hit the start of the timeline.
+    // Instead, we're lazy-loading the empty initial events chunks.
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
@@ -1948,9 +1938,8 @@ async fn test_lazy_loading() {
         assert_event_id!(outcome.events[4], "$ev0_1");
         assert_event_id!(outcome.events[5], "$ev0_0");
 
-        // The start of the timeline isn't reached yet. What we know for the moment is
-        // that we get new events.
-        assert!(outcome.reached_start.not());
+        // This was the start of the timeline \o/
+        assert!(outcome.reached_start);
 
         // Let's check the stream for the last time.
         let update = updates_stream.recv().await.unwrap();
@@ -1978,20 +1967,7 @@ async fn test_lazy_loading() {
                 assert_event_id!(event, "$ev0_5");
             });
         });
-
-        assert!(updates_stream.is_empty());
     }
 
-    // Final pagination? Oh yeah;
-    // This time, the first chunk is loaded and there is nothing else to do, no gap,
-    // nothing. We've reached the start of the timeline!
-    {
-        let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
-
-        // No events, hmmm…
-        assert!(outcome.events.is_empty());
-
-        // … that's because the start of the timeline is finally reached!
-        assert!(outcome.reached_start);
-    }
+    assert!(updates_stream.is_empty());
 }
