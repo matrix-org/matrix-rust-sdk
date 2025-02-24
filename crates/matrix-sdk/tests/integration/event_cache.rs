@@ -1971,3 +1971,175 @@ async fn test_lazy_loading() {
 
     assert!(updates_stream.is_empty());
 }
+
+#[async_test]
+async fn test_deduplication() {
+    let room_id = room_id!("!foo:bar.baz");
+    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    // Set up the event cache store.
+    {
+        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+
+        // The event cache contains 2 chunks as such (from newest to older):
+        // 2. a chunk of 4 items
+        // 1. a chunk of 3 items
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    // chunk #0
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    // … and its 4 items
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: (0..4)
+                            .map(|nth| {
+                                event_factory
+                                    .text_msg("foo")
+                                    .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
+                                    .into_event()
+                            })
+                            .collect::<Vec<_>>(),
+                    },
+                    // chunk #1
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    // … and its 3 items
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: (0..3)
+                            .map(|nth| {
+                                event_factory
+                                    .text_msg("foo")
+                                    .event_id(&EventId::parse(format!("$ev1_{nth}")).unwrap())
+                                    .into_event()
+                            })
+                            .collect::<Vec<_>>(),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+    }
+
+    // Set up the event cache.
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
+
+    let room = mock_server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+
+    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await;
+
+    // One chunk has been loaded, so there are 3 events in memory.
+    {
+        assert_eq!(initial_updates.len(), 3);
+
+        assert_event_id!(initial_updates[0], "$ev1_0");
+        assert_event_id!(initial_updates[1], "$ev1_1");
+        assert_event_id!(initial_updates[2], "$ev1_2");
+
+        assert!(updates_stream.is_empty());
+    }
+
+    // Now let's imagine we have a sync.
+    // Do you know what's funny? This sync is a bit weird. It's totally messy
+    // but our system is robust, so nothing will fail.
+    //
+    // The sync contains 6 events:
+    // - 2 of them are duplicated with events in the loaded chunk #1,
+    // - 2 of them are duplicated with events in the store (so not loaded yet),
+    // - 2 events are unique.
+    mock_server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room({
+                JoinedRoomBuilder::new(room_id)
+                    // The 2 events duplicated with the ones from the loaded chunk.
+                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev1_0")))
+                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev1_2")))
+                    // The 2 events duplicated with the ones from the not-loaded chunk.
+                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev0_1")))
+                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev0_2")))
+                    // The 2 unique events.
+                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev3_0")))
+                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev3_1")))
+            });
+        })
+        .await;
+
+    // What should we see?
+    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed, and
+    //   6 events must be added inserted (!); indeed, 4 are removed and re-inserted
+    //   at the back, plus 2 events are newly inserted at the back, so 6 are
+    //   inserted,
+    // - On the store, 2 events must be removed from chunk #0
+    //
+    // First off, let's check `updates_stream`.
+    {
+        let update = updates_stream.recv().await.unwrap();
+
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+            // 3 diffs, of course.
+            assert_eq!(diffs.len(), 3);
+
+            // Note that index 2 is removed before index 0!
+            assert_matches!(&diffs[0], VectorDiff::Remove { index } => {
+                assert_eq!(*index, 2);
+            });
+            assert_matches!(&diffs[1], VectorDiff::Remove { index } => {
+                assert_eq!(*index, 0);
+            });
+            assert_matches!(&diffs[2], VectorDiff::Append { values: events } => {
+                assert_eq!(events.len(), 6);
+
+                assert_event_id!(&events[0], "$ev1_0");
+                assert_event_id!(&events[1], "$ev1_2");
+                assert_event_id!(&events[2], "$ev0_1");
+                assert_event_id!(&events[3], "$ev0_2");
+                assert_event_id!(&events[4], "$ev3_0");
+                assert_event_id!(&events[5], "$ev3_1");
+            });
+        });
+    }
+
+    // Hands in the air, don't touch your keyboard, let's see the state of the
+    // store by paginating backwards. `$ev0_1` and `$ev0_2` **MUST be absent**.
+    {
+        let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
+
+        // Alrighty, we should get 2 events since 2 of 4 should have been removed.
+        assert_eq!(outcome.events.len(), 2);
+
+        // Hello, in reverse order because it's a backward pagination.
+        assert_event_id!(outcome.events[0], "$ev0_3");
+        assert_event_id!(outcome.events[1], "$ev0_0");
+
+        // Let's check what the stream has to say.
+        let update = updates_stream.recv().await.unwrap();
+
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+            // 2 diffs, but who's counting?
+            assert_eq!(diffs.len(), 2);
+
+            assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+                assert_event_id!(event, "$ev0_0");
+            });
+            assert_matches!(&diffs[1], VectorDiff::Insert { index: 1, value: event } => {
+                assert_event_id!(event, "$ev0_3");
+            });
+        });
+    }
+}
