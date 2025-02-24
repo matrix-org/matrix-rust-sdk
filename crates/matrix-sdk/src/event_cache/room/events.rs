@@ -341,7 +341,12 @@ impl RoomEvents {
 
         for chunk in self.chunks() {
             let content = chunk_debug_string(chunk.content());
-            let line = format!("chunk #{}: {content}", chunk.identifier().index());
+            let lazy_previous = if let Some(cid) = chunk.lazy_previous() {
+                format!(" (lazy previous = {})", cid.index())
+            } else {
+                "".to_owned()
+            };
+            let line = format!("chunk #{}{lazy_previous}: {content}", chunk.identifier().index());
 
             result.push(line);
         }
