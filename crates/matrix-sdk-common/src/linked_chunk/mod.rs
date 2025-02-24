@@ -1270,6 +1270,14 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         self.next.is_none()
     }
 
+    /// Return the link to the previous chunk, if it was loaded lazily.
+    ///
+    /// Doc hidden because this is mostly for internal debugging purposes.
+    #[doc(hidden)]
+    pub fn lazy_previous(&self) -> Option<ChunkIdentifier> {
+        self.lazy_previous
+    }
+
     /// Get the unique identifier of the chunk.
     pub fn identifier(&self) -> ChunkIdentifier {
         self.identifier
