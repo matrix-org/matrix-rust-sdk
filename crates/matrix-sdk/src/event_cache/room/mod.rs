@@ -39,7 +39,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{trace, warn};
+use tracing::{error, trace, warn};
 
 use super::{
     deduplicator::DeduplicationOutcome,
@@ -182,21 +182,25 @@ impl RoomEventCache {
 
     /// Try to find an event by id in this room.
     pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
-        if let Some((room_id, event)) =
+        // Search in all loaded or stored events.
+        let Ok(maybe_position_and_event) = self.inner.state.read().await.find_event(event_id).await
+        else {
+            error!("Failed to find the event");
+
+            return None;
+        };
+
+        if let Some(event) = maybe_position_and_event.map(|(_position, event)| event) {
+            Some(event)
+        }
+        // Search in `AllEventsCache` for known events that are not stored.
+        else if let Some((room_id, event)) =
             self.inner.all_events.read().await.events.get(event_id).cloned()
         {
-            if room_id == self.inner.room_id {
-                return Some(event);
-            }
+            (room_id == self.inner.room_id).then_some(event)
+        } else {
+            None
         }
-
-        let state = self.inner.state.read().await;
-        for (_pos, event) in state.events().revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Some(event.clone());
-            }
-        }
-        None
     }
 
     /// Try to find an event by id in this room, along with its related events.
@@ -662,7 +666,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, OwnedEventId, OwnedRoomId};
+    use ruma::{serde::Raw, EventId, OwnedEventId, OwnedRoomId};
     use tracing::{debug, error, instrument, trace};
 
     use super::{
@@ -1127,6 +1131,34 @@ mod private {
         /// Returns a read-only reference to the underlying events.
         pub fn events(&self) -> &RoomEvents {
             &self.events
+        }
+
+        /// Find a single event in this room.
+        ///
+        /// It starts by looking into loaded events in `RoomEvents` before
+        /// looking inside the storage if it is enabled.
+        pub async fn find_event(
+            &self,
+            event_id: &EventId,
+        ) -> Result<Option<(Position, TimelineEvent)>, EventCacheError> {
+            let room_id = self.room.as_ref();
+
+            // There are supposedly fewer events loaded in memory than in the store. Let's
+            // start by looking up in the `RoomEvents`.
+            for (position, event) in self.events().revents() {
+                if event.event_id().as_deref() == Some(event_id) {
+                    return Ok(Some((position, event.clone())));
+                }
+            }
+
+            let Some(store) = self.store.get() else {
+                // No store, event is not present.
+                return Ok(None);
+            };
+
+            let store = store.lock().await?;
+
+            Ok(store.find_event(room_id, event_id).await?)
         }
 
         /// Gives a temporary mutable handle to the underlying in-memory events,
@@ -1651,21 +1683,22 @@ mod tests {
 
         let (items, mut stream) = room_event_cache.subscribe().await;
 
-        // The rooms knows about some cached events.
+        // The rooms knows about all cached events.
         {
-            // The chunk containing this event is not loaded yet
-            assert!(room_event_cache.event(event_id1).await.is_none());
-            // The chunk containing this event **is** loaded.
+            assert!(room_event_cache.event(event_id1).await.is_some());
             assert!(room_event_cache.event(event_id2).await.is_some());
+        }
 
-            // The reloaded room must contain only one event.
+        // But only part of events are loaded from the store
+        {
+            // The room must contain only one event because only one chunk has been loaded.
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].event_id().unwrap(), event_id2);
 
             assert!(stream.is_empty());
         }
 
-        // Let's load more chunks to get all events.
+        // Let's load more chunks to load all events.
         {
             room_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
@@ -1673,11 +1706,10 @@ mod tests {
                 Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
             );
             assert_eq!(diffs.len(), 1);
-            assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: _ });
-
-            // The rooms knows about more cached events.
-            assert!(room_event_cache.event(event_id1).await.is_some());
-            assert!(room_event_cache.event(event_id2).await.is_some());
+            assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+                // Here you are `event_id1`!
+                assert_eq!(event.event_id().unwrap(), event_id1);
+            });
 
             assert!(stream.is_empty());
         }
@@ -1799,8 +1831,8 @@ mod tests {
         assert_eq!(items[0].event_id().unwrap(), event_id2);
         assert!(stream.is_empty());
 
-        // The event cache knows only one event.
-        assert!(room_event_cache.event(event_id1).await.is_none());
+        // The event cache knows only all events though, even if they aren't loaded.
+        assert!(room_event_cache.event(event_id1).await.is_some());
         assert!(room_event_cache.event(event_id2).await.is_some());
 
         // Let's paginate to load more events.
@@ -1810,11 +1842,9 @@ mod tests {
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
         );
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: _ });
-
-        // The event cache knows about the two events now!
-        assert!(room_event_cache.event(event_id1).await.is_some());
-        assert!(room_event_cache.event(event_id2).await.is_some());
+        assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+            assert_eq!(event.event_id().unwrap(), event_id1);
+        });
 
         assert!(stream.is_empty());
 
