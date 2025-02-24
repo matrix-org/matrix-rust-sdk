@@ -355,7 +355,7 @@ mod tests {
 
     use super::*;
 
-    fn sync_timeline_event(event_id: &EventId) -> TimelineEvent {
+    fn timeline_event(event_id: &EventId) -> TimelineEvent {
         EventFactory::new()
             .text_msg("")
             .sender(user_id!("@mnt_io:matrix.org"))
@@ -398,15 +398,15 @@ mod tests {
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
 
-        let event_0 = sync_timeline_event(&event_id_0);
-        let event_1 = sync_timeline_event(&event_id_1);
+        let event_0 = timeline_event(&event_id_0);
+        let event_1 = timeline_event(&event_id_1);
 
         // It doesn't matter which deduplicator we peak, the feature is ensured by the
         // “frontend”, not the “backend” of the deduplicator.
         let deduplicator = Deduplicator::new_memory_based();
         let room_events = RoomEvents::new();
 
-        let events = deduplicator
+        let outcome = deduplicator
             .filter_duplicate_events(
                 vec![
                     event_0.clone(), // Ok
@@ -419,9 +419,9 @@ mod tests {
             .unwrap();
 
         // We get 2 events, not 3, because one was duplicated.
-        assert_eq!(events.all_events.len(), 2);
-        assert_eq!(events.all_events[0].event_id(), Some(event_id_0));
-        assert_eq!(events.all_events[1].event_id(), Some(event_id_1));
+        assert_eq!(outcome.all_events.len(), 2);
+        assert_eq!(outcome.all_events[0].event_id(), Some(event_id_0));
+        assert_eq!(outcome.all_events[1].event_id(), Some(event_id_1));
     }
 
     #[async_test]
@@ -429,8 +429,8 @@ mod tests {
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
 
-        let event_0 = sync_timeline_event(&event_id_0);
-        let event_1 = sync_timeline_event(&event_id_1);
+        let event_0 = timeline_event(&event_id_0);
+        let event_1 = timeline_event(&event_id_1);
         // An event with no ID.
         let event_2 = TimelineEvent::new(Raw::from_json_string("{}".to_owned()).unwrap());
 
@@ -439,7 +439,7 @@ mod tests {
         let deduplicator = Deduplicator::new_memory_based();
         let room_events = RoomEvents::new();
 
-        let events = deduplicator
+        let outcome = deduplicator
             .filter_duplicate_events(
                 vec![
                     event_0.clone(), // Ok
@@ -452,9 +452,9 @@ mod tests {
             .unwrap();
 
         // We get 2 events, not 3, because one was invalid.
-        assert_eq!(events.all_events.len(), 2);
-        assert_eq!(events.all_events[0].event_id(), Some(event_id_0));
-        assert_eq!(events.all_events[1].event_id(), Some(event_id_1));
+        assert_eq!(outcome.all_events.len(), 2);
+        assert_eq!(outcome.all_events[0].event_id(), Some(event_id_0));
+        assert_eq!(outcome.all_events[1].event_id(), Some(event_id_1));
     }
 
     #[test]
@@ -463,9 +463,9 @@ mod tests {
         let event_id_1 = owned_event_id!("$ev1");
         let event_id_2 = owned_event_id!("$ev2");
 
-        let event_0 = sync_timeline_event(&event_id_0);
-        let event_1 = sync_timeline_event(&event_id_1);
-        let event_2 = sync_timeline_event(&event_id_2);
+        let event_0 = timeline_event(&event_id_0);
+        let event_1 = timeline_event(&event_id_1);
+        let event_2 = timeline_event(&event_id_2);
 
         let deduplicator = BloomFilterDeduplicator::new();
         let existing_events = RoomEvents::new();
@@ -510,7 +510,7 @@ mod tests {
             let existing_events = RoomEvents::new();
 
             for i in 0..num_events {
-                let event = sync_timeline_event(&EventId::parse(format!("$event{i}")).unwrap());
+                let event = timeline_event(&EventId::parse(format!("$event{i}")).unwrap());
                 let mut it = dedup.scan_and_learn([event].into_iter(), &existing_events);
 
                 assert_matches!(it.next(), Some(Decoration::Unique(..)));
