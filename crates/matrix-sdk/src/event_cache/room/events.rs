@@ -23,7 +23,7 @@ use matrix_sdk_base::{
     },
 };
 use matrix_sdk_common::linked_chunk::{
-    AsVector, Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, IterBackward, LinkedChunk,
+    AsVector, Chunk, ChunkIdentifier, EmptyChunkRule, Error, Iter, IterBackward, LinkedChunk,
     ObservableUpdates, Position,
 };
 use ruma::{
@@ -265,7 +265,7 @@ impl RoomEvents {
             self.chunks.remove_item_at(
                 position,
                 // If removing an event results in an empty chunk, the empty chunk is removed.
-                EmptyChunk::Remove,
+                EmptyChunkRule::Remove,
             )?;
         }
 

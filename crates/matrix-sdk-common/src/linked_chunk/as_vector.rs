@@ -473,7 +473,7 @@ mod tests {
     use imbl::{vector, Vector};
 
     use super::{
-        super::{Chunk, ChunkIdentifierGenerator, EmptyChunk, LinkedChunk, Update},
+        super::{Chunk, ChunkIdentifierGenerator, EmptyChunkRule, LinkedChunk, Update},
         VectorDiff,
     };
 
@@ -632,7 +632,7 @@ mod tests {
         let removed_item = linked_chunk
             .remove_item_at(
                 linked_chunk.item_position(|item| *item == 'c').unwrap(),
-                EmptyChunk::Remove,
+                EmptyChunkRule::Remove,
             )
             .unwrap();
         assert_eq!(removed_item, 'c');
@@ -655,7 +655,7 @@ mod tests {
         let removed_item = linked_chunk
             .remove_item_at(
                 linked_chunk.item_position(|item| *item == 'z').unwrap(),
-                EmptyChunk::Remove,
+                EmptyChunkRule::Remove,
             )
             .unwrap();
         assert_eq!(removed_item, 'z');
@@ -888,7 +888,7 @@ mod tests {
         linked_chunk
             .remove_item_at(
                 linked_chunk.item_position(|item| *item == 'c').unwrap(),
-                EmptyChunk::Remove,
+                EmptyChunkRule::Remove,
             )
             .unwrap();
 
@@ -1006,7 +1006,7 @@ mod tests {
                                 continue;
                             };
 
-                            linked_chunk.remove_item_at(position, EmptyChunk::Remove).expect("Failed to remove an item");
+                            linked_chunk.remove_item_at(position, EmptyChunkRule::Remove).expect("Failed to remove an item");
                         }
                     }
                 }
