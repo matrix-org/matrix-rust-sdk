@@ -457,12 +457,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     ///
     /// The chunk containing the item represented by `position` may be empty
     /// once the item has been removed. In this case, the chunk can be removed
-    /// if `empty_chunk` contains [`EmptyChunk::Remove`], otherwise the chunk is
-    /// kept if `empty_chunk` contains [`EmptyChunk::Keep`].
+    /// if `empty_chunk_rule` contains [`EmptyChunkRule::Remove`], otherwise the
+    /// chunk is kept if `empty_chunk_rule` contains [`EmptyChunkRule::Keep`].
     pub fn remove_item_at(
         &mut self,
         position: Position,
-        empty_chunk: EmptyChunk,
+        empty_chunk_rule: EmptyChunkRule,
     ) -> Result<Item, Error> {
         let chunk_identifier = position.chunk_identifier();
         let item_index = position.index();
@@ -501,7 +501,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             // If removing empty chunk is desired, and if the `chunk` can be unlinked, and
             // if the `chunk` is not the first one, we can remove it.
-            if empty_chunk.remove() && can_unlink_chunk && chunk.is_first_chunk().not() {
+            if empty_chunk_rule.remove() && can_unlink_chunk && chunk.is_first_chunk().not() {
                 // Unlink `chunk`.
                 chunk.unlink(self.updates.as_mut());
 
@@ -1593,7 +1593,7 @@ where
 
 /// A type representing what to do when the system has to handle an empty chunk.
 #[derive(Debug)]
-pub enum EmptyChunk {
+pub enum EmptyChunkRule {
     /// Keep the empty chunk.
     Keep,
 
@@ -1601,7 +1601,7 @@ pub enum EmptyChunk {
     Remove,
 }
 
-impl EmptyChunk {
+impl EmptyChunkRule {
     fn remove(&self) -> bool {
         matches!(self, Self::Remove)
     }
@@ -1637,7 +1637,7 @@ mod tests {
     use assert_matches::assert_matches;
 
     use super::{
-        Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, EmptyChunk, Error,
+        Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, EmptyChunkRule, Error,
         LinkedChunk, Position,
     };
 
@@ -2576,21 +2576,24 @@ mod tests {
         // that. The chunk is removed.
         {
             let position_of_f = linked_chunk.item_position(|item| *item == 'f').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position_of_f, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(position_of_f, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'f');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e'] ['g', 'h', 'i'] ['j', 'k']);
             assert_eq!(linked_chunk.num_items(), 10);
 
             let position_of_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position_of_e, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(position_of_e, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'e');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d'] ['g', 'h', 'i'] ['j', 'k']);
             assert_eq!(linked_chunk.num_items(), 9);
 
             let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position_of_d, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(position_of_d, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'd');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['g', 'h', 'i'] ['j', 'k']);
@@ -2611,19 +2614,22 @@ mod tests {
         // that. The chunk is NOT removed because it's the first chunk.
         {
             let first_position = linked_chunk.item_position(|item| *item == 'a').unwrap();
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'a');
             assert_items_eq!(linked_chunk, ['b', 'c'] ['g', 'h', 'i'] ['j', 'k']);
             assert_eq!(linked_chunk.num_items(), 7);
 
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'b');
             assert_items_eq!(linked_chunk, ['c'] ['g', 'h', 'i'] ['j', 'k']);
             assert_eq!(linked_chunk.num_items(), 6);
 
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'c');
             assert_items_eq!(linked_chunk, [] ['g', 'h', 'i'] ['j', 'k']);
@@ -2643,19 +2649,22 @@ mod tests {
         // that. The chunk is removed.
         {
             let first_position = linked_chunk.item_position(|item| *item == 'g').unwrap();
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'g');
             assert_items_eq!(linked_chunk, [] ['h', 'i'] ['j', 'k']);
             assert_eq!(linked_chunk.num_items(), 4);
 
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'h');
             assert_items_eq!(linked_chunk, [] ['i'] ['j', 'k']);
             assert_eq!(linked_chunk.num_items(), 3);
 
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'i');
             assert_items_eq!(linked_chunk, [] ['j', 'k']);
@@ -2676,7 +2685,8 @@ mod tests {
         // The chunk is removed.
         {
             let position_of_k = linked_chunk.item_position(|item| *item == 'k').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position_of_k, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(position_of_k, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'k');
             #[rustfmt::skip]
@@ -2684,7 +2694,8 @@ mod tests {
             assert_eq!(linked_chunk.num_items(), 1);
 
             let position_of_j = linked_chunk.item_position(|item| *item == 'j').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position_of_j, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(position_of_j, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'j');
             assert_items_eq!(linked_chunk, []);
@@ -2718,27 +2729,31 @@ mod tests {
             let _ = linked_chunk.updates().unwrap().take();
 
             let position_of_c = linked_chunk.item_position(|item| *item == 'c').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position_of_c, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(position_of_c, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'c');
             assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['d']);
             assert_eq!(linked_chunk.num_items(), 3);
 
             let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position_of_d, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(position_of_d, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'd');
             assert_items_eq!(linked_chunk, ['a', 'b'] [-]);
             assert_eq!(linked_chunk.num_items(), 2);
 
             let first_position = linked_chunk.item_position(|item| *item == 'a').unwrap();
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'a');
             assert_items_eq!(linked_chunk, ['b'] [-]);
             assert_eq!(linked_chunk.num_items(), 1);
 
-            let removed_item = linked_chunk.remove_item_at(first_position, EmptyChunk::Remove)?;
+            let removed_item =
+                linked_chunk.remove_item_at(first_position, EmptyChunkRule::Remove)?;
 
             assert_eq!(removed_item, 'b');
             assert_items_eq!(linked_chunk, [] [-]);
@@ -2780,19 +2795,19 @@ mod tests {
         // chunk is NOT removed because we asked to keep it.
         {
             let position = linked_chunk.item_position(|item| *item == 'd').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'd');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['e', 'f'] ['g', 'h']);
             assert_eq!(linked_chunk.num_items(), 7);
 
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'e');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['f'] ['g', 'h']);
             assert_eq!(linked_chunk.num_items(), 6);
 
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'f');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [] ['g', 'h']);
@@ -2812,13 +2827,13 @@ mod tests {
         // chunk is NOT removed because we asked to keep it.
         {
             let position = linked_chunk.item_position(|item| *item == 'g').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'g');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [] ['h']);
             assert_eq!(linked_chunk.num_items(), 4);
 
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'h');
             assert_items_eq!(linked_chunk, ['a', 'b', 'c'] [] []);
@@ -2837,19 +2852,19 @@ mod tests {
         // chunk is NOT removed because we asked to keep it.
         {
             let position = linked_chunk.item_position(|item| *item == 'a').unwrap();
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'a');
             assert_items_eq!(linked_chunk, ['b', 'c'] [] []);
             assert_eq!(linked_chunk.num_items(), 2);
 
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'b');
             assert_items_eq!(linked_chunk, ['c'] [] []);
             assert_eq!(linked_chunk.num_items(), 1);
 
-            let removed_item = linked_chunk.remove_item_at(position, EmptyChunk::Keep)?;
+            let removed_item = linked_chunk.remove_item_at(position, EmptyChunkRule::Keep)?;
 
             assert_eq!(removed_item, 'c');
             assert_items_eq!(linked_chunk, [] [] []);
