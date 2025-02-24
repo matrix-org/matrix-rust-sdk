@@ -854,6 +854,42 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    async fn find_event(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<(Position, Event)>, Self::Error> {
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let event_id = event_id.to_owned();
+        let this = self.clone();
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let Some((chunk_identifier, index, event)) = txn
+                    .prepare(
+                        "SELECT chunk_id, position, content FROM events WHERE room_id = ? AND event_id = ?",
+                    )?
+                    .query_row((hashed_room_id, event_id.as_str(),), |row| {
+                        Ok((
+                            row.get::<_, u64>(0)?,
+                            row.get::<_, usize>(1)?,
+                            row.get::<_, Vec<u8>>(2)?,
+                        ))
+                    })
+                    .optional()?
+                else {
+                    // Event is not found.
+                    return Ok(None);
+                };
+
+                let event = serde_json::from_slice(&this.decode_value(&event)?)?;
+
+                Ok(Some((Position::new(ChunkIdentifier::new(chunk_identifier), index), event)))
+            })
+            .await
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,

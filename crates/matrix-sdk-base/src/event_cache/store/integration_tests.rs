@@ -127,6 +127,9 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test that filtering duplicated events works as expected.
     async fn test_filter_duplicated_events(&self);
+
+    /// Test that an event can be found or not.
+    async fn test_find_event(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -806,6 +809,61 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             (event_mont_dor.event_id().unwrap(), Position::new(CId::new(2), 1))
         );
     }
+
+    async fn test_find_event(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+        let event = |msg: &str| make_test_event(room_id, msg);
+
+        let event_comte = event("comté");
+        let event_gruyere = event("gruyère");
+
+        // Add one event in one room.
+        self.handle_linked_chunk_updates(
+            room_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_comte.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Add another event in another room.
+        self.handle_linked_chunk_updates(
+            another_room_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_gruyere.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Now let's find out the event.
+        let (position, event) = self
+            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            .await
+            .expect("failed to query for finding an event")
+            .expect("failed to find an event");
+
+        assert_eq!(position.chunk_identifier(), 0);
+        assert_eq!(position.index(), 0);
+        assert_eq!(event.event_id(), event_comte.event_id());
+
+        // Now let's try to find an event that exists, but not in the expected room.
+        assert!(self
+            .find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+            .await
+            .expect("failed to query for finding an event")
+            .is_none());
+    }
 }
 
 /// Macro building to allow your `EventCacheStore` implementation to run the
@@ -901,6 +959,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_filter_duplicated_events().await;
+            }
+
+            #[async_test]
+            async fn test_find_event() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_event().await;
             }
         }
     };
