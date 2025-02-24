@@ -502,48 +502,6 @@ mod test {
         })
     }
 
-    fn keys_json() -> Value {
-        json!({
-            "keys": [
-                {
-                    "e": "AQAB",
-                    "kid": "hxdHWoF9mn",
-                    "kty": "RSA",
-                    "n": "u4op7tDV41j-f_-DqsqjjCObiySB0q2CGS1JVjJXbV5jctHP6Wp_oMb2aIImMdHDcnTvxaID\
-                        WwuKA8o-0SBfkHFifMHHRvePz_l7NxxUMyGX8Bfu_EVkECe50BXpFydcEEl1eIIsPW-F0WJKFYR\
-                        5cscmBgRX3zv_w7WFbaOLh711S9DNu21epdSvFSrKRe9oG_FbeOFfDl-YU7BLGFvEozg9Z3hKF\
-                        SomOlz-t3ABvRUweGuLCpHFKsI6yhGCoqPyS7o5gpfenizdfHLqq-l7kgyr7lSbW_mTSyYutby\
-                        DpQ_HM98Lt-4a9zwlGfiqPS3svkH6KSd1mBcayCI0Cm9FuQ",
-                    "use": "sig"
-                },
-                {
-                    "crv": "P-256",
-                    "kid": "IRbxoGCBjs",
-                    "kty": "EC",
-                    "use": "sig",
-                    "x": "1AYfsklcgvscvJiNZ1Og7vQePzIBf-flJKlANWJ7D4g",
-                    "y": "L4b-jMZVZlnLhXCpV0EOc6zdEz1e6ONgKQZVE3jOBhY"
-                },
-                {
-                    "crv": "P-384",
-                    "kid": "FjEZp4JjqW",
-                    "kty": "EC",
-                    "use": "sig",
-                    "x": "bZP2bPUEQGeGaDICINswZSTCHdoVmDD3LIJE1Szxw27ruCJBW-sy_lY3dhA2FjWm",
-                    "y": "3HMgAu___-4JG9IXZFXwzr5nU_GUPvmWJHqgS7vzK1S91s0v1GXiqQMHwYA0keYG"
-                },
-                {
-                    "crv": "secp256k1",
-                    "kid": "7ohCuHzgqB",
-                    "kty": "EC",
-                    "use": "sig",
-                    "x": "80KXhBY8JBy8qO9-wMBaGtgOgtagowHJ4dDGfVr4eVw",
-                    "y": "0ALeT-J40AjdIS4S1YDgMrPkyE_rnw9wVm7Dvz_9Np4"
-                }
-            ]
-        })
-    }
-
     fn device_code(server: &MockServer) -> Value {
         let issuer_url =
             Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");
@@ -565,17 +523,8 @@ mod test {
         json!({
             "access_token": "mat_z65RpDAbvR5aTr7MzD0aPw40xFbwch_09xTgn",
             "expires_in": 300,
-            "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imh4ZEhXb0Y5bW4ifQ.eyJhdWQiOiIwMUhZRlpEQ1\
-                BTV1dCREVWWkQyRlRBUVlFViIsInN1YiI6IjAxSFYxNzNTSjQxUDBGMFgxQ0FRU1lBVENQIiwiaWF0IjoxN\
-                zE2Mzc1NzIwLCJpc3MiOiJodHRwczovL2F1dGgtb2lkYy5sYWIuZWxlbWVudC5kZXYvIiwiZXhwIjoxNzE2\
-                Mzc5MzIwLCJhdF9oYXNoIjoieGZIS21qQW83cEVCRmUwTkM5ODJEQSJ9.HQs7Si5gU_5tm2hYaCa3jg0kPO\
-                MXGNdpV88MWzG6N9x3yXK0ZGgn58i38HiQTbiyPuhw8OH6baMSjbcVP-KXSDpsSPZbkmp7Ozb50dC0eIebD\
-                aVK0EyZ35KQRVc5BFPQBPbq0r_TrcUgjoLRKpoexvdmjfEb2dE-kKse25jfs-bTHKP6jeAyFgR9Emn0RfVx\
-                32He32-bRP1NfkBnPNnJse32tF1o8gs7zG-cm7kSUx1wiQbvfSGfETx_mJ-aFGABbVGKQlTrCe32HUTvNbp\
-                tT2WXa1t7d3eDuEV_6hZS9LFRdIXhgEcGIZMz_ss3WQsSOKN8Yq2NC8_bNxRAQ-1J3A",
             "refresh_token": "mar_CHFh124AMHsdishuHgLSx1svdKMVQA_080gj2",
-            "scope": "openid \
-                urn:matrix:org.matrix.msc2967.client:api:* \
+            "scope": "urn:matrix:org.matrix.msc2967.client:api:* \
                 urn:matrix:org.matrix.msc2967.client:device:\
                 lKa+6As0PSFtqOMKALottO6hlt3gCpZtaVfHanSUnEE",
             "token_type": "Bearer"
@@ -666,13 +615,6 @@ mod test {
             })))
             .expect(1)
             .named("registration_endpoint")
-            .mount(server)
-            .await;
-
-        Mock::given(method("GET"))
-            .and(path("/oauth2/keys.json"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(keys_json()))
-            .named("jwks")
             .mount(server)
             .await;
 
