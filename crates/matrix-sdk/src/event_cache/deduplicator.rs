@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_no_duplicate() {
+    fn test_bloom_filter_no_duplicate() {
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
         let event_id_2 = owned_event_id!("$ev2");
