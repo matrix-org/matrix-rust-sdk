@@ -1062,49 +1062,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
         decryptor: impl Decryptor,
         session_ids: Option<BTreeSet<String>>,
     ) {
-        use super::EncryptedMessage;
-
-        let state = self.state.clone().read_owned().await;
-
-        let should_retry = |session_id: &str| {
-            if let Some(session_ids) = &session_ids {
-                session_ids.contains(session_id)
-            } else {
-                true
-            }
-        };
-
-        let retry_indices: Vec<_> = state
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
-                EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                    if should_retry(session_id) =>
-                {
-                    Some(idx)
-                }
-                EncryptedMessage::MegolmV1AesSha2 { .. }
-                | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                | EncryptedMessage::Unknown => None,
-            })
-            .collect();
-
-        if retry_indices.is_empty() {
-            return;
-        }
-
-        drop(state);
-
-        debug!("Retrying decryption");
-
         let decryption_retry_task = DecryptionRetryTask::new(
             self.state.clone(),
             self.settings.clone(),
             self.room_data_provider.clone(),
         );
 
-        decryption_retry_task.decrypt(decryptor, session_ids, retry_indices).await;
+        decryption_retry_task.decrypt(decryptor, session_ids).await;
     }
 
     pub(super) async fn set_sender_profiles_pending(&self) {
