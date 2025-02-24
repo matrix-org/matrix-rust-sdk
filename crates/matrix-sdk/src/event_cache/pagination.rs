@@ -443,7 +443,7 @@ mod tests {
             assert_matches!(found, PaginationToken::None);
 
             // Reset waited_for_initial_prev_token and event state.
-            let _ = pagination.inner.state.write().await.reset().await.unwrap();
+            pagination.inner.state.write().await.reset(&mut Vec::new()).await.unwrap();
 
             // If I wait for a back-pagination token for 0 seconds,
             let before = Instant::now();
@@ -455,7 +455,7 @@ mod tests {
             assert!(waited.as_secs() < 1);
 
             // Reset waited_for_initial_prev_token state.
-            let _ = pagination.inner.state.write().await.reset().await.unwrap();
+            pagination.inner.state.write().await.reset(&mut Vec::new()).await.unwrap();
 
             // If I wait for a back-pagination token for 1 second,
             let before = Instant::now();

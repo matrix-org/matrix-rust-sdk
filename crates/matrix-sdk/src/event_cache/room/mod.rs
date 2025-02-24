@@ -133,7 +133,8 @@ impl RoomEventCache {
     /// storage.
     pub async fn clear(&self) -> Result<()> {
         // Clear the linked chunk and persisted storage.
-        let updates_as_vector_diffs = self.inner.state.write().await.reset().await?;
+        let mut updates_as_vector_diffs = Vec::new();
+        self.inner.state.write().await.reset(&mut updates_as_vector_diffs).await?;
 
         // Clear the (temporary) events mappings.
         self.inner.all_events.write().await.clear();
@@ -377,7 +378,8 @@ impl RoomEventCacheInner {
         let mut state = self.state.write().await;
 
         // Reset the room's state.
-        let updates_as_vector_diffs = state.reset().await?;
+        let mut updates_as_vector_diffs = Vec::new();
+        state.reset(&mut updates_as_vector_diffs).await?;
 
         // Propagate to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
@@ -465,15 +467,11 @@ impl RoomEventCacheInner {
                 // If there was a previous batch token, and there's at least one non-duplicated
                 // new event, unload the chunks so it only contains the last
                 // one; otherwise, there might be a valid gap in between, and
-                // observers may not render it (yet). In this case, extend the
-                // updates with those from the unload; the new updates include a `clear` (as of
-                // 2025-02-24), so they will remove all the previous ones first.
+                // observers may not render it (yet).
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
-                if let Some(new_events_diffs) = state.shrink_to_last_chunk().await? {
-                    sync_timeline_events_diffs.extend(new_events_diffs);
-                }
+                state.shrink_to_last_chunk(&mut sync_timeline_events_diffs).await?;
             }
 
             {
@@ -775,12 +773,13 @@ mod private {
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub(super) async fn shrink_to_last_chunk(
             &mut self,
-        ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
+            sync_timeline_events_diffs: &mut Vec<VectorDiff<TimelineEvent>>,
+        ) -> Result<(), EventCacheError> {
             let Some(store) = self.store.get() else {
                 // No need to do anything if there's no storage; we'll already reset the
                 // timeline after a limited response.
                 // TODO: that might be a way to unify our code, though?
-                return Ok(None);
+                return Ok(());
             };
 
             let store_lock = store.lock().await?;
@@ -810,7 +809,7 @@ mod private {
             // updates the chunk identifier generator.
             if let Err(err) = self.events.replace_with(last_chunk, chunk_identifier_generator) {
                 error!("error when replacing the linked chunk: {err}");
-                return self.reset().await.map(Some);
+                return self.reset(sync_timeline_events_diffs).await;
             }
 
             // Don't propagate those updates to the store; this is only for the in-memory
@@ -818,7 +817,13 @@ mod private {
             let _ = self.events.store_updates().take();
 
             // However, we want to get updates as `VectorDiff`s, for the external listeners.
-            Ok(Some(self.events.updates_as_vector_diffs()))
+            //
+            // We can override the parent updates here, as we've done a clear above (in
+            // `replace_with`).
+            *sync_timeline_events_diffs = self.events.updates_as_vector_diffs();
+            assert!(matches!(sync_timeline_events_diffs[0], VectorDiff::Clear));
+
+            Ok(())
         }
 
         /// Removes the bundled relations from an event, if they were present.
@@ -925,12 +930,21 @@ mod private {
 
         /// Resets this data structure as if it were brand new.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
-        pub async fn reset(&mut self) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+        pub async fn reset(
+            &mut self,
+            sync_timeline_events_diffs: &mut Vec<VectorDiff<TimelineEvent>>,
+        ) -> Result<(), EventCacheError> {
+            // We're clearing the events here…
             self.events.reset();
+
             self.propagate_changes().await?;
             self.waited_for_initial_prev_token = false;
 
-            Ok(self.events.updates_as_vector_diffs())
+            // …So we can override the updates here, as we've done a clear above.
+            *sync_timeline_events_diffs = self.events.updates_as_vector_diffs();
+            assert!(matches!(sync_timeline_events_diffs[0], VectorDiff::Clear));
+
+            Ok(())
         }
 
         /// Returns a read-only reference to the underlying events.
@@ -1954,15 +1968,15 @@ mod tests {
         assert!(stream.is_empty());
 
         // Shrink the linked chunk to the last chunk.
-        let diffs = room_event_cache
+        let mut diffs = Vec::new();
+        room_event_cache
             .inner
             .state
             .write()
             .await
-            .shrink_to_last_chunk()
+            .shrink_to_last_chunk(&mut diffs)
             .await
-            .expect("shrinking should succeed")
-            .expect("there must be updates");
+            .expect("shrinking should succeed");
 
         // We receive updates about the changes to the linked chunk.
         assert_eq!(diffs.len(), 2);
