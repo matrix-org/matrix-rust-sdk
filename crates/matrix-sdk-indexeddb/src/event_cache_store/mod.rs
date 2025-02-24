@@ -867,3 +867,43 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::atomic::{AtomicU32, Ordering::SeqCst},
+        time::Duration,
+    };
+
+    use assert_matches::assert_matches;
+    use matrix_sdk_base::{
+        event_cache::{
+            store::{
+                integration_tests::{check_test_event, make_test_event},
+                media::IgnoreMediaRetentionPolicy,
+                EventCacheStore, EventCacheStoreError,
+            },
+            Gap,
+        },
+        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        event_cache_store_media_integration_tests,
+        linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
+        media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    };
+    use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
+    use ruma::{events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
+    use uuid::Uuid;
+
+    use super::IndexeddbEventCacheStore;
+
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    async fn get_event_cache_store() -> Result<IndexeddbEventCacheStore, EventCacheStoreError> {
+        let db_name = format!("test-event-cache-store-{}", Uuid::new_v4().as_hyphenated());
+        Ok(IndexeddbEventCacheStore::builder().name(db_name).build().await?)
+    }
+
+    event_cache_store_integration_tests!();
+    // event_cache_store_integration_tests_time!();
+    // event_cache_store_media_integration_tests!(with_media_size_tests);
+}
