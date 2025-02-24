@@ -16,11 +16,10 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use events::Gap;
+use events::{sort_positions_descending, Gap};
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
-    linked_chunk::Update,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -441,18 +440,18 @@ impl RoomEventCacheInner {
             // No new events, thus no need to change the room events.
             vec![]
         } else {
-            state
-                .send_updates_to_store(
-                    in_store_duplicated_event_ids
-                        .into_iter()
-                        .map(|(_event_id, position)| Update::RemoveItem { at: position })
-                        .collect(),
-                )
+            // Remove the old duplicated events.
+            //
+            // We don't have to worry the removals can change the position of the
+            // existing events, because we are pushing all _new_
+            // `events` at the back.
+            let mut sync_timeline_events_diffs = state
+                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
                 .await?;
 
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
-            let ((), mut sync_timeline_events_diffs) = state
+            let ((), sync_timeline_events_diffs_next) = state
                 .with_events_mut(|room_events| {
                     // If we only received duplicated events, we don't need to store the gap: if
                     // there was a gap, we'd have received an unknown event at the tail of
@@ -464,25 +463,14 @@ impl RoomEventCacheInner {
                         }
                     }
 
-                    // Remove the old duplicated events.
-                    //
-                    // We don't have to worry the removals can change the position of the
-                    // existing events, because we are pushing all _new_
-                    // `events` at the back.
-                    room_events
-                        .remove_events_by_position(
-                            in_memory_duplicated_event_ids
-                                .into_iter()
-                                .map(|(_event_id, position)| position),
-                        )
-                        .unwrap();
-
                     // Push the new events.
                     room_events.push_events(events.clone());
 
                     room_events.on_new_events(&self.room_version, events.iter());
                 })
                 .await?;
+
+            sync_timeline_events_diffs.extend(sync_timeline_events_diffs_next);
 
             if prev_batch.is_some() && !all_duplicates {
                 // If there was a previous batch token, and there's at least one non-duplicated
@@ -494,14 +482,15 @@ impl RoomEventCacheInner {
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
-                if let Some(new_events_diffs) = state.shrink_to_last_chunk().await? {
-                    sync_timeline_events_diffs.extend(new_events_diffs);
+                if let Some(sync_timeline_events_diffs_next) = state.shrink_to_last_chunk().await? {
+                    sync_timeline_events_diffs.extend(sync_timeline_events_diffs_next);
                 }
             }
 
             {
                 // Fill the AllEventsCache.
                 let mut all_events = self.all_events.write().await;
+
                 for sync_timeline_event in sync_timeline_events {
                     if let Some(event_id) = sync_timeline_event.event_id() {
                         all_events.append_related_event(&sync_timeline_event);
@@ -572,11 +561,11 @@ mod private {
     use matrix_sdk_base::{
         deserialized_responses::{TimelineEvent, TimelineEventKind},
         event_cache::{store::EventCacheStoreLock, Event, Gap},
-        linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Update},
+        linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, OwnedRoomId};
+    use ruma::{serde::Raw, OwnedEventId, OwnedRoomId};
     use tracing::{debug, error, instrument, trace};
 
     use super::{
@@ -585,7 +574,7 @@ mod private {
             EventCacheError,
         },
         events::RoomEvents,
-        LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending, LoadMoreEventsBackwardsOutcome,
     };
 
     /// State for a single room's event cache.
@@ -900,6 +889,53 @@ mod private {
             }
         }
 
+        /// Remove events by their position, in `RoomEvents` and in
+        /// `EventCacheStore`.
+        ///
+        /// This method is purposely isolated because it must ensure that
+        /// positions are sorted appropriately or it can be disastrous.
+        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        pub(super) async fn remove_events(
+            &mut self,
+            in_memory_events: Vec<(OwnedEventId, Position)>,
+            in_store_events: Vec<(OwnedEventId, Position)>,
+        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+            // In-store events.
+            {
+                let mut positions = in_store_events
+                    .into_iter()
+                    .map(|(_event_id, position)| position)
+                    .collect::<Vec<_>>();
+
+                sort_positions_descending(&mut positions);
+
+                self.send_updates_to_store(
+                    positions
+                        .into_iter()
+                        .map(|position| Update::RemoveItem { at: position })
+                        .collect(),
+                )
+                .await?;
+            }
+
+            // In-memory events.
+            let ((), timeline_event_diffs) = self
+                .with_events_mut(|room_events| {
+                    // `remove_events_by_position` sorts the positions by itself.
+                    room_events
+                        .remove_events_by_position(
+                            in_memory_events
+                                .into_iter()
+                                .map(|(_event_id, position)| position)
+                                .collect(),
+                        )
+                        .expect("failed to remove an event")
+                })
+                .await?;
+
+            Ok(timeline_event_diffs)
+        }
+
         /// Propagate changes to the underlying storage.
         #[instrument(skip_all)]
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
@@ -908,7 +944,7 @@ mod private {
             self.send_updates_to_store(updates).await
         }
 
-        pub(super) async fn send_updates_to_store(
+        pub async fn send_updates_to_store(
             &mut self,
             mut updates: Vec<Update<TimelineEvent, Gap>>,
         ) -> Result<(), EventCacheError> {

@@ -253,14 +253,10 @@ impl RoomEvents {
 
     /// Remove some events from the linked chunk.
     ///
-    /// Empty chunks are going to be removed.
-    ///
-    /// Events **must** be sorted by their position (descending, i.e. from
-    /// newest to oldest).
-    pub fn remove_events_by_position<P>(&mut self, positions: P) -> Result<(), Error>
-    where
-        P: Iterator<Item = Position>,
-    {
+    /// If a chunk becomes empty, it's going to be removed.
+    pub fn remove_events_by_position(&mut self, mut positions: Vec<Position>) -> Result<(), Error> {
+        sort_positions_descending(&mut positions);
+
         for position in positions {
             self.chunks.remove_item_at(
                 position,
@@ -383,6 +379,21 @@ fn chunk_debug_string(content: &ChunkContent<Event, Gap>) -> String {
             format!("events[{items}]")
         }
     }
+}
+
+/// Sort positions of events so that events can be removed safely without
+/// messing their position.
+///
+/// Events must be sorted by their position index, from greatest to lowest, so
+/// that all positions remain valid inside the same chunk while they are being
+/// removed. For the sake of debugability, we also sort by position chunk
+/// identifier, but this is not required.
+pub(super) fn sort_positions_descending(positions: &mut [Position]) {
+    positions.sort_by(|a, b| {
+        b.chunk_identifier()
+            .cmp(&a.chunk_identifier())
+            .then_with(|| a.index().cmp(&b.index()).reverse())
+    });
 }
 
 #[cfg(test)]
@@ -658,13 +669,10 @@ mod tests {
 
         // Remove some events.
         room_events
-            .remove_events_by_position(
-                [
-                    Position::new(ChunkIdentifier::new(2), 1),
-                    Position::new(ChunkIdentifier::new(0), 1),
-                ]
-                .into_iter(),
-            )
+            .remove_events_by_position(vec![
+                Position::new(ChunkIdentifier::new(2), 1),
+                Position::new(ChunkIdentifier::new(0), 1),
+            ])
             .unwrap();
 
         assert_events_eq!(
@@ -677,7 +685,7 @@ mod tests {
 
         // Ensure chunks are removed once empty.
         room_events
-            .remove_events_by_position([Position::new(ChunkIdentifier::new(2), 0)].into_iter())
+            .remove_events_by_position(vec![Position::new(ChunkIdentifier::new(2), 0)])
             .unwrap();
 
         assert_events_eq!(
@@ -699,7 +707,7 @@ mod tests {
         // Remove one undefined event.
         // An error is expected.
         room_events
-            .remove_events_by_position([Position::new(ChunkIdentifier::new(42), 153)].into_iter())
+            .remove_events_by_position(vec![Position::new(ChunkIdentifier::new(42), 153)])
             .unwrap_err();
 
         assert_events_eq!(room_events.events(), []);
@@ -780,5 +788,29 @@ mod tests {
         assert_eq!(output.len(), 2);
         assert_eq!(&output[0], "chunk #0: events[$12345678, $2]");
         assert_eq!(&output[1], "chunk #1: gap['raclette']");
+    }
+
+    #[test]
+    fn test_sort_positions_descending() {
+        let mut positions = vec![
+            Position::new(ChunkIdentifier::new(2), 1),
+            Position::new(ChunkIdentifier::new(1), 0),
+            Position::new(ChunkIdentifier::new(2), 0),
+            Position::new(ChunkIdentifier::new(1), 1),
+            Position::new(ChunkIdentifier::new(0), 0),
+        ];
+
+        sort_positions_descending(&mut positions);
+
+        assert_eq!(
+            positions,
+            &[
+                Position::new(ChunkIdentifier::new(2), 1),
+                Position::new(ChunkIdentifier::new(2), 0),
+                Position::new(ChunkIdentifier::new(1), 1),
+                Position::new(ChunkIdentifier::new(1), 0),
+                Position::new(ChunkIdentifier::new(0), 0),
+            ]
+        );
     }
 }

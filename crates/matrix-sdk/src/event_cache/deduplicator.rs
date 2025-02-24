@@ -91,17 +91,12 @@ impl Deduplicator {
             });
         }
 
-        let mut outcome = match self {
+        match self {
             Deduplicator::InMemory(dedup) => Ok(dedup.filter_duplicate_events(events, room_events)),
             Deduplicator::PersistentStore(dedup) => {
                 dedup.filter_duplicate_events(events, room_events).await
             }
-        }?;
-
-        sort_events_by_position_descending(&mut outcome.in_memory_duplicated_event_ids);
-        sort_events_by_position_descending(&mut outcome.in_store_duplicated_event_ids);
-
-        Ok(outcome)
+        }
     }
 }
 
@@ -329,23 +324,6 @@ pub(super) struct DeduplicationOutcome {
     pub in_store_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
 }
 
-/// Sort events so that they can be removed safely without messing their
-/// position.
-///
-/// This function sort events by their position if any.
-///
-/// Events must be sorted by their position index, from greatest to lowest, so
-/// that all positions remain valid inside the same chunk while they are being
-/// removed. For the sake of debugability, we also sort by position chunk
-/// identifier, but this is not required.
-fn sort_events_by_position_descending(event_ids: &mut [(OwnedEventId, Position)]) {
-    event_ids.sort_by(|(_, a), (_, b)| {
-        b.chunk_identifier()
-            .cmp(&a.chunk_identifier())
-            .then_with(|| a.index().cmp(&b.index()).reverse())
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use assert_matches2::{assert_let, assert_matches};
@@ -361,36 +339,6 @@ mod tests {
             .sender(user_id!("@mnt_io:matrix.org"))
             .event_id(event_id)
             .into_event()
-    }
-
-    #[test]
-    fn test_sort_events_by_position_descending() {
-        let ev1 = owned_event_id!("$ev1");
-        let ev2 = owned_event_id!("$ev2");
-        let ev3 = owned_event_id!("$ev3");
-        let ev4 = owned_event_id!("$ev4");
-        let ev5 = owned_event_id!("$ev5");
-
-        let mut event_ids = vec![
-            (ev1.clone(), Position::new(ChunkIdentifier::new(2), 1)),
-            (ev2.clone(), Position::new(ChunkIdentifier::new(1), 0)),
-            (ev3.clone(), Position::new(ChunkIdentifier::new(2), 0)),
-            (ev4.clone(), Position::new(ChunkIdentifier::new(1), 1)),
-            (ev5.clone(), Position::new(ChunkIdentifier::new(0), 0)),
-        ];
-
-        sort_events_by_position_descending(&mut event_ids);
-
-        assert_eq!(
-            event_ids,
-            &[
-                (ev1, Position::new(ChunkIdentifier::new(2), 1)),
-                (ev3, Position::new(ChunkIdentifier::new(2), 0)),
-                (ev4, Position::new(ChunkIdentifier::new(1), 1)),
-                (ev2, Position::new(ChunkIdentifier::new(1), 0)),
-                (ev5, Position::new(ChunkIdentifier::new(0), 0)),
-            ]
-        );
     }
 
     #[async_test]
@@ -587,11 +535,11 @@ mod tests {
         assert_eq!(outcome.in_memory_duplicated_event_ids.len(), 2);
         assert_eq!(
             outcome.in_memory_duplicated_event_ids[0],
-            (event_id_3, Position::new(ChunkIdentifier::new(0), 1))
+            (event_id_2, Position::new(ChunkIdentifier::new(0), 0))
         );
         assert_eq!(
             outcome.in_memory_duplicated_event_ids[1],
-            (event_id_2, Position::new(ChunkIdentifier::new(0), 0))
+            (event_id_3, Position::new(ChunkIdentifier::new(0), 1))
         );
 
         // From these 4 events, 2 are duplicated and live in the store only, they have
@@ -601,11 +549,11 @@ mod tests {
         assert_eq!(outcome.in_store_duplicated_event_ids.len(), 2);
         assert_eq!(
             outcome.in_store_duplicated_event_ids[0],
-            (event_id_1, Position::new(ChunkIdentifier::new(42), 1))
+            (event_id_0, Position::new(ChunkIdentifier::new(42), 0))
         );
         assert_eq!(
             outcome.in_store_duplicated_event_ids[1],
-            (event_id_0, Position::new(ChunkIdentifier::new(42), 0))
+            (event_id_1, Position::new(ChunkIdentifier::new(42), 1))
         );
     }
 
@@ -755,11 +703,11 @@ mod tests {
         assert_eq!(in_store_duplicated_event_ids.len(), 2);
         assert_eq!(
             in_store_duplicated_event_ids[0],
-            (eid2.to_owned(), Position::new(ChunkIdentifier::new(43), 0))
+            (eid1.to_owned(), Position::new(ChunkIdentifier::new(42), 0))
         );
         assert_eq!(
             in_store_duplicated_event_ids[1],
-            (eid1.to_owned(), Position::new(ChunkIdentifier::new(42), 0))
+            (eid2.to_owned(), Position::new(ChunkIdentifier::new(43), 0))
         );
     }
 }
