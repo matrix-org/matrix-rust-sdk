@@ -1339,16 +1339,13 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = stream.recv()
     );
-    assert_eq!(diffs.len(), 4);
+    assert_eq!(diffs.len(), 2);
 
-    // The first two diffs are for the gap and the new events, but they don't really
-    // matter in this test, because then, the linked chunk is unloaded, causing
-    // a clear:
-    assert_matches!(&diffs[2], VectorDiff::Clear);
+    assert_matches!(&diffs[0], VectorDiff::Clear);
 
     // Then the latest event chunk is reloaded.
     // `$ev1`, `$ev2` and `$ev3` are added.
-    assert_matches!(&diffs[3], VectorDiff::Append { values: events } => {
+    assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
         assert_eq!(events.len(), 3);
         assert_eq!(events[0].event_id().unwrap().as_str(), "$1");
         assert_eq!(events[1].event_id().unwrap().as_str(), "$2");
