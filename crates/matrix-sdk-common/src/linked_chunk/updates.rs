@@ -138,6 +138,11 @@ impl<Item, Gap> ObservableUpdates<Item, Gap> {
         self.inner.write().unwrap().push(update);
     }
 
+    /// Clear all pending updates.
+    pub(super) fn clear(&mut self) {
+        self.inner.write().unwrap().clear();
+    }
+
     /// Take new updates.
     ///
     /// Updates that have been taken will not be read again.
@@ -240,6 +245,19 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
         for waker in self.wakers.drain(..) {
             waker.wake();
         }
+    }
+
+    /// Clear all pending updates.
+    fn clear(&mut self) {
+        self.updates.clear();
+
+        // Reset all the per-reader indices.
+        for idx in self.last_index_per_reader.values_mut() {
+            *idx = 0;
+        }
+
+        // No need to wake the wakers; they're waiting for a new update, and we
+        // just made them all disappear.
     }
 
     /// Take new updates; it considers the caller is the main reader, i.e. it
