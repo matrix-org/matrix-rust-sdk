@@ -124,14 +124,14 @@ impl BaseClient {
     ///   sync.
     /// * `previous_events_provider` - Timeline events prior to the current
     ///   sync.
-    /// * `ignore_verification_requests` - Whether verification requests found
+    /// * `ignore_verification_events` - Whether verification requests found
     ///   in the response should be ignored.
     #[instrument(skip_all, level = "trace")]
     pub async fn process_sliding_sync<PEP: PreviousEventsProvider>(
         &self,
         response: &http::Response,
         previous_events_provider: &PEP,
-        ignore_verification_requests: bool,
+        ignore_verification_events: bool,
     ) -> Result<SyncResponse> {
         let http::Response {
             // FIXME not yet supported by sliding sync. see
@@ -190,7 +190,7 @@ impl BaseClient {
                     &mut room_info_notable_updates,
                     &mut notifications,
                     &mut ambiguity_cache,
-                    ignore_verification_requests,
+                    ignore_verification_events,
                 )
                 .await?;
 
@@ -362,7 +362,7 @@ impl BaseClient {
         room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
-        ignore_verification_requests: bool,
+        ignore_verification_events: bool,
     ) -> Result<(
         RoomInfo,
         Option<JoinedRoomUpdate>,
@@ -445,7 +445,7 @@ impl BaseClient {
                 room_data.limited,
                 room_data.timeline.clone(),
                 true,
-                ignore_verification_requests,
+                ignore_verification_events,
                 room_data.prev_batch.clone(),
                 &push_rules,
                 &mut user_ids,

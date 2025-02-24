@@ -31,8 +31,75 @@ use matrix_sdk::{
 };
 use similar_asserts::assert_eq;
 use tracing::{debug, warn};
-
+use matrix_sdk::ruma::event_id;
+use matrix_sdk_ui::notification_client::{NotificationClient, NotificationProcessSetup};
+use matrix_sdk_ui::sync_service::SyncService;
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
+
+// I'm pretty ure I'm getting the verification request as an UTD
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_mutual_sas_verification_with_notification_client_ignores_verification_events() -> Result<()> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new("alice")
+            .use_sqlite()
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+    let bob_inner_client = TestClientBuilder::new("bob")
+        .use_sqlite()
+        .encryption_settings(encryption_settings)
+        .build()
+        .await?;
+    let bob = SyncTokenAwareClient::new(
+        bob_inner_client.clone(),
+    );
+
+    warn!("alice's device: {}", alice.device_id().unwrap());
+    warn!("bob's device: {}", bob.device_id().unwrap());
+
+    let invite = vec![bob.user_id().unwrap().to_owned()];
+    let request = assign!(CreateRoomRequest::new(), {
+        invite,
+        is_direct: true,
+    });
+
+    let alice_room = alice.create_room(request).await?;
+    alice_room.enable_encryption().await?;
+    let room_id = alice_room.room_id();
+
+    warn!("alice has created and enabled encryption in the room");
+
+    bob.sync_once().await?;
+    bob.get_room(room_id).unwrap().join().await?;
+
+    alice.sync_once().await?;
+    bob.sync_once().await?;
+
+    warn!("alice and bob are both aware of each other in the e2ee room");
+
+    let alice_bob_identity = alice
+        .encryption()
+        .get_user_identity(bob.user_id().unwrap())
+        .await?
+        .expect("alice knows bob's identity");
+
+    warn!("alice has found bob's identity");
+
+    let alice_verification_request = alice_bob_identity.request_verification().await?;
+
+    let sync_service = Arc::new(SyncService::builder(bob_inner_client.clone()).build().await.expect("Wat"));
+    let notification_client = NotificationClient::new(bob_inner_client.clone(), NotificationProcessSetup::SingleProcess { sync_service }).await.expect("couldn't create notification client");
+    let _ = notification_client.get_notification_with_sliding_sync(room_id, event_id!("$1")).await;
+
+    let verification = bob_inner_client.encryption().get_verification_request(alice_verification_request.own_user_id(), alice_verification_request.flow_id()).await;
+    // This should fail if the ignore_verification_events parameter is true
+    assert!(verification.is_none());
+
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_mutual_sas_verification() -> Result<()> {

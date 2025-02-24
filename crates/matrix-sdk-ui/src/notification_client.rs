@@ -427,7 +427,8 @@ impl NotificationClient {
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
             .add_list(invites)
-            .ignore_verification_requests()
+            // TODO: re-enable once we verified the test fails without it
+            // .ignore_verification_events()
             .build()
             .await?;
 

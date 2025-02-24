@@ -415,7 +415,7 @@ impl PrivateCrossSigningIdentity {
         Ok((master, self_signing, user_signing))
     }
 
-    pub(crate) async fn to_public_identity(&self) -> Result<OwnUserIdentityData, SignatureError> {
+    pub async fn to_public_identity(&self) -> Result<OwnUserIdentityData, SignatureError> {
         let (master, self_signing, user_signing) = self.public_keys().await?;
 
         let identity = OwnUserIdentityData::new(master, self_signing, user_signing)?;

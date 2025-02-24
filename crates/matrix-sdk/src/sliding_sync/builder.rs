@@ -35,7 +35,7 @@ pub struct SlidingSyncBuilder {
     #[cfg(feature = "e2e-encryption")]
     share_pos: bool,
     #[cfg(feature = "e2e-encryption")]
-    ignore_verification_requests: bool,
+    ignore_verification_events: bool,
 }
 
 impl SlidingSyncBuilder {
@@ -59,7 +59,7 @@ impl SlidingSyncBuilder {
                 #[cfg(feature = "e2e-encryption")]
                 share_pos: false,
                 #[cfg(feature = "e2e-encryption")]
-                ignore_verification_requests: false,
+                ignore_verification_events: false,
             })
         }
     }
@@ -233,8 +233,8 @@ impl SlidingSyncBuilder {
     /// otherwise those would be processed several times and the verification
     /// flow will be broken.
     #[cfg(feature = "e2e-encryption")]
-    pub fn ignore_verification_requests(mut self) -> Self {
-        self.ignore_verification_requests = true;
+    pub fn ignore_verification_events(mut self) -> Self {
+        self.ignore_verification_events = true;
         self
     }
 
@@ -308,9 +308,9 @@ impl SlidingSyncBuilder {
             poll_timeout: self.poll_timeout,
             network_timeout: self.network_timeout,
             #[cfg(feature = "e2e-encryption")]
-            ignore_verification_requests: self.ignore_verification_requests,
+            ignore_verification_events: self.ignore_verification_events,
             #[cfg(not(feature = "e2e-encryption"))]
-            ignore_verification_requests: false,
+            ignore_verification_events: false,
         }))
     }
 }

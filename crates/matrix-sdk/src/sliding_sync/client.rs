@@ -168,21 +168,21 @@ pub(crate) struct SlidingSyncResponseProcessor<'a> {
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,
     response: Option<SyncResponse>,
     rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    ignore_verification_requests: bool,
+    ignore_verification_events: bool,
 }
 
 impl<'a> SlidingSyncResponseProcessor<'a> {
     pub fn new(
         client: Client,
         rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-        ignore_verification_requests: bool,
+        ignore_verification_events: bool,
     ) -> Self {
         Self {
             client,
             to_device_events: Vec::new(),
             response: None,
             rooms,
-            ignore_verification_requests,
+            ignore_verification_events,
         }
     }
 
@@ -219,7 +219,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
                 .process_sliding_sync(
                     response,
                     &SlidingSyncPreviousEventsProvider(self.rooms),
-                    self.ignore_verification_requests,
+                    self.ignore_verification_events,
                 )
                 .await?,
         );
@@ -270,20 +270,22 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::notification_settings::RoomNotificationMode;
     use matrix_sdk_test::async_test;
-    use ruma::{assign, room_id, serde::Raw};
+    use ruma::{assign, device_id, owned_device_id, room_id, serde::Raw, user_id, MilliSecondsSinceUnixEpoch, SecondsSinceUnixEpoch};
+    use ruma::events::key::verification::VerificationMethod;
+    use ruma::events::room::message::{KeyVerificationRequestEventContent, MessageType, RoomMessageEventContent};
     use serde_json::json;
+    use tokio::sync::Mutex;
     use wiremock::{
         matchers::{method, path},
         Mock, ResponseTemplate,
     };
-
-    use super::{get_supported_versions, Version, VersionBuilder};
-    use crate::{
-        error::Result,
-        sliding_sync::{http, VersionBuilderError},
-        test_utils::logged_in_client_with_server,
-        SlidingSyncList, SlidingSyncMode,
-    };
+    use matrix_sdk_test::event_factory::EventFactory;
+    use super::{get_supported_versions, SlidingSyncResponseProcessor, Version, VersionBuilder};
+    use crate::{error::Result, sliding_sync::{http, VersionBuilderError}, test_utils::logged_in_client_with_server, SlidingSyncList, SlidingSyncMode, SlidingSyncRoom};
+    use crate::crypto::{Account, DeviceData};
+    use crate::crypto::olm::PrivateCrossSigningIdentity;
+    use crate::crypto::store::Changes;
+    use crate::test_utils::mocks::MatrixMockServer;
 
     #[test]
     fn test_version_builder_none() {
@@ -464,5 +466,74 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    // This works, but needs to make `to_public_identity` public
+    #[async_test]
+    async fn test_ignore_verification_events() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!r0:matrix.org");
+        let user_id = user_id!("@other:localhost");
+
+        let sliding_sync = client.sliding_sync("notifications")
+            .expect("Should be able to create a sliding sync builder")
+            .add_list(
+                SlidingSyncList::builder("all")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            )
+            .ignore_verification_events()
+            .build()
+            .await
+            .expect("Should be able to build the sliding sync");
+
+        sliding_sync.subscribe_to_rooms(&[room_id], None, false);
+
+        let verification_request_content = KeyVerificationRequestEventContent::new("Test".to_owned(), vec![VerificationMethod::QrCodeScanV1], owned_device_id!("BOBDEVICE"), user_id.to_owned());
+        let event = EventFactory::new().room(room_id).sender(user_id).event(RoomMessageEventContent::new(MessageType::VerificationRequest(verification_request_content.clone()))).into_event();
+
+        let room = SlidingSyncRoom::new(room_id.to_owned(), None, vec![event]);
+
+        let rooms = BTreeMap::from([(room_id.to_owned(), room)]);
+        let mut processor = SlidingSyncResponseProcessor::new(client.clone(), &rooms, true);
+
+        let mut room = ruma::api::client::sync::sync_events::v5::response::Room::new();
+        let mut f = EventFactory::new();
+        f.set_next_ts(MilliSecondsSinceUnixEpoch::now().get().into());
+        let event = f.room(room_id).sender(user_id).event(RoomMessageEventContent::new(MessageType::VerificationRequest(verification_request_content))).into_raw_sync();
+        room.timeline = vec![event];
+
+        let mut response = ruma::api::client::sync::sync_events::v5::Response::new("0".to_owned());
+        response.rooms.insert(room_id.to_owned(), room);
+
+        let olm_machine = client.olm_machine_for_testing().await.clone().expect("Got olm machine");
+
+        let alice_account = Account::with_device_id(user_id, device_id!("ALIDEVICE"));
+        let private_identity = PrivateCrossSigningIdentity::new(user_id.to_owned());
+
+        let bob_account =
+            Account::with_device_id(alice_account.user_id(), device_id!("BOBDEVICE"));
+
+        let private_identity = PrivateCrossSigningIdentity::new(user_id.to_owned());
+        let identity = private_identity.to_public_identity().await.unwrap();
+
+        let master_key = private_identity.master_public_key().await.unwrap();
+        let master_key = master_key.get_first_key().unwrap().to_owned();
+
+        let alice_device = DeviceData::from_account(&alice_account);
+        let bob_device = DeviceData::from_account(&bob_account);
+
+        let mut changes = Changes::default();
+        changes.identities.new.push(identity.clone().into());
+        changes.devices.new.push(bob_device.clone());
+
+        olm_machine.store().save_changes(changes).await.expect("Changes should be saved");
+
+        processor.handle_room_response(&response).await.expect("Should be able to handle room response");
+
+        let requests = olm_machine.get_verification_requests(user_id);
+
+        assert!(requests.is_empty());
     }
 }

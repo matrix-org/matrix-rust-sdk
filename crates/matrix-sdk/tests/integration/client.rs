@@ -2,14 +2,9 @@ use std::{collections::BTreeMap, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
-use futures_util::FutureExt;
-use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
-    config::{RequestConfig, StoreConfig, SyncSettings},
-    sync::RoomUpdate,
-    test_utils::no_retry_test_client_with_server,
-    Client, MemoryStore, SessionMeta, StateChanges, StateStore,
-};
+use futures_util::{pin_mut, FutureExt};
+use js_int::UInt;
+use matrix_sdk::{authentication::matrix::{MatrixSession, MatrixSessionTokens}, config::{RequestConfig, StoreConfig, SyncSettings}, sync::RoomUpdate, test_utils::no_retry_test_client_with_server, Client, MemoryStore, SessionMeta, SlidingSyncList, SlidingSyncMode, StateChanges, StateStore};
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
     async_test, sync_state_event,
@@ -24,33 +19,29 @@ use matrix_sdk_test::{
     },
     GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
-use ruma::{
-    api::client::{
-        directory::{
-            get_public_rooms,
-            get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
-        },
-        uiaa,
+use ruma::{api::client::{
+    directory::{
+        get_public_rooms,
+        get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
     },
-    assign, device_id,
-    directory::Filter,
-    event_id,
-    events::{
-        direct::{DirectEventContent, OwnedDirectUserIdentifier},
-        AnyInitialStateEvent,
-    },
-    room_id,
-    serde::Raw,
-    user_id, OwnedUserId,
-};
+    uiaa,
+}, assign, device_id, directory::Filter, event_id, events::{
+    direct::{DirectEventContent, OwnedDirectUserIdentifier},
+    AnyInitialStateEvent,
+}, owned_device_id, owned_event_id, owned_user_id, room_id, serde::Raw, user_id, MilliSecondsSinceUnixEpoch, OwnedUserId};
+use ruma::events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeUnsigned, OriginalSyncMessageLikeEvent};
+use ruma::events::key::verification::VerificationMethod;
+use ruma::events::room::message::{KeyVerificationRequestEventContent, MessageType, RoomMessageEventContent, SyncRoomMessageEvent};
 use serde_json::{json, Value as JsonValue};
 use stream_assert::{assert_next_matches, assert_pending};
+use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 use wiremock::{
     matchers::{header, method, path, path_regex},
     Mock, Request, ResponseTemplate,
 };
-
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk_test::event_factory::EventFactory;
 use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
@@ -1249,7 +1240,7 @@ async fn test_rooms_stream() {
     assert!(client.get_room(room_id_3).is_some());
 
     // We receive 3 diffs…
-    assert_let!(Some(diffs) = rooms_stream.next().await);
+    assert_let!(Some(diffs) = futures_util::StreamExt::next(&mut rooms_stream).await);
     assert_eq!(diffs.len(), 3);
 
     // … which map to the new rooms!

@@ -121,8 +121,8 @@ pub(super) struct SlidingSyncInner {
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
 
-    /// Ignore any verification requests received in the sync.
-    ignore_verification_requests: bool,
+    /// Ignore any verification events received in the sync.
+    ignore_verification_events: bool,
 }
 
 impl SlidingSync {
@@ -291,7 +291,7 @@ impl SlidingSync {
             let mut response_processor = SlidingSyncResponseProcessor::new(
                 self.inner.client.clone(),
                 rooms,
-                self.inner.ignore_verification_requests,
+                self.inner.ignore_verification_events,
             );
 
             #[cfg(feature = "e2e-encryption")]

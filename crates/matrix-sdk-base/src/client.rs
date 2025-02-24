@@ -409,8 +409,8 @@ impl BaseClient {
         limited: bool,
         events: Vec<Raw<AnySyncTimelineEvent>>,
         ignore_state_events: bool,
-        #[cfg(feature = "e2e-encryption")] ignore_verification_requests: bool,
-        #[cfg(not(feature = "e2e-encryption"))] _ignore_verification_requests: bool,
+        #[cfg(feature = "e2e-encryption")] ignore_verification_events: bool,
+        #[cfg(not(feature = "e2e-encryption"))] _ignore_verification_events: bool,
         prev_batch: Option<String>,
         push_rules: &Ruleset,
         user_ids: &mut BTreeSet<OwnedUserId>,
@@ -498,7 +498,7 @@ impl BaseClient {
                                 SyncMessageLikeEvent::Original(original_event),
                             ) => match &original_event.content.msgtype {
                                 MessageType::VerificationRequest(_) => {
-                                    if !ignore_verification_requests {
+                                    if !ignore_verification_events {
                                         Box::pin(self.handle_verification_event(e, room.room_id()))
                                             .await?;
                                     }
@@ -506,7 +506,7 @@ impl BaseClient {
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                if !ignore_verification_requests {
+                                if !ignore_verification_events {
                                     Box::pin(self.handle_verification_event(e, room.room_id()))
                                         .await?;
                                 }
