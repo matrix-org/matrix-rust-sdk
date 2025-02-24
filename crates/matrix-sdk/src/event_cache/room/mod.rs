@@ -571,14 +571,14 @@ impl RoomEventCacheInner {
                 // If there was a previous batch token, and there's at least one non-duplicated
                 // new event, unload the chunks so it only contains the last
                 // one; otherwise, there might be a valid gap in between, and
-                // observers may not render it (yet). In this case, extend the
-                // updates with those from the unload; the new updates include a `clear` (as of
-                // 2025-02-24), so they will remove all the previous ones first.
+                // observers may not render it (yet).
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
-                if let Some(new_timeline_event_diffs) = state.shrink_to_last_chunk().await? {
-                    timeline_event_diffs.extend(new_timeline_event_diffs);
+                if let Some(diffs) = state.shrink_to_last_chunk().await? {
+                    // Override the diffs with the new ones, as per `shrink_to_last_chunk`'s API
+                    // contract.
+                    timeline_event_diffs = diffs;
                 }
             }
 
@@ -936,8 +936,11 @@ mod private {
         /// If storage is enabled, unload all the chunks, then reloads only the
         /// last one.
         ///
-        /// Will return `Some` updates to be consumed by the caller, if and only
-        /// if storage is enabled. Otherwise, is a no-op.
+        /// If storage's enabled, return a diff update that starts with a clear
+        /// of all events; as a result, the caller may override any
+        /// pending diff updates with the result of this function.
+        ///
+        /// Otherwise, returns `None`.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub(super) async fn shrink_to_last_chunk(
             &mut self,
@@ -945,7 +948,6 @@ mod private {
             let Some(store) = self.store.get() else {
                 // No need to do anything if there's no storage; we'll already reset the
                 // timeline after a limited response.
-                // TODO: that might be a way to unify our code, though?
                 return Ok(None);
             };
 
@@ -989,7 +991,11 @@ mod private {
             let _ = self.events.store_updates().take();
 
             // However, we want to get updates as `VectorDiff`s, for the external listeners.
-            Ok(Some(self.events.updates_as_vector_diffs()))
+            // Check we're respecting the contract defined in the doc comment.
+            let diffs = self.events.updates_as_vector_diffs();
+            assert!(matches!(diffs[0], VectorDiff::Clear));
+
+            Ok(Some(diffs))
         }
 
         /// Automatically shrink the room if there are no listeners, as
@@ -1162,20 +1168,31 @@ mod private {
             Ok(())
         }
 
-        /// Resets this data structure as if it were brand new.
+        /// Reset this data structure as if it were brand new.
+        ///
+        /// Return a single diff update that is a clear of all events; as a
+        /// result, the caller may override any pending diff updates
+        /// with the result of this function.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub async fn reset(&mut self) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
             self.events.reset();
+
             self.propagate_changes().await?;
 
             // Reset the pagination state too: pretend we never waited for the initial
             // prev-batch token, and indicate that we're not at the start of the
-            // timeline, since we don't.
+            // timeline, since we don't know about that anymore.
             self.waited_for_initial_prev_token = false;
             // TODO: likely must cancel any ongoing back-paginations too
             self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
 
-            Ok(self.events.updates_as_vector_diffs())
+            let diff_updates = self.events.updates_as_vector_diffs();
+
+            // Ensure the contract defined in the doc comment is true:
+            assert_eq!(diff_updates.len(), 1);
+            assert!(matches!(diff_updates[0], VectorDiff::Clear));
+
+            Ok(diff_updates)
         }
 
         /// Returns a read-only reference to the underlying events.
@@ -2244,7 +2261,7 @@ mod tests {
             .shrink_to_last_chunk()
             .await
             .expect("shrinking should succeed")
-            .expect("there must be updates");
+            .unwrap();
 
         // We receive updates about the changes to the linked chunk.
         assert_eq!(diffs.len(), 2);
