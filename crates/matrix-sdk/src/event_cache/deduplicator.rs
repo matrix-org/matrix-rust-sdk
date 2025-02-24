@@ -350,7 +350,7 @@ fn sort_events_by_position_descending(event_ids: &mut [(OwnedEventId, Position)]
 mod tests {
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
-    use matrix_sdk_test::event_factory::EventFactory;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{owned_event_id, user_id, EventId};
 
     use super::*;
@@ -391,6 +391,37 @@ mod tests {
                 (ev5, Position::new(ChunkIdentifier::new(0), 0)),
             ]
         );
+    }
+
+    #[async_test]
+    async fn test_filter_find_duplicates_in_the_input() {
+        let event_id_0 = owned_event_id!("$ev0");
+        let event_id_1 = owned_event_id!("$ev1");
+
+        let event_0 = sync_timeline_event(&event_id_0);
+        let event_1 = sync_timeline_event(&event_id_1);
+
+        // It doesn't matter which deduplicator we peak, the feature is ensured by the
+        // “frontend”, not the “backend” of the deduplicator.
+        let deduplicator = Deduplicator::new_memory_based();
+        let room_events = RoomEvents::new();
+
+        let events = deduplicator
+            .filter_duplicate_events(
+                vec![
+                    event_0.clone(), // Ok
+                    event_1,         // Ok
+                    event_0,         // Duplicated
+                ],
+                &room_events,
+            )
+            .await
+            .unwrap();
+
+        // We get 2 events, not 3, because one was duplicated.
+        assert_eq!(events.all_events.len(), 2);
+        assert_eq!(events.all_events[0].event_id(), Some(event_id_0));
+        assert_eq!(events.all_events[1].event_id(), Some(event_id_1));
     }
 
     #[test]
@@ -458,7 +489,7 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
-    #[matrix_sdk_test::async_test]
+    #[async_test]
     async fn test_storage_deduplication() {
         use std::sync::Arc;
 
