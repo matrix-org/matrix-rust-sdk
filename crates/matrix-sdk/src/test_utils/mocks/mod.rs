@@ -46,6 +46,9 @@ use wiremock::{
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
+#[cfg(feature = "experimental-oidc")]
+pub mod oauth;
+
 use super::client::MockClientBuilder;
 use crate::{Client, OwnedServerName, Room};
 
@@ -142,6 +145,12 @@ impl MatrixMockServer {
     /// Return the underlying [`wiremock`] server.
     pub fn server(&self) -> &MockServer {
         &self.server
+    }
+
+    /// Get an `OauthMockServer` that uses the same mock server as this one.
+    #[cfg(feature = "experimental-oidc")]
+    pub fn oauth(&self) -> oauth::OauthMockServer<'_> {
+        oauth::OauthMockServer::new(self.server())
     }
 
     /// Overrides the sync/ endpoint with knowledge that the given
