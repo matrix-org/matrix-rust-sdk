@@ -19,7 +19,7 @@ use matrix_sdk_common::{
     linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
     AsyncTraitDeps,
 };
-use ruma::{MxcUri, OwnedEventId, RoomId};
+use ruma::{EventId, MxcUri, OwnedEventId, RoomId};
 
 use super::{
     media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
@@ -108,6 +108,13 @@ pub trait EventCacheStore: AsyncTraitDeps {
         room_id: &RoomId,
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error>;
+
+    /// Find an event by its ID.
+    async fn find_event(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<(Position, Event)>, Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -297,6 +304,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
         self.0.filter_duplicated_events(room_id, events).await.map_err(Into::into)
+    }
+
+    async fn find_event(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<(Position, Event)>, Self::Error> {
+        self.0.find_event(room_id, event_id).await.map_err(Into::into)
     }
 
     async fn add_media_content(

@@ -29,7 +29,7 @@ use matrix_sdk_common::{
 };
 use ruma::{
     time::{Instant, SystemTime},
-    MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
+    EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
 };
 
 use super::{
@@ -183,7 +183,7 @@ impl EventCacheStore for MemoryStore {
 
         let mut duplicated_events = Vec::new();
 
-        for (event, position) in inner.events.unordered_events(room_id) {
+        for (event, position) in inner.events.unordered_items(room_id) {
             // If `events` is empty, we can short-circuit.
             if events.is_empty() {
                 break;
@@ -200,6 +200,21 @@ impl EventCacheStore for MemoryStore {
         }
 
         Ok(duplicated_events)
+    }
+
+    async fn find_event(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<(Position, Event)>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        let event_and_room = inner.events.items().find_map(|(position, event, this_room_id)| {
+            (room_id == this_room_id && event.event_id()? == event_id)
+                .then_some((position, event.clone()))
+        });
+
+        Ok(event_and_room)
     }
 
     async fn add_media_content(
