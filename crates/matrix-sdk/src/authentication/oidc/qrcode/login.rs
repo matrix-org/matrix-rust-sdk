@@ -351,16 +351,9 @@ impl<'a> LoginWithQrCode<'a> {
 mod test {
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::{join, StreamExt};
-    use mas_oidc_client::types::{
-        iana::oauth::OAuthClientAuthenticationMethod,
-        oidc::ApplicationType,
-        registration::{ClientMetadata, Localized},
-        requests::GrantType,
-    };
     use matrix_sdk_base::crypto::types::{qr_login::QrCodeModeData, SecretsBundle};
     use matrix_sdk_test::async_test;
     use serde_json::json;
-    use url::Url;
 
     use super::*;
     use crate::{
@@ -370,7 +363,7 @@ mod test {
         },
         config::RequestConfig,
         http_client::HttpClient,
-        test_utils::mocks::MatrixMockServer,
+        test_utils::{client::oauth::mock_client_metadata, mocks::MatrixMockServer},
     };
 
     enum AliceBehaviour {
@@ -386,26 +379,6 @@ mod test {
         Ok,
         AccessDenied,
         ExpiredToken,
-    }
-
-    fn client_metadata() -> VerifiedClientMetadata {
-        let client_uri = Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
-            .expect("Couldn't parse client URI");
-
-        ClientMetadata {
-            application_type: Some(ApplicationType::Native),
-            redirect_uris: None,
-            grant_types: Some(vec![GrantType::DeviceCode]),
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-            client_name: Some(Localized::new("test-matrix-rust-sdk-qrlogin".to_owned(), [])),
-            contacts: Some(vec!["root@127.0.0.1".to_owned()]),
-            client_uri: Some(Localized::new(client_uri.clone(), [])),
-            policy_uri: Some(Localized::new(client_uri.clone(), [])),
-            tos_uri: Some(Localized::new(client_uri, [])),
-            ..Default::default()
-        }
-        .validate()
-        .unwrap()
     }
 
     fn secrets_bundle() -> SecretsBundle {
@@ -512,7 +485,7 @@ mod test {
         let qr_code = alice.qr_code_data().clone();
 
         let oidc = bob.oidc();
-        let login_bob = oidc.login_with_qr_code(&qr_code, client_metadata());
+        let login_bob = oidc.login_with_qr_code(&qr_code, mock_client_metadata());
         let mut updates = login_bob.subscribe_to_progress();
 
         let updates_task = tokio::spawn(async move {
@@ -599,7 +572,7 @@ mod test {
         let qr_code = alice.qr_code_data().clone();
 
         let oidc = bob.oidc();
-        let login_bob = oidc.login_with_qr_code(&qr_code, client_metadata());
+        let login_bob = oidc.login_with_qr_code(&qr_code, mock_client_metadata());
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = tokio::spawn(async move {
@@ -722,7 +695,7 @@ mod test {
         let qr_code = alice.qr_code_data().clone();
 
         let oidc = bob.oidc();
-        let login_bob = oidc.login_with_qr_code(&qr_code, client_metadata());
+        let login_bob = oidc.login_with_qr_code(&qr_code, mock_client_metadata());
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = tokio::spawn(async move {

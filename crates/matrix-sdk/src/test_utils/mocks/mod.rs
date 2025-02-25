@@ -976,6 +976,13 @@ impl MatrixMockServer {
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: QueryKeysEndpoint }
     }
+
+    /// Creates a prebuilt mock for the endpoint used to discover the URL of a
+    /// homeserver.
+    pub fn mock_well_known(&self) -> MockEndpoint<'_, WellKnownEndpoint> {
+        let mock = Mock::given(method("GET")).and(path_regex(r"^/.well-known/matrix/client"));
+        MockEndpoint { mock, server: &self.server, endpoint: WellKnownEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2383,11 +2390,11 @@ impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
 pub struct WhoAmIEndpoint;
 
 impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
-    /// Returns a successful response with the user ID `@joe:example.org` and no
-    /// device ID.
+    /// Returns a successful response with a user ID and device ID.
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "user_id": "@joe:example.org",
+            "device_id": "D3V1C31D",
         })));
 
         MatrixMock { server: self.server, mock }
@@ -2419,6 +2426,22 @@ impl<'a> MockEndpoint<'a, QueryKeysEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `GET /.well-known/matrix/client` request.
+pub struct WellKnownEndpoint;
+
+impl<'a> MockEndpoint<'a, WellKnownEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "m.homeserver": {
+                "base_url": self.server.uri(),
+            },
+        })));
 
         MatrixMock { server: self.server, mock }
     }
