@@ -568,16 +568,16 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let tx = self.inner.transaction_on_one_with_mode(
                         keys::LINKED_CHUNKS,
-                        IdbTransactionMode::Readwrite,
+                        IdbTransactionMode::Readonly,
                     )?;
 
-                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+                    let chunks_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
-                    let linked_chunks = object_store.get_all_with_key(&chunks_key_range)?.await?;
+                    let linked_chunks = chunks_store.get_all_with_key(&chunks_key_range)?.await?;
 
                     for linked_chunk in linked_chunks {
                         let linked_chunk: Chunk =
-                            self.serializer.deserialize_value(linked_chunk)?;
+                            self.serializer.deserialize_into_object(linked_chunk)?;
 
                         let lower =
                             JsValue::from_str(&self.get_id(room_id.as_ref(), &linked_chunk.id));
@@ -593,10 +593,18 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         )?;
 
                         let events_object_store = events_tx.object_store(keys::EVENTS)?;
-                        events_object_store.delete_owned(key_range)?;
+                        let req = events_object_store.delete_owned(key_range)?;
+                        req.into_future().await?;
+
+                        let tx = self.inner.transaction_on_one_with_mode(
+                            keys::LINKED_CHUNKS,
+                            IdbTransactionMode::Readwrite,
+                        )?;
+
+                        let chunks_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
                         let linked_chunk_id = JsValue::from_str(&linked_chunk.id);
-                        object_store.delete(&linked_chunk_id)?;
+                        chunks_store.delete(&linked_chunk_id)?;
                     }
                 }
             }
@@ -765,6 +773,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         let store = tx.object_store(keys::MEDIA)?;
 
         let req = store.put_key_val(&JsValue::from(request.unique_key().as_str()), &blob)?;
+        req.into_future().await?;
         Ok(())
     }
 
