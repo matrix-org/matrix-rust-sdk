@@ -3031,10 +3031,7 @@ impl Room {
     /// # Errors
     ///
     /// Returns an error if the room is not found or on rate limit
-    pub async fn report_room(
-        &self,
-        reason: Option<String>,
-    ) -> Result<report_room::v3::Response> {
+    pub async fn report_room(&self, reason: Option<String>) -> Result<report_room::v3::Response> {
         let mut request = report_room::v3::Request::new(self.inner.room_id().to_owned());
         request.reason = reason;
 
