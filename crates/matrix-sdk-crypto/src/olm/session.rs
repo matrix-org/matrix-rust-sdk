@@ -157,12 +157,15 @@ impl Session {
         }
 
         impl EventType for Content<'_> {
-            // This is a bit of a hack, usually we just define the `EVENT_TYPE` and use the
-            // default implementation of `event_type()`, we can't do this here
+            // This is a bit of a hack: usually we just define the `EVENT_TYPE` and use the
+            // default implementation of `event_type()`. We can't do this here
             // because the event type isn't static.
             //
-            // So we just leave EVENT_TYPE out. This works because the serialization is
-            // using `event_type()` and this type is contained to this function.
+            // We have to provide `EVENT_TYPE` to conform to the `EventType` trait, but
+            // don't actually use it, so we just leave it empty.
+            //
+            // This works because the serialization uses `event_type()` and this type is
+            // contained to this function.
             const EVENT_TYPE: &'static str = "";
 
             fn event_type(&self) -> &str {
