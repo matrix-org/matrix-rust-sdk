@@ -43,7 +43,7 @@ impl WidgetDriver {
         };
 
         let capabilities_provider = CapabilitiesProviderWrap(capabilities_provider.into());
-        if let Err(()) = driver.run(room.inner.clone(), capabilities_provider).await {
+        if let Err(()) = driver.run(room.sdk().clone(), capabilities_provider).await {
             // TODO
         }
     }
@@ -105,7 +105,7 @@ pub async fn generate_webview_url(
 ) -> Result<String, ParseError> {
     Ok(matrix_sdk::widget::WidgetSettings::generate_webview_url(
         &widget_settings.clone().try_into()?,
-        &room.inner,
+        room.sdk(),
         props.into(),
     )
     .await

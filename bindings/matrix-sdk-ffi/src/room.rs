@@ -69,14 +69,21 @@ impl From<RoomState> for Membership {
     }
 }
 
+/// A wrapper for a SDK room.
 #[derive(uniffi::Object)]
 pub struct Room {
-    pub(super) inner: SdkRoom,
+    sdk: SdkRoom,
 }
 
 impl Room {
+    /// Create a new room from an SDK room.
     pub(crate) fn new(inner: SdkRoom) -> Self {
-        Room { inner }
+        Room { sdk: inner }
+    }
+
+    /// Returns the inner SDK room.
+    pub(crate) fn sdk(&self) -> &SdkRoom {
+        &self.sdk
     }
 }
 
@@ -86,59 +93,59 @@ impl Room {
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
     pub fn display_name(&self) -> Option<String> {
-        Some(self.inner.cached_display_name()?.to_string())
+        Some(self.sdk.cached_display_name()?.to_string())
     }
 
     /// The raw name as present in the room state event.
     pub fn raw_name(&self) -> Option<String> {
-        self.inner.name()
+        self.sdk.name()
     }
 
     pub fn topic(&self) -> Option<String> {
-        self.inner.topic()
+        self.sdk.topic()
     }
 
     pub fn avatar_url(&self) -> Option<String> {
-        self.inner.avatar_url().map(|m| m.to_string())
+        self.sdk.avatar_url().map(|m| m.to_string())
     }
 
     pub fn is_direct(&self) -> bool {
-        RUNTIME.block_on(self.inner.is_direct()).unwrap_or(false)
+        RUNTIME.block_on(self.sdk.is_direct()).unwrap_or(false)
     }
 
     pub fn is_public(&self) -> bool {
-        self.inner.is_public()
+        self.sdk.is_public()
     }
 
     pub fn is_space(&self) -> bool {
-        self.inner.is_space()
+        self.sdk.is_space()
     }
 
     pub fn is_tombstoned(&self) -> bool {
-        self.inner.is_tombstoned()
+        self.sdk.is_tombstoned()
     }
 
     pub fn canonical_alias(&self) -> Option<String> {
-        self.inner.canonical_alias().map(|a| a.to_string())
+        self.sdk.canonical_alias().map(|a| a.to_string())
     }
 
     pub fn alternative_aliases(&self) -> Vec<String> {
-        self.inner.alt_aliases().iter().map(|a| a.to_string()).collect()
+        self.sdk.alt_aliases().iter().map(|a| a.to_string()).collect()
     }
 
     pub fn membership(&self) -> Membership {
-        self.inner.state().into()
+        self.sdk.state().into()
     }
 
     /// Returns the room heroes for this room.
     pub fn heroes(&self) -> Vec<RoomHero> {
-        self.inner.heroes().into_iter().map(Into::into).collect()
+        self.sdk.heroes().into_iter().map(Into::into).collect()
     }
 
     /// Is there a non expired membership with application "m.call" and scope
     /// "m.room" in this room.
     pub fn has_active_room_call(&self) -> bool {
-        self.inner.has_active_room_call()
+        self.sdk.has_active_room_call()
     }
 
     /// Returns a Vec of userId's that participate in the room call.
@@ -150,14 +157,14 @@ impl Room {
     ///
     /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<String> {
-        self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
+        self.sdk.active_room_call_participants().iter().map(|u| u.to_string()).collect()
     }
 
     /// For rooms one is invited to, retrieves the room member information for
     /// the user who invited the logged-in user to a room.
     pub async fn inviter(&self) -> Option<RoomMember> {
-        if self.inner.state() == RoomState::Invited {
-            self.inner
+        if self.sdk.state() == RoomState::Invited {
+            self.sdk
                 .invite_details()
                 .await
                 .ok()
@@ -176,7 +183,7 @@ impl Room {
     /// room keys will be rotated automatically when necessary. This method is
     /// still useful for debugging purposes.
     pub async fn discard_room_key(&self) -> Result<(), ClientError> {
-        self.inner.discard_room_key().await?;
+        self.sdk.discard_room_key().await?;
         Ok(())
     }
 
@@ -185,7 +192,7 @@ impl Room {
         &self,
         configuration: TimelineConfiguration,
     ) -> Result<Arc<Timeline>, ClientError> {
-        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
+        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.sdk);
 
         builder = builder.with_focus(configuration.focus.try_into()?);
 
@@ -215,32 +222,32 @@ impl Room {
     }
 
     pub fn id(&self) -> String {
-        self.inner.room_id().to_string()
+        self.sdk.room_id().to_string()
     }
 
     pub fn is_encrypted(&self) -> Result<bool, ClientError> {
-        Ok(RUNTIME.block_on(self.inner.is_encrypted())?)
+        Ok(RUNTIME.block_on(self.sdk.is_encrypted())?)
     }
 
     pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
-        Ok(Arc::new(RoomMembersIterator::new(self.inner.members(RoomMemberships::empty()).await?)))
+        Ok(Arc::new(RoomMembersIterator::new(self.sdk.members(RoomMemberships::empty()).await?)))
     }
 
     pub async fn members_no_sync(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
         Ok(Arc::new(RoomMembersIterator::new(
-            self.inner.members_no_sync(RoomMemberships::empty()).await?,
+            self.sdk.members_no_sync(RoomMemberships::empty()).await?,
         )))
     }
 
     pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
         let user_id = UserId::parse(&*user_id)?;
-        let member = self.inner.get_member(&user_id).await?.context("User not found")?;
+        let member = self.sdk.get_member(&user_id).await?.context("User not found")?;
         Ok(member.try_into().context("Unknown state membership")?)
     }
 
     pub async fn member_avatar_url(&self, user_id: String) -> Result<Option<String>, ClientError> {
         let user_id = UserId::parse(&*user_id)?;
-        let member = self.inner.get_member(&user_id).await?.context("User not found")?;
+        let member = self.sdk.get_member(&user_id).await?.context("User not found")?;
         let avatar_url_string = member.avatar_url().map(|m| m.to_string());
         Ok(avatar_url_string)
     }
@@ -250,20 +257,20 @@ impl Room {
         user_id: String,
     ) -> Result<Option<String>, ClientError> {
         let user_id = UserId::parse(&*user_id)?;
-        let member = self.inner.get_member(&user_id).await?.context("User not found")?;
+        let member = self.sdk.get_member(&user_id).await?.context("User not found")?;
         let avatar_url_string = member.display_name().map(|m| m.to_owned());
         Ok(avatar_url_string)
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        RoomInfo::new(&self.inner).await
+        RoomInfo::new(&self.sdk).await
     }
 
     pub fn subscribe_to_room_info_updates(
         self: Arc<Self>,
         listener: Box<dyn RoomInfoListener>,
     ) -> Arc<TaskHandle> {
-        let mut subscriber = self.inner.subscribe_info();
+        let mut subscriber = self.sdk.subscribe_info();
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             while subscriber.next().await.is_some() {
                 match self.room_info().await {
@@ -281,7 +288,7 @@ impl Room {
         is_favourite: bool,
         tag_order: Option<f64>,
     ) -> Result<(), ClientError> {
-        self.inner.set_is_favourite(is_favourite, tag_order).await?;
+        self.sdk.set_is_favourite(is_favourite, tag_order).await?;
         Ok(())
     }
 
@@ -290,7 +297,7 @@ impl Room {
         is_low_priority: bool,
         tag_order: Option<f64>,
     ) -> Result<(), ClientError> {
-        self.inner.set_is_low_priority(is_low_priority, tag_order).await?;
+        self.sdk.set_is_low_priority(is_low_priority, tag_order).await?;
         Ok(())
     }
 
@@ -305,7 +312,7 @@ impl Room {
         let content_json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| ClientError::Generic { msg: format!("Failed to parse JSON: {e}") })?;
 
-        self.inner.send_raw(&event_type, content_json).await?;
+        self.sdk.send_raw(&event_type, content_json).await?;
 
         Ok(())
     }
@@ -324,20 +331,20 @@ impl Room {
         reason: Option<String>,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        self.inner.redact(&event_id, reason.as_deref(), None).await?;
+        self.sdk.redact(&event_id, reason.as_deref(), None).await?;
         Ok(())
     }
 
     pub fn active_members_count(&self) -> u64 {
-        self.inner.active_members_count()
+        self.sdk.active_members_count()
     }
 
     pub fn invited_members_count(&self) -> u64 {
-        self.inner.invited_members_count()
+        self.sdk.invited_members_count()
     }
 
     pub fn joined_members_count(&self) -> u64 {
-        self.inner.joined_members_count()
+        self.sdk.joined_members_count()
     }
 
     /// Reports an event from the room.
@@ -358,10 +365,10 @@ impl Room {
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
         let int_score = score.map(|value| value.into());
-        self.inner
+        self.sdk
             .client()
             .send(report_content::v3::Request::new(
-                self.inner.room_id().into(),
+                self.sdk.room_id().into(),
                 event_id,
                 int_score,
                 reason,
@@ -377,7 +384,7 @@ impl Room {
     /// * `user_id` - The ID of the user to ignore.
     pub async fn ignore_user(&self, user_id: String) -> Result<(), ClientError> {
         let user_id = UserId::parse(user_id)?;
-        self.inner.client().account().ignore_user(&user_id).await?;
+        self.sdk.client().account().ignore_user(&user_id).await?;
         Ok(())
     }
 
@@ -385,7 +392,7 @@ impl Room {
     ///
     /// Only invited and joined rooms can be left.
     pub async fn leave(&self) -> Result<(), ClientError> {
-        self.inner.leave().await?;
+        self.sdk.leave().await?;
         Ok(())
     }
 
@@ -393,19 +400,19 @@ impl Room {
     ///
     /// Only invited and left rooms can be joined via this method.
     pub async fn join(&self) -> Result<(), ClientError> {
-        self.inner.join().await?;
+        self.sdk.join().await?;
         Ok(())
     }
 
     /// Sets a new name to the room.
     pub async fn set_name(&self, name: String) -> Result<(), ClientError> {
-        self.inner.set_name(name).await?;
+        self.sdk.set_name(name).await?;
         Ok(())
     }
 
     /// Sets a new topic in the room.
     pub async fn set_topic(&self, topic: String) -> Result<(), ClientError> {
-        self.inner.set_room_topic(&topic).await?;
+        self.sdk.set_room_topic(&topic).await?;
         Ok(())
     }
 
@@ -429,7 +436,7 @@ impl Room {
         media_info: Option<ImageInfo>,
     ) -> Result<(), ClientError> {
         let mime: Mime = mime_type.parse()?;
-        self.inner
+        self.sdk
             .upload_avatar(
                 &mime,
                 data,
@@ -444,30 +451,30 @@ impl Room {
 
     /// Removes the current room avatar
     pub async fn remove_avatar(&self) -> Result<(), ClientError> {
-        self.inner.remove_avatar().await?;
+        self.sdk.remove_avatar().await?;
         Ok(())
     }
 
     pub async fn invite_user_by_id(&self, user_id: String) -> Result<(), ClientError> {
         let user =
             <&UserId>::try_from(user_id.as_str()).context("Could not create user from string")?;
-        self.inner.invite_user_by_id(user).await?;
+        self.sdk.invite_user_by_id(user).await?;
         Ok(())
     }
 
     pub async fn can_user_redact_own(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_redact_own(&user_id).await?)
+        Ok(self.sdk.can_user_redact_own(&user_id).await?)
     }
 
     pub async fn can_user_redact_other(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_redact_other(&user_id).await?)
+        Ok(self.sdk.can_user_redact_other(&user_id).await?)
     }
 
     pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_ban(&user_id).await?)
+        Ok(self.sdk.can_user_ban(&user_id).await?)
     }
 
     pub async fn ban_user(
@@ -476,7 +483,7 @@ impl Room {
         reason: Option<String>,
     ) -> Result<(), ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.ban_user(&user_id, reason.as_deref()).await?)
+        Ok(self.sdk.ban_user(&user_id, reason.as_deref()).await?)
     }
 
     pub async fn unban_user(
@@ -485,17 +492,17 @@ impl Room {
         reason: Option<String>,
     ) -> Result<(), ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.unban_user(&user_id, reason.as_deref()).await?)
+        Ok(self.sdk.unban_user(&user_id, reason.as_deref()).await?)
     }
 
     pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_invite(&user_id).await?)
+        Ok(self.sdk.can_user_invite(&user_id).await?)
     }
 
     pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_kick(&user_id).await?)
+        Ok(self.sdk.can_user_kick(&user_id).await?)
     }
 
     pub async fn kick_user(
@@ -504,7 +511,7 @@ impl Room {
         reason: Option<String>,
     ) -> Result<(), ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.kick_user(&user_id, reason.as_deref()).await?)
+        Ok(self.sdk.kick_user(&user_id, reason.as_deref()).await?)
     }
 
     pub async fn can_user_send_state(
@@ -513,7 +520,7 @@ impl Room {
         state_event: StateEventType,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_send_state(&user_id, state_event.into()).await?)
+        Ok(self.sdk.can_user_send_state(&user_id, state_event.into()).await?)
     }
 
     pub async fn can_user_send_message(
@@ -522,12 +529,12 @@ impl Room {
         message: MessageLikeEventType,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
+        Ok(self.sdk.can_user_send_message(&user_id, message.into()).await?)
     }
 
     pub async fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_pin_unpin(&user_id).await?)
+        Ok(self.sdk.can_user_pin_unpin(&user_id).await?)
     }
 
     pub async fn can_user_trigger_room_notification(
@@ -535,15 +542,15 @@ impl Room {
         user_id: String,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_trigger_room_notification(&user_id).await?)
+        Ok(self.sdk.can_user_trigger_room_notification(&user_id).await?)
     }
 
     pub fn own_user_id(&self) -> String {
-        self.inner.own_user_id().to_string()
+        self.sdk.own_user_id().to_string()
     }
 
     pub async fn typing_notice(&self, is_typing: bool) -> Result<(), ClientError> {
-        Ok(self.inner.typing_notice(is_typing).await?)
+        Ok(self.sdk.typing_notice(is_typing).await?)
     }
 
     pub fn subscribe_to_typing_notifications(
@@ -552,7 +559,7 @@ impl Room {
     ) -> Arc<TaskHandle> {
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             let (_event_handler_drop_guard, mut subscriber) =
-                self.inner.subscribe_to_typing_notifications();
+                self.sdk.subscribe_to_typing_notifications();
             while let Ok(typing_user_ids) = subscriber.recv().await {
                 let typing_user_ids =
                     typing_user_ids.into_iter().map(|user_id| user_id.to_string()).collect();
@@ -565,7 +572,7 @@ impl Room {
         &self,
         listener: Box<dyn IdentityStatusChangeListener>,
     ) -> Arc<TaskHandle> {
-        let room = self.inner.clone();
+        let room = self.sdk.clone();
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             let status_changes = room.subscribe_to_identity_status_changes().await;
             if let Ok(status_changes) = status_changes {
@@ -589,7 +596,7 @@ impl Room {
     /// Set (or unset) a flag on the room to indicate that the user has
     /// explicitly marked it as unread.
     pub async fn set_unread_flag(&self, new_value: bool) -> Result<(), ClientError> {
-        Ok(self.inner.set_unread_flag(new_value).await?)
+        Ok(self.sdk.set_unread_flag(new_value).await?)
     }
 
     /// Mark a room as read, by attaching a read receipt on the latest timeline
@@ -599,7 +606,7 @@ impl Room {
     /// responsibility to do so, if needs be.
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
         // Create a throwaway timeline for this.
-        let timeline = SdkTimeline::builder(&self.inner)
+        let timeline = SdkTimeline::builder(&self.sdk)
             .track_read_marker_and_receipts()
             .build()
             .await
@@ -611,7 +618,7 @@ impl Room {
     }
 
     pub async fn get_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
-        let power_levels = self.inner.power_levels().await.map_err(matrix_sdk::Error::from)?;
+        let power_levels = self.sdk.power_levels().await.map_err(matrix_sdk::Error::from)?;
         Ok(RoomPowerLevels::from(power_levels))
     }
 
@@ -619,7 +626,7 @@ impl Room {
         &self,
         changes: RoomPowerLevelChanges,
     ) -> Result<(), ClientError> {
-        self.inner.apply_power_level_changes(changes).await?;
+        self.sdk.apply_power_level_changes(changes).await?;
         Ok(())
     }
 
@@ -636,7 +643,7 @@ impl Room {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        self.inner
+        self.sdk
             .update_power_levels(updates)
             .await
             .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
@@ -648,20 +655,20 @@ impl Room {
         user_id: String,
     ) -> Result<RoomMemberRole, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.get_suggested_user_role(&user_id).await?)
+        Ok(self.sdk.get_suggested_user_role(&user_id).await?)
     }
 
     pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
-        Ok(RoomPowerLevels::from(self.inner.reset_power_levels().await?))
+        Ok(RoomPowerLevels::from(self.sdk.reset_power_levels().await?))
     }
 
     pub async fn matrix_to_permalink(&self) -> Result<String, ClientError> {
-        Ok(self.inner.matrix_to_permalink().await?.to_string())
+        Ok(self.sdk.matrix_to_permalink().await?.to_string())
     }
 
     pub async fn matrix_to_event_permalink(&self, event_id: String) -> Result<String, ClientError> {
         let event_id = EventId::parse(event_id)?;
-        Ok(self.inner.matrix_to_event_permalink(event_id).await?.to_string())
+        Ok(self.sdk.matrix_to_event_permalink(event_id).await?.to_string())
     }
 
     /// This will only send a call notification event if appropriate.
@@ -674,7 +681,7 @@ impl Room {
     ///  - is this a DM room -> ring
     ///  - is this a group with more than one other member -> notify
     pub async fn send_call_notification_if_needed(&self) -> Result<(), ClientError> {
-        self.inner.send_call_notification_if_needed().await?;
+        self.sdk.send_call_notification_if_needed().await?;
         Ok(())
     }
 
@@ -696,7 +703,7 @@ impl Room {
         notify_type: NotifyType,
         mentions: Mentions,
     ) -> Result<(), ClientError> {
-        self.inner
+        self.sdk
             .send_call_notification(
                 call_id,
                 application.into(),
@@ -710,28 +717,28 @@ impl Room {
     /// Returns whether the send queue for that particular room is enabled or
     /// not.
     pub fn is_send_queue_enabled(&self) -> bool {
-        self.inner.send_queue().is_enabled()
+        self.sdk.send_queue().is_enabled()
     }
 
     /// Enable or disable the send queue for that particular room.
     pub fn enable_send_queue(&self, enable: bool) {
-        self.inner.send_queue().set_enabled(enable);
+        self.sdk.send_queue().set_enabled(enable);
     }
 
     /// Store the given `ComposerDraft` in the state store using the current
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
-        Ok(self.inner.save_composer_draft(draft.try_into()?).await?)
+        Ok(self.sdk.save_composer_draft(draft.try_into()?).await?)
     }
 
     /// Retrieve the `ComposerDraft` stored in the state store for this room.
     pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
-        Ok(self.inner.load_composer_draft().await?.map(Into::into))
+        Ok(self.sdk.load_composer_draft().await?.map(Into::into))
     }
 
     /// Remove the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
-        Ok(self.inner.clear_composer_draft().await?)
+        Ok(self.sdk.clear_composer_draft().await?)
     }
 
     /// Edit an event given its event id.
@@ -746,11 +753,11 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         let replacement_event = self
-            .inner
+            .sdk
             .make_edit_event(&event_id, EditedContent::RoomMessage((*new_content).clone()))
             .await?;
 
-        self.inner.send_queue().send(replacement_event).await?;
+        self.sdk.send_queue().send(replacement_event).await?;
         Ok(())
     }
 
@@ -772,7 +779,7 @@ impl Room {
         let user_ids: Vec<OwnedUserId> =
             user_ids.iter().map(UserId::parse).collect::<Result<_, _>>()?;
 
-        let encryption = self.inner.client().encryption();
+        let encryption = self.sdk.client().encryption();
 
         for user_id in user_ids {
             if let Some(user_identity) = encryption.get_user_identity(&user_id).await? {
@@ -800,7 +807,7 @@ impl Room {
         devices: HashMap<String, Vec<String>>,
         send_handle: Arc<SendHandle>,
     ) -> Result<(), ClientError> {
-        let encryption = self.inner.client().encryption();
+        let encryption = self.sdk.client().encryption();
 
         for (user_id, device_ids) in devices.iter() {
             let user_id = UserId::parse(user_id)?;
@@ -824,7 +831,7 @@ impl Room {
     /// This will remove all the information related to the event cache, in
     /// memory and in the persisted storage, if enabled.
     pub async fn clear_event_cache_storage(&self) -> Result<(), ClientError> {
-        let (room_event_cache, _drop_handles) = self.inner.event_cache().await?;
+        let (room_event_cache, _drop_handles) = self.sdk.event_cache().await?;
         room_event_cache.clear().await?;
         Ok(())
     }
@@ -839,7 +846,7 @@ impl Room {
         self: Arc<Self>,
         listener: Box<dyn KnockRequestsListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
-        let (stream, seen_ids_cleanup_handle) = self.inner.subscribe_to_knock_requests().await?;
+        let (stream, seen_ids_cleanup_handle) = self.sdk.subscribe_to_knock_requests().await?;
 
         let handle = Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(stream);
@@ -856,7 +863,7 @@ impl Room {
     /// Return a debug representation for the internal room events data
     /// structure, one line per entry in the resulting vector.
     pub async fn room_events_debug_string(&self) -> Result<Vec<String>, ClientError> {
-        let (cache, _drop_guards) = self.inner.event_cache().await?;
+        let (cache, _drop_guards) = self.sdk.event_cache().await?;
         Ok(cache.debug_string().await)
     }
 
@@ -871,7 +878,7 @@ impl Room {
         let new_alias = alias.map(TryInto::try_into).transpose()?;
         let new_alt_aliases =
             alt_aliases.into_iter().map(RoomAliasId::parse).collect::<Result<_, _>>()?;
-        self.inner
+        self.sdk
             .privacy_settings()
             .update_canonical_alias(new_alias, new_alt_aliases)
             .await
@@ -889,7 +896,7 @@ impl Room {
         alias: String,
     ) -> Result<bool, ClientError> {
         let new_alias = RoomAliasId::parse(alias)?;
-        self.inner
+        self.sdk
             .privacy_settings()
             .publish_room_alias_in_room_directory(&new_alias)
             .await
@@ -907,7 +914,7 @@ impl Room {
         alias: String,
     ) -> Result<bool, ClientError> {
         let alias = RoomAliasId::parse(alias)?;
-        self.inner
+        self.sdk
             .privacy_settings()
             .remove_room_alias_from_room_directory(&alias)
             .await
@@ -916,7 +923,7 @@ impl Room {
 
     /// Enable End-to-end encryption in this room.
     pub async fn enable_encryption(&self) -> Result<(), ClientError> {
-        self.inner.enable_encryption().await.map_err(Into::into)
+        self.sdk.enable_encryption().await.map_err(Into::into)
     }
 
     /// Update room history visibility for this room.
@@ -925,7 +932,7 @@ impl Room {
         visibility: RoomHistoryVisibility,
     ) -> Result<(), ClientError> {
         let visibility: RumaHistoryVisibility = visibility.try_into()?;
-        self.inner
+        self.sdk
             .privacy_settings()
             .update_room_history_visibility(visibility)
             .await
@@ -935,7 +942,7 @@ impl Room {
     /// Update the join rule for this room.
     pub async fn update_join_rules(&self, new_rule: JoinRule) -> Result<(), ClientError> {
         let new_rule: RumaJoinRule = new_rule.try_into()?;
-        self.inner.privacy_settings().update_join_rule(new_rule).await.map_err(Into::into)
+        self.sdk.privacy_settings().update_join_rule(new_rule).await.map_err(Into::into)
     }
 
     /// Update the room's visibility in the room directory.
@@ -943,7 +950,7 @@ impl Room {
         &self,
         visibility: RoomVisibility,
     ) -> Result<(), ClientError> {
-        self.inner
+        self.sdk
             .privacy_settings()
             .update_room_visibility(visibility.into())
             .await
@@ -955,28 +962,25 @@ impl Room {
     /// [Public](`RoomVisibility::Public`) rooms are listed in the room
     /// directory and can be found using it.
     pub async fn get_room_visibility(&self) -> Result<RoomVisibility, ClientError> {
-        let visibility = self.inner.privacy_settings().get_room_visibility().await?;
+        let visibility = self.sdk.privacy_settings().get_room_visibility().await?;
         Ok(visibility.into())
     }
 
     /// Start the current users live location share in the room.
     pub async fn start_live_location_share(&self, duration_millis: u64) -> Result<(), ClientError> {
-        self.inner.start_live_location_share(duration_millis, None).await?;
+        self.sdk.start_live_location_share(duration_millis, None).await?;
         Ok(())
     }
 
     /// Stop the current users live location share in the room.
     pub async fn stop_live_location_share(&self) -> Result<(), ClientError> {
-        self.inner.stop_live_location_share().await.expect("Unable to stop live location share");
+        self.sdk.stop_live_location_share().await.expect("Unable to stop live location share");
         Ok(())
     }
 
     /// Send the current users live location beacon in the room.
     pub async fn send_live_location(&self, geo_uri: String) -> Result<(), ClientError> {
-        self.inner
-            .send_location_beacon(geo_uri)
-            .await
-            .expect("Unable to send live location beacon");
+        self.sdk.send_location_beacon(geo_uri).await.expect("Unable to send live location beacon");
         Ok(())
     }
 
@@ -989,7 +993,7 @@ impl Room {
         self: Arc<Self>,
         listener: Box<dyn LiveLocationShareListener>,
     ) -> Arc<TaskHandle> {
-        let room = self.inner.clone();
+        let room = self.sdk.clone();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             let subscription = room.observe_live_location_shares();
@@ -1028,7 +1032,7 @@ impl Room {
     ///
     /// Only left or banned-from rooms can be forgotten.
     pub async fn forget(&self) -> Result<(), ClientError> {
-        self.inner.forget().await?;
+        self.sdk.forget().await?;
         Ok(())
     }
 }
