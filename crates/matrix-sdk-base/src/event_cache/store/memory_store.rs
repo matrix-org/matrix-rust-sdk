@@ -183,7 +183,7 @@ impl EventCacheStore for MemoryStore {
 
         let mut duplicated_events = Vec::new();
 
-        for (event, position) in inner.events.unordered_items(room_id) {
+        for (event, position) in inner.events.unordered_room_items(room_id) {
             // If `events` is empty, we can short-circuit.
             if events.is_empty() {
                 break;

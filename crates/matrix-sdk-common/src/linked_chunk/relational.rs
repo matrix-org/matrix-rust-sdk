@@ -293,9 +293,9 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
         }
     }
 
-    /// Return an iterator that yields items of a particular room with no
+    /// Return an iterator that yields items of a particular room, in no
     /// particular order.
-    pub fn unordered_items<'a>(
+    pub fn unordered_room_items<'a>(
         &'a self,
         room_id: &'a RoomId,
     ) -> impl Iterator<Item = (&'a Item, Position)> {
@@ -311,7 +311,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
         })
     }
 
-    /// Return an iterator over all items.
+    /// Return an iterator over all items of all rooms, in no particular order.
     pub fn items(&self) -> impl Iterator<Item = (Position, &Item, &RoomId)> {
         self.items.iter().filter_map(|item_row| {
             if let Either::Item(item) = &item_row.item {
@@ -1142,7 +1142,7 @@ mod tests {
             ],
         );
 
-        let mut events = relational_linked_chunk.unordered_items(room_id);
+        let mut events = relational_linked_chunk.unordered_room_items(room_id);
 
         assert_eq!(events.next().unwrap(), (&'a', Position::new(CId::new(0), 0)));
         assert_eq!(events.next().unwrap(), (&'b', Position::new(CId::new(0), 1)));
