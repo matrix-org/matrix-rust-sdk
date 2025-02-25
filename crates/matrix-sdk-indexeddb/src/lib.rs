@@ -99,4 +99,9 @@ pub enum OpenStoreError {
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     Crypto(#[from] IndexeddbCryptoStoreError),
+
+    /// An error occurred with the event cache store implementation.
+    #[cfg(feature = "event-cache-store")]
+    #[error(transparent)]
+    EventCache(#[from] IndexeddbEventCacheStoreError),
 }
