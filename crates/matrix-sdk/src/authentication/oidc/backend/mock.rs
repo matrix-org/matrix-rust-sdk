@@ -27,7 +27,7 @@ use mas_oidc_client::{
         client_credentials::ClientCredentials,
         errors::ClientErrorCode,
         iana::oauth::OAuthTokenTypeHint,
-        oidc::{ProviderMetadata, ProviderMetadataVerificationError, VerifiedProviderMetadata},
+        oidc::{ProviderMetadataVerificationError, VerifiedProviderMetadata},
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
         IdToken,
     },
@@ -35,37 +35,18 @@ use mas_oidc_client::{
 use url::Url;
 
 use super::{OidcBackend, OidcError, RefreshedSessionTokens};
-use crate::authentication::oidc::{AuthorizationCode, OauthDiscoveryError, OidcSessionTokens};
+use crate::{
+    authentication::oidc::{AuthorizationCode, OauthDiscoveryError, OidcSessionTokens},
+    test_utils::mocks::oauth::MockServerMetadataBuilder,
+};
 
 pub(crate) const ISSUER_URL: &str = "https://oidc.example.com/issuer";
-pub(crate) const AUTHORIZATION_URL: &str = "https://oidc.example.com/authorization";
-pub(crate) const REVOCATION_URL: &str = "https://oidc.example.com/revocation";
-pub(crate) const REGISTRATION_URL: &str = "https://oidc.example.com/register";
-pub(crate) const TOKEN_URL: &str = "https://oidc.example.com/token";
-pub(crate) const JWKS_URL: &str = "https://oidc.example.com/jwks";
 pub(crate) const CLIENT_ID: &str = "test_client_id";
 
 #[derive(Debug)]
 pub(crate) struct MockImpl {
     /// Must be an HTTPS URL.
     issuer: String,
-
-    /// Must be an HTTPS URL.
-    authorization_endpoint: String,
-
-    /// Must be an HTTPS URL.
-    token_endpoint: String,
-
-    /// Must be an HTTPS URL.
-    jwks_uri: String,
-
-    /// Must be an HTTPS URL.
-    revocation_endpoint: String,
-
-    /// Must be an HTTPS URL.
-    registration_endpoint: Option<Url>,
-
-    account_management_uri: Option<String>,
 
     /// The next session tokens that will be returned by a login or refresh.
     next_session_tokens: Option<OidcSessionTokens>,
@@ -87,14 +68,8 @@ impl MockImpl {
     pub fn new() -> Self {
         Self {
             issuer: ISSUER_URL.to_owned(),
-            authorization_endpoint: AUTHORIZATION_URL.to_owned(),
-            token_endpoint: TOKEN_URL.to_owned(),
-            jwks_uri: JWKS_URL.to_owned(),
-            revocation_endpoint: REVOCATION_URL.to_owned(),
-            registration_endpoint: Some(Url::parse(REGISTRATION_URL).unwrap()),
             next_session_tokens: None,
             expected_refresh_token: None,
-            account_management_uri: None,
             num_refreshes: Default::default(),
             revoked_tokens: Default::default(),
             is_insecure: false,
@@ -115,16 +90,6 @@ impl MockImpl {
         self.is_insecure = true;
         self
     }
-
-    pub fn registration_endpoint(mut self, registration_endpoint: Option<Url>) -> Self {
-        self.registration_endpoint = registration_endpoint;
-        self
-    }
-
-    pub fn account_management_uri(mut self, uri: String) -> Self {
-        self.account_management_uri = Some(uri);
-        self
-    }
 }
 
 #[async_trait::async_trait]
@@ -143,24 +108,10 @@ impl OidcBackend for MockImpl {
             .into());
         }
 
-        Ok(ProviderMetadata {
-            issuer: Some(self.issuer.clone()),
-            authorization_endpoint: Some(Url::parse(&self.authorization_endpoint).unwrap()),
-            revocation_endpoint: Some(Url::parse(&self.revocation_endpoint).unwrap()),
-            token_endpoint: Some(Url::parse(&self.token_endpoint).unwrap()),
-            registration_endpoint: self.registration_endpoint.clone(),
-            jwks_uri: Some(Url::parse(&self.jwks_uri).unwrap()),
-            response_types_supported: Some(vec![]),
-            subject_types_supported: Some(vec![]),
-            id_token_signing_alg_values_supported: Some(vec![]),
-            account_management_uri: self
-                .account_management_uri
-                .as_ref()
-                .map(|uri| Url::parse(uri).unwrap()),
-            ..Default::default()
-        }
-        .validate(&self.issuer)
-        .map_err(OidcDiscoveryError::from)?)
+        Ok(MockServerMetadataBuilder::new(&self.issuer)
+            .build()
+            .validate(&self.issuer)
+            .expect("server metadata should pass validation"))
     }
 
     async fn trade_authorization_code_for_tokens(

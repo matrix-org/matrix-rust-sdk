@@ -98,6 +98,13 @@ impl OauthMockServer<'_> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/token"));
         MockEndpoint { mock, server: self.server, endpoint: TokenEndpoint }
     }
+
+    /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to revoke a
+    /// token.
+    pub fn mock_revocation(&self) -> MockEndpoint<'_, RevocationEndpoint> {
+        let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/revoke"));
+        MockEndpoint { mock, server: self.server, endpoint: RevocationEndpoint }
+    }
 }
 
 /// A prebuilt mock for a `GET /auth_metadata` request.
@@ -122,27 +129,44 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
 
         MatrixMock { server: self.server, mock }
     }
+
+    /// Returns a successful metadata response without the registration
+    /// endpoint.
+    pub fn ok_without_registration(self) -> MatrixMock<'a> {
+        let metadata =
+            MockServerMetadataBuilder::new(&self.server.uri()).without_registration().build();
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(metadata));
+
+        MatrixMock { server: self.server, mock }
+    }
 }
 
 /// Helper struct to construct a `ProviderMetadata` for integration tests.
 #[derive(Debug, Clone)]
-struct MockServerMetadataBuilder {
+pub struct MockServerMetadataBuilder {
     issuer: Url,
     with_device_authorization: bool,
+    with_registration: bool,
 }
 
 impl MockServerMetadataBuilder {
     /// Construct a `MockServerMetadataBuilder` that will generate all the
     /// supported fields.
-    fn new(issuer: &str) -> Self {
+    pub fn new(issuer: &str) -> Self {
         let issuer = Url::parse(issuer).expect("We should be able to parse the issuer");
 
-        Self { issuer, with_device_authorization: true }
+        Self { issuer, with_device_authorization: true, with_registration: true }
     }
 
     /// Don't generate the field for the device authorization endpoint.
     fn without_device_authorization(mut self) -> Self {
         self.with_device_authorization = false;
+        self
+    }
+
+    /// Don't generate the field for the registration endpoint.
+    fn without_registration(mut self) -> Self {
+        self.with_registration = false;
         self
     }
 
@@ -185,13 +209,14 @@ impl MockServerMetadataBuilder {
     pub fn build(&self) -> ProviderMetadata {
         let device_authorization_endpoint =
             self.with_device_authorization.then(|| self.device_authorization_endpoint());
+        let registration_endpoint = self.with_registration.then(|| self.registration_endpoint());
 
         ProviderMetadata {
             issuer: Some(self.issuer.to_string()),
             authorization_endpoint: Some(self.authorization_endpoint()),
             token_endpoint: Some(self.token_endpoint()),
             jwks_uri: Some(self.jwks_uri()),
-            registration_endpoint: Some(self.registration_endpoint()),
+            registration_endpoint,
             revocation_endpoint: Some(self.revocation_endpoint()),
             account_management_uri: Some(self.account_management_uri()),
             device_authorization_endpoint,
@@ -275,6 +300,18 @@ impl<'a> MockEndpoint<'a, TokenEndpoint> {
         let mock = self.mock.respond_with(ResponseTemplate::new(400).set_body_json(json!({
             "error": "expired_token",
         })));
+
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for a `POST /oauth/revoke` request.
+pub struct RevocationEndpoint;
+
+impl<'a> MockEndpoint<'a, RevocationEndpoint> {
+    /// Returns a successful revocation response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
 
         MatrixMock { server: self.server, mock }
     }
