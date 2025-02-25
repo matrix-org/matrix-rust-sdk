@@ -574,22 +574,17 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
         let lower = JsValue::from_str(&room_id.as_ref());
-        let upper = JsValue::from_str(&(room_id.to_string() + "\u{FFFF}")); // Ensure all keys start with room_id
+        let upper = JsValue::from_str(&(room_id.to_string() + "\u{FFFF}"));
 
         let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
         let linked_chunks = object_store.get_all_with_key_owned(key_range)?.await?;
 
-        // web_sys::console::log_1(
-        //     &format!("🟦 found chunks: {} for room: {}", linked_chunks.length(), room_id.as_str())
-        //         .into(),
-        // );
-
         let mut raw_chunks = Vec::new();
 
         for linked_chunk in linked_chunks {
             let linked_chunk: Chunk = self.serializer.deserialize_into_object(linked_chunk)?;
-            // TODO unwrap
+            // TODO remove unwrap
             let chunk_id = self.get_chunk_id(&Some(linked_chunk.id.clone())).unwrap();
             let previous_chunk_id = self.get_chunk_id(&linked_chunk.previous);
             let next_chunk_id = self.get_chunk_id(&linked_chunk.next);
@@ -602,14 +597,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 let gaps_object_store = gaps_tx.object_store(keys::GAPS)?;
 
                 let gap_id = linked_chunk.id;
-                // web_sys::console::log_1(&format!("🟦 Trying to get gap {:?}", gap_id).into());
                 let gap_id_js_value = JsValue::from_str(&gap_id);
                 let gap_js_value = gaps_object_store.get_owned(&gap_id_js_value)?.await?;
-                // web_sys::console::log_1(&format!("🟦 got gap {:?}", gap_js_value).into());
 
                 let gap: IndexedDbGap =
                     self.serializer.deserialize_into_object(gap_js_value.unwrap())?;
-                // web_sys::console::log_1(&format!("🟦 deserializing gap {:?}", gap).into());
 
                 let gap = Gap { prev_token: gap.prev_token };
 
@@ -620,7 +612,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     next: next_chunk_id.map(ChunkIdentifier::new),
                 };
 
-                // web_sys::console::log_1(&format!("🟩 pushing gap chunk {:?}", raw_chunk).into());
                 raw_chunks.push(raw_chunk);
             } else {
                 let events_tx = self
@@ -629,28 +620,20 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                 let events_object_store = events_tx.object_store(keys::EVENTS)?;
 
-                // let events_key_range =
-                //     IdbKeyRange::lower_bound(&JsValue::from_str(&chunk_id.to_string())).unwrap();
-
                 let lower =
                     JsValue::from_str(&self.get_id(room_id.as_ref(), &chunk_id.to_string()));
                 let upper = JsValue::from_str(
                     &(self.get_id(room_id.as_ref(), &chunk_id.to_string()) + "\u{FFFF}"),
-                ); // Ensure all keys start with room_id
+                );
 
                 let events_key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
                 let events = events_object_store.get_all_with_key(&events_key_range)?.await?;
-                // web_sys::console::log_1(
-                //     &format!("🟦 Found events for chunk {:?}", events.length()).into(),
-                // );
                 let mut events_vec = Vec::new();
 
                 for event in events {
-                    // web_sys::console::log_1(&format!("🟦 deserializing {:?}", event).into());
                     let event: TimelineEventForCache =
                         self.serializer.deserialize_into_object(event)?;
-                    // web_sys::console::log_1(&format!("🟦 Event for chunk {:?}", event).into());
                     events_vec.push(event.content);
                 }
 
@@ -661,14 +644,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     next: next_chunk_id.map(ChunkIdentifier::new),
                 };
 
-                // web_sys::console::log_1(&format!("🟩 pushing event chunk {:?}", raw_chunk).into());
                 raw_chunks.push(raw_chunk);
             }
         }
-
-        // web_sys::console::log_1(
-        //     &format!("🟦 Returning reconstructed chunks {:?}", raw_chunks).into(),
-        // );
 
         Ok(raw_chunks)
     }
@@ -678,7 +656,53 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     /// This will empty and remove all the linked chunks stored previously,
     /// using the above [`Self::handle_linked_chunk_updates`] methods.
     async fn clear_all_rooms_chunks(&self) -> Result<()> {
-        Ok(())
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::LINKED_CHUNKS, IdbTransactionMode::Readwrite)?;
+
+        let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+
+        let linked_chunks = object_store.get_all()?.await?;
+
+        for linked_chunk in linked_chunks {
+            let linked_chunk: Chunk = self.serializer.deserialize_into_object(linked_chunk)?;
+            let linked_chunk_id = JsValue::from_str(&linked_chunk.id);
+            object_store.delete(&linked_chunk_id)?;
+
+            if linked_chunk.type_str == CHUNK_TYPE_EVENT_TYPE_STRING {
+                let events_tx = self
+                    .inner
+                    .transaction_on_one_with_mode(keys::EVENTS, IdbTransactionMode::Readwrite)?;
+
+                let events_object_store = events_tx.object_store(keys::EVENTS)?;
+
+                let events_key_range = self.serializer.encode_to_range(
+                    keys::EVENTS,
+                    format!("{}{}{}", linked_chunk.room_id, KEY_SEPARATOR, linked_chunk.id),
+                )?;
+
+                let events = events_object_store.get_all_with_key(&events_key_range)?.await?;
+
+                for event in events {
+                    let event: TimelineEventForCache =
+                        self.serializer.deserialize_into_object(event)?;
+                    let event_id = JsValue::from_str(&event.id);
+                    events_object_store.delete(&event_id)?;
+                }
+            } else if linked_chunk.type_str == CHUNK_TYPE_GAP_TYPE_STRING {
+                let gaps_tx = self
+                    .inner
+                    .transaction_on_one_with_mode(keys::GAPS, IdbTransactionMode::Readwrite)?;
+
+                let gaps_object_store = gaps_tx.object_store(keys::GAPS)?;
+
+                let gap_id = JsValue::from_str(&linked_chunk.id);
+
+                gaps_object_store.delete(&gap_id)?;
+            }
+        }
+
+        OK(())
     }
 
     /// Add a media file's content in the media store.
