@@ -107,8 +107,17 @@ async fn decryption_task<D: Decryptor>(
     mut receiver: Receiver<DecryptionRetryRequest<D>>,
 ) {
     debug!("Decryption task starting.");
+
     while let Some(request) = receiver.recv().await {
-        let retry_indices = retry_indices(state.clone(), &request.session_ids).await;
+        let should_retry = |session_id: &str| {
+            if let Some(session_ids) = &request.session_ids {
+                session_ids.contains(session_id)
+            } else {
+                true
+            }
+        };
+
+        let retry_indices = item_indices_to_retry(state.clone(), &should_retry).await;
         if !retry_indices.is_empty() {
             debug!("Retrying decryption");
             decrypt_by_index(
@@ -116,28 +125,24 @@ async fn decryption_task<D: Decryptor>(
                 settings.clone(),
                 room_data_provider.clone(),
                 request.decryptor,
-                &request.session_ids,
+                should_retry,
                 retry_indices,
             )
             .await
         }
     }
+
     debug!("Decryption task stopping.");
 }
 
-async fn retry_indices(
+/// Return a list of the items within the timeline that we should retry
+/// decrypting because their session updated. Items are identified by their
+/// index in the supplied `state`'s list of items.
+async fn item_indices_to_retry(
     state: Arc<RwLock<TimelineState>>,
-    session_ids: &Option<BTreeSet<String>>,
+    should_retry: impl Fn(&str) -> bool,
 ) -> Vec<usize> {
     let state = state.read_owned().await;
-
-    let should_retry = |session_id: &str| {
-        if let Some(session_ids) = &session_ids {
-            session_ids.contains(session_id)
-        } else {
-            true
-        }
-    };
 
     state
         .items
@@ -161,17 +166,9 @@ async fn decrypt_by_index<D: Decryptor>(
     settings: TimelineSettings,
     room_data_provider: impl RoomDataProvider,
     decryptor: D,
-    session_ids: &Option<BTreeSet<String>>,
+    should_retry: impl Fn(&str) -> bool,
     retry_indices: Vec<usize>,
 ) {
-    let should_retry = move |session_id: &str| {
-        if let Some(session_ids) = &session_ids {
-            session_ids.contains(session_id)
-        } else {
-            true
-        }
-    };
-
     let mut state = state.clone().write_owned().await;
 
     let push_rules_context = room_data_provider.push_rules_and_context().await;
