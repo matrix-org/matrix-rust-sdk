@@ -572,7 +572,31 @@ mod tests {
 
     #[test]
     fn test_serialization_cycle() {
-        let event_json = room_key_event();
+        let event_json = json!({
+            "sender": "@alice:example.org",
+            "keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "recipient": "@bob:example.org",
+            "recipient_keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!Cuyf34gef24t:localhost",
+                "org.matrix.msc3061.shared_history": true,
+                "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
+                "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
+                            SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
+                            jVv80fMPHfGc49hPdu8A+xnwD4SQiYdFmSWJOIqsxeo/fiH\
+                            tino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31\
+                            QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaY\
+                            U5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80\
+                            gdHUwHSgMk77vCc2a5KHKLDA"
+            },
+            "type": "m.room_key"
+        });
+
         let event: DecryptedRoomKeyEvent = serde_json::from_value(event_json.clone())
             .expect("JSON should deserialize to the right event type");
 
