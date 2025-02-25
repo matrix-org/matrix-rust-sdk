@@ -36,6 +36,7 @@ use crate::timeline::{
 /// The underlying async task will stop soon after the [`DecryptionRetryTask`]
 /// is dropped, because it waits for the channel to close, which happens when we
 /// drop the sending side.
+#[derive(Clone, Debug)]
 pub struct DecryptionRetryTask<D: Decryptor> {
     /// The sending side of the channel that we have open to the long-running
     /// async task. Every time we want to retry decrypting some events, we
@@ -52,7 +53,6 @@ const CHANNEL_BUFFER_SIZE: usize = 100;
 impl<D: Decryptor> DecryptionRetryTask<D> {
     pub(crate) fn new<P: RoomDataProvider>(
         state: Arc<RwLock<TimelineState>>,
-        settings: TimelineSettings,
         room_data_provider: P,
     ) -> Self {
         // We will send decryption requests down this channel to the long-running task
@@ -60,7 +60,7 @@ impl<D: Decryptor> DecryptionRetryTask<D> {
 
         // Spawn the long-running task, providing the receiver so we can listen for
         // decryption requests
-        matrix_sdk::executor::spawn(decryption_task(state, settings, room_data_provider, receiver));
+        matrix_sdk::executor::spawn(decryption_task(state, room_data_provider, receiver));
 
         // Keep hold of the sender so we can send off decryption requests to the task.
         Self { sender }
@@ -68,8 +68,14 @@ impl<D: Decryptor> DecryptionRetryTask<D> {
 
     /// Use the supplied decryptor to attempt redecryption of the events
     /// associated with the supplied session IDs.
-    pub(crate) async fn decrypt(&self, decryptor: D, session_ids: Option<BTreeSet<String>>) {
-        let res = self.sender.send(DecryptionRetryRequest { decryptor, session_ids }).await;
+    pub(crate) async fn decrypt(
+        &self,
+        decryptor: D,
+        session_ids: Option<BTreeSet<String>>,
+        settings: TimelineSettings,
+    ) {
+        let res =
+            self.sender.send(DecryptionRetryRequest { decryptor, session_ids, settings }).await;
 
         if let Err(error) = res {
             error!("Failed to send decryption retry request: {}", error);
@@ -82,6 +88,7 @@ impl<D: Decryptor> DecryptionRetryTask<D> {
 struct DecryptionRetryRequest<D: Decryptor> {
     decryptor: D,
     session_ids: Option<BTreeSet<String>>,
+    settings: TimelineSettings,
 }
 
 /// Long-running task that waits for decryption requests to come through the
@@ -89,7 +96,6 @@ struct DecryptionRetryRequest<D: Decryptor> {
 /// closed, i.e. when the sender side is dropped.
 async fn decryption_task<D: Decryptor>(
     state: Arc<RwLock<TimelineState>>,
-    settings: TimelineSettings,
     room_data_provider: impl RoomDataProvider,
     mut receiver: Receiver<DecryptionRetryRequest<D>>,
 ) {
@@ -109,7 +115,7 @@ async fn decryption_task<D: Decryptor>(
             debug!("Retrying decryption");
             decrypt_by_index(
                 state.clone(),
-                settings.clone(),
+                &request.settings,
                 room_data_provider.clone(),
                 request.decryptor,
                 should_retry,
@@ -150,7 +156,7 @@ async fn item_indices_to_retry(
 /// supplied decryption `request`.
 async fn decrypt_by_index<D: Decryptor>(
     state: Arc<RwLock<TimelineState>>,
-    settings: TimelineSettings,
+    settings: &TimelineSettings,
     room_data_provider: impl RoomDataProvider,
     decryptor: D,
     should_retry: impl Fn(&str) -> bool,
@@ -229,7 +235,7 @@ async fn decrypt_by_index<D: Decryptor>(
             retry_indices,
             push_rules_context,
             &room_data_provider,
-            &settings,
+            settings,
         )
         .await;
 }

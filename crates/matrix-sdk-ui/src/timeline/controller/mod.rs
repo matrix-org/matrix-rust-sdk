@@ -49,7 +49,7 @@ use ruma::{
     TransactionId, UserId,
 };
 #[cfg(test)]
-use ruma::{events::receipt::ReceiptEventContent, RoomId};
+use ruma::{events::receipt::ReceiptEventContent, OwnedRoomId, RoomId};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -117,7 +117,7 @@ enum TimelineFocusData<P: RoomDataProvider> {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct TimelineController<P: RoomDataProvider = Room> {
+pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = Room> {
     /// Inner mutable state.
     state: Arc<RwLock<TimelineState>>,
 
@@ -131,6 +131,10 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
 
     /// Settings applied to this timeline.
     pub(super) settings: TimelineSettings,
+
+    /// Long-running task used to retry decryption of timeline items without
+    /// blocking main processing.
+    decryption_retry_task: DecryptionRetryTask<D>,
 }
 
 #[derive(Clone)]
@@ -256,7 +260,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
     }
 }
 
-impl<P: RoomDataProvider> TimelineController<P> {
+impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(super) fn new(
         room_data_provider: P,
         focus: TimelineFocus,
@@ -287,20 +291,26 @@ impl<P: RoomDataProvider> TimelineController<P> {
             ),
         };
 
-        let state = TimelineState::new(
+        let state = Arc::new(RwLock::new(TimelineState::new(
             focus_kind,
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version(),
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,
-        );
+        )));
+
+        let settings = TimelineSettings::default();
+
+        let decryption_retry_task =
+            DecryptionRetryTask::new(state.clone(), room_data_provider.clone());
 
         Self {
-            state: Arc::new(RwLock::new(state)),
+            state,
             focus: Arc::new(RwLock::new(focus_data)),
             room_data_provider,
-            settings: Default::default(),
+            settings,
+            decryption_retry_task,
         }
     }
 
@@ -1038,37 +1048,12 @@ impl<P: RoomDataProvider> TimelineController<P> {
         true
     }
 
-    #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
-    pub(super) async fn retry_event_decryption(
-        &self,
-        room: &Room,
-        session_ids: Option<BTreeSet<String>>,
-    ) {
-        self.retry_event_decryption_inner(room.to_owned(), session_ids).await
-    }
-
-    #[cfg(test)]
-    pub(super) async fn retry_event_decryption_test(
-        &self,
-        room_id: &RoomId,
-        olm_machine: OlmMachine,
-        session_ids: Option<BTreeSet<String>>,
-    ) {
-        self.retry_event_decryption_inner((olm_machine, room_id.to_owned()), session_ids).await
-    }
-
     async fn retry_event_decryption_inner(
         &self,
-        decryptor: impl Decryptor,
+        decryptor: D,
         session_ids: Option<BTreeSet<String>>,
     ) {
-        let decryption_retry_task = DecryptionRetryTask::new(
-            self.state.clone(),
-            self.settings.clone(),
-            self.room_data_provider.clone(),
-        );
-
-        decryption_retry_task.decrypt(decryptor, session_ids).await;
+        self.decryption_retry_task.decrypt(decryptor, session_ids, self.settings.clone()).await;
     }
 
     pub(super) async fn set_sender_profiles_pending(&self) {
@@ -1488,6 +1473,27 @@ impl TimelineController {
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
         state.items.all_remote_events().last().map(|event_meta| &event_meta.event_id).cloned()
+    }
+
+    #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
+    pub(super) async fn retry_event_decryption(
+        &self,
+        room: &Room,
+        session_ids: Option<BTreeSet<String>>,
+    ) {
+        self.retry_event_decryption_inner(room.to_owned(), session_ids).await
+    }
+}
+
+#[cfg(test)]
+impl<P: RoomDataProvider> TimelineController<P, (OlmMachine, OwnedRoomId)> {
+    pub(super) async fn retry_event_decryption_test(
+        &self,
+        room_id: &RoomId,
+        olm_machine: OlmMachine,
+        session_ids: Option<BTreeSet<String>>,
+    ) {
+        self.retry_event_decryption_inner((olm_machine, room_id.to_owned()), session_ids).await
     }
 }
 
