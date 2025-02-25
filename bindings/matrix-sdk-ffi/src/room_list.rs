@@ -19,14 +19,13 @@ use matrix_sdk_ui::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 use ruma::{OwnedRoomOrAliasId, OwnedServerName, ServerName};
-use tokio::sync::RwLock;
 
 use crate::{
     error::ClientError,
     room::{Membership, Room},
     room_info::RoomInfo,
     room_preview::RoomPreview,
-    timeline::{EventTimelineItem, Timeline},
+    timeline::EventTimelineItem,
     timeline_event_filter::TimelineEventTypeFilter,
     utils::AsyncRuntimeDropped,
     TaskHandle, RUNTIME,
@@ -46,8 +45,6 @@ pub enum RoomListError {
     InvalidRoomId { error: String },
     #[error("A timeline instance already exists for room {room_name}")]
     TimelineAlreadyExists { room_name: String },
-    #[error("A timeline instance hasn't been initialized for room {room_name}")]
-    TimelineNotInitialized { room_name: String },
     #[error("Timeline couldn't be initialized: {error}")]
     InitializingTimeline { error: String },
     #[error("Event cache ran into an error: {error}")]
@@ -627,28 +624,11 @@ impl RoomListItem {
         Ok(Arc::new(RoomPreview::new(AsyncRuntimeDropped::new(client), room_preview)))
     }
 
-    /// Build a full `Room` FFI object, filling its associated timeline.
+    /// Get the underlying `Room` object attached to the room list item.
     ///
-    /// An error will be returned if the room is a state different than joined
-    /// or if its internal timeline hasn't been initialized.
-    fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
-        if !matches!(self.membership(), Membership::Joined) {
-            return Err(RoomListError::IncorrectRoomMembership {
-                expected: vec![Membership::Joined],
-                actual: self.membership(),
-            });
-        }
-
-        if let Some(timeline) = self.inner.timeline() {
-            Ok(Arc::new(Room::with_timeline(
-                self.inner.inner_room().clone(),
-                Arc::new(RwLock::new(Some(Timeline::from_arc(timeline)))),
-            )))
-        } else {
-            Err(RoomListError::TimelineNotInitialized {
-                room_name: self.inner.inner_room().room_id().to_string(),
-            })
-        }
+    /// The room doesn't have to be in a particular state.
+    fn room(&self) -> Arc<Room> {
+        Arc::new(Room::new(self.inner.inner_room().clone()))
     }
 
     /// Checks whether the Room's timeline has been initialized before.

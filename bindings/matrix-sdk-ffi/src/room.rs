@@ -10,7 +10,7 @@ use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
+use matrix_sdk_ui::timeline::{default_event_filter, Timeline as SdkTimeline};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -27,7 +27,6 @@ use ruma::{
     },
     EventId, Int, OwnedDeviceId, OwnedUserId, RoomAliasId, UserId,
 };
-use tokio::sync::RwLock;
 use tracing::{error, warn};
 
 use super::RUNTIME;
@@ -70,21 +69,14 @@ impl From<RoomState> for Membership {
     }
 }
 
-pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
-
 #[derive(uniffi::Object)]
 pub struct Room {
     pub(super) inner: SdkRoom,
-    timeline: TimelineLock,
 }
 
 impl Room {
     pub(crate) fn new(inner: SdkRoom) -> Self {
-        Room { inner, timeline: Default::default() }
-    }
-
-    pub(crate) fn with_timeline(inner: SdkRoom, timeline: TimelineLock) -> Self {
-        Room { inner, timeline }
+        Room { inner }
     }
 }
 
@@ -186,17 +178,6 @@ impl Room {
     pub async fn discard_room_key(&self) -> Result<(), ClientError> {
         self.inner.discard_room_key().await?;
         Ok(())
-    }
-
-    pub async fn timeline(&self) -> Result<Arc<Timeline>, ClientError> {
-        let mut write_guard = self.timeline.write().await;
-        if let Some(timeline) = &*write_guard {
-            Ok(timeline.clone())
-        } else {
-            let timeline = Timeline::new(self.inner.timeline().await?);
-            *write_guard = Some(timeline.clone());
-            Ok(timeline)
-        }
     }
 
     /// Build a new timeline instance with the given configuration.
@@ -611,14 +592,21 @@ impl Room {
         Ok(self.inner.set_unread_flag(new_value).await?)
     }
 
-    /// Mark a room as read, by attaching a read receipt on the latest event.
+    /// Mark a room as read, by attaching a read receipt on the latest timeline
+    /// item.
     ///
     /// Note: this does NOT unset the unread flag; it's the caller's
     /// responsibility to do so, if needs be.
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
-        let timeline = self.timeline().await?;
+        // Create a throwaway timeline for this.
+        let timeline = SdkTimeline::builder(&self.inner)
+            .track_read_marker_and_receipts()
+            .build()
+            .await
+            .context("when creating a temporary timeline")?;
 
-        timeline.mark_as_read(receipt_type).await?;
+        timeline.mark_as_read(receipt_type.into()).await?;
+
         Ok(())
     }
 

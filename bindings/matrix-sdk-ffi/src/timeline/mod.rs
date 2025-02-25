@@ -94,11 +94,6 @@ impl Timeline {
         Arc::new(Self { inner })
     }
 
-    pub(crate) fn from_arc(inner: Arc<matrix_sdk_ui::timeline::Timeline>) -> Arc<Self> {
-        // SAFETY: repr(transparent) means transmuting the arc this way is allowed
-        unsafe { Arc::from_raw(Arc::into_raw(inner) as _) }
-    }
-
     fn send_attachment(
         self: Arc<Self>,
         params: UploadParameters,
@@ -297,6 +292,9 @@ impl Timeline {
     /// This works even if the latest event belongs to a thread, as a threaded
     /// reply also belongs to the unthreaded timeline. No threaded receipt
     /// will be sent here (see also #3123).
+    ///
+    /// Note: this does NOT unset the unread flag; it's the caller's
+    /// responsibility to do so, if needs be.
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
         self.inner.mark_as_read(receipt_type.into()).await?;
         Ok(())
