@@ -39,9 +39,6 @@ use crate::timeline::{
 /// is dropped, because it waits for the channel to close, which happens when we
 /// drop the sending side.
 pub struct DecryptionRetryTask<D: Decryptor> {
-    /// The timeline state we will use to actually retry decryption
-    state: Arc<RwLock<TimelineState>>,
-
     /// The sending side of the channel that we have open to the long-running
     /// async task. Every time we want to retry decrypting some events, we
     /// send a [`DecryptionRetryRequest`] along this channel. Users of this
@@ -79,54 +76,17 @@ impl<D: Decryptor> DecryptionRetryTask<D> {
         ));
 
         // Keep hold of the sender so we can send off decryption requests to the task.
-        Self { state, sender, _task_handle: Arc::new(handle) }
+        Self { sender, _task_handle: Arc::new(handle) }
     }
 
     /// Use the supplied decryptor to attempt redecryption of the events
     /// associated with the supplied session IDs.
     pub(crate) async fn decrypt(&self, decryptor: D, session_ids: Option<BTreeSet<String>>) {
-        let retry_indices = self.retry_indices(&session_ids).await;
+        let res = self.sender.send(DecryptionRetryRequest { decryptor, session_ids }).await;
 
-        if !retry_indices.is_empty() {
-            debug!("Retrying decryption");
-
-            let res = self
-                .sender
-                .send(DecryptionRetryRequest { decryptor, session_ids, retry_indices })
-                .await;
-
-            if let Err(error) = res {
-                error!("Failed to send decryption retry request: {}", error);
-            }
+        if let Err(error) = res {
+            error!("Failed to send decryption retry request: {}", error);
         }
-    }
-
-    async fn retry_indices(&self, session_ids: &Option<BTreeSet<String>>) -> Vec<usize> {
-        let state = self.state.clone().read_owned().await;
-
-        let should_retry = |session_id: &str| {
-            if let Some(session_ids) = &session_ids {
-                session_ids.contains(session_id)
-            } else {
-                true
-            }
-        };
-
-        state
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
-                EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                    if should_retry(session_id) =>
-                {
-                    Some(idx)
-                }
-                EncryptedMessage::MegolmV1AesSha2 { .. }
-                | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                | EncryptedMessage::Unknown => None,
-            })
-            .collect()
     }
 }
 
@@ -135,7 +95,6 @@ impl<D: Decryptor> DecryptionRetryTask<D> {
 struct DecryptionRetryRequest<D: Decryptor> {
     decryptor: D,
     session_ids: Option<BTreeSet<String>>,
-    retry_indices: Vec<usize>,
 }
 
 /// Long-running task that waits for decryption requests to come through the
@@ -149,9 +108,50 @@ async fn decryption_task<D: Decryptor>(
 ) {
     debug!("Decryption task starting.");
     while let Some(request) = receiver.recv().await {
-        decrypt_by_index(state.clone(), settings.clone(), room_data_provider.clone(), request).await
+        let retry_indices = retry_indices(state.clone(), &request.session_ids).await;
+        if !retry_indices.is_empty() {
+            debug!("Retrying decryption");
+            decrypt_by_index(
+                state.clone(),
+                settings.clone(),
+                room_data_provider.clone(),
+                request.decryptor,
+                &request.session_ids,
+                retry_indices,
+            )
+            .await
+        }
     }
     debug!("Decryption task stopping.");
+}
+
+async fn retry_indices(
+    state: Arc<RwLock<TimelineState>>,
+    session_ids: &Option<BTreeSet<String>>,
+) -> Vec<usize> {
+    let state = state.read_owned().await;
+
+    let should_retry = |session_id: &str| {
+        if let Some(session_ids) = &session_ids {
+            session_ids.contains(session_id)
+        } else {
+            true
+        }
+    };
+
+    state
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
+            EncryptedMessage::MegolmV1AesSha2 { session_id, .. } if should_retry(session_id) => {
+                Some(idx)
+            }
+            EncryptedMessage::MegolmV1AesSha2 { .. }
+            | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
+            | EncryptedMessage::Unknown => None,
+        })
+        .collect()
 }
 
 /// Attempt decryption of the events encrypted with the session IDs in the
@@ -160,10 +160,12 @@ async fn decrypt_by_index<D: Decryptor>(
     state: Arc<RwLock<TimelineState>>,
     settings: TimelineSettings,
     room_data_provider: impl RoomDataProvider,
-    request: DecryptionRetryRequest<D>,
+    decryptor: D,
+    session_ids: &Option<BTreeSet<String>>,
+    retry_indices: Vec<usize>,
 ) {
     let should_retry = move |session_id: &str| {
-        if let Some(session_ids) = &request.session_ids {
+        if let Some(session_ids) = &session_ids {
             session_ids.contains(session_id)
         } else {
             true
@@ -176,7 +178,7 @@ async fn decrypt_by_index<D: Decryptor>(
     let unable_to_decrypt_hook = state.meta.unable_to_decrypt_hook.clone();
 
     let retry_one = |item: Arc<TimelineItem>| {
-        let decryptor = request.decryptor.clone();
+        let decryptor = decryptor.clone();
         let should_retry = &should_retry;
         let unable_to_decrypt_hook = unable_to_decrypt_hook.clone();
         async move {
@@ -240,7 +242,7 @@ async fn decrypt_by_index<D: Decryptor>(
     state
         .retry_event_decryption(
             retry_one,
-            request.retry_indices,
+            retry_indices,
             push_rules_context,
             &room_data_provider,
             &settings,
