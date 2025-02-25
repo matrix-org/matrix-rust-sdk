@@ -183,6 +183,23 @@ impl InboundGroupSession {
     ///
     /// * `sender_data` - Information about the sender of the to-device message
     ///   that established this session.
+    ///
+    /// * `encryption_algorithm` - The [`EventEncryptionAlgorithm`] that should
+    ///   be used when messages are being decrypted. The method will return an
+    ///   [`SessionCreationError::Algorithm`] error if an algorithm we do not
+    ///   support is given,
+    ///
+    /// * `history_visibility` - The history visibility of the room at the time
+    ///   the matching [`OutboundGroupSession`] was created. This is only set if
+    ///   we are the crator of this  [`InboundGroupSession`]. Sessinons that are
+    ///   received from other devices use the  `shared_history` flag instead.
+    ///
+    /// * `shared_history` - Whether this [`InboundGroupSession`] can be shared
+    ///   with users who are invited to the room in the future, allowing access
+    ///   to history, as defined in [MSC3061]. This flag is a surjection of the
+    ///   history visibility of the room.
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         sender_key: Curve25519PublicKey,
