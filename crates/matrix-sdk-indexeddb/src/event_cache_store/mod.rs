@@ -593,15 +593,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         )?;
 
                         let events_object_store = events_tx.object_store(keys::EVENTS)?;
-
-                        let events = events_object_store.get_all_with_key(&key_range)?.await?;
-
-                        for event in events {
-                            let event: TimelineEventForCache =
-                                self.serializer.deserialize_value(event)?;
-                            let event_id = JsValue::from_str(&event.id);
-                            events_object_store.delete(&event_id)?;
-                        }
+                        events_object_store.delete_owned(key_range)?;
 
                         let linked_chunk_id = JsValue::from_str(&linked_chunk.id);
                         object_store.delete(&linked_chunk_id)?;
