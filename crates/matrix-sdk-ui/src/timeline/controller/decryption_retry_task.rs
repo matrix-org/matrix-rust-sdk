@@ -47,7 +47,7 @@ pub struct DecryptionRetryTask<D: Decryptor> {
 
 /// How many concurrent retry requests we will queue before blocking when
 /// attempting to queue another. We don't normally expect more than one or two
-/// will be queued at a time, so blocking should be a rare occurence.
+/// will be queued at a time, so blocking should be a rare occurrence.
 const CHANNEL_BUFFER_SIZE: usize = 100;
 
 impl<D: Decryptor> DecryptionRetryTask<D> {
