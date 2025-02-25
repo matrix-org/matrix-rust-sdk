@@ -85,6 +85,9 @@ pub struct RoomEventCacheListener {
 impl Drop for RoomEventCacheListener {
     fn drop(&mut self) {
         let previous_listener_count = self.listener_count.fetch_sub(1, Ordering::SeqCst);
+
+        trace!("dropping a room event cache listener; previous count: {previous_listener_count}");
+
         if previous_listener_count == 1 {
             // We were the last instance of the listener; let the auto-shrinker know by
             // notifying it of our room id.
@@ -115,6 +118,8 @@ impl Drop for RoomEventCacheListener {
                     mpsc::error::TrySendError::Closed(_) => return,
                 }
             }
+
+            trace!("sent notification to the parent channel that we were the last listener");
         }
     }
 }
@@ -161,7 +166,8 @@ impl RoomEventCache {
         let state = self.inner.state.read().await;
         let events = state.events().events().map(|(_position, item)| item.clone()).collect();
 
-        state.listener_count.fetch_add(1, Ordering::SeqCst);
+        let previous_listener_count = state.listener_count.fetch_add(1, Ordering::SeqCst);
+        trace!("added a room event cache listener; new count: {}", previous_listener_count + 1);
 
         let recv = self.inner.sender.subscribe();
         let listener = RoomEventCacheListener {
@@ -956,7 +962,11 @@ mod private {
         pub(crate) async fn auto_shrink_if_no_listeners(
             &mut self,
         ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
-            if self.listener_count.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            let listener_count = self.listener_count.load(std::sync::atomic::Ordering::SeqCst);
+
+            trace!(listener_count, "received request to auto-shrink");
+
+            if listener_count == 0 {
                 // If we are the last strong reference to the auto-shrinker, we can shrink the
                 // events data structure to its last chunk.
                 self.shrink_to_last_chunk().await

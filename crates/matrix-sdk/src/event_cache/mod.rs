@@ -59,7 +59,7 @@ use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
     mpsc, Mutex, RwLock,
 };
-use tracing::{error, info, info_span, instrument, trace, warn, Instrument as _, Span};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::paginator::PaginatorError;
 use crate::{client::WeakClient, Client};
@@ -345,6 +345,8 @@ impl EventCache {
         mut rx: mpsc::Receiver<AutoShrinkChannelPayload>,
     ) {
         while let Some(room_id) = rx.recv().await {
+            trace!(for_room = %room_id, "received notification to shrink");
+
             let room = match inner.for_room(&room_id).await {
                 Ok(room) => room,
                 Err(err) => {
@@ -353,6 +355,7 @@ impl EventCache {
                 }
             };
 
+            trace!("waiting for state lock…");
             let mut state = room.inner.state.write().await;
 
             match state.auto_shrink_if_no_listeners().await {
@@ -364,11 +367,16 @@ impl EventCache {
                         //
                         // However, better safe than sorry, and it's cheap to send an update here,
                         // so let's do it!
-                        let _ =
-                            room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                                diffs,
-                                origin: EventsOrigin::Cache,
-                            });
+                        if !diffs.is_empty() {
+                            let _ = room.inner.sender.send(
+                                RoomEventCacheUpdate::UpdateTimelineEvents {
+                                    diffs,
+                                    origin: EventsOrigin::Cache,
+                                },
+                            );
+                        }
+                    } else {
+                        debug!("auto-shrinking didn't happen");
                     }
                 }
 
