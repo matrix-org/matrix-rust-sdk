@@ -846,7 +846,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        // Now let's find out the event.
+        // Now let's find the event.
         let (position, event) = self
             .find_event(room_id, event_comte.event_id().unwrap().as_ref())
             .await

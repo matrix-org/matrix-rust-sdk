@@ -190,11 +190,10 @@ impl RoomEventCache {
             return None;
         };
 
+        // Search in `AllEventsCache` for known events that are not stored.
         if let Some(event) = maybe_position_and_event.map(|(_position, event)| event) {
             Some(event)
-        }
-        // Search in `AllEventsCache` for known events that are not stored.
-        else if let Some((room_id, event)) =
+        } else if let Some((room_id, event)) =
             self.inner.all_events.read().await.events.get(event_id).cloned()
         {
             (room_id == self.inner.room_id).then_some(event)
