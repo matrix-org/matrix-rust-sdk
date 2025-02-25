@@ -163,7 +163,7 @@ impl AnyDecryptedOlmEvent {
 
 /// An `m.olm.v1.curve25519-aes-sha2` decrypted to-device event.
 ///
-/// **Note**: This event will reserialize events lossy, unknown fields will be
+/// **Note**: This event will reserialize events lossily; unknown fields will be
 /// lost during deserialization.
 #[derive(Clone, Debug, Deserialize)]
 pub struct DecryptedOlmV1Event<C>
