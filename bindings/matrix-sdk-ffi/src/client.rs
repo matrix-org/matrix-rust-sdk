@@ -296,7 +296,7 @@ impl Client {
             }
             Err(error) => {
                 error!("Failed to fetch OIDC provider metadata: {error}");
-                (true, Default::default())
+                (false, Default::default())
             }
         };
 
