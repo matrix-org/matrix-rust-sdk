@@ -39,7 +39,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 wasm-bindgen = { workspace = true }
-web-sys = { workspace = true, features = ["IdbKeyRange"] }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, features = ["IdbKeyRange", "Blob", "BlobPropertyBag"] }
 hkdf = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }

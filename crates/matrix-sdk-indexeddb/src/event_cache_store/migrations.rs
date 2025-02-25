@@ -53,6 +53,7 @@ async fn setup_db(db: IdbDatabase, version: u32) -> Result<IdbDatabase> {
             events.db().create_object_store(keys::CORE)?;
             events.db().create_object_store_with_params(keys::EVENTS, &params)?;
             events.db().create_object_store_with_params(keys::GAPS, &params)?;
+            events.db().create_object_store(keys::MEDIA)?;
             Ok(())
         },
     ));
