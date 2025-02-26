@@ -8,8 +8,8 @@ use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        paginator::PaginatorState, BackPaginationOutcome, EventCacheError, PaginationToken,
-        RoomEventCacheUpdate,
+        BackPaginationOutcome, EventCacheError, PaginationToken, RoomEventCacheUpdate,
+        RoomPaginationStatus,
     },
     linked_chunk::{ChunkIdentifier, Position, Update},
     test_utils::{
@@ -784,10 +784,10 @@ async fn test_limited_timeline_resets_pagination() {
         .mount()
         .await;
 
-    // At the beginning, the paginator is in the initial state.
+    // At the beginning, the paginator is in the idle state.
     let pagination = room_event_cache.pagination();
     let mut pagination_status = pagination.status();
-    assert_eq!(pagination_status.get(), PaginatorState::Initial);
+    assert_eq!(pagination_status.get(), RoomPaginationStatus::Idle { hit_timeline_start: false });
 
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
@@ -808,8 +808,10 @@ async fn test_limited_timeline_resets_pagination() {
 
     // And the paginator state delivers this as an update, and is internally
     // consistent with it:
-    assert_next_matches_with_timeout!(pagination_status, PaginatorState::Idle);
-    assert!(pagination.hit_timeline_start());
+    assert_next_matches_with_timeout!(
+        pagination_status,
+        RoomPaginationStatus::Idle { hit_timeline_start: true }
+    );
 
     // When a limited sync comes back from the server,
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
@@ -821,13 +823,12 @@ async fn test_limited_timeline_resets_pagination() {
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Clear = &diffs[0]);
 
-    // The paginator state is reset: status set to Initial, hasn't hit the timeline
+    // The paginator state is reset: status set to Idle, hasn't hit the timeline
     // start.
-    assert!(!pagination.hit_timeline_start());
-    assert_eq!(pagination_status.get(), PaginatorState::Initial);
-
-    // We receive an update about the paginator status.
-    assert_next_matches_with_timeout!(pagination_status, PaginatorState::Initial);
+    assert_next_matches_with_timeout!(
+        pagination_status,
+        RoomPaginationStatus::Idle { hit_timeline_start: false }
+    );
 
     assert!(room_stream.is_empty());
 }

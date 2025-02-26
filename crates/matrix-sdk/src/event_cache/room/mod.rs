@@ -25,6 +25,7 @@ use std::{
 };
 
 use events::{sort_positions_descending, Gap};
+use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
@@ -42,10 +43,8 @@ use tokio::sync::{
 use tracing::{error, trace, warn};
 
 use super::{
-    deduplicator::DeduplicationOutcome,
-    paginator::{Paginator, PaginatorState},
-    AllEventsCache, AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheUpdate,
-    RoomPagination,
+    deduplicator::DeduplicationOutcome, AllEventsCache, AutoShrinkChannelPayload, EventsOrigin,
+    Result, RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -143,6 +142,7 @@ impl RoomEventCache {
     pub(super) fn new(
         client: WeakClient,
         state: RoomEventCacheState,
+        pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
@@ -152,6 +152,7 @@ impl RoomEventCache {
             inner: Arc::new(RoomEventCacheInner::new(
                 client,
                 state,
+                pagination_status,
                 room_id,
                 room_version,
                 all_events_cache,
@@ -237,10 +238,6 @@ impl RoomEventCache {
         // Clear the (temporary) events mappings.
         self.inner.all_events.write().await.clear();
 
-        // Reset the paginator.
-        // TODO: properly stop any ongoing back-pagination.
-        let _ = self.inner.paginator.set_idle_state(PaginatorState::Initial, None, None);
-
         // Notify observers about the update.
         let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
@@ -296,8 +293,10 @@ pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
+    pub weak_room: WeakRoom,
+
     /// The room version for this room.
-    pub(crate) room_version: RoomVersionId,
+    pub room_version: RoomVersionId,
 
     /// Sender part for subscribers to this room.
     pub sender: Sender<RoomEventCacheUpdate>,
@@ -314,15 +313,7 @@ pub(super) struct RoomEventCacheInner {
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
 
-    /// A paginator instance, that's configured to run back-pagination on our
-    /// behalf.
-    ///
-    /// Note: forward-paginations are still run "out-of-band", that is,
-    /// disconnected from the event cache, as we don't implement matching
-    /// events received from those kinds of pagination with the cache. This
-    /// paginator is only used for queries that interact with the actual event
-    /// cache.
-    pub paginator: Paginator<WeakRoom>,
+    pub pagination_status: SharedObservable<RoomPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -337,6 +328,7 @@ impl RoomEventCacheInner {
     fn new(
         client: WeakClient,
         state: RoomEventCacheState,
+        pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
@@ -346,13 +338,14 @@ impl RoomEventCacheInner {
         let weak_room = WeakRoom::new(client, room_id);
         Self {
             room_id: weak_room.room_id().to_owned(),
+            weak_room,
             room_version,
             state: RwLock::new(state),
             all_events: all_events_cache,
             sender,
             pagination_batch_token_notifier: Default::default(),
-            paginator: Paginator::new(weak_room),
             auto_shrink_sender,
+            pagination_status,
         }
     }
 
@@ -501,9 +494,6 @@ impl RoomEventCacheInner {
             ambiguity_changes,
         )
         .await?;
-
-        // Reset the paginator status to initial.
-        self.paginator.set_idle_state(PaginatorState::Initial, prev_batch, None)?;
 
         Ok(())
     }
@@ -663,6 +653,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 mod private {
     use std::sync::{atomic::AtomicUsize, Arc};
 
+    use eyeball::SharedObservable;
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         deserialized_responses::{TimelineEvent, TimelineEventKind},
@@ -682,6 +673,7 @@ mod private {
         events::RoomEvents,
         sort_positions_descending, LoadMoreEventsBackwardsOutcome,
     };
+    use crate::event_cache::RoomPaginationStatus;
 
     /// State for a single room's event cache.
     ///
@@ -709,6 +701,8 @@ mod private {
         /// that upon clearing the timeline events.
         pub waited_for_initial_prev_token: bool,
 
+        pagination_status: SharedObservable<RoomPaginationStatus>,
+
         /// An atomic count of the current number of listeners of the
         /// [`super::RoomEventCache`].
         pub(super) listener_count: Arc<AtomicUsize>,
@@ -727,6 +721,7 @@ mod private {
         pub async fn new(
             room_id: OwnedRoomId,
             store: Arc<OnceCell<EventCacheStoreLock>>,
+            pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
             let (events, deduplicator) = if let Some(store) = store.get() {
                 let store_lock = store.lock().await?;
@@ -769,6 +764,7 @@ mod private {
                 deduplicator,
                 waited_for_initial_prev_token: false,
                 listener_count: Default::default(),
+                pagination_status,
             })
         }
 
@@ -848,11 +844,15 @@ mod private {
                         // All good, let's continue with this chunk.
                         new_first_chunk
                     }
+
                     Ok(None) => {
                         // No previous chunk: no events to insert. Better, it means we've reached
                         // the start of the timeline!
+                        self.pagination_status
+                            .set(RoomPaginationStatus::Idle { hit_timeline_start: true });
                         return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
                     }
+
                     Err(err) => {
                         error!("error when loading the previous chunk of a linked chunk: {err}");
 
@@ -947,6 +947,11 @@ mod private {
                 error!("error when replacing the linked chunk: {err}");
                 return self.reset().await.map(Some);
             }
+
+            // Let pagination observers know that we may have not reached the start of the
+            // timeline.
+            // TODO: likely need to cancel any ongoing pagination.
+            self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
 
             // Don't propagate those updates to the store; this is only for the in-memory
             // representation that we're doing this. Let's drain those store updates.
@@ -1132,7 +1137,13 @@ mod private {
         pub async fn reset(&mut self) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
             self.events.reset();
             self.propagate_changes().await?;
+
+            // Reset the pagination state too: pretend we never waited for the initial
+            // prev-batch token, and indicate that we're not at the start of the
+            // timeline, since we don't.
             self.waited_for_initial_prev_token = false;
+            // TODO: likely must cancel any ongoing back-paginations too
+            self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
 
             Ok(self.events.updates_as_vector_diffs())
         }
