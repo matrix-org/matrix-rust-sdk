@@ -31,9 +31,6 @@ use super::{AuthorizationCode, OauthDiscoveryError, OidcError, OidcSessionTokens
 
 pub(crate) mod server;
 
-#[cfg(test)]
-pub(crate) mod mock;
-
 pub(super) struct RefreshedSessionTokens {
     pub access_token: String,
     pub refresh_token: Option<String>,

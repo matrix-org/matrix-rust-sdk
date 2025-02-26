@@ -1358,7 +1358,7 @@ impl Oidc {
         let provider_metadata = match self.provider_metadata().await {
             Ok(metadata) => metadata,
             Err(err) => {
-                warn!("couldn't get authorization server metadata: {err}");
+                warn!("couldn't get authorization server metadata: {err:?}");
                 fail!(refresh_status_guard, RefreshTokenError::Oidc(Arc::new(err.into())));
             }
         };
