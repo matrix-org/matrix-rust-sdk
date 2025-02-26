@@ -127,20 +127,13 @@ impl RoomPagination {
     }
 
     async fn run_backwards_impl(&self, batch_size: u16) -> Result<Option<BackPaginationOutcome>> {
-        const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
-
-        // First off, remember that's the `RoomEvents` might be partially loaded
-        // (because not all events are fully loaded).
-        //
-        // Knowing that, if all gaps have been resolved in the linked chunk, let's try
-        // to load more events from the storage!
-
-        // Try to load one chunk backwards. If it returns events, no need to reach the
-        // network!
+        // A linked chunk might not be entirely loaded (if it's been lazy-loaded). Try
+        // to load from storage first, then from network if storage indicated
+        // there's no previous events chunk to load.
 
         match self.inner.state.write().await.load_more_events_backwards().await? {
             LoadMoreEventsBackwardsOutcome::Gap => {
-                // continue, let's resolve this gap!
+                // We have a gap, so resolve it with a network back-pagination.
             }
 
             LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
@@ -168,6 +161,16 @@ impl RoomPagination {
             }
         }
 
+        // Alright, try network.
+        self.paginate_backwards_with_network(batch_size).await
+    }
+
+    async fn paginate_backwards_with_network(
+        &self,
+        batch_size: u16,
+    ) -> Result<Option<BackPaginationOutcome>> {
+        const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
+
         // There is at least one gap that must be resolved; reach the network.
         // First, ensure there's no other ongoing back-pagination.
         let prev_status = self.inner.pagination_status.set(RoomPaginationStatus::Paginating);
@@ -192,15 +195,21 @@ impl RoomPagination {
             }
         };
 
-        let paginator = Paginator::new(self.inner.weak_room.clone());
+        let (PaginationResult { events, hit_end_of_timeline: reached_start }, new_gap) = {
+            // Use a throw-away paginator instance.
+            let paginator = Paginator::new(self.inner.weak_room.clone());
 
-        paginator
-            .set_idle_state(PaginatorState::Idle, prev_token.clone(), None)
-            .expect("a pristine paginator must be in the initial state");
+            paginator
+                .set_idle_state(PaginatorState::Idle, prev_token.clone(), None)
+                .expect("a pristine paginator must be in the initial state");
 
-        // Run the actual pagination.
-        let PaginationResult { events, hit_end_of_timeline: reached_start } =
-            paginator.paginate_backward(batch_size.into()).await?;
+            // The network request happens here:
+            let result = paginator.paginate_backward(batch_size.into()).await?;
+
+            let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
+
+            (result, new_gap)
+        };
 
         // Make sure the `RoomEvents` isn't updated while we are saving events from
         // backpagination.
@@ -225,9 +234,6 @@ impl RoomPagination {
         } else {
             None
         };
-
-        // The new prev token from this pagination.
-        let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
 
         let (
             DeduplicationOutcome {
