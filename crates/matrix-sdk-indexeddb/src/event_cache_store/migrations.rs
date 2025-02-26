@@ -4,6 +4,7 @@ use indexed_db_futures::{
     request::{IdbOpenDbRequestLike, OpenDbRequest},
     IdbDatabase, IdbKeyPath, IdbVersionChangeEvent,
 };
+use matrix_sdk_base::event_cache::store::media::MediaRetentionPolicy;
 use wasm_bindgen::JsValue;
 
 const CURRENT_DB_VERSION: u32 = 2;
@@ -61,4 +62,16 @@ async fn setup_db(db: IdbDatabase, version: u32) -> Result<IdbDatabase> {
     let db = db_req.await?;
 
     Ok(db)
+}
+
+async fn media_retention_policy(db: IdbDatabase) -> Option<MediaRetentionPolicy> {
+    let store = db
+        .transaction_on_one_with_mode(keys::CORE, web_sys::IdbTransactionMode::Readonly)?
+        .object_store(keys::CORE)?;
+
+    let policy = store.get_owned(&keys::MEDIA_RETENTION_POLICY.into()).await?;
+
+    // let policy = serde_json::from_str(&policy).ok()?;
+
+    Some(policy)
 }

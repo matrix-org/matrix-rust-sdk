@@ -3,6 +3,7 @@ use crate::event_cache_store::{
     indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
 };
 
+use matrix_sdk_base::event_cache::store::media::{MediaRetentionPolicy, MediaService};
 use matrix_sdk_store_encryption::StoreCipher;
 use std::sync::Arc;
 
@@ -48,7 +49,13 @@ impl IndexeddbEventCacheStoreBuilder {
         let serializer = IndexeddbSerializer::new(self.store_cipher);
         let inner = open_and_upgrade_db(&name, &serializer).await?;
 
-        let store = IndexeddbEventCacheStore { inner, serializer };
+        let media_service = MediaService::new();
+        let media_retention_policy: Option<MediaRetentionPolicy> =
+            media_retention_policy(&inner).await?;
+        media_service.restore(policy);
+
+        let store =
+            IndexeddbEventCacheStore { inner, serializer, media_service: Arc::new(media_service) };
         Ok(store)
     }
 }

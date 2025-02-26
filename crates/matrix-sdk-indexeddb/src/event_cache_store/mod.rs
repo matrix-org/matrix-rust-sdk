@@ -34,7 +34,7 @@ use matrix_sdk_base::{
                 // EventCacheStoreMedia,
                 IgnoreMediaRetentionPolicy,
                 MediaRetentionPolicy,
-                // MediaService,
+                MediaService,
             },
             EventCacheStore,
         },
@@ -71,13 +71,13 @@ pub use error::IndexeddbEventCacheStoreError;
 
 mod keys {
     pub const CORE: &str = "core";
-    // Entries in Key-value store
-    // pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
-
     pub const EVENTS: &str = "events";
     pub const LINKED_CHUNKS: &str = "linked_chunks";
     pub const GAPS: &str = "gaps";
     pub const MEDIA: &str = "media";
+
+    // Used as a single key to store/retrieve the media retention policy
+    pub const MEDIA_RETENTION_POLICY: &str = "media_retention_policy";
 }
 
 pub const KEY_SEPARATOR: &str = "\u{001D}";
@@ -87,9 +87,11 @@ const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
 /// The string used to identify a chunk of type gap, in the `type` field in the
 /// database.
 const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
+
 pub struct IndexeddbEventCacheStore {
     pub(crate) inner: IdbDatabase,
     pub(crate) serializer: IndexeddbSerializer,
+    pub(crate) media_service: Arc<MediaService>,
 }
 
 #[cfg(not(tarpaulin_include))]
