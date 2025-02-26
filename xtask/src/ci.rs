@@ -231,7 +231,7 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
         (FeatureSet::Markdown, "--features markdown,testing"),
         (FeatureSet::Socks, "--features socks,testing"),
         (FeatureSet::SsoLogin, "--features sso-login,testing"),
-        (FeatureSet::ExperimentalOidc, "--features experimental-oidc"),
+        (FeatureSet::ExperimentalOidc, "--features experimental-oidc,testing"),
     ]);
 
     let sh = sh();
