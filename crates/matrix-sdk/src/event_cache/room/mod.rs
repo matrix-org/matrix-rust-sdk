@@ -845,9 +845,16 @@ mod private {
                     }
 
                     Ok(None) => {
-                        // No previous chunk: no events to insert. Better, it means we've reached
-                        // the start of the timeline!
-                        return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                        // No previous chunk: no events to insert. This means one of two things:
+                        // - either the linked chunk is at the start of the timeline,
+                        // - or we haven't received any back-pagination token yet, and we should
+                        //   wait for one.
+                        if self.waited_for_initial_prev_token {
+                            return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                        }
+                        // If we haven't waited yet, we request to resolve the gap, once we get the
+                        // previous-batch token from sync.
+                        return Ok(LoadMoreEventsBackwardsOutcome::Gap);
                     }
 
                     Err(err) => {
@@ -1072,7 +1079,6 @@ mod private {
         #[instrument(skip_all)]
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let updates = self.events.store_updates().take();
-
             self.send_updates_to_store(updates).await
         }
 
@@ -1190,8 +1196,19 @@ mod private {
             func: F,
         ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
             func(&mut self.events);
+
             self.propagate_changes().await?;
+
+            // If we've never waited for an initial previous-batch token, and we now have at
+            // least one gap in the chunk, no need to wait for a previous-batch token later.
+            if !self.waited_for_initial_prev_token
+                && self.events.chunks().any(|chunk| chunk.is_gap())
+            {
+                self.waited_for_initial_prev_token = true;
+            }
+
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
+
             Ok(updates_as_vector_diffs)
         }
     }

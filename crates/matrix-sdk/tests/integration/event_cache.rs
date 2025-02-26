@@ -834,6 +834,72 @@ async fn test_limited_timeline_resets_pagination() {
 }
 
 #[async_test]
+async fn test_persistent_storage_waits_for_pagination_token() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+    // TODO: remove this test when persistent storage is enabled by default, as it's
+    // doing the same as the one above.
+    event_cache.enable_storage().unwrap();
+
+    // If I sync and get informed I've joined The Room, without a previous batch
+    // token,
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut room_stream) = room_event_cache.subscribe().await;
+
+    assert!(events.is_empty());
+    assert!(room_stream.is_empty());
+
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()]))
+        .mock_once()
+        .mount()
+        .await;
+
+    // At the beginning, the paginator is in the initial state.
+    let pagination = room_event_cache.pagination();
+    let mut pagination_status = pagination.status();
+    assert_eq!(pagination_status.get(), RoomPaginationStatus::Idle { hit_timeline_start: false });
+
+    // If we try to back-paginate with a token, it will hit the end of the timeline
+    // and give us the resulting event.
+    let BackPaginationOutcome { events, reached_start } =
+        pagination.run_backwards_once(20).await.unwrap();
+
+    assert_eq!(events.len(), 1);
+    assert!(reached_start);
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "hi");
+    });
+
+    // And the paginator state delivers this as an update, and is internally
+    // consistent with it:
+    assert_next_matches_with_timeout!(
+        pagination_status,
+        RoomPaginationStatus::Idle { hit_timeline_start: true }
+    );
+
+    assert!(room_stream.is_empty());
+}
+
+#[async_test]
 async fn test_limited_timeline_with_storage() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
