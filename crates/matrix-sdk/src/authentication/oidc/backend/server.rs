@@ -21,11 +21,9 @@ use chrono::Utc;
 use http::StatusCode;
 use mas_oidc_client::{
     http_service::HttpService,
-    jose::jwk::PublicJsonWebKeySet,
     requests::{
         authorization_code::{access_token_with_authorization_code, AuthorizationValidationData},
         discovery::{discover, insecure_discover},
-        jose::{fetch_jwks, JwtVerificationData},
         refresh_token::refresh_access_token,
         registration::register_client,
         revocation::revoke_token,
@@ -35,7 +33,6 @@ use mas_oidc_client::{
         iana::oauth::OAuthTokenTypeHint,
         oidc::{ProviderMetadata, ProviderMetadataVerificationError, VerifiedProviderMetadata},
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
-        IdToken,
     },
 };
 use oauth2::{AsyncHttpClient, HttpClientError, HttpRequest, HttpResponse};
@@ -65,14 +62,6 @@ impl OidcServer {
 
     fn http_service(&self) -> HttpService {
         HttpService::new(self.http_client().clone())
-    }
-
-    /// Fetch the OpenID Connect JSON Web Key Set at the given URI.
-    ///
-    /// Returns an error if the client registration was not restored, or if an
-    /// error occurred when fetching the data.
-    async fn fetch_jwks(&self, uri: &Url) -> Result<PublicJsonWebKeySet, OidcError> {
-        fetch_jwks(&self.http_service(), uri).await.map_err(Into::into)
     }
 }
 
@@ -138,26 +127,16 @@ impl OidcBackend for OidcServer {
         &self,
         provider_metadata: VerifiedProviderMetadata,
         credentials: ClientCredentials,
-        metadata: VerifiedClientMetadata,
         auth_code: AuthorizationCode,
         validation_data: AuthorizationValidationData,
     ) -> Result<OidcSessionTokens, OidcError> {
-        let jwks = self.fetch_jwks(provider_metadata.jwks_uri()).await?;
-
-        let id_token_verification_data = JwtVerificationData {
-            issuer: provider_metadata.issuer(),
-            jwks: &jwks,
-            client_id: &credentials.client_id().to_owned(),
-            signing_algorithm: metadata.id_token_signed_response_alg(),
-        };
-
-        let (response, id_token) = access_token_with_authorization_code(
+        let (response, _) = access_token_with_authorization_code(
             &self.http_service(),
             credentials.clone(),
             provider_metadata.token_endpoint(),
             auth_code.code,
             validation_data,
-            Some(id_token_verification_data),
+            None,
             Utc::now(),
             &mut rng()?,
         )
@@ -166,7 +145,6 @@ impl OidcBackend for OidcServer {
         Ok(OidcSessionTokens {
             access_token: response.access_token,
             refresh_token: response.refresh_token,
-            latest_id_token: id_token,
         })
     }
 
@@ -174,27 +152,16 @@ impl OidcBackend for OidcServer {
         &self,
         provider_metadata: VerifiedProviderMetadata,
         credentials: ClientCredentials,
-        metadata: &VerifiedClientMetadata,
         refresh_token: String,
-        latest_id_token: Option<IdToken<'static>>,
     ) -> Result<RefreshedSessionTokens, OidcError> {
-        let jwks = self.fetch_jwks(provider_metadata.jwks_uri()).await?;
-
-        let id_token_verification_data = JwtVerificationData {
-            issuer: provider_metadata.issuer(),
-            jwks: &jwks,
-            client_id: &credentials.client_id().to_owned(),
-            signing_algorithm: &metadata.id_token_signed_response_alg().clone(),
-        };
-
         refresh_access_token(
             &self.http_service(),
             credentials,
             provider_metadata.token_endpoint(),
             refresh_token,
             None,
-            Some(id_token_verification_data),
-            latest_id_token.as_ref(),
+            None,
+            None,
             Utc::now(),
             &mut rng()?,
         )
@@ -285,7 +252,6 @@ impl OidcBackend for OidcServer {
         let tokens = OidcSessionTokens {
             access_token: response.access_token().secret().to_owned(),
             refresh_token: response.refresh_token().map(|t| t.secret().to_owned()),
-            latest_id_token: None,
         };
 
         Ok(tokens)

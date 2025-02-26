@@ -45,7 +45,6 @@ pub(crate) fn prev_session_tokens() -> OidcSessionTokens {
     OidcSessionTokens {
         access_token: "prev-access-token".to_owned(),
         refresh_token: Some("prev-refresh-token".to_owned()),
-        latest_id_token: None,
     }
 }
 
@@ -85,7 +84,6 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     // Given a fresh environment.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
     assert!(oidc.issuer().is_none());
-    assert!(oidc.client_metadata().is_none());
     assert!(oidc.client_id().is_none());
 
     // When getting the OIDC login URL.
@@ -94,7 +92,6 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 
     // Then the client should be configured correctly.
     assert!(oidc.issuer().is_some());
-    assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_id().is_some());
 
     // When completing the login with a valid callback.
@@ -115,7 +112,6 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
         oidc.url_for_oidc(metadata.clone(), registrations, Prompt::Login).await.unwrap();
 
     assert!(oidc.issuer().is_some());
-    assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_id().is_some());
 
     // When completing login with a cancellation callback.
@@ -139,7 +135,6 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
         oidc.url_for_oidc(metadata.clone(), registrations, Prompt::Login).await.unwrap();
 
     assert!(oidc.issuer().is_some());
-    assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_id().is_some());
 
     // When completing login with an old/tampered state.
@@ -323,7 +318,6 @@ async fn test_oidc_session() -> anyhow::Result<()> {
     oidc.restore_session(session.clone()).await?;
 
     // Test a few extra getters.
-    assert_eq!(*oidc.client_metadata().unwrap(), session.metadata);
     assert_eq!(oidc.access_token().unwrap(), tokens.access_token);
     assert_eq!(oidc.refresh_token(), tokens.refresh_token);
 
@@ -335,7 +329,6 @@ async fn test_oidc_session() -> anyhow::Result<()> {
     let full_session = oidc.full_session().unwrap();
 
     assert_eq!(full_session.client_id.0, "test_client_id");
-    assert_eq!(full_session.metadata, session.metadata);
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
     assert_eq!(full_session.user.issuer, ISSUER_URL);
@@ -427,7 +420,7 @@ async fn test_register_client() {
         .await;
     oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
 
-    let response = oidc.register_client(client_metadata.clone(), None).await.unwrap();
+    let response = oidc.register_client(client_metadata, None).await.unwrap();
     assert_eq!(response.client_id, "test_client_id");
 
     let auth_data = oidc.data().unwrap();
@@ -435,7 +428,6 @@ async fn test_register_client() {
     // with `Url` which will normalize that.
     assert_eq!(Url::parse(&auth_data.issuer), Url::parse(&server.server().uri()));
     assert_eq!(auth_data.client_id.0, response.client_id);
-    assert_eq!(auth_data.metadata, client_metadata);
 }
 
 #[async_test]

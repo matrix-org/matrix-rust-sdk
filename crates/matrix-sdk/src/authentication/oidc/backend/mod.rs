@@ -23,7 +23,6 @@ use mas_oidc_client::{
         iana::oauth::OAuthTokenTypeHint,
         oidc::VerifiedProviderMetadata,
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
-        IdToken,
     },
 };
 use url::Url;
@@ -58,7 +57,6 @@ pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
         &self,
         provider_metadata: VerifiedProviderMetadata,
         credentials: ClientCredentials,
-        metadata: VerifiedClientMetadata,
         auth_code: AuthorizationCode,
         validation_data: AuthorizationValidationData,
     ) -> Result<OidcSessionTokens, OidcError>;
@@ -67,9 +65,7 @@ pub(super) trait OidcBackend: std::fmt::Debug + Send + Sync {
         &self,
         provider_metadata: VerifiedProviderMetadata,
         credentials: ClientCredentials,
-        metadata: &VerifiedClientMetadata,
         refresh_token: String,
-        latest_id_token: Option<IdToken<'static>>,
     ) -> Result<RefreshedSessionTokens, OidcError>;
 
     async fn revoke_token(

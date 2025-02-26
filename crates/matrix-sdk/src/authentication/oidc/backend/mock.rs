@@ -29,7 +29,6 @@ use mas_oidc_client::{
         iana::oauth::OAuthTokenTypeHint,
         oidc::{ProviderMetadataVerificationError, VerifiedProviderMetadata},
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
-        IdToken,
     },
 };
 use url::Url;
@@ -118,7 +117,6 @@ impl OidcBackend for MockImpl {
         &self,
         _provider_metadata: VerifiedProviderMetadata,
         _credentials: ClientCredentials,
-        _metadata: VerifiedClientMetadata,
         _auth_code: AuthorizationCode,
         _validation_data: AuthorizationValidationData,
     ) -> Result<OidcSessionTokens, OidcError> {
@@ -158,9 +156,7 @@ impl OidcBackend for MockImpl {
         &self,
         _provider_metadata: VerifiedProviderMetadata,
         _credentials: ClientCredentials,
-        _metadata: &VerifiedClientMetadata,
         refresh_token: String,
-        _latest_id_token: Option<IdToken<'static>>,
     ) -> Result<RefreshedSessionTokens, OidcError> {
         if Some(refresh_token) != self.expected_refresh_token {
             Err(OidcError::Oidc(OidcClientError::TokenRefresh(TokenRefreshError::Token(
