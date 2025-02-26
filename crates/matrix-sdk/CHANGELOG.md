@@ -28,6 +28,7 @@ simpler methods:
 - [**breaking**] The HTTP client only allows TLS 1.2 or newer, as recommended by
   [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
   ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
+- Add `Room::report_room` api. ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
 
 ### Bug Fixes
 

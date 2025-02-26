@@ -38,3 +38,4 @@ Additions:
 - Add `ClientBuilder::room_key_recipient_strategy`
 - Add `Room::send_raw`
 - Expose `withdraw_verification` to `UserIdentity`
+- Expose `report_room` to `Room`

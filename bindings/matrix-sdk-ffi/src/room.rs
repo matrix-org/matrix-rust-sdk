@@ -13,7 +13,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
 use mime::Mime;
 use ruma::{
-    api::client::room::report_content,
+    api::client::room::{report_content, report_room},
     assign,
     events::{
         call::notify,
@@ -386,6 +386,24 @@ impl Room {
                 reason,
             ))
             .await?;
+        Ok(())
+    }
+
+    /// Reports a room as inappropriate to the server.
+    /// The caller is not required to be joined to the room to report it.
+    ///
+    /// # Arguments
+    ///
+    /// * `reason` - The reason the room is being reported.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not found or on rate limit
+    pub async fn report_room(&self, reason: Option<String>) -> Result<(), ClientError> {
+        let mut request = report_room::v3::Request::new(self.inner.room_id().into());
+        request.reason = reason;
+
+        self.inner.client().send(request).await?;
         Ok(())
     }
 
