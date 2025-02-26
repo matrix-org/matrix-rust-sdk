@@ -719,6 +719,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             let req = object_store.delete(&JsValue::from_str(&linked_chunk.id))?;
             req.into_future().await?;
 
+            // TODO does this need to delete all of the events? The sqlite implementation seems to imply a cascading delete does happen
+
             // if linked_chunk.type_str == CHUNK_TYPE_EVENT_TYPE_STRING {
             //     let events_tx = self
             //         .inner
@@ -1029,6 +1031,7 @@ mod tests {
     // use ruma::{events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
     use matrix_sdk_base::{
         event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
+        event_cache_store_integration_tests_time,
     };
     use uuid::Uuid;
 
@@ -1042,6 +1045,6 @@ mod tests {
     }
 
     event_cache_store_integration_tests!();
-    // event_cache_store_integration_tests_time!();
+    event_cache_store_integration_tests_time!();
     // event_cache_store_media_integration_tests!(with_media_size_tests);
 }
