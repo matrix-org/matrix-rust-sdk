@@ -212,10 +212,10 @@ impl RoomPagination {
 
     /// Run a single pagination request (/messages) to the server.
     ///
-    /// If there's no previous-batch token, it will wait for one for a short
-    /// while to get one, or if it's already done so or seen a
-    /// previous-batch token before, it will immediately indicate
-    /// it's reached the end of the timeline.
+    /// If there are no previous-batch tokens, it will wait for one for a short
+    /// while to get one, or if it's already done so or if it's seen a
+    /// previous-batch token before, it will immediately indicate it's
+    /// reached the end of the timeline.
     async fn paginate_backwards_with_network(
         &self,
         batch_size: u16,
@@ -262,9 +262,11 @@ impl RoomPagination {
 
             if gap_id.is_none() {
                 // We got a previous-batch token from the linked chunk *before* running the
-                // request, which is missing from the linked chunk *after* completing the
-                // request. It may be a sign the linked chunk has been reset,
-                // and it's an error in any case.
+                // request, but it is missing *after* completing the
+                // request.
+                //
+                // It may be a sign the linked chunk has been reset, but it's fine, per this
+                // function's contract.
                 return Ok(None);
             }
 
