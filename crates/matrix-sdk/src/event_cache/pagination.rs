@@ -186,12 +186,12 @@ impl RoomPagination {
 
             LoadMoreEventsBackwardsOutcome::Events {
                 events,
-                sync_timeline_events_diffs,
+                timeline_event_diffs,
                 reached_start,
             } => {
-                if !sync_timeline_events_diffs.is_empty() {
+                if !timeline_event_diffs.is_empty() {
                     let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                        diffs: sync_timeline_events_diffs,
+                        diffs: timeline_event_diffs,
                         origin: EventsOrigin::Pagination,
                     });
                 }
@@ -306,7 +306,7 @@ impl RoomPagination {
             events.clear();
         }
 
-        let sync_timeline_events_diffs = state
+        let timeline_event_diffs = state
             .with_events_mut(|room_events| {
             // Reverse the order of the events as `/messages` has been called with `dir=b`
             // (backwards). The `RoomEvents` API expects the first event to be the oldest.
@@ -392,9 +392,9 @@ impl RoomPagination {
 
         let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
-        if !sync_timeline_events_diffs.is_empty() {
+        if !timeline_event_diffs.is_empty() {
             let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs: sync_timeline_events_diffs,
+                diffs: timeline_event_diffs,
                 origin: EventsOrigin::Pagination,
             });
         }
