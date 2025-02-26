@@ -124,11 +124,7 @@ impl AuthState {
             }
             #[cfg(feature = "experimental-oidc")]
             AuthState::RegisteredWithOauth { issuer } => {
-                client.oidc().restore_registered_client(
-                    issuer,
-                    oauth::mock_client_metadata(),
-                    oauth::mock_client_id(),
-                );
+                client.oidc().restore_registered_client(issuer, oauth::mock_client_id());
             }
             #[cfg(feature = "experimental-oidc")]
             AuthState::LoggedInWithOauth { issuer } => {
@@ -198,7 +194,6 @@ pub mod oauth {
         OidcSessionTokens {
             access_token: "1234".to_owned(),
             refresh_token: Some("ZYXWV".to_owned()),
-            latest_id_token: None,
         }
     }
 
@@ -206,7 +201,6 @@ pub mod oauth {
     pub fn mock_session(tokens: OidcSessionTokens, issuer: String) -> OidcSession {
         OidcSession {
             client_id: mock_client_id(),
-            metadata: mock_client_metadata(),
             user: UserSession { meta: super::mock_session_meta(), tokens, issuer },
         }
     }

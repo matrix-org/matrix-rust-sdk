@@ -165,7 +165,6 @@ use mas_oidc_client::{
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
         requests::Prompt,
         scope::{MatrixApiScopeToken, ScopeToken},
-        IdToken,
     },
 };
 #[cfg(feature = "e2e-encryption")]
@@ -182,7 +181,6 @@ use url::Url;
 mod auth_code_builder;
 mod backend;
 mod cross_process;
-mod data_serde;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registrations;
@@ -229,7 +227,6 @@ impl OidcCtx {
 pub(crate) struct OidcAuthData {
     pub(crate) issuer: String,
     pub(crate) client_id: ClientId,
-    pub(crate) metadata: VerifiedClientMetadata,
     pub(crate) tokens: OnceCell<SharedObservable<OidcSessionTokens>>,
     /// The data necessary to validate authorization responses.
     pub(crate) authorization_data: Mutex<HashMap<String, AuthorizationValidationData>>,
@@ -485,13 +482,13 @@ impl Oidc {
             return Ok(());
         };
 
-        if self.load_client_registration(issuer.clone(), client_metadata.clone(), &registrations) {
+        if self.load_client_registration(issuer.clone(), &registrations) {
             tracing::info!("OIDC configuration loaded from disk.");
             return Ok(());
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(client_metadata.clone(), None).await?;
+        self.register_client(client_metadata, None).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -521,12 +518,7 @@ impl Oidc {
     /// given issuer.
     ///
     /// Returns `true` if an existing registration was found and `false` if not.
-    fn load_client_registration(
-        &self,
-        issuer: String,
-        oidc_metadata: VerifiedClientMetadata,
-        registrations: &OidcRegistrations,
-    ) -> bool {
+    fn load_client_registration(&self, issuer: String, registrations: &OidcRegistrations) -> bool {
         let Ok(issuer_url) = Url::parse(&issuer) else {
             error!("Failed to parse {issuer:?}");
             return false;
@@ -535,7 +527,7 @@ impl Oidc {
             return false;
         };
 
-        self.restore_registered_client(issuer, oidc_metadata, client_id);
+        self.restore_registered_client(issuer, client_id);
 
         true
     }
@@ -591,10 +583,7 @@ impl Oidc {
             return Ok(None);
         };
 
-        let id_token_hint =
-            self.session_tokens().and_then(|t| t.latest_id_token).map(|t| t.to_string());
-
-        let url = build_account_management_url(base_url, action, id_token_hint)?;
+        let url = build_account_management_url(base_url, action, None)?;
 
         Ok(Some(url))
     }
@@ -642,15 +631,6 @@ impl Oidc {
     /// metadata.
     pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
         self.backend.discover(self.ctx().insecure_discover).await
-    }
-
-    /// The OpenID Connect metadata of this client used during registration.
-    ///
-    /// Returns `None` if the client was not registered or if the registration
-    /// was not restored with [`Oidc::restore_registered_client()`] or
-    /// [`Oidc::restore_session()`].
-    pub fn client_metadata(&self) -> Option<&VerifiedClientMetadata> {
-        self.data().map(|data| &data.metadata)
     }
 
     /// The OpenID Connect unique identifier of this client obtained after
@@ -746,15 +726,6 @@ impl Oidc {
         self.session_tokens().and_then(|tokens| tokens.refresh_token)
     }
 
-    /// The ID Token received after the latest authorization of this client, if
-    /// any.
-    ///
-    /// Returns `None` if the client was not logged in with the OpenID Connect
-    /// API, or if the issuer did not provide one.
-    pub fn latest_id_token(&self) -> Option<IdToken<'static>> {
-        self.session_tokens()?.latest_id_token
-    }
-
     /// The OpenID Connect user session of this client.
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
@@ -773,11 +744,7 @@ impl Oidc {
     pub fn full_session(&self) -> Option<OidcSession> {
         let user = self.user_session()?;
         let data = self.data()?;
-        Some(OidcSession {
-            client_id: data.client_id.clone(),
-            metadata: data.metadata.clone(),
-            user,
-        })
+        Some(OidcSession { client_id: data.client_id.clone(), user })
     }
 
     /// Register a client with the OAuth 2.0 server.
@@ -867,14 +834,13 @@ impl Oidc {
 
         let registration_response = self
             .backend
-            .register_client(registration_endpoint, client_metadata.clone(), software_statement)
+            .register_client(registration_endpoint, client_metadata, software_statement)
             .await?;
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
             provider_metadata.issuer().to_owned(),
-            client_metadata,
             ClientId(registration_response.client_id.clone()),
         );
 
@@ -895,25 +861,16 @@ impl Oidc {
     /// * `issuer` - The authorization server that was used to register the
     ///   client.
     ///
-    /// * `client_metadata` - The [`VerifiedClientMetadata`] that was
-    ///   registered.
-    ///
     /// * `client_id` - The unique identifier to authenticate the client with
     ///   the provider, obtained after registration.
     ///
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub fn restore_registered_client(
-        &self,
-        issuer: String,
-        client_metadata: VerifiedClientMetadata,
-        client_id: ClientId,
-    ) {
+    pub fn restore_registered_client(&self, issuer: String, client_id: ClientId) {
         let data = OidcAuthData {
             issuer,
             client_id,
-            metadata: client_metadata,
             tokens: Default::default(),
             authorization_data: Default::default(),
         };
@@ -940,13 +897,11 @@ impl Oidc {
     ///
     /// Panics if authentication data was already set.
     pub async fn restore_session(&self, session: OidcSession) -> Result<()> {
-        let OidcSession { client_id, metadata, user: UserSession { meta, tokens, issuer } } =
-            session;
+        let OidcSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
 
         let data = OidcAuthData {
             issuer,
             client_id,
-            metadata,
             tokens: SharedObservable::new(tokens.clone()).into(),
             authorization_data: Default::default(),
         };
@@ -1076,7 +1031,6 @@ impl Oidc {
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let redirected_to_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let issuer_info = unimplemented!();
-    /// # let client_metadata = unimplemented!();
     /// # let client_id = unimplemented!();
     /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
@@ -1084,7 +1038,6 @@ impl Oidc {
     ///
     /// oidc.restore_registered_client(
     ///     issuer_info,
-    ///     client_metadata,
     ///     client_id,
     /// );
     ///
@@ -1239,7 +1192,6 @@ impl Oidc {
             .trade_authorization_code_for_tokens(
                 provider_metadata,
                 data.credentials(),
-                data.metadata.clone(),
                 auth_code,
                 validation_data,
             )
@@ -1276,8 +1228,6 @@ impl Oidc {
         refresh_token: String,
         provider_metadata: VerifiedProviderMetadata,
         credentials: ClientCredentials,
-        client_metadata: VerifiedClientMetadata,
-        latest_id_token: Option<IdToken<'static>>,
         cross_process_lock: Option<CrossProcessRefreshLockGuard>,
     ) -> Result<(), OidcError> {
         trace!(
@@ -1287,13 +1237,7 @@ impl Oidc {
 
         let new_tokens = self
             .backend
-            .refresh_access_token(
-                provider_metadata,
-                credentials,
-                &client_metadata,
-                refresh_token.clone(),
-                latest_id_token.clone(),
-            )
+            .refresh_access_token(provider_metadata, credentials, refresh_token.clone())
             .await?;
 
         trace!(
@@ -1309,7 +1253,6 @@ impl Oidc {
         let tokens = OidcSessionTokens {
             access_token: new_tokens.access_token,
             refresh_token: new_tokens.refresh_token.clone().or(Some(refresh_token)),
-            latest_id_token,
         };
 
         self.set_session_tokens(tokens.clone());
@@ -1429,7 +1372,6 @@ impl Oidc {
         };
 
         let credentials = auth_data.credentials();
-        let client_metadata = auth_data.metadata.clone();
 
         // Do not interrupt refresh access token requests and processing, by detaching
         // the request sending and response processing.
@@ -1443,8 +1385,6 @@ impl Oidc {
                     refresh_token,
                     provider_metadata,
                     credentials,
-                    client_metadata,
-                    session_tokens.latest_id_token,
                     cross_process_guard,
                 )
                 .await
@@ -1500,9 +1440,6 @@ pub struct OidcSession {
     /// The client ID obtained after registration.
     pub client_id: ClientId,
 
-    /// The client metadata sent for registration.
-    pub metadata: VerifiedClientMetadata,
-
     /// The user session.
     pub user: UserSession,
 }
@@ -1523,17 +1460,15 @@ pub struct UserSession {
 }
 
 /// The tokens for a user session obtained with the OpenID Connect API.
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[allow(missing_debug_implementations)]
 pub struct OidcSessionTokens {
     /// The access token used for this session.
     pub access_token: String,
 
     /// The token used for refreshing the access token, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
-
-    /// The ID token returned by the provider during the latest authorization.
-    pub latest_id_token: Option<IdToken<'static>>,
 }
 
 #[cfg(not(tarpaulin_include))]

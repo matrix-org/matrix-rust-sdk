@@ -283,11 +283,8 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
-        let session = OidcSession {
-            client_id: ClientId(client_credentials.client_id),
-            metadata: client_metadata(),
-            user: user_session,
-        };
+        let session =
+            OidcSession { client_id: ClientId(client_credentials.client_id), user: user_session };
         // Restore the Matrix user session.
         client.restore_session(session).await?;
 
