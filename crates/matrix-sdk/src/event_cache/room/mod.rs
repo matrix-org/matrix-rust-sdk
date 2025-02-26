@@ -532,7 +532,7 @@ impl RoomEventCacheInner {
         // pagination where the old event is kept and the new event is ignored.
         //
         // Let's remove the old events that are duplicated.
-        let sync_timeline_events_diffs = if all_duplicates {
+        let timeline_event_diffs = if all_duplicates {
             // No new events, thus no need to change the room events.
             vec![]
         } else {
@@ -541,13 +541,13 @@ impl RoomEventCacheInner {
             // We don't have to worry the removals can change the position of the
             // existing events, because we are pushing all _new_
             // `events` at the back.
-            let mut sync_timeline_events_diffs = state
+            let mut timeline_event_diffs = state
                 .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
                 .await?;
 
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
-            let sync_timeline_events_diffs_next = state
+            let new_timeline_event_diffs = state
                 .with_events_mut(|room_events| {
                     // If we only received duplicated events, we don't need to store the gap: if
                     // there was a gap, we'd have received an unknown event at the tail of
@@ -559,14 +559,13 @@ impl RoomEventCacheInner {
                         }
                     }
 
-                    // Push the new events.
                     room_events.push_events(events.clone());
 
                     room_events.on_new_events(&self.room_version, events.iter());
                 })
                 .await?;
 
-            sync_timeline_events_diffs.extend(sync_timeline_events_diffs_next);
+            timeline_event_diffs.extend(new_timeline_event_diffs);
 
             if prev_batch.is_some() && !all_duplicates {
                 // If there was a previous batch token, and there's at least one non-duplicated
@@ -578,8 +577,8 @@ impl RoomEventCacheInner {
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
-                if let Some(sync_timeline_events_diffs_next) = state.shrink_to_last_chunk().await? {
-                    sync_timeline_events_diffs.extend(sync_timeline_events_diffs_next);
+                if let Some(new_timeline_event_diffs) = state.shrink_to_last_chunk().await? {
+                    timeline_event_diffs.extend(new_timeline_event_diffs);
                 }
             }
 
@@ -598,7 +597,7 @@ impl RoomEventCacheInner {
                 }
             }
 
-            sync_timeline_events_diffs
+            timeline_event_diffs
         };
 
         // Now that all events have been added, we can trigger the
@@ -609,9 +608,9 @@ impl RoomEventCacheInner {
 
         // The order of `RoomEventCacheUpdate`s is **really** important here.
         {
-            if !sync_timeline_events_diffs.is_empty() {
+            if !timeline_event_diffs.is_empty() {
                 let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                    diffs: sync_timeline_events_diffs,
+                    diffs: timeline_event_diffs,
                     origin: EventsOrigin::Sync,
                 });
             }
@@ -644,7 +643,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
     /// Events have been inserted.
     Events {
         events: Vec<TimelineEvent>,
-        sync_timeline_events_diffs: Vec<VectorDiff<TimelineEvent>>,
+        timeline_event_diffs: Vec<VectorDiff<TimelineEvent>>,
         reached_start: bool,
     },
 }
@@ -888,13 +887,13 @@ mod private {
             let _ = self.events.store_updates().take();
 
             // However, we want to get updates as `VectorDiff`s.
-            let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
+            let timeline_event_diffs = self.events.updates_as_vector_diffs();
 
             Ok(match events {
                 None => LoadMoreEventsBackwardsOutcome::Gap,
                 Some((events, reached_start)) => LoadMoreEventsBackwardsOutcome::Events {
                     events,
-                    sync_timeline_events_diffs: updates_as_vector_diffs,
+                    timeline_event_diffs,
                     reached_start,
                 },
             })
