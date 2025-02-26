@@ -82,19 +82,8 @@ pub enum EventCacheError {
     )]
     NotSubscribedYet,
 
-    /// The room hasn't been found in the client.
-    ///
-    /// Technically, it's possible to request a [`RoomEventCache`] for a room
-    /// that is not known to the client, leading to this error.
-    #[error("Room {0} hasn't been found in the Client.")]
-    RoomNotFound(OwnedRoomId),
-
-    /// The given back-pagination token is unknown to the event cache.
-    #[error("The given back-pagination token is unknown to the event cache.")]
-    UnknownBackpaginationToken,
-
     /// An error has been observed while back-paginating.
-    #[error("Error observed while back-paginating: {0}")]
+    #[error(transparent)]
     BackpaginationError(#[from] PaginatorError),
 
     /// Back-pagination was already happening in a given room, where we tried to
