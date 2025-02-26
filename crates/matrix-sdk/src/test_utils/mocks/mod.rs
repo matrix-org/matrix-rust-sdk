@@ -983,6 +983,28 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(path_regex(r"^/.well-known/matrix/client"));
         MockEndpoint { mock, server: &self.server, endpoint: WellKnownEndpoint }
     }
+
+    /// Creates a prebuilt mock for the endpoint used to publish cross-signing
+    /// keys.
+    pub fn mock_upload_cross_signing_keys(
+        &self,
+    ) -> MockEndpoint<'_, UploadCrossSigningKeysEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/keys/device_signing/upload"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: UploadCrossSigningKeysEndpoint }
+    }
+
+    /// Creates a prebuilt mock for the endpoint used to publish cross-signing
+    /// signatures.
+    pub fn mock_upload_cross_signing_signatures(
+        &self,
+    ) -> MockEndpoint<'_, UploadCrossSigningSignaturesEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/keys/signatures/upload"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: UploadCrossSigningSignaturesEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2442,6 +2464,49 @@ impl<'a> MockEndpoint<'a, WellKnownEndpoint> {
                 "base_url": self.server.uri(),
             },
         })));
+
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `POST /keys/device_signing/upload` request.
+pub struct UploadCrossSigningKeysEndpoint;
+
+impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns an error response with an OAuth 2.0 UIAA stage.
+    #[cfg(feature = "experimental-oidc")]
+    pub fn uiaa_oauth(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "session": "dummy",
+            "flows": [{
+                "stages": [ "org.matrix.cross_signing_reset" ]
+            }],
+            "params": {
+                "org.matrix.cross_signing_reset": {
+                    "url": format!("{}/account/?action=org.matrix.cross_signing_reset", self.server.uri())
+                }
+            },
+            "msg": "To reset your end-to-end encryption cross-signing identity, you first need to approve it and then try again."
+        })));
+
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `POST /keys/signatures/upload` request.
+pub struct UploadCrossSigningSignaturesEndpoint;
+
+impl<'a> MockEndpoint<'a, UploadCrossSigningSignaturesEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
 
         MatrixMock { server: self.server, mock }
     }
