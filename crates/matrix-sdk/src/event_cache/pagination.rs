@@ -17,8 +17,9 @@
 use std::{sync::Arc, time::Duration};
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk_base::timeout::timeout;
+use matrix_sdk_base::{linked_chunk::ChunkIdentifier, timeout::timeout};
 use matrix_sdk_common::linked_chunk::ChunkContent;
+use tokio::sync::RwLockWriteGuard;
 use tracing::{debug, instrument, trace};
 
 use super::{
@@ -28,7 +29,7 @@ use super::{
         events::{Gap, RoomEvents},
         LoadMoreEventsBackwardsOutcome, RoomEventCacheInner,
     },
-    BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
+    BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheState, RoomEventCacheUpdate,
 };
 use crate::event_cache::{paginator::Paginator, EventCacheError};
 
@@ -232,7 +233,7 @@ impl RoomPagination {
             }
         };
 
-        let (PaginationResult { events, hit_end_of_timeline: reached_start }, new_gap) = {
+        let (pagination_result, new_gap) = {
             // Use a throw-away paginator instance.
             let paginator = Paginator::new(self.inner.weak_room.clone());
 
@@ -250,7 +251,7 @@ impl RoomPagination {
 
         // Make sure the `RoomEvents` isn't updated while we are saving events from
         // backpagination.
-        let mut state = self.inner.state.write().await;
+        let state = self.inner.state.write().await;
 
         // Check that the previous token still exists; otherwise it's a sign that the
         // room's timeline has been cleared.
@@ -271,6 +272,21 @@ impl RoomPagination {
         } else {
             None
         };
+
+        self.handle_network_pagination_result(state, pagination_result, new_gap, prev_gap_id)
+            .await
+            .map(Some)
+    }
+
+    /// Handle the result of a successful network back-pagination.
+    async fn handle_network_pagination_result(
+        &self,
+        mut state: RwLockWriteGuard<'_, RoomEventCacheState>,
+        pagination_result: PaginationResult,
+        new_gap: Option<Gap>,
+        prev_gap_id: Option<ChunkIdentifier>,
+    ) -> Result<BackPaginationOutcome> {
+        let PaginationResult { events, hit_end_of_timeline } = pagination_result;
 
         let (
             DeduplicationOutcome {
@@ -381,13 +397,13 @@ impl RoomPagination {
         // chunks), so tweak the `reached_start` value so that it reflects the disk
         // state in priority instead.
         let reached_start = {
-            // There's no gaps.
+            // There are no gaps.
             !state.events().chunks().any(|chunk| chunk.is_gap()) &&
-            // The first chunk has no predecessor.
+            // The first chunk has no predecessors.
             state.events()
             .chunks()
             .next()
-            .map_or(reached_start, |chunk| chunk.is_definitive_head())
+            .map_or(hit_end_of_timeline, |chunk| chunk.is_definitive_head())
         };
 
         let backpagination_outcome = BackPaginationOutcome { events, reached_start };
@@ -399,7 +415,7 @@ impl RoomPagination {
             });
         }
 
-        Ok(Some(backpagination_outcome))
+        Ok(backpagination_outcome)
     }
 
     /// Get the latest pagination token, as stored in the room events linked
