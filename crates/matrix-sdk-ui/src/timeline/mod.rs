@@ -92,7 +92,6 @@ pub use self::{
     },
     event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
-    pagination::LiveBackPaginationStatus,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };

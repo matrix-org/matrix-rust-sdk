@@ -16,7 +16,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use eyeball::Subscriber;
+use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_common::linked_chunk::ChunkContent;
 use tracing::{debug, instrument, trace};
@@ -30,6 +30,44 @@ use super::{
     },
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
 };
+use crate::event_cache::{paginator::Paginator, EventCacheError};
+
+/// Status for the back-pagination on a room event cache.
+#[derive(Debug, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum RoomPaginationStatus {
+    /// No back-pagination is happening right now.
+    Idle {
+        /// Have we hit the start of the timeline, i.e. back-paginating wouldn't
+        /// have any effect?
+        hit_timeline_start: bool,
+    },
+
+    /// Back-pagination is already running in the background.
+    Paginating,
+}
+
+/// Small RAII guard to reset the pagination status on drop, if not disarmed in
+/// the meanwhile.
+struct ResetStatusOnDrop {
+    prev_status: Option<RoomPaginationStatus>,
+    pagination_status: SharedObservable<RoomPaginationStatus>,
+}
+
+impl ResetStatusOnDrop {
+    /// Make the RAII guard have no effect.
+    fn disarm(mut self) {
+        self.prev_status = None;
+    }
+}
+
+impl Drop for ResetStatusOnDrop {
+    fn drop(&mut self) {
+        if let Some(status) = self.prev_status.take() {
+            let _ = self.pagination_status.set(status);
+        }
+    }
+}
 
 /// An API object to run pagination queries on a [`super::RoomEventCache`].
 ///
@@ -130,7 +168,18 @@ impl RoomPagination {
             }
         }
 
-        // There is at least one gap that must be resolved. Let's reach the network!
+        // There is at least one gap that must be resolved; reach the network.
+        // First, ensure there's no other ongoing back-pagination.
+        let prev_status = self.inner.pagination_status.set(RoomPaginationStatus::Paginating);
+
+        if !matches!(prev_status, RoomPaginationStatus::Idle { .. }) {
+            return Err(EventCacheError::AlreadyBackpaginating);
+        }
+
+        let reset_status_on_drop_guard = ResetStatusOnDrop {
+            prev_status: Some(prev_status),
+            pagination_status: self.inner.pagination_status.clone(),
+        };
 
         let prev_token = self.get_or_wait_for_token(Some(DEFAULT_WAIT_FOR_TOKEN_DURATION)).await;
 
@@ -143,9 +192,11 @@ impl RoomPagination {
             }
         };
 
-        let paginator = &self.inner.paginator;
+        let paginator = Paginator::new(self.inner.weak_room.clone());
 
-        paginator.set_idle_state(PaginatorState::Idle, prev_token.clone(), None)?;
+        paginator
+            .set_idle_state(PaginatorState::Idle, prev_token.clone(), None)
+            .expect("a pristine paginator must be in the initial state");
 
         // Run the actual pagination.
         let PaginationResult { events, hit_end_of_timeline: reached_start } =
@@ -298,6 +349,14 @@ impl RoomPagination {
 
         let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
+        // Back-pagination's over; time to disarm the status guard.
+        reset_status_on_drop_guard.disarm();
+
+        // Notify subscribers that pagination ended.
+        self.inner
+            .pagination_status
+            .set(RoomPaginationStatus::Idle { hit_timeline_start: reached_start });
+
         if !sync_timeline_events_diffs.is_empty() {
             let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                 diffs: sync_timeline_events_diffs,
@@ -376,16 +435,8 @@ impl RoomPagination {
 
     /// Returns a subscriber to the pagination status used for the
     /// back-pagination integrated to the event cache.
-    pub fn status(&self) -> Subscriber<PaginatorState> {
-        self.inner.paginator.state()
-    }
-
-    /// Returns whether we've hit the start of the timeline.
-    ///
-    /// This is true if, and only if, we didn't have a previous-batch token and
-    /// running backwards pagination would be useless.
-    pub fn hit_timeline_start(&self) -> bool {
-        self.inner.paginator.hit_timeline_start()
+    pub fn status(&self) -> Subscriber<RoomPaginationStatus> {
+        self.inner.pagination_status.subscribe()
     }
 }
 

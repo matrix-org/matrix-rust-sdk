@@ -16,11 +16,7 @@ use async_rx::StreamExt as _;
 use async_stream::stream;
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::event_cache::{
-    self,
-    paginator::{PaginatorError, PaginatorState},
-    EventCacheError, RoomPagination,
-};
+use matrix_sdk::event_cache::{self, EventCacheError, RoomPaginationStatus};
 use tracing::{instrument, warn};
 
 use super::Error;
@@ -83,11 +79,7 @@ impl super::Timeline {
                     }
                 }
 
-                Err(EventCacheError::BackpaginationError(
-                    PaginatorError::InvalidPreviousState {
-                        actual: PaginatorState::Paginating, ..
-                    },
-                )) => {
+                Err(EventCacheError::AlreadyBackpaginating) => {
                     // Treat an already running pagination exceptionally, returning false so that
                     // the caller retries later.
                     warn!("Another pagination request is already happening, returning early");
@@ -108,7 +100,7 @@ impl super::Timeline {
     /// call to [`Self::paginate_backwards()`].
     pub async fn live_back_pagination_status(
         &self,
-    ) -> Option<(LiveBackPaginationStatus, impl Stream<Item = LiveBackPaginationStatus>)> {
+    ) -> Option<(RoomPaginationStatus, impl Stream<Item = RoomPaginationStatus>)> {
         if !self.controller.is_live().await {
             return None;
         }
@@ -117,53 +109,16 @@ impl super::Timeline {
 
         let mut status = pagination.status();
 
-        let current_value =
-            LiveBackPaginationStatus::from_paginator_status(&pagination, status.next_now());
+        let current_value = status.next_now();
 
         let stream = Box::pin(stream! {
             let status_stream = status.dedup();
-
             pin_mut!(status_stream);
-
             while let Some(state) = status_stream.next().await {
-                yield LiveBackPaginationStatus::from_paginator_status(&pagination, state);
+                yield state;
             }
         });
 
         Some((current_value, stream))
-    }
-}
-
-/// Status for the back-pagination on a live timeline.
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum LiveBackPaginationStatus {
-    /// No back-pagination is happening right now.
-    Idle {
-        /// Have we hit the start of the timeline, i.e. back-paginating wouldn't
-        /// have any effect?
-        hit_start_of_timeline: bool,
-    },
-
-    /// Back-pagination is already running in the background.
-    Paginating,
-}
-
-impl LiveBackPaginationStatus {
-    /// Converts from a [`PaginatorState`] into the live back-pagination status.
-    ///
-    /// Private method instead of `From`/`Into` impl, to avoid making it public
-    /// API.
-    fn from_paginator_status(pagination: &RoomPagination, state: PaginatorState) -> Self {
-        match state {
-            PaginatorState::Initial => Self::Idle { hit_start_of_timeline: false },
-            PaginatorState::FetchingTargetEvent => {
-                panic!("unexpected paginator state for a live backpagination")
-            }
-            PaginatorState::Idle => {
-                Self::Idle { hit_start_of_timeline: pagination.hit_timeline_start() }
-            }
-            PaginatorState::Paginating => Self::Paginating,
-        }
     }
 }

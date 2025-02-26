@@ -33,7 +33,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use eyeball::Subscriber;
+use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
@@ -69,7 +69,7 @@ mod pagination;
 mod room;
 
 pub mod paginator;
-pub use pagination::{PaginationToken, RoomPagination};
+pub use pagination::{PaginationToken, RoomPagination, RoomPaginationStatus};
 pub use room::RoomEventCache;
 
 /// An error observed in the [`EventCache`].
@@ -96,6 +96,11 @@ pub enum EventCacheError {
     /// An error has been observed while back-paginating.
     #[error("Error observed while back-paginating: {0}")]
     BackpaginationError(#[from] PaginatorError),
+
+    /// Back-pagination was already happening in a given room, where we tried to
+    /// back-paginate again.
+    #[error("We were already back-paginating.")]
+    AlreadyBackpaginating,
 
     /// An error happening when interacting with storage.
     #[error(transparent)]
@@ -720,13 +725,21 @@ impl EventCacheInner {
                     return Ok(room.clone());
                 }
 
-                let room_state =
-                    RoomEventCacheState::new(room_id.to_owned(), self.store.clone()).await?;
+                let pagination_status =
+                    SharedObservable::new(RoomPaginationStatus::Idle { hit_timeline_start: false });
+
+                let room_state = RoomEventCacheState::new(
+                    room_id.to_owned(),
+                    self.store.clone(),
+                    pagination_status.clone(),
+                )
+                .await?;
 
                 let room_version = self
                     .client
                     .get()
                     .and_then(|client| client.get_room(room_id))
+                    .as_ref()
                     .map(|room| room.clone_info().room_version_or_default())
                     .unwrap_or_else(|| {
                         warn!("unknown room version for {room_id}, using default V1");
@@ -743,6 +756,7 @@ impl EventCacheInner {
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
                     room_state,
+                    pagination_status,
                     room_id.to_owned(),
                     room_version,
                     self.all_events.clone(),
