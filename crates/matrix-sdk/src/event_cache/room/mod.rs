@@ -547,7 +547,7 @@ impl RoomEventCacheInner {
 
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
-            let ((), sync_timeline_events_diffs_next) = state
+            let sync_timeline_events_diffs_next = state
                 .with_events_mut(|room_events| {
                     // If we only received duplicated events, we don't need to store the gap: if
                     // there was a gap, we'd have received an unknown event at the tail of
@@ -1052,7 +1052,7 @@ mod private {
             }
 
             // In-memory events.
-            let ((), timeline_event_diffs) = self
+            let timeline_event_diffs = self
                 .with_events_mut(|room_events| {
                     // `remove_events_by_position` sorts the positions by itself.
                     room_events
@@ -1186,14 +1186,14 @@ mod private {
         /// linked chunk, as vector diff, so the caller may propagate
         /// such updates, if needs be.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
-        pub async fn with_events_mut<O, F: FnOnce(&mut RoomEvents) -> O>(
+        pub async fn with_events_mut<F: FnOnce(&mut RoomEvents)>(
             &mut self,
             func: F,
-        ) -> Result<(O, Vec<VectorDiff<TimelineEvent>>), EventCacheError> {
-            let output = func(&mut self.events);
+        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+            func(&mut self.events);
             self.propagate_changes().await?;
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
-            Ok((output, updates_as_vector_diffs))
+            Ok(updates_as_vector_diffs)
         }
     }
 }

@@ -306,7 +306,7 @@ impl RoomPagination {
             events.clear();
         }
 
-        let ((), sync_timeline_events_diffs) = state
+        let sync_timeline_events_diffs = state
             .with_events_mut(|room_events| {
             // Reverse the order of the events as `/messages` has been called with `dir=b`
             // (backwards). The `RoomEvents` API expects the first event to be the oldest.
