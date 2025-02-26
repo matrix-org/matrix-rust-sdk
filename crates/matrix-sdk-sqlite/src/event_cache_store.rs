@@ -1867,6 +1867,9 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
+        let event_0 = make_test_event(room_id, "hello");
+        let event_1 = make_test_event(room_id, "world");
+        let event_2 = make_test_event(room_id, "howdy");
 
         store
             .handle_linked_chunk_updates(
@@ -1885,11 +1888,7 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
-                            make_test_event(room_id, "howdy"),
-                        ],
+                        items: vec![event_0.clone(), event_1, event_2],
                     },
                     Update::Clear,
                 ],
@@ -1899,6 +1898,25 @@ mod tests {
 
         let chunks = store.load_all_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
+
+        // It's okay to re-insert a past event.
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![event_0],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
     }
 
     #[async_test]
