@@ -1031,7 +1031,7 @@ mod tests {
     // use ruma::{events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
     use matrix_sdk_base::{
         event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
-        event_cache_store_integration_tests_time,
+        event_cache_store_integration_tests_time, event_cache_store_media_integration_tests,
     };
     use uuid::Uuid;
 
@@ -1046,5 +1046,5 @@ mod tests {
 
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
-    // event_cache_store_media_integration_tests!(with_media_size_tests);
+    event_cache_store_media_integration_tests!(with_media_size_tests);
 }
