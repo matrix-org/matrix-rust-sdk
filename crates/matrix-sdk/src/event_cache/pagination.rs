@@ -387,14 +387,6 @@ impl RoomPagination {
     pub fn hit_timeline_start(&self) -> bool {
         self.inner.paginator.hit_timeline_start()
     }
-
-    /// Returns whether we've hit the end of the timeline.
-    ///
-    /// This is true if, and only if, we didn't have a next-batch token and
-    /// running forwards pagination would be useless.
-    pub fn hit_timeline_end(&self) -> bool {
-        self.inner.paginator.hit_timeline_end()
-    }
 }
 
 /// Pagination token data, indicating in which state is the current pagination.
