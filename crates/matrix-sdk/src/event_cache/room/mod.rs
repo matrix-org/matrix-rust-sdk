@@ -848,8 +848,6 @@ mod private {
                     Ok(None) => {
                         // No previous chunk: no events to insert. Better, it means we've reached
                         // the start of the timeline!
-                        self.pagination_status
-                            .set(RoomPaginationStatus::Idle { hit_timeline_start: true });
                         return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
                     }
 
