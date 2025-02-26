@@ -88,6 +88,13 @@ simpler methods:
   `OidcAuthCodeUrlBuilder`, since they were parameters defined in OpenID
   Connect. Only the `prompt` and `user_id_hint` parameters are still supported.
   ([#4699](https://github.com/matrix-org/matrix-rust-sdk/pull/4699))
+- [**breaking**]: Remove support for ID tokens in the `Oidc` API.
+  ([#4726](https://github.com/matrix-org/matrix-rust-sdk/pull/4726))
+  - The `latest_id_token` field of `OidcSessionTokens` was removed. (De)
+    serialization of the type should be backwards-compatible.
+  - `Oidc::restore_registered_client()` doesn't take a `VerifiedClientMetadata`
+    anymore.
+  - `Oidc::latest_id_token()` and `Oidc::client_metadata()` were removed.
 
 ## [0.10.0] - 2025-02-04
 
