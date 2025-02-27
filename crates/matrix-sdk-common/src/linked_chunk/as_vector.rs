@@ -473,7 +473,7 @@ mod tests {
     use imbl::{vector, Vector};
 
     use super::{
-        super::{Chunk, ChunkIdentifierGenerator, EmptyChunkRule, LinkedChunk, Update},
+        super::{Chunk, ChunkIdentifierGenerator, LinkedChunk, Update},
         VectorDiff,
     };
 
@@ -630,10 +630,7 @@ mod tests {
         );
 
         let removed_item = linked_chunk
-            .remove_item_at(
-                linked_chunk.item_position(|item| *item == 'c').unwrap(),
-                EmptyChunkRule::Remove,
-            )
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'c').unwrap())
             .unwrap();
         assert_eq!(removed_item, 'c');
         assert_items_eq!(
@@ -653,10 +650,7 @@ mod tests {
         apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 7 }]);
 
         let removed_item = linked_chunk
-            .remove_item_at(
-                linked_chunk.item_position(|item| *item == 'z').unwrap(),
-                EmptyChunkRule::Remove,
-            )
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'z').unwrap())
             .unwrap();
         assert_eq!(removed_item, 'z');
         assert_items_eq!(
@@ -886,10 +880,7 @@ mod tests {
 
         // Empty a chunk, and remove it once it is empty.
         linked_chunk
-            .remove_item_at(
-                linked_chunk.item_position(|item| *item == 'c').unwrap(),
-                EmptyChunkRule::Remove,
-            )
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'c').unwrap())
             .unwrap();
 
         assert_items_eq!(linked_chunk, ['a', 'b'] [-] [-] ['d', 'e', 'f'] ['g']);
@@ -1008,7 +999,7 @@ mod tests {
                                 continue;
                             };
 
-                            linked_chunk.remove_item_at(position, EmptyChunkRule::Remove).expect("Failed to remove an item");
+                            linked_chunk.remove_item_at(position).expect("Failed to remove an item");
                         }
                     }
                 }
