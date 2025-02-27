@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use as_variant::as_variant;
 use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
@@ -71,11 +72,6 @@ impl RoomEvents {
             .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
         Self { chunks: linked_chunk, chunks_updates_as_vectordiffs }
-    }
-
-    /// Returns whether the room has at least one event.
-    pub fn is_empty(&self) -> bool {
-        self.chunks.num_items() == 0
     }
 
     /// Clear all events.
@@ -344,6 +340,15 @@ impl RoomEvents {
         }
 
         result
+    }
+
+    /// Return the latest gap, if any.
+    ///
+    /// Latest means "closest to the end", or, since events are ordered
+    /// according to the sync ordering, this means "the most recent one".
+    pub fn rgap(&self) -> Option<Gap> {
+        self.rchunks()
+            .find_map(|chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.clone()))
     }
 }
 

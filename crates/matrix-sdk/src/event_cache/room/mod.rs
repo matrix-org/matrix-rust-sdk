@@ -388,13 +388,8 @@ impl RoomEventCacheInner {
         }
     }
 
-    pub(super) async fn handle_joined_room_update(
-        &self,
-        has_storage: bool,
-        updates: JoinedRoomUpdate,
-    ) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         self.handle_timeline(
-            has_storage,
             updates.timeline,
             updates.ephemeral.clone(),
             updates.ambiguity_changes,
@@ -406,90 +401,30 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+        Ok(())
+    }
+
     async fn handle_timeline(
         &self,
-        has_storage: bool,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if !has_storage && timeline.limited {
-            // Ideally we'd try to reconcile existing events against those received in the
-            // timeline, but we're not there yet. In the meanwhile, clear the
-            // items from the room. TODO: implement Smart Matching™.
-            trace!("limited timeline, clearing all previous events and pushing new events");
+        // Add all the events to the backend.
+        trace!("adding new events");
 
-            self.replace_all_events_by(
-                timeline.events,
-                timeline.prev_batch,
-                ephemeral_events,
-                ambiguity_changes,
-            )
-            .await?;
-        } else {
-            // Add all the events to the backend.
-            trace!("adding new events");
+        // Only keep the previous-batch token if we have a limited timeline; otherwise,
+        // we know about all the events, and we don't need to back-paginate,
+        // so we wouldn't make use of the given previous-batch token.
+        let prev_batch = if timeline.limited { timeline.prev_batch } else { None };
 
-            // If we have storage, only keep the previous-batch token if we have a limited
-            // timeline. Otherwise, we know about all the events, and we don't need to
-            // back-paginate, so we wouldn't make use of the given previous-batch token.
-            //
-            // If we don't have storage, even if the timeline isn't limited, we may not have
-            // saved the previous events in any cache, so we should always be
-            // able to retrieve those.
-            let prev_batch =
-                if has_storage && !timeline.limited { None } else { timeline.prev_batch };
-
-            let mut state = self.state.write().await;
-            self.append_events_locked(
-                &mut state,
-                timeline.events,
-                prev_batch,
-                ephemeral_events,
-                ambiguity_changes,
-            )
-            .await?;
-        }
-
-        Ok(())
-    }
-
-    pub(super) async fn handle_left_room_update(
-        &self,
-        has_storage: bool,
-        updates: LeftRoomUpdate,
-    ) -> Result<()> {
-        self.handle_timeline(has_storage, updates.timeline, Vec::new(), updates.ambiguity_changes)
-            .await?;
-        Ok(())
-    }
-
-    /// Remove existing events, and append a set of events to the room cache and
-    /// storage, notifying observers.
-    pub(super) async fn replace_all_events_by(
-        &self,
-        sync_timeline_events: Vec<TimelineEvent>,
-        prev_batch: Option<String>,
-        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
-    ) -> Result<()> {
-        // Acquire the lock.
         let mut state = self.state.write().await;
-
-        // Reset the room's state.
-        let updates_as_vector_diffs = state.reset().await?;
-
-        // Propagate to observers.
-        let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-            diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
-        });
-
-        // Push the new events.
         self.append_events_locked(
             &mut state,
-            sync_timeline_events,
-            prev_batch.clone(),
+            timeline.events,
+            prev_batch,
             ephemeral_events,
             ambiguity_changes,
         )
@@ -631,11 +566,15 @@ impl RoomEventCacheInner {
 }
 
 /// Internal type to represent the output of
-/// `RoomEventCacheState::load_more_events_backwards`.
+/// [`RoomEventCacheState::load_more_events_backwards`].
 #[derive(Debug)]
 pub(super) enum LoadMoreEventsBackwardsOutcome {
     /// A gap has been inserted.
-    Gap,
+    Gap {
+        /// The previous batch token to be used as the "end" parameter in the
+        /// back-pagination request.
+        prev_token: Option<String>,
+    },
 
     /// The start of the timeline has been reached.
     StartOfTimeline,
@@ -646,6 +585,9 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
         timeline_event_diffs: Vec<VectorDiff<TimelineEvent>>,
         reached_start: bool,
     },
+
+    /// The caller must wait for the initial previous-batch token, and retry.
+    WaitForInitialPrevToken,
 }
 
 // Use a private module to hide `events` to this parent module.
@@ -660,7 +602,6 @@ mod private {
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
     };
     use matrix_sdk_common::executor::spawn;
-    use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, EventId, OwnedEventId, OwnedRoomId};
     use tracing::{debug, error, instrument, trace};
 
@@ -683,10 +624,7 @@ mod private {
         room: OwnedRoomId,
 
         /// Reference to the underlying backing store.
-        ///
-        /// Set to none if the room shouldn't read the linked chunk from
-        /// storage, and shouldn't store updates to storage.
-        store: Arc<OnceCell<EventCacheStoreLock>>,
+        store: EventCacheStoreLock,
 
         /// The events of the room.
         events: RoomEvents,
@@ -719,42 +657,34 @@ mod private {
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
             room_id: OwnedRoomId,
-            store: Arc<OnceCell<EventCacheStoreLock>>,
+            store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
-            let (events, deduplicator) = if let Some(store) = store.get() {
-                let store_lock = store.lock().await?;
+            let store_lock = store.lock().await?;
 
-                let linked_chunk = match store_lock
-                    .load_last_chunk(&room_id)
-                    .await
-                    .map_err(EventCacheError::from)
-                    .and_then(|(last_chunk, chunk_identifier_generator)| {
-                        lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
-                            .map_err(EventCacheError::from)
-                    }) {
-                    Ok(linked_chunk) => linked_chunk,
+            let linked_chunk = match store_lock
+                .load_last_chunk(&room_id)
+                .await
+                .map_err(EventCacheError::from)
+                .and_then(|(last_chunk, chunk_identifier_generator)| {
+                    lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
+                        .map_err(EventCacheError::from)
+                }) {
+                Ok(linked_chunk) => linked_chunk,
 
-                    Err(err) => {
-                        error!("error when reloading a linked chunk from memory: {err}");
+                Err(err) => {
+                    error!("error when reloading a linked chunk from memory: {err}");
 
-                        // Clear storage for this room.
-                        store_lock
-                            .handle_linked_chunk_updates(&room_id, vec![Update::Clear])
-                            .await?;
+                    // Clear storage for this room.
+                    store_lock.handle_linked_chunk_updates(&room_id, vec![Update::Clear]).await?;
 
-                        // Restart with an empty linked chunk.
-                        None
-                    }
-                };
-
-                (
-                    RoomEvents::with_initial_linked_chunk(linked_chunk),
-                    Deduplicator::new_store_based(room_id.clone(), store.clone()),
-                )
-            } else {
-                (RoomEvents::default(), Deduplicator::new_memory_based())
+                    // Restart with an empty linked chunk.
+                    None
+                }
             };
+
+            let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
+            let deduplicator = Deduplicator::new(room_id.clone(), store.clone());
 
             Ok(Self {
                 room: room_id,
@@ -811,21 +741,36 @@ mod private {
             Ok((deduplication_outcome, all_duplicates))
         }
 
+        /// Given a fully-loaded linked chunk with no gaps, return the
+        /// [`LoadMoreEventsBackwardsOutcome`] expected for this room's cache.
+        fn conclude_load_more_for_fully_loaded_chunk(&mut self) -> LoadMoreEventsBackwardsOutcome {
+            // If we never received events for this room, this means we've never
+            // received a sync for that room, because every room must have at least a
+            // room creation event. Otherwise, we have reached the start of the
+            // timeline.
+            if self.events.events().next().is_some() {
+                // If there's at least one event, this means we've reached the start of the
+                // timeline, since the chunk is fully loaded.
+                LoadMoreEventsBackwardsOutcome::StartOfTimeline
+            } else if !self.waited_for_initial_prev_token {
+                // There's no events. Since we haven't yet, wait for an initial previous-token.
+                LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken
+            } else {
+                // Otherwise, we've already waited, *and* received no previous-batch token from
+                // the sync, *and* there are still no events in the fully-loaded
+                // chunk: start back-pagination from the end of the room.
+                LoadMoreEventsBackwardsOutcome::Gap { prev_token: None }
+            }
+        }
+
         /// Load more events backwards if the last chunk is **not** a gap.
-        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub(in super::super) async fn load_more_events_backwards(
             &mut self,
         ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
-            let Some(store) = self.store.get() else {
-                // No store: no events to insert. Pretend the caller has to act as if a gap was
-                // present.
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap);
-            };
-
             // If any in-memory chunk is a gap, don't load more events, and let the caller
             // resolve the gap.
-            if self.events.chunks().any(|chunk| chunk.is_gap()) {
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap);
+            if let Some(prev_token) = self.events.rgap().map(|gap| gap.prev_token) {
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
             }
 
             // Because `first_chunk` is `not `Send`, get this information before the
@@ -833,57 +778,43 @@ mod private {
             let first_chunk_identifier =
                 self.events.chunks().next().expect("a linked chunk is never empty").identifier();
 
-            let room_id = &self.room;
-            let store = store.lock().await?;
+            let store = self.store.lock().await?;
 
             // The first chunk is not a gap, we can load its previous chunk.
             let new_first_chunk =
-                match store.load_previous_chunk(room_id, first_chunk_identifier).await {
+                match store.load_previous_chunk(&self.room, first_chunk_identifier).await {
                     Ok(Some(new_first_chunk)) => {
                         // All good, let's continue with this chunk.
                         new_first_chunk
                     }
 
                     Ok(None) => {
-                        // No previous chunk: no events to insert. This means one of two things:
-                        // - either the linked chunk is at the start of the timeline,
-                        // - or we haven't received any back-pagination token yet, and we should
-                        //   wait for one.
-                        if self.waited_for_initial_prev_token {
-                            return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
-                        }
-                        // If we haven't waited yet, we request to resolve the gap, once we get the
-                        // previous-batch token from sync.
-                        return Ok(LoadMoreEventsBackwardsOutcome::Gap);
+                        // There's no previous chunk. The chunk is now fully-loaded. Conclude.
+                        return Ok(self.conclude_load_more_for_fully_loaded_chunk());
                     }
 
                     Err(err) => {
                         error!("error when loading the previous chunk of a linked chunk: {err}");
 
                         // Clear storage for this room.
-                        store.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await?;
+                        store.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
 
                         // Return the error.
                         return Err(err.into());
                     }
                 };
 
-            let events = match &new_first_chunk.content {
-                ChunkContent::Gap(_) => None,
-                ChunkContent::Items(events) => {
-                    // We've reached the start on disk, if and only if, there was no chunk prior to
-                    // the one we just loaded.
-                    let reached_start = new_first_chunk.previous.is_none();
+            let chunk_content = new_first_chunk.content.clone();
 
-                    Some((events.clone(), reached_start))
-                }
-            };
+            // We've reached the start on disk, if and only if, there was no chunk prior to
+            // the one we just loaded.
+            let reached_start = new_first_chunk.previous.is_none();
 
             if let Err(err) = self.events.insert_new_chunk_as_first(new_first_chunk) {
                 error!("error when inserting the previous chunk into its linked chunk: {err}");
 
                 // Clear storage for this room.
-                store.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await?;
+                store.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
 
                 // Return the error.
                 return Err(err.into());
@@ -896,9 +827,12 @@ mod private {
             // However, we want to get updates as `VectorDiff`s.
             let timeline_event_diffs = self.events.updates_as_vector_diffs();
 
-            Ok(match events {
-                None => LoadMoreEventsBackwardsOutcome::Gap,
-                Some((events, reached_start)) => LoadMoreEventsBackwardsOutcome::Events {
+            Ok(match chunk_content {
+                ChunkContent::Gap(gap) => {
+                    LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
+                }
+
+                ChunkContent::Items(events) => LoadMoreEventsBackwardsOutcome::Events {
                     events,
                     timeline_event_diffs,
                     reached_start,
@@ -915,14 +849,7 @@ mod private {
         pub(super) async fn shrink_to_last_chunk(
             &mut self,
         ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
-            let Some(store) = self.store.get() else {
-                // No need to do anything if there's no storage; we'll already reset the
-                // timeline after a limited response.
-                // TODO: that might be a way to unify our code, though?
-                return Ok(None);
-            };
-
-            let store_lock = store.lock().await?;
+            let store_lock = self.store.lock().await?;
 
             // Attempt to load the last chunk.
             let (last_chunk, chunk_identifier_generator) = match store_lock
@@ -1086,10 +1013,6 @@ mod private {
             &mut self,
             mut updates: Vec<Update<TimelineEvent, Gap>>,
         ) -> Result<(), EventCacheError> {
-            let Some(store) = self.store.get() else {
-                return Ok(());
-            };
-
             if updates.is_empty() {
                 return Ok(());
             }
@@ -1117,7 +1040,7 @@ mod private {
             // The store cross-process locking involves an actual mutex, which ensures that
             // storing updates happens in the expected order.
 
-            let store = store.clone();
+            let store = self.store.clone();
             let room_id = self.room.clone();
 
             spawn(async move {
@@ -1174,12 +1097,7 @@ mod private {
                 }
             }
 
-            let Some(store) = self.store.get() else {
-                // No store, event is not present.
-                return Ok(None);
-            };
-
-            let store = store.lock().await?;
+            let store = self.store.lock().await?;
 
             Ok(store.find_event(room_id, event_id).await?)
         }
@@ -1500,7 +1418,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1516,7 +1433,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1573,7 +1490,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1590,7 +1506,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1708,7 +1624,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1850,7 +1765,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1886,7 +1800,7 @@ mod tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
         room_event_cache
             .inner
-            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1948,7 +1862,6 @@ mod tests {
 
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1979,9 +1892,6 @@ mod tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let has_storage = true; // for testing purposes only
-        event_cache.enable_storage().unwrap();
-
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -1992,17 +1902,14 @@ mod tests {
         // prev-batch token.
         room_event_cache
             .inner
-            .handle_joined_room_update(
-                has_storage,
-                JoinedRoomUpdate {
-                    timeline: Timeline {
-                        limited: true,
-                        prev_batch: Some("raclette".to_owned()),
-                        events: vec![f.text_msg("hey yo").into_event()],
-                    },
-                    ..Default::default()
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("raclette".to_owned()),
+                    events: vec![f.text_msg("hey yo").into_event()],
                 },
-            )
+                ..Default::default()
+            })
             .await
             .unwrap();
 
@@ -2027,7 +1934,7 @@ mod tests {
             // But if I manually reload more of the chunk, the gap will be present.
             assert_matches!(
                 state.load_more_events_backwards().await.unwrap(),
-                LoadMoreEventsBackwardsOutcome::Gap
+                LoadMoreEventsBackwardsOutcome::Gap { .. }
             );
 
             num_gaps = 0;
@@ -2048,17 +1955,14 @@ mod tests {
         // this time.
         room_event_cache
             .inner
-            .handle_joined_room_update(
-                has_storage,
-                JoinedRoomUpdate {
-                    timeline: Timeline {
-                        limited: false,
-                        prev_batch: Some("fondue".to_owned()),
-                        events: vec![f.text_msg("sup").into_event()],
-                    },
-                    ..Default::default()
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: Some("fondue".to_owned()),
+                    events: vec![f.text_msg("sup").into_event()],
                 },
-            )
+                ..Default::default()
+            })
             .await
             .unwrap();
 
@@ -2179,7 +2083,6 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -2296,7 +2199,6 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
-        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
