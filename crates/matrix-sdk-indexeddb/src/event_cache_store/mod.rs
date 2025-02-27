@@ -221,8 +221,12 @@ struct TimelineEventForCache {
 
 #[wasm_bindgen]
 struct MediaForCache {
+    id: String,
     uri: String,
-    blob: Vec<u8>,
+    format: String,
+    data: Vec<u8>,
+    last_access: SystemTime,
+    ignore_policy: IgnoreMediaRetentionPolicy,
 }
 
 impl MediaForCache {
@@ -231,14 +235,40 @@ impl MediaForCache {
         let blob = vec_to_blob(self.blob);
         Reflect::set(&obj, &JsValue::from_str("uri"), &JsValue::from_str(&self.uri)).unwrap();
         Reflect::set(&obj, &JsValue::from_str("blob"), &blob).unwrap();
+        Reflect::set(&obj, &JsValue::from_str("format"), &JsValue::from_str(&self.format)).unwrap();
+        Reflect::set(&obj, &JsValue::from_str("data"), &Uint8Array::from(&self.data[..]).into())
+            .unwrap();
+        Reflect::set(
+            &obj,
+            &JsValue::from_str("last_access"),
+            &JsValue::from_f64(
+                self.last_access.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs_f64(),
+            ),
+        )
+        .unwrap();
+        Reflect::set(
+            &obj,
+            &JsValue::from_str("ignore_policy"),
+            &JsValue::from_bool(self.ignore_policy.is_yes()),
+        )
+        .unwrap();
         obj.into()
     }
 
     pub async fn from_js_value(obj: JsValue) -> Self {
+        let id = Reflect::get(&obj, &JsValue::from_str("id")).unwrap().as_string().unwrap();
         let uri = Reflect::get(&obj, &JsValue::from_str("uri")).unwrap().as_string().unwrap();
-        let blob =
+        let data =
             blob_to_vec(Reflect::get(&obj, &JsValue::from_str("blob")).unwrap()).await.unwrap();
-        Self { uri, blob }
+        let format = Reflect::get(&obj, &JsValue::from_str("format")).unwrap().as_string().unwrap();
+        let last_access = SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs_f64(
+                Reflect::get(&obj, &JsValue::from_str("last_access")).unwrap().as_f64().unwrap(),
+            );
+        let ignore_policy = IgnoreMediaRetentionPolicy::from_bool(
+            Reflect::get(&obj, &JsValue::from_str("ignore_policy")).unwrap().as_bool().unwrap(),
+        );
+        Self { id, uri, format, data, last_access, ignore_policy }
     }
 }
 
@@ -815,16 +845,16 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         &self,
         request: &MediaRequestParameters,
         content: Vec<u8>,
-        _ignore_policy: IgnoreMediaRetentionPolicy,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
-        let blob = vec_to_blob(content);
-        let tx =
-            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
-        let store = tx.object_store(keys::MEDIA)?;
+        self.media_service.add_media_content(self, request, content, ignore_policy).await
+        // let blob = vec_to_blob(content);
+        // let tx =
+        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
+        // let store = tx.object_store(keys::MEDIA)?;
 
-        let req = store.put_key_val(&JsValue::from(request.unique_key().as_str()), &blob)?;
-        req.into_future().await?;
-        Ok(())
+        // let req = store.put_key_val(&JsValue::from(request.unique_key().as_str()), &blob)?;
+        // req.into_future().await?;
     }
 
     /// Replaces the given media's content key with another one.
@@ -873,18 +903,19 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ///
     /// * `request` - The `MediaRequest` of the file.
     async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
-        let tx =
-            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
-        let store = tx.object_store(keys::MEDIA)?;
+        self.media_service.get_media_content(self, request).await
+        // let tx =
+        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
+        // let store = tx.object_store(keys::MEDIA)?;
 
-        let blob = store.get_owned(&JsValue::from(request.unique_key().as_str()))?.await?;
+        // let blob = store.get_owned(&JsValue::from(request.unique_key().as_str()))?.await?;
 
-        if let Some(blob) = blob {
-            let data = blob_to_vec(blob).await.unwrap();
-            Ok(Some(data))
-        } else {
-            Ok(None)
-        }
+        // if let Some(blob) = blob {
+        //     let data = blob_to_vec(blob).await.unwrap();
+        //     Ok(Some(data))
+        // } else {
+        //     Ok(None)
+        // }
     }
 
     /// Remove a media file's content from the media store.
@@ -917,23 +948,24 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ///
     /// * `uri` - The `MxcUri` of the media file.
     async fn get_media_content_for_uri(&self, uri: &MxcUri) -> Result<Option<Vec<u8>>> {
-        let tx =
-            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
-        let store = tx.object_store(keys::MEDIA)?;
+        self.media_service.get_media_content_for_uri(self, uri).await
+        // let tx =
+        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
+        // let store = tx.object_store(keys::MEDIA)?;
 
-        let lower = JsValue::from_str(&(uri.to_string() + "_"));
-        let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
+        // let lower = JsValue::from_str(&(uri.to_string() + "_"));
+        // let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
 
-        let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
+        // let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
-        let blob = store.get_owned(&key_range)?.await?;
+        // let blob = store.get_owned(&key_range)?.await?;
 
-        if let Some(blob) = blob {
-            let data = blob_to_vec(blob).await.unwrap();
-            Ok(Some(data))
-        } else {
-            Ok(None)
-        }
+        // if let Some(blob) = blob {
+        //     let data = blob_to_vec(blob).await.unwrap();
+        //     Ok(Some(data))
+        // } else {
+        //     Ok(None)
+        // }
     }
 
     /// Remove all the media files' content associated to an `MxcUri` from the
@@ -961,9 +993,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
-        // TODO on the sqlite version this has a media_service... what is that?
-        // It seems there is a Trait EventCacheStoreMedia that might need to be implemented
-        MediaRetentionPolicy::default()
+        self.media_service.media_retention_policy()
     }
 
     /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
@@ -972,8 +1002,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     /// # Arguments
     ///
     /// * `policy` - The `MediaRetentionPolicy` to use.
-    async fn set_media_retention_policy(&self, _policy: MediaRetentionPolicy) -> Result<()> {
-        Ok(())
+    async fn set_media_retention_policy(&self, policy: MediaRetentionPolicy) -> Result<()> {
+        self.media_service.set_media_retention_policy(&self, policy).await
     }
 
     /// Set whether the current [`MediaRetentionPolicy`] should be ignored for
@@ -992,14 +1022,14 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         _request: &MediaRequestParameters,
         _ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
-        Ok(())
+        self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
     }
 
     /// Clean up the media cache with the current `MediaRetentionPolicy`.
     ///
     /// If there is already an ongoing cleanup, this is a noop.
     async fn clean_up_media_cache(&self) -> Result<()> {
-        Ok(())
+        self.media_service.clean_up_media_cache(self).await
     }
 
     async fn try_take_leased_lock(
@@ -1087,10 +1117,16 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
             self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
         let store = tx.object_store(keys::MEDIA)?;
 
-        let object = MediaForCache { uri: request.uri().to_string(), blob: data };
+        let object = MediaForCache {
+            id: request.unique_key(),
+            uri: request.source.unique_key(),
+            format: request.format.unique_key(),
+            data,
+            last_access,
+            ignore_policy,
+        };
 
-        let req = store
-            .put_key_val(&JsValue::from(request.unique_key().as_str()), &object.to_js_value())?;
+        let req = store.put_val_owned(&object.to_js_value())?;
         req.into_future().await?;
         Ok(())
     }
@@ -1100,24 +1136,19 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
         request: &MediaRequestParameters,
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
-        // let ignore_policy = ignore_policy.is_yes();
-        // let tx = self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
-        // let store = tx.object_store(keys::MEDIA)?;
+        let id = request.unique_key();
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
+        let store = tx.object_store(keys::MEDIA)?;
 
-        // let key = JsValue::from(request.unique_key().as_str());
-        // let blob = store.get_owned(&key)?.await?;
+        let object = store.get_owned(&JsValue::from_str(id.as_str()))?.await?;
 
-        // if let Some(blob) = blob {
-        //     let object = MediaForCache::from_js_value(blob);
-        //     let data = self.encode_value(object.blob)?;
-
-        //     if !ignore_policy && policy.exceeds_max_file_size(data.len()) {
-        //         return Ok(());
-        //     }
-
-        //     let req = store.put_key_val(&key, &object.to_js_value())?;
-        //     req.into_future().await?;
-        // }
+        if let Some(object) = object {
+            let mut object = MediaForCache::from_js_value(object).await;
+            object.ignore_policy = ignore_policy.is_yes();
+            let req = store.put_val_owned(&object.to_js_value())?;
+            req.into_future().await?;
+        }
 
         Ok(())
     }
@@ -1127,15 +1158,16 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
         request: &MediaRequestParameters,
         current_time: SystemTime,
     ) -> Result<Option<Vec<u8>>> {
+        let id = request.unique_key();
         let tx =
             self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
         let store = tx.object_store(keys::MEDIA)?;
 
-        let blob = store.get_owned(&JsValue::from(request.unique_key().as_str()))?.await?;
+        let data = store.get_owned(&JsValue::from(request.unique_key().as_str()))?.await?;
 
-        if let Some(blob) = blob {
-            let object = MediaForCache::from_js_value(blob).await;
-            Ok(Some(object.blob))
+        if let Some(data) = data {
+            let object = MediaForCache::from_js_value(data).await;
+            Ok(Some(object.data))
         } else {
             Ok(None)
         }
@@ -1146,23 +1178,23 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
         uri: &MxcUri,
         current_time: SystemTime,
     ) -> Result<Option<Vec<u8>>> {
-        // let tx =
-        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
-        // let store = tx.object_store(keys::MEDIA)?;
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
+        let store = tx.object_store(keys::MEDIA)?;
 
-        // let lower = JsValue::from_str(&(uri.to_string() + "_"));
-        // let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
+        let lower = JsValue::from_str(&(uri.to_string() + "_"));
+        let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
 
-        // let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
+        let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
-        // let blob = store.get_owned(&key_range)?.await?;
+        let data = store.get_owned(&key_range)?.await?;
 
-        // if let Some(blob) = blob {
-        //     let object = MediaForCache::from_js_value(blob);
-        //     Ok(Some(object.blob))
-        // } else {
-        //     Ok(None)
-        // }
+        if let Some(data) = data {
+            let object = MediaForCache::from_js_value(data);
+            Ok(Some(object.data))
+        } else {
+            Ok(None)
+        }
         Ok(None)
     }
 
@@ -1171,16 +1203,16 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
         policy: MediaRetentionPolicy,
         current_time: SystemTime,
     ) -> Result<()> {
-        // let tx =
-        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
-        // let store = tx.object_store(keys::MEDIA)?;
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
+        let store = tx.object_store(keys::MEDIA)?;
 
-        // let lower = JsValue::from_str(&(uri.to_string() + "_"));
-        // let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
+        let lower = JsValue::from_str(&(uri.to_string() + "_"));
+        let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
 
-        // let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
+        let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
-        // store.delete_owned(key_range)?.await?;
+        store.delete_owned(key_range)?.await?;
 
         Ok(())
     }
