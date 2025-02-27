@@ -92,24 +92,24 @@ impl IndexeddbSerializer {
         }
     }
 
-    pub fn encode_to_range<T>(
-        &self,
-        table_name: &str,
-        key: T,
-    ) -> Result<IdbKeyRange, IndexeddbEventCacheStoreError>
-    where
-        T: SafeEncode,
-    {
-        match &self.store_cipher {
-            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
-            None => key.encode_to_range(),
-        }
-        .map_err(|e| IndexeddbEventCacheStoreError::DomException {
-            code: 0,
-            name: "IdbKeyRangeMakeError".to_owned(),
-            message: e,
-        })
-    }
+    // pub fn encode_to_range<T>(
+    //     &self,
+    //     table_name: &str,
+    //     key: T,
+    // ) -> Result<IdbKeyRange, IndexeddbEventCacheStoreError>
+    // where
+    //     T: SafeEncode,
+    // {
+    //     match &self.store_cipher {
+    //         Some(cipher) => key.encode_to_range_secure(table_name, cipher),
+    //         None => key.encode_to_range(),
+    //     }
+    //     .map_err(|e| IndexeddbEventCacheStoreError::DomException {
+    //         code: 0,
+    //         name: "IdbKeyRangeMakeError".to_owned(),
+    //         message: e,
+    //     })
+    // }
 
     /// Encode the value for storage as a value in indexeddb.
     ///

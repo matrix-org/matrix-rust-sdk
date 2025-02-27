@@ -2,7 +2,7 @@ use super::{indexeddb_serializer::IndexeddbSerializer, keys, Result};
 use indexed_db_futures::{
     idb_object_store::IdbObjectStoreParameters,
     request::{IdbOpenDbRequestLike, OpenDbRequest},
-    IdbDatabase, IdbKeyPath, IdbQuerySource, IdbVersionChangeEvent,
+    IdbDatabase, IdbKeyPath, IdbVersionChangeEvent,
 };
 use wasm_bindgen::JsValue;
 
