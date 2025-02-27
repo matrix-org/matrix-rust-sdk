@@ -192,57 +192,6 @@ impl<PR: PaginableRoom> Paginator<PR> {
         self.state.subscribe()
     }
 
-    /// Prepares the paginator to be in the idle state, ready for backwards- and
-    /// forwards- pagination.
-    ///
-    /// Will return an `InvalidPreviousState` error if the paginator is busy
-    /// (running /context or /messages).
-    pub(super) fn set_idle_state(
-        &self,
-        next_state: PaginatorState,
-        prev_batch_token: Option<String>,
-        next_batch_token: Option<String>,
-    ) -> Result<(), PaginatorError> {
-        let prev_state = self.state.get();
-
-        match next_state {
-            PaginatorState::Initial | PaginatorState::Idle => {}
-            PaginatorState::FetchingTargetEvent | PaginatorState::Paginating => {
-                panic!("internal error: set_idle_state only accept Initial|Idle next states");
-            }
-        }
-
-        match prev_state {
-            PaginatorState::Initial | PaginatorState::Idle => {}
-            PaginatorState::FetchingTargetEvent | PaginatorState::Paginating => {
-                // The paginator was busy. Don't interrupt it.
-                return Err(PaginatorError::InvalidPreviousState {
-                    // Technically it's initial OR idle, but we don't really care here.
-                    expected: PaginatorState::Idle,
-                    actual: prev_state,
-                });
-            }
-        }
-
-        self.state.set_if_not_eq(next_state);
-
-        {
-            let mut tokens = self.tokens.lock().unwrap();
-            tokens.previous = prev_batch_token.into();
-            tokens.next = next_batch_token.into();
-        }
-
-        Ok(())
-    }
-
-    /// Returns the current previous batch token, as stored in this paginator.
-    pub(super) fn prev_batch_token(&self) -> Option<String> {
-        match &self.tokens.lock().unwrap().previous {
-            PaginationToken::HitEnd | PaginationToken::None => None,
-            PaginationToken::HasMore(token) => Some(token.clone()),
-        }
-    }
-
     /// Starts the pagination from the initial event, requesting `num_events`
     /// additional context events.
     ///
@@ -1050,6 +999,7 @@ mod tests {
 
     mod aborts {
         use super::*;
+        use crate::event_cache::{paginator::PaginationTokens, PaginationToken};
 
         #[derive(Clone, Default)]
         struct AbortingRoom {
@@ -1128,13 +1078,11 @@ mod tests {
 
             // Assuming a paginator ready to back- or forward- paginate,
             let paginator = Paginator::new(room.clone());
-            paginator
-                .set_idle_state(
-                    PaginatorState::Idle,
-                    Some("prev".to_owned()),
-                    Some("next".to_owned()),
-                )
-                .unwrap();
+            paginator.state.set(PaginatorState::Idle);
+            *paginator.tokens.lock().unwrap() = PaginationTokens {
+                previous: PaginationToken::HasMore("prev".to_owned()),
+                next: PaginationToken::HasMore("next".to_owned()),
+            };
 
             let paginator = Arc::new(paginator);
 
