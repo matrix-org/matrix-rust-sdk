@@ -71,7 +71,6 @@ eyeball-im = { workspace = true }
 eyre = { version = "0.6.12", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-growable-bloom-filter = { workspace = true }
 http = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
