@@ -738,8 +738,8 @@ async fn test_backpaginating_without_token() {
     assert!(reached_start);
 
     // And we get notified about the new event.
-    assert_event_matches_msg(&events[0], "hi");
     assert_eq!(events.len(), 1);
+    assert_event_matches_msg(&events[0], "hi");
 
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
