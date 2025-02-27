@@ -1,7 +1,12 @@
+use std::sync::Arc;
+
 use ruma::EventId;
 
 use super::FocusEventError;
-use crate::{error::ClientError, event::RoomMessageEventMessageType};
+use crate::{
+    error::ClientError, event::RoomMessageEventMessageType,
+    timeline_event_filter::TimelineEventTypeFilter,
+};
 
 #[derive(uniffi::Enum)]
 pub enum TimelineFocus {
@@ -52,28 +57,27 @@ impl From<DateDividerMode> for matrix_sdk_ui::timeline::DateDividerMode {
 }
 
 #[derive(uniffi::Enum)]
-pub enum AllowedMessageTypes {
+pub enum TimelineFilter {
+    /// Show all the events in the timeline, independent of their type.
     All,
-    Only { types: Vec<RoomMessageEventMessageType> },
+    /// Show only `m.room.messages` of the given room message types.
+    OnlyMessage {
+        /// A list of [`RoomMessageEventMessageType`] that will be allowed to
+        /// appear in the timeline.
+        types: Vec<RoomMessageEventMessageType>,
+    },
+    /// Show only events which match this filter.
+    EventTypeFilter { filter: Arc<TimelineEventTypeFilter> },
 }
 
 /// Various options used to configure the timeline's behavior.
-///
-/// # Arguments
-///
-/// * `internal_id_prefix` -
-///
-/// * `allowed_message_types` -
-///
-/// * `date_divider_mode` -
 #[derive(uniffi::Record)]
 pub struct TimelineConfiguration {
     /// What should the timeline focus on?
     pub focus: TimelineFocus,
 
-    /// A list of [`RoomMessageEventMessageType`] that will be allowed to appear
-    /// in the timeline
-    pub allowed_message_types: AllowedMessageTypes,
+    /// How should we filter out events from the timeline?
+    pub filter: TimelineFilter,
 
     /// An optional String that will be prepended to
     /// all the timeline item's internal IDs, making it possible to
@@ -82,4 +86,11 @@ pub struct TimelineConfiguration {
 
     /// How often to insert date dividers
     pub date_divider_mode: DateDividerMode,
+
+    /// Should the read receipts and read markers be tracked for the timeline
+    /// items in this instance?
+    ///
+    /// As this has a non negligible performance impact, make sure to enable it
+    /// only when you need it.
+    pub track_read_receipts: bool,
 }
