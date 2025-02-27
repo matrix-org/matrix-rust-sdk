@@ -26,8 +26,7 @@ use crate::{
     room::{Membership, Room},
     room_info::RoomInfo,
     room_preview::RoomPreview,
-    timeline::{EventTimelineItem, Timeline},
-    timeline_event_filter::TimelineEventTypeFilter,
+    timeline::{configuration::TimelineEventTypeFilter, EventTimelineItem, Timeline},
     utils::AsyncRuntimeDropped,
     TaskHandle, RUNTIME,
 };
