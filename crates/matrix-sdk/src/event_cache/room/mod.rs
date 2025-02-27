@@ -567,7 +567,7 @@ impl RoomEventCacheInner {
 
             timeline_event_diffs.extend(new_timeline_event_diffs);
 
-            if prev_batch.is_some() && !all_duplicates {
+            if prev_batch.is_some() && !all_duplicates && !events.is_empty() {
                 // If there was a previous batch token, and there's at least one non-duplicated
                 // new event, unload the chunks so it only contains the last
                 // one; otherwise, there might be a valid gap in between, and
