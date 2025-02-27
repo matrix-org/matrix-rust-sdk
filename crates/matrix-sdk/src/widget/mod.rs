@@ -17,6 +17,7 @@
 use std::{fmt, time::Duration};
 
 use async_channel::{Receiver, Sender};
+use matrix_sdk_common::executor;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -67,6 +68,9 @@ pub struct WidgetDriver {
     ///
     /// Only set if a subscription happened ([`Action::Subscribe`]).
     event_forwarding_guard: Option<DropGuard>,
+
+    /// JoinHandle for the matrix event subscribe task.
+    matrix_subscribe_join_handle: Option<executor::JoinHandle<()>>,
 }
 
 /// A handle that encapsulates the communication between a widget driver and the
@@ -115,7 +119,13 @@ impl WidgetDriver {
         let (from_widget_tx, from_widget_rx) = async_channel::unbounded();
         let (to_widget_tx, to_widget_rx) = async_channel::unbounded();
 
-        let driver = Self { settings, from_widget_rx, to_widget_tx, event_forwarding_guard: None };
+        let driver = Self {
+            settings,
+            from_widget_rx,
+            to_widget_tx,
+            event_forwarding_guard: None,
+            matrix_subscribe_join_handle: None,
+        };
         let channels = WidgetDriverHandle { from_widget_tx, to_widget_rx };
 
         (driver, channels)
@@ -139,7 +149,7 @@ impl WidgetDriver {
         let (incoming_msg_tx, mut incoming_msg_rx) = unbounded_channel();
 
         // Forward all of the incoming messages from the widget.
-        matrix_sdk_common::executor::spawn({
+        let _handle = executor::spawn({
             let incoming_msg_tx = incoming_msg_tx.clone();
             let from_widget_rx = self.from_widget_rx.clone();
             async move {
@@ -147,9 +157,7 @@ impl WidgetDriver {
                     let _ = incoming_msg_tx.send(IncomingMessage::WidgetMessage(msg));
                 }
             }
-        })
-        .await
-        .map_err(|_| ())?;
+        });
 
         // Create widget API machine.
         let (mut widget_machine, initial_actions) = WidgetMachine::new(
@@ -178,7 +186,6 @@ impl WidgetDriver {
                 .await?;
             }
         }
-
         Ok(())
     }
 
@@ -256,12 +263,10 @@ impl WidgetDriver {
                     (token.child_token(), token.drop_guard())
                 };
 
-                self.event_forwarding_guard = Some(guard);
-
                 let mut matrix = matrix_driver.events();
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
-                matrix_sdk_common::executor::spawn(async move {
+                let handle = executor::spawn(async move {
                     loop {
                         tokio::select! {
                             _ = stop_forwarding.cancelled() => {
@@ -275,11 +280,15 @@ impl WidgetDriver {
                             }
                         }
                     }
-                }).await.map_err(|_|())?;
+                });
+
+                self.matrix_subscribe_join_handle = Some(handle);
+                self.event_forwarding_guard = Some(guard);
             }
 
             Action::Unsubscribe => {
                 self.event_forwarding_guard = None;
+                self.matrix_subscribe_join_handle = None;
             }
         }
 
