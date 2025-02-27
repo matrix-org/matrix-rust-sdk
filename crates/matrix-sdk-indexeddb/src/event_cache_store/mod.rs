@@ -1206,23 +1206,85 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
     async fn clean_up_media_cache_inner(
         &self,
         policy: MediaRetentionPolicy,
-        _current_time: SystemTime,
+        current_time: SystemTime,
     ) -> Result<()> {
         if !policy.has_limitations() {
             return Ok(());
         }
 
-        // TODO follow the logic of the sqlite implementation
-        // let tx =
-        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
-        // let store = tx.object_store(keys::MEDIA)?;
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
+        let store = tx.object_store(keys::MEDIA)?;
 
-        // let lower = JsValue::from_str(&(uri.to_string() + "_"));
-        // let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
+        // First, check media content that exceed the max filesize.
+        if let Some(max_file_size) = policy.computed_max_file_size() {
+            let key_range = IdbKeyRange::lower_bound(&JsValue::from(0)).unwrap();
+            let items = store.get_all_with_key(&key_range)?.await?;
 
-        // let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
+            for item in items {
+                let media: MediaForCache = MediaForCache::from_js_value(item).await;
+                if !media.ignore_policy.is_yes() && media.data.len() > max_file_size {
+                    store.delete(&JsValue::from_str(&media.id))?.await?;
+                }
+            }
+        }
 
-        // store.delete_owned(key_range)?.await?;
+        // Then, clean up expired media content.
+        if let Some(last_access_expiry) = policy.last_access_expiry {
+            let current_timestamp =
+                current_time.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+            let expiry_secs = last_access_expiry.as_secs();
+            let key_range = IdbKeyRange::lower_bound(&JsValue::from(0)).unwrap();
+            let items = store.get_all_with_key(&key_range)?.await?;
+
+            for item in items {
+                let media: MediaForCache = MediaForCache::from_js_value(item).await;
+                let last_access_secs =
+                    media.last_access.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+                if !media.ignore_policy.is_yes()
+                    && (current_timestamp - last_access_secs) >= expiry_secs
+                {
+                    store.delete(&JsValue::from_str(&media.id))?.await?;
+                }
+            }
+        }
+
+        // Finally, if the cache size is too big, remove old items until it fits.
+        if let Some(max_cache_size) = policy.max_cache_size {
+            let key_range = IdbKeyRange::lower_bound(&JsValue::from(0)).unwrap();
+            let items = store.get_all_with_key(&key_range)?.await?;
+
+            let mut accumulated_items_size = 0usize;
+            let mut limit_reached = false;
+            let mut items_to_remove = Vec::new();
+
+            for item in items {
+                let media: MediaForCache = MediaForCache::from_js_value(item).await;
+                if !media.ignore_policy.is_yes() {
+                    let size = media.data.len();
+                    if limit_reached {
+                        items_to_remove.push(media.id);
+                        continue;
+                    }
+
+                    match accumulated_items_size.checked_add(size) {
+                        Some(acc) if acc > max_cache_size => {
+                            limit_reached = true;
+                            items_to_remove.push(media.id);
+                        }
+                        Some(acc) => accumulated_items_size = acc,
+                        None => {
+                            limit_reached = true;
+                            items_to_remove.push(media.id);
+                        }
+                    }
+                }
+            }
+
+            for id in items_to_remove {
+                store.delete(&JsValue::from_str(&id))?.await?;
+            }
+        }
 
         Ok(())
     }
@@ -1230,29 +1292,6 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
 
 #[cfg(test)]
 mod tests {
-    // use std::{
-    //     sync::atomic::{AtomicU32, Ordering::SeqCst},
-    //     time::Duration,
-    // };
-
-    // use assert_matches::assert_matches;
-    // use matrix_sdk_base::{
-    //     event_cache::{
-    //         store::{
-    //             // integration_tests::{check_test_event, make_test_event},
-    //             // media::IgnoreMediaRetentionPolicy,
-    //             // EventCacheStore,
-    //             EventCacheStoreError,
-    //         }, // Gap,
-    //     },
-    //     event_cache_store_integration_tests,
-    //     // event_cache_store_integration_tests_time,
-    //     // event_cache_store_media_integration_tests,
-    //     // linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
-    //     // media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
-    // };
-    // use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
-    // use ruma::{events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
     use matrix_sdk_base::{
         event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
         event_cache_store_integration_tests_time, event_cache_store_media_integration_tests,
