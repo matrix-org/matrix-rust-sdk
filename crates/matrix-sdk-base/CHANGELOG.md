@@ -15,6 +15,9 @@ All notable changes to this project will be documented in this file.
   - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
   - There are new `'static` bounds in `MediaService` for the media cache stores
 - `event_cache::store::MemoryStore` implements `Clone`.
+- `BaseClient` now has a `handle_verification_events` field which is `true` by 
+  default and can be negated so the `NotificationClient` won't handle received 
+  verification events too, causing errors in the `VerificationMachine`.
 
 ## [0.10.0] - 2025-02-04
 

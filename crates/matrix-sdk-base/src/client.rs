@@ -124,6 +124,10 @@ pub struct BaseClient {
     /// The trust requirement to use for decrypting events.
     #[cfg(feature = "e2e-encryption")]
     pub decryption_trust_requirement: TrustRequirement,
+
+    /// If the client should handle verification events received when syncing.
+    #[cfg(feature = "e2e-encryption")]
+    pub handle_verification_events: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -160,6 +164,8 @@ impl BaseClient {
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             decryption_trust_requirement: TrustRequirement::Untrusted,
+            #[cfg(feature = "e2e-encryption")]
+            handle_verification_events: true,
         }
     }
 
@@ -169,6 +175,7 @@ impl BaseClient {
     pub async fn clone_with_in_memory_state_store(
         &self,
         cross_process_store_locks_holder_name: &str,
+        handle_verification_events: bool,
     ) -> Result<Self> {
         let config = StoreConfig::new(cross_process_store_locks_holder_name.to_owned())
             .state_store(MemoryStore::new());
@@ -189,6 +196,7 @@ impl BaseClient {
             room_info_notable_update_sender: self.room_info_notable_update_sender.clone(),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
             decryption_trust_requirement: self.decryption_trust_requirement,
+            handle_verification_events,
         };
 
         if let Some(session_meta) = self.session_meta().cloned() {
@@ -207,6 +215,7 @@ impl BaseClient {
     pub async fn clone_with_in_memory_state_store(
         &self,
         cross_process_store_locks_holder: &str,
+        _handle_verification_events: bool,
     ) -> Result<Self> {
         let config = StoreConfig::new(cross_process_store_locks_holder.to_owned())
             .state_store(MemoryStore::new());
@@ -339,6 +348,10 @@ impl BaseClient {
         event: &AnySyncMessageLikeEvent,
         room_id: &RoomId,
     ) -> Result<()> {
+        if !self.handle_verification_events {
+            return Ok(());
+        }
+
         if let Some(olm) = self.olm_machine().await.as_ref() {
             olm.receive_verification_event(&event.clone().into_full_event(room_id.to_owned()))
                 .await?;

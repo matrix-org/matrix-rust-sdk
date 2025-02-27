@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
@@ -26,13 +29,132 @@ use matrix_sdk::{
             secret_storage::secret::SecretEventContent,
             GlobalAccountDataEventType, OriginalSyncMessageLikeEvent,
         },
+        OwnedEventId,
     },
+    timeout::timeout,
     Client,
+};
+use matrix_sdk_ui::{
+    notification_client::{NotificationClient, NotificationProcessSetup},
+    sync_service::SyncService,
 };
 use similar_asserts::assert_eq;
 use tracing::{debug, warn};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
+
+// This test reproduces a bug seen on clients that use the same `Client`
+// instance for both the usual sliding sync loop and for getting the event for a
+// notification (i.e. Element X Android). The verification events will be
+// processed twice, meaning incorrect verification states will be found and the
+// process will fail, especially with user verification.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_mutual_sas_verification_with_notification_client_ignores_verification_events(
+) -> Result<()> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+    let alice = TestClientBuilder::new("alice")
+        .use_sqlite()
+        .encryption_settings(encryption_settings)
+        .build()
+        .await?;
+
+    let alice_sync_service =
+        Arc::new(SyncService::builder(alice.clone()).build().await.expect("Wat"));
+
+    let bob = TestClientBuilder::new("bob")
+        .use_sqlite()
+        .encryption_settings(encryption_settings)
+        .build()
+        .await?;
+
+    let bob_sync_service = Arc::new(SyncService::builder(bob.clone()).build().await.expect("Wat"));
+    let bob_id = bob.user_id().expect("Bob should be logged in by now");
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+    bob.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    alice_sync_service.start().await;
+    bob_sync_service.start().await;
+
+    warn!("alice's device: {}", alice.device_id().unwrap());
+    warn!("bob's device: {}", bob.device_id().unwrap());
+
+    // Set up the test: Alice creates the DM room, and invites Bob, who joins
+    let invite = vec![bob_id.to_owned()];
+    let request = assign!(CreateRoomRequest::new(), {
+        invite,
+        is_direct: true,
+    });
+
+    let alice_room = alice.create_room(request).await?;
+    alice_room.enable_encryption().await?;
+    let room_id = alice_room.room_id();
+
+    warn!("alice has created and enabled encryption in the room");
+
+    timeout(
+        async {
+            loop {
+                if let Some(room) = bob.get_room(room_id) {
+                    room.join().await.expect("We should be able to join a room");
+                    return;
+                }
+            }
+        },
+        Duration::from_secs(1),
+    )
+    .await
+    .expect("Bob should have joined the room");
+
+    bob_sync_service.stop().await;
+
+    warn!("alice and bob are both aware of each other in the e2ee room");
+
+    alice_room
+        .send(RoomMessageEventContent::text_plain("Hello Bob"))
+        .await
+        .expect("We should be able to send a message to the room");
+
+    let alice_bob_identity = alice
+        .encryption()
+        .get_user_identity(bob_id)
+        .await
+        .expect("We should be able to fetch an identity from the store")
+        .expect("Bob's identity should be known by now");
+
+    warn!("alice has found bob's identity");
+
+    let alice_verification_request = alice_bob_identity.request_verification().await?;
+
+    // The notification client must use the `SingleProcess` setup
+    let notification_client = NotificationClient::new(
+        bob.clone(),
+        NotificationProcessSetup::SingleProcess { sync_service: bob_sync_service.clone() },
+    )
+    .await
+    .expect("couldn't create notification client");
+
+    let event_id = OwnedEventId::try_from(alice_verification_request.flow_id())
+        .expect("We should be able to get the event id from the verification flow id");
+
+    // Simulate getting the event for a notification
+    let _ = notification_client.get_notification_with_sliding_sync(room_id, &event_id).await;
+
+    let verification = bob
+        .encryption()
+        .get_verification_request(
+            alice_verification_request.own_user_id(),
+            alice_verification_request.flow_id(),
+        )
+        .await;
+
+    // If the ignore_verification_events parameter is true in NotificationClient,
+    // no verification request should have been received
+    assert!(verification.is_none());
+
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_mutual_sas_verification() -> Result<()> {
