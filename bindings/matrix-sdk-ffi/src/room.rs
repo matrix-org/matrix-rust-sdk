@@ -42,7 +42,7 @@ use crate::{
     room_member::RoomMember,
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
     timeline::{
-        configuration::{AllowedMessageTypes, TimelineConfiguration},
+        configuration::{TimelineConfiguration, TimelineFilter},
         ReceiptType, SendHandle, Timeline,
     },
     utils::u64_to_uint,
@@ -206,30 +206,50 @@ impl Room {
     ) -> Result<Arc<Timeline>, ClientError> {
         let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
 
-        builder = builder.with_focus(configuration.focus.try_into()?);
+        builder = builder
+            .with_focus(configuration.focus.try_into()?)
+            .with_date_divider_mode(configuration.date_divider_mode.into());
 
-        if let AllowedMessageTypes::Only { types } = configuration.allowed_message_types {
-            builder = builder.event_filter(move |event, room_version_id| {
-                default_event_filter(event, room_version_id)
-                    && match event {
-                        AnySyncTimelineEvent::MessageLike(msg) => match msg.original_content() {
-                            Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
-                                types.contains(&content.msgtype.into())
+        if configuration.track_read_receipts {
+            builder = builder.track_read_marker_and_receipts();
+        }
+
+        match configuration.filter {
+            TimelineFilter::All => {
+                // #nofilter.
+            }
+
+            TimelineFilter::OnlyMessage { types } => {
+                builder = builder.event_filter(move |event, room_version_id| {
+                    default_event_filter(event, room_version_id)
+                        && match event {
+                            AnySyncTimelineEvent::MessageLike(msg) => {
+                                match msg.original_content() {
+                                    Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
+                                        types.contains(&content.msgtype.into())
+                                    }
+                                    _ => false,
+                                }
                             }
                             _ => false,
-                        },
-                        _ => false,
-                    }
-            });
+                        }
+                });
+            }
+
+            TimelineFilter::EventTypeFilter { filter: event_type_filter } => {
+                builder = builder.event_filter(move |event, room_version_id| {
+                    // Always perform the default filter first
+                    default_event_filter(event, room_version_id) && event_type_filter.filter(event)
+                });
+            }
         }
 
         if let Some(internal_id_prefix) = configuration.internal_id_prefix {
             builder = builder.with_internal_id_prefix(internal_id_prefix);
         }
 
-        builder = builder.with_date_divider_mode(configuration.date_divider_mode.into());
-
         let timeline = builder.build().await?;
+
         Ok(Timeline::new(timeline))
     }
 
