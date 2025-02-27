@@ -24,8 +24,8 @@ use matrix_sdk_base::{
     },
 };
 use matrix_sdk_common::linked_chunk::{
-    AsVector, Chunk, ChunkIdentifier, EmptyChunkRule, Error, Iter, IterBackward, LinkedChunk,
-    ObservableUpdates, Position,
+    AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, ObservableUpdates,
+    Position,
 };
 use ruma::{
     events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType},
@@ -264,11 +264,7 @@ impl RoomEvents {
         sort_positions_descending(&mut positions);
 
         for position in positions {
-            self.chunks.remove_item_at(
-                position,
-                // If removing an event results in an empty chunk, the empty chunk is removed.
-                EmptyChunkRule::Remove,
-            )?;
+            self.chunks.remove_item_at(position)?;
         }
 
         Ok(())
