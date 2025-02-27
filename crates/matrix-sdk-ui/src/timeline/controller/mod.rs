@@ -19,6 +19,7 @@ use eyeball_im::VectorDiff;
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
+use itertools::{Either, Itertools};
 #[cfg(test)]
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
@@ -80,7 +81,7 @@ use crate::{
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        TimelineEventFilterFn,
+        EncryptedMessage, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -1062,10 +1063,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
         decryptor: impl Decryptor,
         session_ids: Option<BTreeSet<String>>,
     ) {
-        use super::EncryptedMessage;
-
         let mut state = self.state.clone().write_owned().await;
 
+        // We should retry an event if its session is included in the list, or the list
+        // is None.
         let should_retry = move |session_id: &str| {
             if let Some(session_ids) = &session_ids {
                 session_ids.contains(session_id)
@@ -1074,28 +1075,53 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
         };
 
-        let retry_indices: Vec<_> = state
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
-                EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                    if should_retry(session_id) =>
-                {
-                    Some(idx)
-                }
-                EncryptedMessage::MegolmV1AesSha2 { .. }
-                | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                | EncryptedMessage::Unknown => None,
-            })
-            .collect();
+        // Find which events need retrying
+        let (retry_decryption_indices, retry_info_indices) =
+            event_indices_to_retry_decryption(&state, &should_retry);
 
+        // Retry fetching encryption info for events that are already decrypted
+        let room_data_provider = self.room_data_provider.clone();
+        matrix_sdk::executor::spawn(async move {
+            state.retry_event_encryption_info(retry_info_indices, &room_data_provider).await;
+        });
+
+        // Retry decrypting UTDs
+        self.retry_event_decryption_by_index(
+            &self.state,
+            retry_decryption_indices,
+            should_retry,
+            decryptor,
+        )
+        .await;
+    }
+
+    /// Retry decryption of the supplied events, which are expected to be UTDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` is the [`TimelineState`] state of the timeline.
+    ///
+    /// * `retry_indices` contains the indices of events to try within the
+    ///   `state.items`.
+    ///
+    /// * `should_retry` checks that a session is included in the list of
+    ///   updated sessions.
+    ///
+    /// * `decryptor` does the actual work of decrypting events.
+    async fn retry_event_decryption_by_index(
+        &self,
+        state: &Arc<RwLock<TimelineState>>,
+        retry_indices: Vec<usize>,
+        should_retry: impl Fn(&str) -> bool + Send + Sync + 'static,
+        decryptor: impl Decryptor,
+    ) {
         if retry_indices.is_empty() {
             return;
         }
 
         debug!("Retrying decryption");
 
+        let mut state = state.clone().write_owned().await;
         let settings = self.settings.clone();
         let room_data_provider = self.room_data_provider.clone();
         let push_rules_context = room_data_provider.push_rules_and_context().await;
@@ -1431,6 +1457,42 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
         }
     }
+}
+
+/// Decide which events should be retried, either for re-decryption, or, if they
+/// are already decrypted, for re-checking their encryption info.
+///
+/// Returns a tuple `(retry_decryption_indices, retry_info_indices)` where
+/// `retry_decryption_indices` is a list of UTDs to try decrypting, and
+/// retry_info_indices is a list of already-decrypted events whose encryption
+/// info we can re-fetch.
+fn event_indices_to_retry_decryption(
+    state: &tokio::sync::OwnedRwLockWriteGuard<TimelineState>,
+    should_retry: impl Fn(&str) -> bool,
+) -> (Vec<usize>, Vec<usize>) {
+    state
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| {
+            if let Some(event) = item.as_event() {
+                if let TimelineItemContent::UnableToDecrypt(encrypted) = event.content() {
+                    if let Some(session_id) = encrypted.session_id() {
+                        if should_retry(session_id) {
+                            return Some(Either::Left(idx));
+                        }
+                    }
+                } else if let Some(remote_event) = event.as_remote() {
+                    if let Some(encryption_info) = &remote_event.encryption_info {
+                        if should_retry(&encryption_info.session_id) {
+                            return Some(Either::Right(idx));
+                        }
+                    }
+                }
+            }
+            None
+        })
+        .partition_map(|either| either)
 }
 
 impl TimelineController {
