@@ -23,8 +23,8 @@ use matrix_sdk_base::{
     },
 };
 use matrix_sdk_common::linked_chunk::{
-    AsVector, Chunk, ChunkIdentifier, EmptyChunkRule, Error, Iter, IterBackward, LinkedChunk,
-    ObservableUpdates, Position,
+    AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, ObservableUpdates,
+    Position,
 };
 use ruma::{
     events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType},
@@ -219,12 +219,17 @@ impl RoomEvents {
         self.chunks.insert_gap_at(gap, position)
     }
 
-    /// Remove a gap at the given position.
+    /// Remove an empty chunk at the given position.
     ///
-    /// Returns the next insert position, if any, left after the gap that has
+    /// Note: the chunk must either be a gap, or an empty items chunk.
+    ///
+    /// Returns the next insert position, if any, left after the chunk that has
     /// just been removed.
-    pub fn remove_gap_at(&mut self, gap: ChunkIdentifier) -> Result<Option<Position>, Error> {
-        self.chunks.remove_gap_at(gap)
+    pub fn remove_empty_chunk_at(
+        &mut self,
+        gap: ChunkIdentifier,
+    ) -> Result<Option<Position>, Error> {
+        self.chunks.remove_empty_chunk_at(gap)
     }
 
     /// Replace the gap identified by `gap_identifier`, by events.
@@ -242,7 +247,7 @@ impl RoomEvents {
         let next_pos = if events.is_empty() {
             // There are no new events, so there's no need to create a new empty items
             // chunk; instead, remove the gap.
-            self.chunks.remove_gap_at(gap_identifier)?
+            self.chunks.remove_empty_chunk_at(gap_identifier)?
         } else {
             // Replace the gap by new events.
             Some(self.chunks.replace_gap_at(events, gap_identifier)?.first_position())
@@ -258,11 +263,7 @@ impl RoomEvents {
         sort_positions_descending(&mut positions);
 
         for position in positions {
-            self.chunks.remove_item_at(
-                position,
-                // If removing an event results in an empty chunk, the empty chunk is removed.
-                EmptyChunkRule::Remove,
-            )?;
+            self.chunks.remove_item_at(position)?;
         }
 
         Ok(())
