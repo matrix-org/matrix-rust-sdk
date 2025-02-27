@@ -31,7 +31,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
@@ -870,7 +870,7 @@ impl DeviceData {
                 device_keys.ed25519_key().map(Box::new),
             ))
         } else if self.device_keys.as_ref() != device_keys {
-            debug!(
+            trace!(
                 user_id = ?self.user_id(),
                 device_id = ?self.device_id(),
                 keys = ?self.keys(),
