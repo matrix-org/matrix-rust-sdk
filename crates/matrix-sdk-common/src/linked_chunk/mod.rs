@@ -131,6 +131,13 @@ pub enum Error {
         identifier: ChunkIdentifier,
     },
 
+    /// A chunk is an items chunk, and it was expected to be empty.
+    #[error("The chunk is a non-empty item chunk: `{identifier:?}`")]
+    RemovingNonEmptyItemsChunk {
+        /// The chunk identifier.
+        identifier: ChunkIdentifier,
+    },
+
     /// An item index is invalid.
     #[error("The item index is invalid: `{index}`")]
     InvalidItemIndex {
@@ -687,7 +694,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     ///
     /// This returns the next insert position, viz. the start of the next
     /// chunk, if any, or none if there was no next chunk.
-    pub fn remove_gap_at(
+    pub fn remove_empty_chunk_at(
         &mut self,
         chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<Position>, Error> {
@@ -696,9 +703,16 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             .chunk_mut(chunk_identifier)
             .ok_or(Error::InvalidChunkIdentifier { identifier: chunk_identifier })?;
 
-        if chunk.is_items() {
-            return Err(Error::ChunkIsItems { identifier: chunk_identifier });
-        };
+        match chunk.content() {
+            ChunkContent::Items(items) if !items.is_empty() => {
+                if chunk.is_items() {
+                    return Err(Error::RemovingNonEmptyItemsChunk { identifier: chunk_identifier });
+                };
+            }
+            _ => {
+                // Either a gap or an empty items chunk: continue.
+            }
+        }
 
         let chunk_was_first = chunk.is_first_chunk();
         let chunk_was_last = chunk.is_last_chunk();
@@ -3276,16 +3290,16 @@ mod tests {
             ]
         );
 
-        // Try to remove a gap that's not a gap.
-        let err = linked_chunk.remove_gap_at(ChunkIdentifier(0)).unwrap_err();
-        assert_matches!(err, Error::ChunkIsItems { .. });
+        // Try to remove a chunk that's not empty.
+        let err = linked_chunk.remove_empty_chunk_at(ChunkIdentifier(0)).unwrap_err();
+        assert_matches!(err, Error::RemovingNonEmptyItemsChunk { .. });
 
         // Try to remove an unknown gap chunk.
-        let err = linked_chunk.remove_gap_at(ChunkIdentifier(42)).unwrap_err();
+        let err = linked_chunk.remove_empty_chunk_at(ChunkIdentifier(42)).unwrap_err();
         assert_matches!(err, Error::InvalidChunkIdentifier { .. });
 
         // Remove the gap in the middle.
-        let maybe_next = linked_chunk.remove_gap_at(ChunkIdentifier(2)).unwrap();
+        let maybe_next = linked_chunk.remove_empty_chunk_at(ChunkIdentifier(2)).unwrap();
         let next = maybe_next.unwrap();
         // The next insert position at the start of the next chunk.
         assert_eq!(next.chunk_identifier(), ChunkIdentifier(3));
@@ -3294,14 +3308,14 @@ mod tests {
         assert_eq!(linked_chunk.updates().unwrap().take(), &[RemoveChunk(ChunkIdentifier(2))]);
 
         // Remove the gap at the end.
-        let next = linked_chunk.remove_gap_at(ChunkIdentifier(4)).unwrap();
+        let next = linked_chunk.remove_empty_chunk_at(ChunkIdentifier(4)).unwrap();
         // It was the last chunk, so there's no next insert position.
         assert!(next.is_none());
         assert_items_eq!(linked_chunk, [-] ['a', 'b'] ['l', 'm']);
         assert_eq!(linked_chunk.updates().unwrap().take(), &[RemoveChunk(ChunkIdentifier(4))]);
 
         // Remove the gap at the beginning.
-        let maybe_next = linked_chunk.remove_gap_at(ChunkIdentifier(1)).unwrap();
+        let maybe_next = linked_chunk.remove_empty_chunk_at(ChunkIdentifier(1)).unwrap();
         let next = maybe_next.unwrap();
         assert_eq!(next.chunk_identifier(), ChunkIdentifier(0));
         assert_eq!(next.index(), 0);
