@@ -94,3 +94,18 @@ pub struct TimelineConfiguration {
     /// only when you need it.
     pub track_read_receipts: bool,
 }
+
+/// Create a configuration for a live timeline, that will react to sync events
+/// in live.
+///
+/// Note: as of 2025-02-27, doesn't include the UTD hook.
+#[matrix_sdk_ffi_macros::export]
+pub fn live_timeline_configuration(internal_id_prefix: Option<String>) -> TimelineConfiguration {
+    TimelineConfiguration {
+        focus: TimelineFocus::Live,
+        filter: TimelineFilter::All,
+        internal_id_prefix,
+        date_divider_mode: DateDividerMode::Daily,
+        track_read_receipts: true,
+    }
+}
