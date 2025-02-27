@@ -631,11 +631,15 @@ impl RoomEventCacheInner {
 }
 
 /// Internal type to represent the output of
-/// `RoomEventCacheState::load_more_events_backwards`.
+/// [`RoomEventCacheState::load_more_events_backwards`].
 #[derive(Debug)]
 pub(super) enum LoadMoreEventsBackwardsOutcome {
     /// A gap has been inserted.
-    Gap,
+    Gap {
+        /// The previous batch token to be used as the "end" parameter in the
+        /// back-pagination request.
+        prev_token: Option<String>,
+    },
 
     /// The start of the timeline has been reached.
     StartOfTimeline,
@@ -646,6 +650,9 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
         timeline_event_diffs: Vec<VectorDiff<TimelineEvent>>,
         reached_start: bool,
     },
+
+    /// The caller must wait for the initial previous-batch token, and retry.
+    WaitForInitialPrevToken,
 }
 
 // Use a private module to hide `events` to this parent module.
@@ -811,21 +818,52 @@ mod private {
             Ok((deduplication_outcome, all_duplicates))
         }
 
+        /// Given a fully-loaded linked chunk with no gaps, return the
+        /// [`LoadMoreEventsBackwardsOutcome`] expected for this room's cache.
+        fn conclude_load_more_for_fully_loaded_chunk(&mut self) -> LoadMoreEventsBackwardsOutcome {
+            // If we never received events for this room, this means we've never
+            // received a sync for that room, because every room must have at least a
+            // room creation event. Otherwise, we have reached the start of the
+            // timeline.
+            if self.events.events().next().is_some() {
+                // If there's at least one event, this means we've reached the start of the
+                // timeline, since the chunk is fully loaded.
+                LoadMoreEventsBackwardsOutcome::StartOfTimeline
+            } else if !self.waited_for_initial_prev_token {
+                // There's no events. Since we haven't yet, wait for an initial previous-token.
+                LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken
+            } else {
+                // Otherwise, we've already waited, *and* received no previous-batch token from
+                // the sync, *and* there are still no events in the fully-loaded
+                // chunk: start back-pagination from the end of the room.
+                LoadMoreEventsBackwardsOutcome::Gap { prev_token: None }
+            }
+        }
+
         /// Load more events backwards if the last chunk is **not** a gap.
-        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub(in super::super) async fn load_more_events_backwards(
             &mut self,
         ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
             let Some(store) = self.store.get() else {
-                // No store: no events to insert. Pretend the caller has to act as if a gap was
-                // present.
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap);
+                // No store to reload events from. Pretend the caller has to act as if a gap was
+                // present. Limited syncs will always clear and push a gap, in this mode.
+                // There's no lazy-loading.
+
+                // Look for a gap in the in-memory chunk, iterating in reverse so as to get the
+                // most recent one.
+                if let Some(prev_token) = self.events.rgap().map(|gap| gap.prev_token) {
+                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                        prev_token: Some(prev_token),
+                    });
+                }
+
+                return Ok(self.conclude_load_more_for_fully_loaded_chunk());
             };
 
             // If any in-memory chunk is a gap, don't load more events, and let the caller
             // resolve the gap.
-            if self.events.chunks().any(|chunk| chunk.is_gap()) {
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap);
+            if let Some(prev_token) = self.events.rgap().map(|gap| gap.prev_token) {
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
             }
 
             // Because `first_chunk` is `not `Send`, get this information before the
@@ -833,57 +871,43 @@ mod private {
             let first_chunk_identifier =
                 self.events.chunks().next().expect("a linked chunk is never empty").identifier();
 
-            let room_id = &self.room;
             let store = store.lock().await?;
 
             // The first chunk is not a gap, we can load its previous chunk.
             let new_first_chunk =
-                match store.load_previous_chunk(room_id, first_chunk_identifier).await {
+                match store.load_previous_chunk(&self.room, first_chunk_identifier).await {
                     Ok(Some(new_first_chunk)) => {
                         // All good, let's continue with this chunk.
                         new_first_chunk
                     }
 
                     Ok(None) => {
-                        // No previous chunk: no events to insert. This means one of two things:
-                        // - either the linked chunk is at the start of the timeline,
-                        // - or we haven't received any back-pagination token yet, and we should
-                        //   wait for one.
-                        if self.waited_for_initial_prev_token {
-                            return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
-                        }
-                        // If we haven't waited yet, we request to resolve the gap, once we get the
-                        // previous-batch token from sync.
-                        return Ok(LoadMoreEventsBackwardsOutcome::Gap);
+                        // There's no previous chunk. The chunk is now fully-loaded. Conclude.
+                        return Ok(self.conclude_load_more_for_fully_loaded_chunk());
                     }
 
                     Err(err) => {
                         error!("error when loading the previous chunk of a linked chunk: {err}");
 
                         // Clear storage for this room.
-                        store.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await?;
+                        store.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
 
                         // Return the error.
                         return Err(err.into());
                     }
                 };
 
-            let events = match &new_first_chunk.content {
-                ChunkContent::Gap(_) => None,
-                ChunkContent::Items(events) => {
-                    // We've reached the start on disk, if and only if, there was no chunk prior to
-                    // the one we just loaded.
-                    let reached_start = new_first_chunk.previous.is_none();
+            let chunk_content = new_first_chunk.content.clone();
 
-                    Some((events.clone(), reached_start))
-                }
-            };
+            // We've reached the start on disk, if and only if, there was no chunk prior to
+            // the one we just loaded.
+            let reached_start = new_first_chunk.previous.is_none();
 
             if let Err(err) = self.events.insert_new_chunk_as_first(new_first_chunk) {
                 error!("error when inserting the previous chunk into its linked chunk: {err}");
 
                 // Clear storage for this room.
-                store.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await?;
+                store.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
 
                 // Return the error.
                 return Err(err.into());
@@ -896,9 +920,12 @@ mod private {
             // However, we want to get updates as `VectorDiff`s.
             let timeline_event_diffs = self.events.updates_as_vector_diffs();
 
-            Ok(match events {
-                None => LoadMoreEventsBackwardsOutcome::Gap,
-                Some((events, reached_start)) => LoadMoreEventsBackwardsOutcome::Events {
+            Ok(match chunk_content {
+                ChunkContent::Gap(gap) => {
+                    LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
+                }
+
+                ChunkContent::Items(events) => LoadMoreEventsBackwardsOutcome::Events {
                     events,
                     timeline_event_diffs,
                     reached_start,
@@ -2027,7 +2054,7 @@ mod tests {
             // But if I manually reload more of the chunk, the gap will be present.
             assert_matches!(
                 state.load_more_events_backwards().await.unwrap(),
-                LoadMoreEventsBackwardsOutcome::Gap
+                LoadMoreEventsBackwardsOutcome::Gap { .. }
             );
 
             num_gaps = 0;
