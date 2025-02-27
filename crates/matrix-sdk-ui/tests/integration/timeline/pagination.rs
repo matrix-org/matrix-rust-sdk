@@ -258,6 +258,10 @@ async fn test_back_pagination_highlighted() {
 async fn test_wait_for_token() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
+
+    client.event_cache().subscribe().unwrap();
+    client.event_cache().enable_storage().unwrap();
+
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let f = EventFactory::new();
