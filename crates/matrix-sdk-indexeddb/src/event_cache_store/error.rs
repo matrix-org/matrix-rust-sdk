@@ -67,3 +67,15 @@ impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreError {
         IndexeddbEventCacheStoreError::Json(serde::de::Error::custom(e.to_string()))
     }
 }
+
+impl From<rmp_serde::encode::Error> for IndexeddbEventCacheStoreError {
+    fn from(e: rmp_serde::encode::Error) -> Self {
+        IndexeddbEventCacheStoreError::Json(serde::ser::Error::custom(e.to_string()))
+    }
+}
+
+impl From<rmp_serde::decode::Error> for IndexeddbEventCacheStoreError {
+    fn from(e: rmp_serde::decode::Error) -> Self {
+        IndexeddbEventCacheStoreError::Json(serde::de::Error::custom(e.to_string()))
+    }
+}

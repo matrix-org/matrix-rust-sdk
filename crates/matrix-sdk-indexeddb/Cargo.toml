@@ -33,6 +33,7 @@ matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-store-encryption = { workspace = true }
 ruma = { workspace = true }
 serde = { workspace = true }
+rmp-serde = { workspace = true }
 serde_json = { workspace = true }
 serde-wasm-bindgen = "0.6.5"
 thiserror = { workspace = true }

@@ -15,16 +15,18 @@ mod builder;
 mod error;
 mod indexeddb_serializer;
 mod migrations;
-
-use std::future::IntoFuture;
+mod operations;
 
 use crate::event_cache_store::indexeddb_serializer::IndexeddbSerializer;
 use async_trait::async_trait;
 use indexed_db_futures::IdbDatabase;
 use indexed_db_futures::IdbQuerySource;
 use js_sys::ArrayBuffer;
+use js_sys::Object;
+use js_sys::Reflect;
 use js_sys::Uint8Array;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_base::event_cache::store::media::EventCacheStoreMedia;
 use matrix_sdk_base::linked_chunk;
 use matrix_sdk_base::media::UniqueKey;
 use matrix_sdk_base::{
@@ -49,17 +51,18 @@ use matrix_sdk_base::{
     media::MediaRequestParameters,
     // UniqueKey
 };
+use std::borrow::Cow;
+use std::future::IntoFuture;
+use std::sync::Arc;
 
-use ruma::{
-    // time::SystemTime,
-    MilliSecondsSinceUnixEpoch,
-    MxcUri,
-    RoomId,
-};
+use matrix_sdk_store_encryption::StoreCipher;
+use operations::{get_media_retention_policy, set_media_retention_policy};
+use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri, RoomId};
 
 use serde::Deserialize;
 use serde::Serialize;
 use tracing::trace;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -90,6 +93,7 @@ const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 
 pub struct IndexeddbEventCacheStore {
     pub(crate) inner: IdbDatabase,
+    pub(crate) store_cipher: Option<Arc<StoreCipher>>,
     pub(crate) serializer: IndexeddbSerializer,
     pub(crate) media_service: Arc<MediaService>,
 }
@@ -132,6 +136,25 @@ impl IndexeddbEventCacheStore {
                 Some(object_id)
             }
             None => None,
+        }
+    }
+
+    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
+        if let Some(key) = &self.store_cipher {
+            let encrypted = key.encrypt_value_data(value)?;
+            Ok(rmp_serde::to_vec_named(&encrypted)?)
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
+        if let Some(key) = &self.store_cipher {
+            let encrypted = rmp_serde::from_slice(value)?;
+            let decrypted = key.decrypt_value_data(encrypted)?;
+            Ok(Cow::Owned(decrypted))
+        } else {
+            Ok(Cow::Borrowed(value))
         }
     }
 }
@@ -194,6 +217,29 @@ struct TimelineEventForCache {
     content: TimelineEvent,
     room_id: String,
     position: usize,
+}
+
+#[wasm_bindgen]
+struct MediaForCache {
+    uri: String,
+    blob: Vec<u8>,
+}
+
+impl MediaForCache {
+    pub fn to_js_value(self) -> JsValue {
+        let obj = Object::new();
+        let blob = vec_to_blob(self.blob);
+        Reflect::set(&obj, &JsValue::from_str("uri"), &JsValue::from_str(&self.uri)).unwrap();
+        Reflect::set(&obj, &JsValue::from_str("blob"), &blob).unwrap();
+        obj.into()
+    }
+
+    pub async fn from_js_value(obj: JsValue) -> Self {
+        let uri = Reflect::get(&obj, &JsValue::from_str("uri")).unwrap().as_string().unwrap();
+        let blob =
+            blob_to_vec(Reflect::get(&obj, &JsValue::from_str("blob")).unwrap()).await.unwrap();
+        Self { uri, blob }
+    }
 }
 
 // #[cfg(target_arch = "wasm32")]
@@ -1003,6 +1049,140 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 Ok(true)
             }
         }
+    }
+}
+
+// #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+// #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait(?Send)]
+impl EventCacheStoreMedia for IndexeddbEventCacheStore {
+    type Error = IndexeddbEventCacheStoreError;
+
+    async fn media_retention_policy_inner(
+        &self,
+    ) -> Result<Option<MediaRetentionPolicy>, Self::Error> {
+        get_media_retention_policy(&self.inner).await
+    }
+
+    async fn set_media_retention_policy_inner(&self, policy: MediaRetentionPolicy) -> Result<()> {
+        set_media_retention_policy(&self.inner, policy).await
+    }
+
+    async fn add_media_content_inner(
+        &self,
+        request: &MediaRequestParameters,
+        data: Vec<u8>,
+        last_access: SystemTime,
+        policy: MediaRetentionPolicy,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<()> {
+        let ignore_policy = ignore_policy.is_yes();
+        let data = self.encode_value(data)?;
+
+        if !ignore_policy && policy.exceeds_max_file_size(data.len()) {
+            return Ok(());
+        }
+
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
+        let store = tx.object_store(keys::MEDIA)?;
+
+        let object = MediaForCache { uri: request.uri().to_string(), blob: data };
+
+        let req = store
+            .put_key_val(&JsValue::from(request.unique_key().as_str()), &object.to_js_value())?;
+        req.into_future().await?;
+        Ok(())
+    }
+
+    async fn set_ignore_media_retention_policy_inner(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<()> {
+        // let ignore_policy = ignore_policy.is_yes();
+        // let tx = self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
+        // let store = tx.object_store(keys::MEDIA)?;
+
+        // let key = JsValue::from(request.unique_key().as_str());
+        // let blob = store.get_owned(&key)?.await?;
+
+        // if let Some(blob) = blob {
+        //     let object = MediaForCache::from_js_value(blob);
+        //     let data = self.encode_value(object.blob)?;
+
+        //     if !ignore_policy && policy.exceeds_max_file_size(data.len()) {
+        //         return Ok(());
+        //     }
+
+        //     let req = store.put_key_val(&key, &object.to_js_value())?;
+        //     req.into_future().await?;
+        // }
+
+        Ok(())
+    }
+
+    async fn get_media_content_inner(
+        &self,
+        request: &MediaRequestParameters,
+        current_time: SystemTime,
+    ) -> Result<Option<Vec<u8>>> {
+        let tx =
+            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
+        let store = tx.object_store(keys::MEDIA)?;
+
+        let blob = store.get_owned(&JsValue::from(request.unique_key().as_str()))?.await?;
+
+        if let Some(blob) = blob {
+            let object = MediaForCache::from_js_value(blob).await;
+            Ok(Some(object.blob))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_media_content_for_uri_inner(
+        &self,
+        uri: &MxcUri,
+        current_time: SystemTime,
+    ) -> Result<Option<Vec<u8>>> {
+        // let tx =
+        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
+        // let store = tx.object_store(keys::MEDIA)?;
+
+        // let lower = JsValue::from_str(&(uri.to_string() + "_"));
+        // let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
+
+        // let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
+
+        // let blob = store.get_owned(&key_range)?.await?;
+
+        // if let Some(blob) = blob {
+        //     let object = MediaForCache::from_js_value(blob);
+        //     Ok(Some(object.blob))
+        // } else {
+        //     Ok(None)
+        // }
+        Ok(None)
+    }
+
+    async fn clean_up_media_cache_inner(
+        &self,
+        policy: MediaRetentionPolicy,
+        current_time: SystemTime,
+    ) -> Result<()> {
+        // let tx =
+        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
+        // let store = tx.object_store(keys::MEDIA)?;
+
+        // let lower = JsValue::from_str(&(uri.to_string() + "_"));
+        // let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
+
+        // let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
+
+        // store.delete_owned(key_range)?.await?;
+
+        Ok(())
     }
 }
 
