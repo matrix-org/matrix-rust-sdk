@@ -1212,6 +1212,9 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
             return Ok(());
         }
 
+        web_sys::console::log_1(&"🟦 Cleaning up media cache".into());
+        web_sys::console::log_1(&format!("🟦 Policy: {:?}", policy).into());
+
         let tx =
             self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
         let store = tx.object_store(keys::MEDIA)?;
