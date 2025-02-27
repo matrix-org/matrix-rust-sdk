@@ -43,7 +43,6 @@ use matrix_sdk_base::{
     sync::RoomUpdates,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
-use once_cell::sync::OnceCell;
 use room::RoomEventCacheState;
 use ruma::{
     events::{
@@ -161,11 +160,11 @@ impl Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub(crate) fn new(client: WeakClient) -> Self {
+    pub(crate) fn new(client: WeakClient, event_cache_store: EventCacheStoreLock) -> Self {
         Self {
             inner: Arc::new(EventCacheInner {
                 client,
-                store: Default::default(),
+                store: event_cache_store,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
@@ -182,12 +181,6 @@ impl EventCache {
     /// cheap.
     pub fn subscribe(&self) -> Result<()> {
         let client = self.inner.client()?;
-
-        // Initialize storage.
-        let _ = self.inner.store.get_or_try_init::<_, EventCacheError>(|| {
-            let client = self.inner.client()?;
-            Ok(client.event_cache_store().clone())
-        })?;
 
         // Initialize the drop handles.
         let _ = self.inner.drop_handles.get_or_init(|| {
@@ -533,10 +526,7 @@ struct EventCacheInner {
     client: WeakClient,
 
     /// Reference to the underlying store.
-    ///
-    /// Set to none if we shouldn't use storage for reading / writing linked
-    /// chunks.
-    store: Arc<OnceCell<EventCacheStoreLock>>,
+    store: EventCacheStoreLock,
 
     /// A lock used when many rooms must be updated at once.
     ///
