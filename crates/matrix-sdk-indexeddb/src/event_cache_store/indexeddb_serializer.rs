@@ -24,7 +24,6 @@ use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::JsValue;
-use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;
 
 use crate::{safe_encode::SafeEncode, IndexeddbEventCacheStoreError};

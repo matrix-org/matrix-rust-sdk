@@ -64,7 +64,6 @@ use tracing::trace;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
-use wasm_bindgen_futures::JsFuture;
 use web_sys::IdbKeyRange;
 use web_sys::IdbTransactionMode;
 
@@ -176,28 +175,6 @@ async fn js_value_uint8_array_to_vec(data: JsValue) -> Result<Vec<u8>, JsValue> 
     let uint8_array: Uint8Array = data.dyn_into()?;
     let mut vec = vec![0; uint8_array.length() as usize];
     uint8_array.copy_to(&mut vec);
-    Ok(vec)
-}
-
-/// Convert JsValue to Vec<u8>
-async fn blob_to_vec(blob: JsValue) -> Result<Vec<u8>, JsValue> {
-    // Cast JsValue to web_sys::Blob
-    let blob: web_sys::Blob = blob.dyn_into()?;
-
-    // Call arrayBuffer() -> Promise
-    // let array_buffer_promise: Promise = blob.array_buffer().into();
-    let promise = blob.array_buffer();
-
-    // Await the promise to get the ArrayBuffer
-    let array_buffer = JsFuture::from(promise).await?;
-
-    // Convert ArrayBuffer to Uint8Array
-    let uint8_array = Uint8Array::new(&array_buffer);
-
-    // Copy Uint8Array into Vec<u8>
-    let mut vec = vec![0; uint8_array.length() as usize];
-    uint8_array.copy_to(&mut vec);
-
     Ok(vec)
 }
 
@@ -1260,26 +1237,33 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
             let mut accumulated_items_size = 0usize;
             let mut limit_reached = false;
             let mut items_to_remove = Vec::new();
+            let mut media_items: Vec<MediaForCache> = Vec::new();
 
             for item in items {
                 let media: MediaForCache = MediaForCache::from_js_value(item).await;
                 if !media.ignore_policy.is_yes() {
-                    let size = media.data.len();
-                    if limit_reached {
-                        items_to_remove.push(media.id);
-                        continue;
-                    }
+                    media_items.push(media);
+                }
+            }
 
-                    match accumulated_items_size.checked_add(size) {
-                        Some(acc) if acc > max_cache_size => {
-                            limit_reached = true;
-                            items_to_remove.push(media.id);
-                        }
-                        Some(acc) => accumulated_items_size = acc,
-                        None => {
-                            limit_reached = true;
-                            items_to_remove.push(media.id);
-                        }
+            media_items.sort_by_key(|media| media.last_access);
+
+            for media in media_items {
+                let size = media.data.len();
+                if limit_reached {
+                    items_to_remove.push(media.id);
+                    continue;
+                }
+
+                match accumulated_items_size.checked_add(size) {
+                    Some(acc) if acc > max_cache_size => {
+                        limit_reached = true;
+                        items_to_remove.push(media.id);
+                    }
+                    Some(acc) => accumulated_items_size = acc,
+                    None => {
+                        limit_reached = true;
+                        items_to_remove.push(media.id);
                     }
                 }
             }
