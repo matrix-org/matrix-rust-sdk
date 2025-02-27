@@ -602,7 +602,6 @@ mod private {
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
     };
     use matrix_sdk_common::executor::spawn;
-    use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, EventId, OwnedEventId, OwnedRoomId};
     use tracing::{debug, error, instrument, trace};
 
@@ -625,10 +624,7 @@ mod private {
         room: OwnedRoomId,
 
         /// Reference to the underlying backing store.
-        ///
-        /// Set to none if the room shouldn't read the linked chunk from
-        /// storage, and shouldn't store updates to storage.
-        store: Arc<OnceCell<EventCacheStoreLock>>,
+        store: EventCacheStoreLock,
 
         /// The events of the room.
         events: RoomEvents,
@@ -661,42 +657,34 @@ mod private {
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
             room_id: OwnedRoomId,
-            store: Arc<OnceCell<EventCacheStoreLock>>,
+            store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
-            let (events, deduplicator) = if let Some(store) = store.get() {
-                let store_lock = store.lock().await?;
+            let store_lock = store.lock().await?;
 
-                let linked_chunk = match store_lock
-                    .load_last_chunk(&room_id)
-                    .await
-                    .map_err(EventCacheError::from)
-                    .and_then(|(last_chunk, chunk_identifier_generator)| {
-                        lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
-                            .map_err(EventCacheError::from)
-                    }) {
-                    Ok(linked_chunk) => linked_chunk,
+            let linked_chunk = match store_lock
+                .load_last_chunk(&room_id)
+                .await
+                .map_err(EventCacheError::from)
+                .and_then(|(last_chunk, chunk_identifier_generator)| {
+                    lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
+                        .map_err(EventCacheError::from)
+                }) {
+                Ok(linked_chunk) => linked_chunk,
 
-                    Err(err) => {
-                        error!("error when reloading a linked chunk from memory: {err}");
+                Err(err) => {
+                    error!("error when reloading a linked chunk from memory: {err}");
 
-                        // Clear storage for this room.
-                        store_lock
-                            .handle_linked_chunk_updates(&room_id, vec![Update::Clear])
-                            .await?;
+                    // Clear storage for this room.
+                    store_lock.handle_linked_chunk_updates(&room_id, vec![Update::Clear]).await?;
 
-                        // Restart with an empty linked chunk.
-                        None
-                    }
-                };
-
-                (
-                    RoomEvents::with_initial_linked_chunk(linked_chunk),
-                    Deduplicator::new_store_based(room_id.clone(), store.clone()),
-                )
-            } else {
-                (RoomEvents::default(), Deduplicator::new_memory_based())
+                    // Restart with an empty linked chunk.
+                    None
+                }
             };
+
+            let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
+            let deduplicator = Deduplicator::new_store_based(room_id.clone(), store.clone());
 
             Ok(Self {
                 room: room_id,
@@ -779,22 +767,6 @@ mod private {
         pub(in super::super) async fn load_more_events_backwards(
             &mut self,
         ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
-            let Some(store) = self.store.get() else {
-                // No store to reload events from. Pretend the caller has to act as if a gap was
-                // present. Limited syncs will always clear and push a gap, in this mode.
-                // There's no lazy-loading.
-
-                // Look for a gap in the in-memory chunk, iterating in reverse so as to get the
-                // most recent one.
-                if let Some(prev_token) = self.events.rgap().map(|gap| gap.prev_token) {
-                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
-                        prev_token: Some(prev_token),
-                    });
-                }
-
-                return Ok(self.conclude_load_more_for_fully_loaded_chunk());
-            };
-
             // If any in-memory chunk is a gap, don't load more events, and let the caller
             // resolve the gap.
             if let Some(prev_token) = self.events.rgap().map(|gap| gap.prev_token) {
@@ -806,7 +778,7 @@ mod private {
             let first_chunk_identifier =
                 self.events.chunks().next().expect("a linked chunk is never empty").identifier();
 
-            let store = store.lock().await?;
+            let store = self.store.lock().await?;
 
             // The first chunk is not a gap, we can load its previous chunk.
             let new_first_chunk =
@@ -877,14 +849,7 @@ mod private {
         pub(super) async fn shrink_to_last_chunk(
             &mut self,
         ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
-            let Some(store) = self.store.get() else {
-                // No need to do anything if there's no storage; we'll already reset the
-                // timeline after a limited response.
-                // TODO: that might be a way to unify our code, though?
-                return Ok(None);
-            };
-
-            let store_lock = store.lock().await?;
+            let store_lock = self.store.lock().await?;
 
             // Attempt to load the last chunk.
             let (last_chunk, chunk_identifier_generator) = match store_lock
@@ -1048,10 +1013,6 @@ mod private {
             &mut self,
             mut updates: Vec<Update<TimelineEvent, Gap>>,
         ) -> Result<(), EventCacheError> {
-            let Some(store) = self.store.get() else {
-                return Ok(());
-            };
-
             if updates.is_empty() {
                 return Ok(());
             }
@@ -1079,7 +1040,7 @@ mod private {
             // The store cross-process locking involves an actual mutex, which ensures that
             // storing updates happens in the expected order.
 
-            let store = store.clone();
+            let store = self.store.clone();
             let room_id = self.room.clone();
 
             spawn(async move {
@@ -1136,12 +1097,7 @@ mod private {
                 }
             }
 
-            let Some(store) = self.store.get() else {
-                // No store, event is not present.
-                return Ok(None);
-            };
-
-            let store = store.lock().await?;
+            let store = self.store.lock().await?;
 
             Ok(store.find_event(room_id, event_id).await?)
         }
