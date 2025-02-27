@@ -906,7 +906,9 @@ mod tests {
         apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 2 }]);
 
         // Remove a gap.
-        linked_chunk.remove_gap_at(linked_chunk.chunk_identifier(Chunk::is_gap).unwrap()).unwrap();
+        linked_chunk
+            .remove_empty_chunk_at(linked_chunk.chunk_identifier(Chunk::is_gap).unwrap())
+            .unwrap();
 
         assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['d', 'e', 'f'] ['g']);
 

@@ -29,6 +29,7 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
+    linked_chunk::ChunkContent,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -555,7 +556,25 @@ impl RoomEventCacheInner {
                     // time we sync'd).
                     if !all_duplicates {
                         if let Some(prev_token) = &prev_batch {
+                            // As a tiny optimization: remove the last chunk if it's an empty event
+                            // one, as it's not useful to keep it before a gap.
+                            let prev_chunk_to_remove =
+                                room_events.rchunks().next().and_then(|chunk| {
+                                    match chunk.content() {
+                                        ChunkContent::Items(events) if events.is_empty() => {
+                                            Some(chunk.identifier())
+                                        }
+                                        _ => None,
+                                    }
+                                });
+
                             room_events.push_gap(Gap { prev_token: prev_token.clone() });
+
+                            if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+                                room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
+                                    "we just checked the chunk is there, and it's an empty item chunk",
+                                );
+                            }
                         }
                     }
 
@@ -1569,16 +1588,11 @@ mod tests {
                 .unwrap()
                 .unwrap();
 
-        assert_eq!(linked_chunk.chunks().count(), 3);
+        assert_eq!(linked_chunk.chunks().count(), 2);
 
         let mut chunks = linked_chunk.chunks();
 
-        // Invariant: there's always an empty items chunk at the beginning.
-        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 0)
-        });
-
-        // Then we have the gap.
+        // We start with the gap.
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Gap(gap) => {
             assert_eq!(gap.prev_token, "raclette");
         });
