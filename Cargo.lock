@@ -2870,7 +2870,6 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "gloo-timers",
- "growable-bloom-filter",
  "http",
  "imbl",
  "indexmap",
