@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::Context as _;
 use assert_matches::assert_matches;
@@ -21,15 +21,13 @@ use wiremock::{
 };
 
 use super::{
-    backend::mock::{MockImpl, ISSUER_URL},
-    registrations::OidcRegistrations,
-    AuthorizationCode, AuthorizationError, AuthorizationResponse, Oidc, OidcError,
-    OidcSessionTokens, RedirectUriQueryParseError,
+    registrations::OidcRegistrations, AuthorizationCode, AuthorizationError, AuthorizationResponse,
+    Oidc, OidcError, OidcSessionTokens, RedirectUriQueryParseError,
 };
 use crate::{
     test_utils::{
         client::{
-            oauth::{mock_client_id, mock_client_metadata, mock_session, mock_session_tokens},
+            oauth::{mock_client_metadata, mock_session, mock_session_tokens},
             MockClientBuilder,
         },
         mocks::{oauth::MockServerMetadataBuilder, MatrixMockServer},
@@ -45,39 +43,28 @@ pub(crate) fn prev_session_tokens() -> OidcSessionTokens {
     OidcSessionTokens {
         access_token: "prev-access-token".to_owned(),
         refresh_token: Some("prev-refresh-token".to_owned()),
-        latest_id_token: None,
     }
 }
 
 async fn mock_environment(
 ) -> anyhow::Result<(Oidc, MatrixMockServer, VerifiedClientMetadata, OidcRegistrations)> {
     let server = MatrixMockServer::new().await;
-    let issuer_url = Url::parse(ISSUER_URL).unwrap();
-
     server.mock_who_am_i().ok().named("whoami").mount().await;
 
+    let oauth_server = server.oauth();
+    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+    oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+    oauth_server.mock_token().ok().mount().await;
+
     let client = server.client_builder().unlogged().build().await;
-
-    let session_tokens = mock_session_tokens();
-
-    let oidc = Oidc {
-        client,
-        backend: Arc::new(MockImpl::new().mark_insecure().next_session_tokens(session_tokens)),
-    };
-
-    let client_id = mock_client_id();
     let client_metadata = mock_client_metadata();
-
-    // The mock backend doesn't support registration so set a static registration.
-    let mut static_registrations = HashMap::new();
-    static_registrations.insert(issuer_url, client_id);
 
     let registrations_path = tempdir().unwrap().path().join("oidc").join("registrations.json");
     let registrations =
-        OidcRegistrations::new(&registrations_path, client_metadata.clone(), static_registrations)
+        OidcRegistrations::new(&registrations_path, client_metadata.clone(), HashMap::new())
             .unwrap();
 
-    Ok((oidc, server, client_metadata, registrations))
+    Ok((client.oidc(), server, client_metadata, registrations))
 }
 
 #[async_test]
@@ -85,7 +72,6 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     // Given a fresh environment.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
     assert!(oidc.issuer().is_none());
-    assert!(oidc.client_metadata().is_none());
     assert!(oidc.client_id().is_none());
 
     // When getting the OIDC login URL.
@@ -94,7 +80,6 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 
     // Then the client should be configured correctly.
     assert!(oidc.issuer().is_some());
-    assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_id().is_some());
 
     // When completing the login with a valid callback.
@@ -115,7 +100,6 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
         oidc.url_for_oidc(metadata.clone(), registrations, Prompt::Login).await.unwrap();
 
     assert!(oidc.issuer().is_some());
-    assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_id().is_some());
 
     // When completing login with a cancellation callback.
@@ -139,7 +123,6 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
         oidc.url_for_oidc(metadata.clone(), registrations, Prompt::Login).await.unwrap();
 
     assert!(oidc.issuer().is_some());
-    assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_id().is_some());
 
     // When completing login with an old/tampered state.
@@ -253,16 +236,14 @@ fn test_authorization_response() -> anyhow::Result<()> {
 
 #[async_test]
 async fn test_finish_authorization() -> anyhow::Result<()> {
-    let client = MockClientBuilder::new("https://example.org".to_owned())
-        .registered_with_oauth(ISSUER_URL)
-        .build()
-        .await;
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
 
-    let session_tokens = mock_session_tokens();
-    let oidc = Oidc {
-        client: client.clone(),
-        backend: Arc::new(MockImpl::new().next_session_tokens(session_tokens.clone())),
-    };
+    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+    oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
+    let client = server.client_builder().registered_with_oauth(server.server().uri()).build().await;
+    let oidc = client.oidc();
 
     // If the state is missing, then any attempt to finish authorizing will fail.
     let res = oidc
@@ -318,27 +299,25 @@ async fn test_oidc_session() -> anyhow::Result<()> {
     let oidc = client.oidc();
 
     let tokens = mock_session_tokens();
-    let issuer = ISSUER_URL;
+    let issuer = "https://oidc.example.com/issuer";
     let session = mock_session(tokens.clone(), issuer.to_owned());
     oidc.restore_session(session.clone()).await?;
 
     // Test a few extra getters.
-    assert_eq!(*oidc.client_metadata().unwrap(), session.metadata);
     assert_eq!(oidc.access_token().unwrap(), tokens.access_token);
     assert_eq!(oidc.refresh_token(), tokens.refresh_token);
 
     let user_session = oidc.user_session().unwrap();
     assert_eq!(user_session.meta, session.user.meta);
     assert_eq!(user_session.tokens, tokens);
-    assert_eq!(user_session.issuer, ISSUER_URL);
+    assert_eq!(user_session.issuer, issuer);
 
     let full_session = oidc.full_session().unwrap();
 
     assert_eq!(full_session.client_id.0, "test_client_id");
-    assert_eq!(full_session.metadata, session.metadata);
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
-    assert_eq!(full_session.user.issuer, ISSUER_URL);
+    assert_eq!(full_session.user.issuer, issuer);
 
     Ok(())
 }
@@ -349,13 +328,18 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     let server_url = server.server().uri();
 
     server.mock_well_known().ok().expect(1).named("well_known").mount().await;
+    server.mock_versions().ok().expect(1..).named("versions").mount().await;
+
+    let oauth_server = server.oauth();
+    oauth_server.mock_server_metadata().ok().expect(2..).named("server_metadata").mount().await;
+    oauth_server.mock_token().ok().expect(2).named("token").mount().await;
 
     let prev_tokens = prev_session_tokens();
     let next_tokens = mock_session_tokens();
 
     for client in [
         // Create an insecure client with the homeserver_url method.
-        Client::builder().homeserver_url("http://example.org").build().await?,
+        Client::builder().homeserver_url(&server_url).build().await?,
         // Create an insecure client with the insecure_server_name_no_tls method.
         Client::builder()
             .insecure_server_name_no_tls(&ServerName::parse(
@@ -364,16 +348,10 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
             .build()
             .await?,
     ] {
-        let backend = Arc::new(
-            MockImpl::new()
-                .mark_insecure()
-                .next_session_tokens(next_tokens.clone())
-                .expected_refresh_token(prev_tokens.refresh_token.as_ref().unwrap().clone()),
-        );
-        let oidc = Oidc { client: client.clone(), backend: backend.clone() };
+        let oidc = client.oidc();
 
         // Restore the previous session so we have an existing set of refresh tokens.
-        oidc.restore_session(mock_session(prev_tokens.clone(), ISSUER_URL.to_owned())).await?;
+        oidc.restore_session(mock_session(prev_tokens.clone(), server_url.clone())).await?;
 
         let mut session_token_stream = oidc.session_tokens_stream().expect("stream available");
 
@@ -387,9 +365,6 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
         });
 
         assert_pending!(session_token_stream);
-
-        // There should have been exactly one refresh.
-        assert_eq!(*backend.num_refreshes.lock().unwrap(), 1);
     }
 
     Ok(())
@@ -427,7 +402,7 @@ async fn test_register_client() {
         .await;
     oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
 
-    let response = oidc.register_client(client_metadata.clone(), None).await.unwrap();
+    let response = oidc.register_client(client_metadata, None).await.unwrap();
     assert_eq!(response.client_id, "test_client_id");
 
     let auth_data = oidc.data().unwrap();
@@ -435,7 +410,6 @@ async fn test_register_client() {
     // with `Url` which will normalize that.
     assert_eq!(Url::parse(&auth_data.issuer), Url::parse(&server.server().uri()));
     assert_eq!(auth_data.client_id.0, response.client_id);
-    assert_eq!(auth_data.metadata, client_metadata);
 }
 
 #[async_test]
