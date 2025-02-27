@@ -630,7 +630,7 @@ mod private {
             };
 
             let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
-            let deduplicator = Deduplicator::new_store_based(room_id.clone(), store.clone());
+            let deduplicator = Deduplicator::new(room_id.clone(), store.clone());
 
             Ok(Self {
                 room: room_id,
