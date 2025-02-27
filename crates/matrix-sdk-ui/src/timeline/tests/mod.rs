@@ -28,6 +28,7 @@ use imbl::vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
+    crypto::OlmMachine,
     deserialized_responses::TimelineEvent,
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
@@ -50,8 +51,8 @@ use ruma::{
     push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    RoomVersionId, TransactionId, UInt, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomVersionId, TransactionId, UInt, UserId,
 };
 use tokio::sync::RwLock;
 
@@ -136,7 +137,7 @@ impl TestTimelineBuilder {
 }
 
 struct TestTimeline {
-    controller: TimelineController<TestRoomDataProvider>,
+    controller: TimelineController<TestRoomDataProvider, (OlmMachine, OwnedRoomId)>,
 
     /// An [`EventFactory`] that can be used for creating events in this
     /// timeline.
