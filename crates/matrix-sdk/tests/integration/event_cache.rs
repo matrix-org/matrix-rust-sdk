@@ -1230,14 +1230,8 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     // only contains the events returned by the sync.
     //
     // The first back-pagination will hit the network, and let us know we've reached
-    // the end of the room, but! we do have the default initial events chunk in
-    // storage.
+    // the end of the room.
 
-    let outcome = pagination.run_backwards_once(20).await.unwrap();
-    assert!(outcome.reached_start.not());
-    assert!(outcome.events.is_empty());
-
-    // Loading the default initial event chunk.
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
@@ -1377,13 +1371,6 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
-    // Next, we lazy-load a next chunk from the store, and get the initial, empty
-    // default events chunk.
-    let outcome = pagination.run_backwards_once(20).await.unwrap();
-    assert!(outcome.reached_start.not());
-    assert!(outcome.events.is_empty());
-    assert!(stream.is_empty());
-
     // For prev-batch, the back-pagination returns two events we already know, and a
     // previous batch token.
     server
@@ -1401,7 +1388,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // Run pagination a second time: it will consume prev-batch, which is the least
     // recent token.
     let outcome = pagination.run_backwards_once(20).await.unwrap();
-    assert!(outcome.reached_start.not());
+    assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
@@ -1409,12 +1396,6 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     // that case, it means we stored the gap with the prev-batch3 token, while
     // we shouldn't have to, since it is useless; all events were deduplicated
     // from the previous pagination.
-
-    // Instead, we're lazy-loading the empty initial events chunks.
-    let outcome = pagination.run_backwards_once(20).await.unwrap();
-    assert!(outcome.reached_start);
-    assert!(outcome.events.is_empty());
-    assert!(stream.is_empty());
 
     let (events, stream) = room_event_cache.subscribe().await;
     assert_event_matches_msg(&events[0], "hello");

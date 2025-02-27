@@ -371,7 +371,7 @@ impl RoomPagination {
                     // All the events were duplicated; don't act upon them, and only remove the
                     // prior gap that we just filled.
                     trace!("removing previous gap, as all events have been deduplicated");
-                    room_events.remove_gap_at(gap_id).expect("gap identifier is a valid gap chunk id we read previously")
+                    room_events.remove_empty_chunk_at(gap_id).expect("gap identifier is a valid gap chunk id we read previously")
                 } else {
                     trace!("replacing previous gap with the back-paginated events");
 
