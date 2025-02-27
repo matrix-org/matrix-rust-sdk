@@ -17,21 +17,20 @@
 use std::{sync::Arc, time::Duration};
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk_base::{linked_chunk::ChunkIdentifier, timeout::timeout};
+use matrix_sdk_base::{
+    deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier, timeout::timeout,
+};
 use matrix_sdk_common::linked_chunk::ChunkContent;
+use ruma::api::Direction;
 use tokio::sync::RwLockWriteGuard;
 use tracing::{debug, instrument, trace};
 
 use super::{
     deduplicator::DeduplicationOutcome,
-    paginator::{PaginationResult, PaginatorState},
-    room::{
-        events::{Gap, RoomEvents},
-        LoadMoreEventsBackwardsOutcome, RoomEventCacheInner,
-    },
+    room::{events::Gap, LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheState, RoomEventCacheUpdate,
 };
-use crate::event_cache::{paginator::Paginator, EventCacheError};
+use crate::{event_cache::EventCacheError, room::MessagesOptions};
 
 /// Status for the back-pagination on a room event cache.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -176,38 +175,70 @@ impl RoomPagination {
         // to load from storage first, then from network if storage indicated
         // there's no previous events chunk to load.
 
-        match self.inner.state.write().await.load_more_events_backwards().await? {
-            LoadMoreEventsBackwardsOutcome::Gap => {
-                // We have a gap, so resolve it with a network back-pagination.
-            }
+        loop {
+            let mut state_guard = self.inner.state.write().await;
 
-            LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
-                return Ok(Some(BackPaginationOutcome { reached_start: true, events: vec![] }))
-            }
+            match state_guard.load_more_events_backwards().await? {
+                LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken => {
+                    const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
 
-            LoadMoreEventsBackwardsOutcome::Events {
-                events,
-                timeline_event_diffs,
-                reached_start,
-            } => {
-                if !timeline_event_diffs.is_empty() {
-                    let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                        diffs: timeline_event_diffs,
-                        origin: EventsOrigin::Pagination,
-                    });
+                    // Release the state guard while waiting, to not deadlock the sync task.
+                    drop(state_guard);
+
+                    // Otherwise, wait for a notification that we received a previous-batch token.
+                    trace!("waiting for a pagination token…");
+                    let _ = timeout(
+                        self.inner.pagination_batch_token_notifier.notified(),
+                        DEFAULT_WAIT_FOR_TOKEN_DURATION,
+                    )
+                    .await;
+                    trace!("done waiting");
+
+                    self.inner.state.write().await.waited_for_initial_prev_token = true;
+
+                    // Retry!
+                    //
+                    // Note: the next call to `load_more_events_backwards` can't return
+                    // `WaitForInitialPrevToken` because we've just set to
+                    // `waited_for_initial_prev_token`, so this is not an infinite loop.
+                    //
+                    // Note 2: not a recursive call, because recursive and async have a bad time
+                    // together.
+                    continue;
                 }
 
-                return Ok(Some(BackPaginationOutcome {
+                LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
+                    // We have a gap, so resolve it with a network back-pagination.
+                    drop(state_guard);
+                    return self.paginate_backwards_with_network(batch_size, prev_token).await;
+                }
+
+                LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
+                    return Ok(Some(BackPaginationOutcome { reached_start: true, events: vec![] }));
+                }
+
+                LoadMoreEventsBackwardsOutcome::Events {
+                    events,
+                    timeline_event_diffs,
                     reached_start,
-                    // This is a backwards pagination. `BackPaginationOutcome` expects events to
-                    // be in “reverse order”.
-                    events: events.into_iter().rev().collect(),
-                }));
+                } => {
+                    if !timeline_event_diffs.is_empty() {
+                        let _ =
+                            self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                                diffs: timeline_event_diffs,
+                                origin: EventsOrigin::Pagination,
+                            });
+                    }
+
+                    return Ok(Some(BackPaginationOutcome {
+                        reached_start,
+                        // This is a backwards pagination. `BackPaginationOutcome` expects events to
+                        // be in “reverse order”.
+                        events: events.into_iter().rev().collect(),
+                    }));
+                }
             }
         }
-
-        // Alright, try network.
-        self.paginate_backwards_with_network(batch_size).await
     }
 
     /// Run a single pagination request (/messages) to the server.
@@ -219,34 +250,30 @@ impl RoomPagination {
     async fn paginate_backwards_with_network(
         &self,
         batch_size: u16,
+        prev_token: Option<String>,
     ) -> Result<Option<BackPaginationOutcome>> {
-        const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
-
-        let prev_token = self.get_or_wait_for_token(Some(DEFAULT_WAIT_FOR_TOKEN_DURATION)).await;
-
-        let prev_token = match prev_token {
-            PaginationToken::HasMore(token) => Some(token),
-            PaginationToken::None => None,
-            PaginationToken::HitEnd => {
-                debug!("Not back-paginating since we've reached the start of the timeline.");
-                return Ok(Some(BackPaginationOutcome { reached_start: true, events: Vec::new() }));
-            }
-        };
-
-        let (pagination_result, new_gap) = {
+        let (events, new_gap) = {
             // Use a throw-away paginator instance.
-            let paginator = Paginator::new(self.inner.weak_room.clone());
+            let Some(room) = self.inner.weak_room.get() else {
+                // The client is shutting down, return an empty default response.
+                return Ok(Some(BackPaginationOutcome {
+                    reached_start: false,
+                    events: Default::default(),
+                }));
+            };
 
-            paginator
-                .set_idle_state(PaginatorState::Idle, prev_token.clone(), None)
-                .expect("a pristine paginator must be in the initial state");
+            let mut options = MessagesOptions::new(Direction::Backward).from(prev_token.as_deref());
+            options.limit = batch_size.into();
 
-            // The network request happens here:
-            let result = paginator.paginate_backward(batch_size.into()).await?;
+            let response = room.messages(options).await.map_err(|err| {
+                EventCacheError::BackpaginationError(
+                    crate::event_cache::paginator::PaginatorError::SdkError(Box::new(err)),
+                )
+            })?;
 
-            let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
+            let new_gap = response.end.map(|prev_token| Gap { prev_token });
 
-            (result, new_gap)
+            (response.chunk, new_gap)
         };
 
         // Make sure the `RoomEvents` isn't updated while we are saving events from
@@ -255,12 +282,12 @@ impl RoomPagination {
 
         // Check that the previous token still exists; otherwise it's a sign that the
         // room's timeline has been cleared.
-        let prev_gap_id = if let Some(token) = prev_token {
-            let gap_id = state.events().chunk_identifier(|chunk| {
+        let prev_gap_chunk_id = if let Some(token) = prev_token {
+            let gap_chunk_id = state.events().chunk_identifier(|chunk| {
                 matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
             });
 
-            if gap_id.is_none() {
+            if gap_chunk_id.is_none() {
                 // We got a previous-batch token from the linked chunk *before* running the
                 // request, but it is missing *after* completing the
                 // request.
@@ -270,12 +297,12 @@ impl RoomPagination {
                 return Ok(None);
             }
 
-            gap_id
+            gap_chunk_id
         } else {
             None
         };
 
-        self.handle_network_pagination_result(state, pagination_result, new_gap, prev_gap_id)
+        self.handle_network_pagination_result(state, events, new_gap, prev_gap_chunk_id)
             .await
             .map(Some)
     }
@@ -284,11 +311,12 @@ impl RoomPagination {
     async fn handle_network_pagination_result(
         &self,
         mut state: RwLockWriteGuard<'_, RoomEventCacheState>,
-        pagination_result: PaginationResult,
+        events: Vec<TimelineEvent>,
         new_gap: Option<Gap>,
         prev_gap_id: Option<ChunkIdentifier>,
     ) -> Result<BackPaginationOutcome> {
-        let PaginationResult { events, hit_end_of_timeline } = pagination_result;
+        // If there's no new previous gap, then we've reached the start of the timeline.
+        let reached_start = new_gap.is_none();
 
         let (
             DeduplicationOutcome {
@@ -405,7 +433,7 @@ impl RoomPagination {
             state.events()
             .chunks()
             .next()
-            .map_or(hit_end_of_timeline, |chunk| chunk.is_definitive_head())
+            .map_or(reached_start, |chunk| chunk.is_definitive_head())
         };
 
         let backpagination_outcome = BackPaginationOutcome { events, reached_start };
@@ -418,72 +446,6 @@ impl RoomPagination {
         }
 
         Ok(backpagination_outcome)
-    }
-
-    /// Get the latest pagination token, as stored in the room events linked
-    /// list, or wait for it for the given amount of time.
-    ///
-    /// It will only wait if we *never* saw an initial previous-batch token.
-    /// Otherwise, it will immediately skip.
-    #[doc(hidden)]
-    pub async fn get_or_wait_for_token(&self, wait_time: Option<Duration>) -> PaginationToken {
-        fn get_latest(events: &RoomEvents) -> Option<String> {
-            events.rchunks().find_map(|chunk| match chunk.content() {
-                ChunkContent::Gap(gap) => Some(gap.prev_token.clone()),
-                ChunkContent::Items(..) => None,
-            })
-        }
-
-        {
-            // Scope for the lock guard.
-            let state = self.inner.state.read().await;
-
-            // Check if the linked chunk contains any events. If so, absence of a gap means
-            // we've hit the start of the timeline. If not, absence of a gap
-            // means we've never received a pagination token from sync, and we
-            // should wait for one.
-            let has_events = state.events().events().next().is_some();
-
-            // Fast-path: we do have a previous-batch token already.
-            if let Some(found) = get_latest(state.events()) {
-                return PaginationToken::HasMore(found);
-            }
-
-            // If we had events, and there was no gap, then we've hit the end of the
-            // timeline.
-            if has_events {
-                return PaginationToken::HitEnd;
-            }
-
-            // If we've already waited for an initial previous-batch token before,
-            // immediately abort.
-            if state.waited_for_initial_prev_token {
-                return PaginationToken::None;
-            }
-        }
-
-        // If the caller didn't set a wait time, return none early.
-        let Some(wait_time) = wait_time else {
-            return PaginationToken::None;
-        };
-
-        // Otherwise, wait for a notification that we received a previous-batch token.
-        // Note the state lock is released while doing so, allowing other tasks to write
-        // into the linked chunk.
-        let _ = timeout(self.inner.pagination_batch_token_notifier.notified(), wait_time).await;
-
-        let mut state = self.inner.state.write().await;
-
-        state.waited_for_initial_prev_token = true;
-
-        if let Some(token) = get_latest(state.events()) {
-            PaginationToken::HasMore(token)
-        } else if state.events().events().next().is_some() {
-            // See logic above, in the read lock guard scope.
-            PaginationToken::HitEnd
-        } else {
-            PaginationToken::None
-        }
     }
 
     /// Returns a subscriber to the pagination status used for the
@@ -512,314 +474,6 @@ impl From<Option<String>> for PaginationToken {
         match token {
             Some(val) => Self::HasMore(val),
             None => Self::None,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    // Those tests require time to work, and it does not on wasm32.
-    #[cfg(not(target_arch = "wasm32"))]
-    mod time_tests {
-        use std::time::{Duration, Instant};
-
-        use assert_matches::assert_matches;
-        use matrix_sdk_base::RoomState;
-        use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE};
-        use ruma::{event_id, room_id, user_id};
-        use tokio::{spawn, time::sleep};
-
-        use crate::{
-            event_cache::{pagination::PaginationToken, room::events::Gap},
-            test_utils::logged_in_client,
-        };
-
-        #[async_test]
-        async fn test_wait_no_pagination_token() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
-
-            let pagination = room_event_cache.pagination();
-
-            // If I have a room with no events, and try to get a pagination token without
-            // waiting,
-            let found = pagination.get_or_wait_for_token(None).await;
-            // Then I don't get any pagination token.
-            assert_matches!(found, PaginationToken::None);
-
-            // Reset waited_for_initial_prev_token and event state.
-            let _ = pagination.inner.state.write().await.reset().await.unwrap();
-
-            // If I wait for a back-pagination token for 0 seconds,
-            let before = Instant::now();
-            let found = pagination.get_or_wait_for_token(Some(Duration::default())).await;
-            let waited = before.elapsed();
-            // then I don't get any,
-            assert_matches!(found, PaginationToken::None);
-            // and I haven't waited long.
-            assert!(waited.as_secs() < 1);
-
-            // Reset waited_for_initial_prev_token state.
-            let _ = pagination.inner.state.write().await.reset().await.unwrap();
-
-            // If I wait for a back-pagination token for 1 second,
-            let before = Instant::now();
-            let found = pagination.get_or_wait_for_token(Some(Duration::from_secs(1))).await;
-            let waited = before.elapsed();
-            // then I still don't get any.
-            assert_matches!(found, PaginationToken::None);
-            // and I've waited a bit.
-            assert!(waited.as_secs() < 2);
-            assert!(waited.as_secs() >= 1);
-        }
-
-        #[async_test]
-        async fn test_wait_hit_end_of_timeline() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
-
-            let f = EventFactory::new().room(room_id).sender(*ALICE);
-            let pagination = room_event_cache.pagination();
-
-            // Add a previous event.
-            room_event_cache
-                .inner
-                .state
-                .write()
-                .await
-                .with_events_mut(|events| {
-                    events.push_events([f
-                        .text_msg("this is the start of the timeline")
-                        .into_event()]);
-                })
-                .await
-                .unwrap();
-
-            // If I have a room with events, and try to get a pagination token without
-            // waiting,
-            let found = pagination.get_or_wait_for_token(None).await;
-            // I've reached the start of the timeline.
-            assert_matches!(found, PaginationToken::HitEnd);
-
-            // If I wait for a back-pagination token for 0 seconds,
-            let before = Instant::now();
-            let found = pagination.get_or_wait_for_token(Some(Duration::default())).await;
-            let waited = before.elapsed();
-            // Then I still have reached the start of the timeline.
-            assert_matches!(found, PaginationToken::HitEnd);
-            // and I've waited very little.
-            assert!(waited.as_secs() < 1);
-
-            // If I wait for a back-pagination token for 1 second,
-            let before = Instant::now();
-            let found = pagination.get_or_wait_for_token(Some(Duration::from_secs(1))).await;
-            let waited = before.elapsed();
-            // then I still don't get any.
-            assert_matches!(found, PaginationToken::HitEnd);
-            // and I've waited very little (there's no point in waiting in this case).
-            assert!(waited.as_secs() < 1);
-
-            // Now, reset state. We'll add an event *after* we've started waiting, this
-            // time.
-            room_event_cache.clear().await.unwrap();
-
-            spawn(async move {
-                sleep(Duration::from_secs(1)).await;
-
-                room_event_cache
-                    .inner
-                    .state
-                    .write()
-                    .await
-                    .with_events_mut(|events| {
-                        events.push_events([f
-                            .text_msg("this is the start of the timeline")
-                            .into_event()]);
-                    })
-                    .await
-                    .unwrap();
-            });
-
-            // If I wait for a pagination token,
-            let before = Instant::now();
-            let found = pagination.get_or_wait_for_token(Some(Duration::from_secs(2))).await;
-            let waited = before.elapsed();
-            // since sync has returned all events, and no prior gap, I've hit the end.
-            assert_matches!(found, PaginationToken::HitEnd);
-            // and I've waited for the whole duration.
-            assert!(waited.as_secs() >= 2);
-            assert!(waited.as_secs() < 3);
-        }
-
-        #[async_test]
-        async fn test_wait_for_pagination_token_already_present() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
-
-            let expected_token = "old".to_owned();
-
-            // When I have events and multiple gaps, in a room,
-            {
-                room_event_cache
-                    .inner
-                    .state
-                    .write()
-                    .await
-                    .with_events_mut(|room_events| {
-                        room_events.push_gap(Gap { prev_token: expected_token.clone() });
-                        room_events.push_events([EventFactory::new()
-                            .text_msg("yolo")
-                            .sender(user_id!("@b:z.h"))
-                            .event_id(event_id!("$ida"))
-                            .into_event()]);
-                    })
-                    .await
-                    .unwrap();
-            }
-
-            let pagination = room_event_cache.pagination();
-
-            // If I don't wait for a back-pagination token,
-            let found = pagination.get_or_wait_for_token(None).await;
-            // Then I get it.
-            assert_eq!(found, PaginationToken::HasMore(expected_token.clone()));
-
-            // If I wait for a back-pagination token for 0 seconds,
-            let before = Instant::now();
-            let found = pagination.get_or_wait_for_token(Some(Duration::default())).await;
-            let waited = before.elapsed();
-            // then I do get one.
-            assert_eq!(found, PaginationToken::HasMore(expected_token.clone()));
-            // and I haven't waited long.
-            assert!(waited.as_millis() < 100);
-
-            // If I wait for a back-pagination token for 1 second,
-            let before = Instant::now();
-            let found = pagination.get_or_wait_for_token(Some(Duration::from_secs(1))).await;
-            let waited = before.elapsed();
-            // then I do get one.
-            assert_eq!(found, PaginationToken::HasMore(expected_token));
-            // and I haven't waited long.
-            assert!(waited.as_millis() < 100);
-        }
-
-        #[async_test]
-        async fn test_wait_for_late_pagination_token() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
-
-            let expected_token = "old".to_owned();
-
-            let before = Instant::now();
-            let cloned_expected_token = expected_token.clone();
-            let cloned_room_event_cache = room_event_cache.clone();
-            let insert_token_task = spawn(async move {
-                // If a backpagination token is inserted after 400 milliseconds,
-                sleep(Duration::from_millis(400)).await;
-
-                cloned_room_event_cache
-                    .inner
-                    .state
-                    .write()
-                    .await
-                    .with_events_mut(|events| {
-                        events.push_gap(Gap { prev_token: cloned_expected_token })
-                    })
-                    .await
-                    .unwrap();
-            });
-
-            let pagination = room_event_cache.pagination();
-
-            // Then first I don't get it (if I'm not waiting,)
-            let found = pagination.get_or_wait_for_token(None).await;
-            assert_matches!(found, PaginationToken::None);
-
-            // And if I wait for the back-pagination token for 600ms,
-            let found = pagination.get_or_wait_for_token(Some(Duration::from_millis(600))).await;
-            let waited = before.elapsed();
-
-            // then I do get one eventually.
-            assert_eq!(found, PaginationToken::HasMore(expected_token));
-            // and I have waited between ~400 and ~1000 milliseconds.
-            assert!(waited.as_secs() < 1);
-            assert!(waited.as_millis() >= 400);
-
-            // The task succeeded.
-            insert_token_task.await.unwrap();
-        }
-
-        #[async_test]
-        async fn test_get_latest_token() {
-            let client = logged_in_client(None).await;
-            let room_id = room_id!("!galette:saucisse.bzh");
-            client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-            let event_cache = client.event_cache();
-
-            event_cache.subscribe().unwrap();
-
-            let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
-
-            let old_token = "old".to_owned();
-            let new_token = "new".to_owned();
-
-            // Assuming a room event cache that contains both an old and a new pagination
-            // token, and events in between,
-            room_event_cache
-                .inner
-                .state
-                .write()
-                .await
-                .with_events_mut(|events| {
-                    let f = EventFactory::new().room(room_id).sender(*ALICE);
-
-                    // This simulates a valid representation of a room: first group of gap+events
-                    // were e.g. restored from the cache; second group of gap+events was received
-                    // from a subsequent sync.
-                    events.push_gap(Gap { prev_token: old_token });
-                    events.push_events([f.text_msg("oldest from cache").into()]);
-
-                    events.push_gap(Gap { prev_token: new_token.clone() });
-                    events.push_events([f.text_msg("sync'd gappy timeline").into()]);
-                })
-                .await
-                .unwrap();
-
-            let pagination = room_event_cache.pagination();
-
-            // Retrieving the pagination token will return the most recent one, not the old
-            // one.
-            let found = pagination.get_or_wait_for_token(None).await;
-            assert_eq!(found, PaginationToken::HasMore(new_token));
         }
     }
 }
