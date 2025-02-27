@@ -8,8 +8,7 @@ use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        BackPaginationOutcome, EventCacheError, PaginationToken, RoomEventCacheUpdate,
-        RoomPaginationStatus,
+        BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate, RoomPaginationStatus,
     },
     linked_chunk::{ChunkIdentifier, Position, Update},
     test_utils::{
@@ -269,11 +268,7 @@ async fn test_backpaginate_once() {
             .await;
 
         // Then if I backpaginate,
-        let pagination = room_event_cache.pagination();
-
-        assert_matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_));
-
-        pagination.run_backwards_once(20).await.unwrap()
+        room_event_cache.pagination().run_backwards_once(20).await.unwrap()
     };
 
     // I'll get all the previous events, in "reverse" order (same as the response).
@@ -341,7 +336,6 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     let mut num_iterations = 0;
     let mut global_events = Vec::new();
-    let mut global_reached_start = false;
 
     // The first back-pagination will return these two.
     server
@@ -367,20 +361,17 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
-    while matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_)) {
+    loop {
         let outcome = pagination.run_backwards_once(20).await.unwrap();
-
         global_events.extend(outcome.events);
-        if !global_reached_start {
-            global_reached_start = outcome.reached_start;
-        }
-
         num_iterations += 1;
+        if outcome.reached_start {
+            break;
+        }
     }
 
     // I'll get all the previous events,
     assert_eq!(num_iterations, 2); // in two iterations
-    assert!(global_reached_start);
 
     assert_event_matches_msg(&global_events[0], "world");
     assert_event_matches_msg(&global_events[1], "hello");
@@ -467,7 +458,6 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     let mut num_iterations = 0;
     let mut global_events = Vec::new();
-    let mut global_reached_start = false;
 
     // The first back-pagination will return these two.
     server
@@ -493,18 +483,17 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
-    while matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_)) {
+    loop {
         let outcome = pagination.run_backwards_until(20).await.unwrap();
-        if !global_reached_start {
-            global_reached_start = outcome.reached_start;
-        }
         global_events.extend(outcome.events);
         num_iterations += 1;
+        if outcome.reached_start {
+            break;
+        }
     }
 
     // I'll get all the previous events,
     assert_eq!(num_iterations, 1); // in one iteration
-    assert!(global_reached_start);
 
     assert_event_matches_msg(&global_events[0], "world");
     assert_event_matches_msg(&global_events[1], "hello");
@@ -620,12 +609,6 @@ async fn test_reset_while_backpaginating() {
         .await;
 
     // Run the pagination!
-    let pagination = room_event_cache.pagination();
-
-    assert_let!(
-        PaginationToken::HasMore(first_token) = pagination.get_or_wait_for_token(None).await
-    );
-
     let backpagination = spawn({
         let pagination = room_event_cache.pagination();
         async move { pagination.run_backwards_once(20).await }
@@ -650,15 +633,7 @@ async fn test_reset_while_backpaginating() {
     let BackPaginationOutcome { events, .. } = outcome;
     assert!(!events.is_empty());
 
-    // Now if we retrieve the oldest token, it's set to something else.
-    assert_let!(
-        PaginationToken::HasMore(second_token) = pagination.get_or_wait_for_token(None).await
-    );
-    assert!(first_token != second_token);
-    assert_eq!(second_token, "third_backpagination");
-
     // Assert the updates as diffs.
-
     {
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
@@ -728,7 +703,6 @@ async fn test_backpaginating_without_token() {
 
     // We don't have a token.
     let pagination = room_event_cache.pagination();
-    assert_eq!(pagination.get_or_wait_for_token(None).await, PaginationToken::None);
 
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
