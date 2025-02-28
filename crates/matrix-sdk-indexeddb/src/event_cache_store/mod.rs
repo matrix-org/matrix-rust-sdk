@@ -1394,4 +1394,67 @@ mod tests {
         assert_eq!(contents[0], content, "file is not last access");
         assert_eq!(contents[1], thumbnail_content, "thumbnail is not second-to-last access");
     }
+
+    #[async_test]
+    async fn test_linked_chunk_new_items_chunk() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None, // Note: the store must link the next entry itself.
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(13),
+                        next: Some(ChunkIdentifier::new(37)), /* But it's fine to explicitly pass
+                                                               * the next link ahead of time. */
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(13)),
+                        new: ChunkIdentifier::new(37),
+                        next: None,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 3);
+
+        {
+            // Chunks are ordered from smaller to bigger IDs.
+            let c = chunks.remove(0);
+            assert_eq!(c.identifier, ChunkIdentifier::new(13));
+            assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
+            assert_eq!(c.next, Some(ChunkIdentifier::new(37)));
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert!(events.is_empty());
+            });
+
+            let c = chunks.remove(0);
+            assert_eq!(c.identifier, ChunkIdentifier::new(37));
+            assert_eq!(c.previous, Some(ChunkIdentifier::new(13)));
+            assert_eq!(c.next, None);
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert!(events.is_empty());
+            });
+
+            let c = chunks.remove(0);
+            assert_eq!(c.identifier, ChunkIdentifier::new(42));
+            assert_eq!(c.previous, None);
+            assert_eq!(c.next, Some(ChunkIdentifier::new(13)));
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert!(events.is_empty());
+            });
+        }
+    }
 }
