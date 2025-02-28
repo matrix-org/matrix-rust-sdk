@@ -50,6 +50,7 @@ use matrix_sdk_base::{
     media::MediaRequestParameters,
     // UniqueKey
 };
+
 use std::borrow::Cow;
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -115,6 +116,11 @@ impl IndexeddbEventCacheStore {
 
     pub fn get_event_id(&self, room_id: &str, chunk_id: &str, index: usize) -> String {
         let id_raw = [room_id, KEY_SEPARATOR, chunk_id, KEY_SEPARATOR, &index.to_string()].concat();
+        self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
+    }
+
+    pub fn get_event_id_upper_bound(&self, room_id: &str, chunk_id: &str, limiter: &str) -> String {
+        let id_raw = [room_id, KEY_SEPARATOR, chunk_id, KEY_SEPARATOR, limiter].concat();
         self.serializer.encode_key_as_string(room_id.as_ref(), id_raw)
     }
 
@@ -548,10 +554,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let event_id = format!("{}{}{}", chunk_id, KEY_SEPARATOR, index);
-                    let event_id_js_value = JsValue::from_str(&event_id);
-
-                    object_store.delete(&event_id_js_value)?;
+                    let event_id: JsValue =
+                        self.get_event_id(room_id.as_ref(), &chunk_id.to_string(), index).into();
+                    object_store.delete_owned(event_id)?;
                 }
                 Update::DetachLastItems { at } => {
                     let chunk_id = at.chunk_identifier().index();
@@ -567,10 +572,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         index,
                     ));
 
-                    let upper_bound = JsValue::from_str(
-                        &(self.get_event_id(room_id.as_ref(), &chunk_id.to_string(), index)
-                            + "\u{FFFF}"),
-                    );
+                    let upper_bound: JsValue = self
+                        .get_event_id_upper_bound(
+                            room_id.as_ref(),
+                            &chunk_id.to_string(),
+                            "\u{FFFF}",
+                        )
+                        .into();
 
                     let key_range = IdbKeyRange::bound(&lower_bound, &upper_bound).unwrap();
 
@@ -1244,7 +1252,6 @@ mod tests {
     use ruma::{events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
     use std::time::Duration;
     use uuid::Uuid;
-    use wasm_bindgen::JsValue;
     use web_sys::{IdbKeyRange, IdbTransactionMode};
 
     use crate::event_cache_store::Chunk;
@@ -1566,9 +1573,9 @@ mod tests {
         // Check that cascading worked. Yes, sqlite, I doubt you.
         let tx = store
             .inner
-            .transaction_on_one_with_mode(keys::GAPS, IdbTransactionMode::Readonly)
+            .transaction_on_one_with_mode(keys::LINKED_CHUNKS, IdbTransactionMode::Readonly)
             .unwrap();
-        let object_store = tx.object_store(keys::GAPS).unwrap();
+        let object_store = tx.object_store(keys::LINKED_CHUNKS).unwrap();
 
         let gaps = object_store.get_all().unwrap().await.unwrap();
         let mut gap_ids = Vec::new();
@@ -1679,9 +1686,8 @@ mod tests {
             .unwrap();
         let object_store = tx.object_store(keys::EVENTS).unwrap();
 
-        let lower = JsValue::from_str(&store.get_event_id(room_id.as_ref(), "42", 0));
-        let upper =
-            JsValue::from_str(&(store.get_event_id(room_id.as_ref(), "42", 0) + "\u{FFFF}"));
+        let lower = store.get_event_id(room_id.as_ref(), "42", 0).into();
+        let upper = &(store.get_event_id_upper_bound(room_id.as_ref(), "42", "\u{FFFF}")).into();
 
         let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
