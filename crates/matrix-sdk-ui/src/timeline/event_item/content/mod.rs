@@ -551,6 +551,14 @@ impl EncryptedMessage {
             _ => Self::Unknown,
         }
     }
+
+    pub(crate) fn session_id(&self) -> Option<&str> {
+        match self {
+            EncryptedMessage::OlmV1Curve25519AesSha2 { .. } => None,
+            EncryptedMessage::MegolmV1AesSha2 { session_id, .. } => Some(session_id),
+            EncryptedMessage::Unknown => None,
+        }
+    }
 }
 
 /// An `m.sticker` event.
