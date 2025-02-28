@@ -19,6 +19,7 @@ use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
+    deserialized_responses::TimelineEvent,
     event_cache::{
         store::{
             media::{
@@ -38,7 +39,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId};
 use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::fs;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     error::{Error, Result},
@@ -64,7 +65,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 5;
+const DATABASE_VERSION: u8 = 6;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -351,6 +352,14 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 6 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
+            txn.set_db_version(6)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -499,11 +508,19 @@ impl EventCacheStore for SqliteEventCacheStore {
                             "INSERT INTO events(chunk_id, room_id, event_id, content, position) VALUES (?, ?, ?, ?, ?)"
                         )?;
 
-                        for (i, event) in items.into_iter().enumerate() {
+                        let invalid_event = |event: TimelineEvent| {
+                            let Some(event_id) = event.event_id() else {
+                                error!(%room_id, "Trying to push an event with no ID");
+                                return None;
+                            };
+
+                            Some((event_id.to_string(), event))
+                        };
+
+                        for (i, (event_id, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
                             let serialized = serde_json::to_vec(&event)?;
                             let content = this.encode_value(serialized)?;
 
-                            let event_id = event.event_id().map(|event_id| event_id.to_string());
                             let index = at.index() + i;
 
                             statement.execute((chunk_id, &hashed_room_id, event_id, content, index))?;
@@ -520,7 +537,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let content = this.encode_value(serialized)?;
 
                         // The event id should be the same, but just in case it changed…
-                        let event_id = event.event_id().map(|event_id| event_id.to_string());
+                        let Some(event_id) = event.event_id().map(|event_id| event_id.to_string()) else {
+                            error!(%room_id, "Trying to replace an event with a new one that has no ID");
+                            continue;
+                        };
 
                         txn.execute(
                             r#"
@@ -829,7 +849,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         .prepare(&query)?
                         .query_map(parameters, |row| {
                             Ok((
-                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, String>(0)?,
                                 row.get::<_, u64>(1)?,
                                 row.get::<_, usize>(2)?
                             ))
@@ -837,14 +857,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                     {
                         let (duplicated_event, chunk_identifier, index) = duplicated_event?;
 
-                        let Some(duplicated_event) = duplicated_event else {
-                            // Event ID is malformed, let's skip it.
-                            continue;
-                        };
-
-                        let Ok(duplicated_event) = EventId::parse(duplicated_event) else {
+                        let Ok(duplicated_event) = EventId::parse(duplicated_event.clone()) else {
                             // Normally unreachable, but the event ID has been stored even if it is
                             // malformed, let's skip it.
+                            error!(%duplicated_event, %room_id, "Reading an malformed event ID");
                             continue;
                         };
 
