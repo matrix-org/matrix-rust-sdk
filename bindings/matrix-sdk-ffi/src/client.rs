@@ -411,7 +411,7 @@ impl Client {
                     tracing::error!("Failed to parse {:?}", issuer);
                     return None;
                 };
-                Some((issuer, ClientId(client_id.clone())))
+                Some((issuer, ClientId::new(client_id.clone())))
             })
             .collect::<HashMap<_, _>>();
         let registrations = OidcRegistrations::new(
@@ -1611,7 +1611,7 @@ impl Session {
                         },
                     issuer,
                 } = api.user_session().context("Missing session")?;
-                let client_id = api.client_id().context("OIDC client ID is missing.")?.0.clone();
+                let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
                 let oidc_data = OidcSessionData { client_id, issuer };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
@@ -1659,8 +1659,7 @@ impl TryFrom<Session> for AuthSession {
                 issuer: oidc_data.issuer,
             };
 
-            let session =
-                OidcSession { client_id: ClientId(oidc_data.client_id), user: user_session };
+            let session = OidcSession { client_id: oidc_data.client_id, user: user_session };
 
             Ok(AuthSession::Oidc(session.into()))
         } else {
@@ -1686,13 +1685,13 @@ impl TryFrom<Session> for AuthSession {
 #[derive(Serialize, Deserialize)]
 #[serde(try_from = "OidcSessionDataDeHelper")]
 pub(crate) struct OidcSessionData {
-    client_id: String,
+    client_id: ClientId,
     issuer: String,
 }
 
 #[derive(Deserialize)]
 struct OidcSessionDataDeHelper {
-    client_id: String,
+    client_id: ClientId,
     issuer_info: Option<AuthenticationServerInfo>,
     issuer: Option<String>,
 }

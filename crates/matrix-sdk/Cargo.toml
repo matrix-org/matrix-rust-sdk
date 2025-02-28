@@ -93,6 +93,7 @@ matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
 mime = { workspace = true }
 mime2ext = "0.1.53"
+oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"], optional = true }
 once_cell = { workspace = true }
 percent-encoding = "2.3.1"
 pin-project-lite = { workspace = true }
@@ -129,7 +130,6 @@ tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
-oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"], optional = true }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }

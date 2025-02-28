@@ -84,7 +84,7 @@ impl OidcAuthCodeUrlBuilder {
         let provider_metadata = oidc.provider_metadata().await?;
 
         let mut authorization_data =
-            AuthorizationRequestData::new(data.client_id.0.clone(), scope, redirect_uri);
+            AuthorizationRequestData::new(data.client_id.as_str().to_owned(), scope, redirect_uri);
         authorization_data.code_challenge_methods_supported =
             provider_metadata.code_challenge_methods_supported.clone();
         authorization_data.prompt = prompt;

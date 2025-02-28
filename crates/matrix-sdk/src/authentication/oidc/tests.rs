@@ -314,7 +314,7 @@ async fn test_oidc_session() -> anyhow::Result<()> {
 
     let full_session = oidc.full_session().unwrap();
 
-    assert_eq!(full_session.client_id.0, "test_client_id");
+    assert_eq!(full_session.client_id.as_str(), "test_client_id");
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
     assert_eq!(full_session.user.issuer, issuer);
@@ -409,7 +409,7 @@ async fn test_register_client() {
     // There is a difference of ending slash between the strings so we parse them
     // with `Url` which will normalize that.
     assert_eq!(Url::parse(&auth_data.issuer), Url::parse(&server.server().uri()));
-    assert_eq!(auth_data.client_id.0, response.client_id);
+    assert_eq!(auth_data.client_id.as_str(), response.client_id);
 }
 
 #[async_test]
