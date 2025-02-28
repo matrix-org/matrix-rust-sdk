@@ -280,14 +280,14 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         room_id: &RoomId,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<()> {
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[&keys::LINKED_CHUNKS, &keys::GAPS, &keys::EVENTS],
+            IdbTransactionMode::Readwrite,
+        )?;
+
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::LINKED_CHUNKS,
-                        IdbTransactionMode::Readwrite,
-                    )?;
-
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
                     let previous = previous
@@ -312,9 +312,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let serialized_value = self.serializer.serialize_into_object(&id, &chunk)?;
 
-                    let req = object_store.add_val(&serialized_value)?;
-
-                    req.await?;
+                    object_store.add_val_owned(serialized_value)?;
 
                     // Update previous if there
                     if let Some(previous) = previous {
@@ -335,7 +333,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                                 .serializer
                                 .serialize_into_object(&previous, &updated_previous_chunk)?;
 
-                            object_store.put_val(&updated_previous_value)?;
+                            object_store.put_val_owned(updated_previous_value)?;
                         }
                     }
 
@@ -357,16 +355,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                                 .serializer
                                 .serialize_into_object(&next, &updated_next_chunk)?;
 
-                            object_store.put_val(&updated_next_value)?;
+                            object_store.put_val_owned(updated_next_value)?;
                         }
                     }
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::LINKED_CHUNKS,
-                        IdbTransactionMode::Readwrite,
-                    )?;
-
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
                     let previous = previous
@@ -391,7 +384,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let serialized_value = self.serializer.serialize_into_object(&id, &chunk)?;
 
-                    object_store.add_val(&serialized_value)?;
+                    object_store.add_val_owned(serialized_value)?;
 
                     if let Some(previous) = previous {
                         let previous_chunk_js_value = object_store
@@ -436,24 +429,15 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         object_store.put_val(&updated_next_value)?;
                     }
 
-                    let tx = self
-                        .inner
-                        .transaction_on_one_with_mode(keys::GAPS, IdbTransactionMode::Readwrite)?;
-
                     let object_store = tx.object_store(keys::GAPS)?;
 
                     let gap = IndexedDbGap { prev_token: gap.prev_token };
 
                     let serialized_gap = self.serializer.serialize_into_object(&id, &gap)?;
 
-                    object_store.add_val(&serialized_gap)?;
+                    object_store.add_val_owned(serialized_gap)?;
                 }
                 Update::RemoveChunk(id) => {
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::LINKED_CHUNKS,
-                        IdbTransactionMode::Readwrite,
-                    )?;
-
                     let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
                     let id = self.get_id(room_id.as_ref(), id.index().to_string().as_ref());
@@ -508,11 +492,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::EVENTS,
-                        IdbTransactionMode::Readwrite,
-                    )?;
-
                     let object_store = tx.object_store(keys::EVENTS)?;
 
                     for (i, event) in items.into_iter().enumerate() {
@@ -541,11 +520,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%room_id, "replacing item @ {chunk_id}:{index}");
 
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::EVENTS,
-                        IdbTransactionMode::Readwrite,
-                    )?;
-
                     let object_store = tx.object_store(keys::EVENTS)?;
 
                     let event_id = self.get_event_id(
@@ -572,11 +546,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%room_id, "removing item @ {chunk_id}:{index}");
 
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::EVENTS,
-                        IdbTransactionMode::Readwrite,
-                    )?;
-
                     let object_store = tx.object_store(keys::EVENTS)?;
 
                     let event_id = format!("{}{}{}", chunk_id, KEY_SEPARATOR, index);
@@ -590,11 +559,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
 
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::EVENTS,
-                        IdbTransactionMode::Readwrite,
-                    )?;
-
                     let object_store = tx.object_store(keys::EVENTS)?;
 
                     let lower_bound = JsValue::from_str(&self.get_event_id(
@@ -602,6 +566,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         &chunk_id.to_string(),
                         index,
                     ));
+
                     let upper_bound = JsValue::from_str(
                         &(self.get_event_id(room_id.as_ref(), &chunk_id.to_string(), index)
                             + "\u{FFFF}"),
@@ -629,11 +594,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let chunks_key_range = IdbKeyRange::bound(&lower_bound, &upper_bound).unwrap();
 
-                    let tx = self.inner.transaction_on_one_with_mode(
-                        keys::LINKED_CHUNKS,
-                        IdbTransactionMode::Readonly,
-                    )?;
-
                     let chunks_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
                     let linked_chunks = chunks_store.get_all_with_key(&chunks_key_range)?.await?;
@@ -650,19 +610,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                         let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
-                        let events_tx = self.inner.transaction_on_one_with_mode(
-                            keys::EVENTS,
-                            IdbTransactionMode::Readwrite,
-                        )?;
-
-                        let events_object_store = events_tx.object_store(keys::EVENTS)?;
+                        let events_object_store = tx.object_store(keys::EVENTS)?;
                         let req = events_object_store.delete_owned(key_range)?;
                         req.into_future().await?;
-
-                        let tx = self.inner.transaction_on_one_with_mode(
-                            keys::LINKED_CHUNKS,
-                            IdbTransactionMode::Readwrite,
-                        )?;
 
                         let chunks_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
@@ -672,6 +622,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 }
             }
         }
+
+        tx.await.into_result()?;
 
         Ok(())
     }
@@ -1947,7 +1899,7 @@ mod tests {
 
         // Trigger a violation of the unique constraint on the (room id, chunk id)
         // couple.
-        let err = store
+        let _err = store
             .handle_linked_chunk_updates(
                 room_id,
                 vec![
@@ -1967,9 +1919,7 @@ mod tests {
             .unwrap_err();
 
         // The operation fails with a constraint violation error.
-        // assert_matches!(err, crate::error::Error::Sqlite(err) => {
-        //     assert_matches!(err.sqlite_error_code(), Some(rusqlite::ErrorCode::ConstraintViolation));
-        // });
+        // assert_matches!(err, EventCacheStoreError::IndexeddbEventCacheStoreError(_));
 
         // If the updates have been handled transactionally, then no new chunks should
         // have been added; failure of the second update leads to the first one being
