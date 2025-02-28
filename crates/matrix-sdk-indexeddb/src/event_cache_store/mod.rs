@@ -578,7 +578,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     for item in items {
                         let event: TimelineEventForCache =
-                            self.serializer.deserialize_value(item)?;
+                            self.serializer.deserialize_into_object(item)?;
                         if event.position >= index {
                             object_store.delete(&JsValue::from_str(&event.id))?;
                         }
