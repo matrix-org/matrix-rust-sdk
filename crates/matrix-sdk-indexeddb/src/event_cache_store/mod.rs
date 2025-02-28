@@ -157,20 +157,6 @@ impl IndexeddbEventCacheStore {
     }
 }
 
-/// Convert Vec<u8> to a Blob
-// fn vec_to_blob(data: Vec<u8>) -> web_sys::Blob {
-//     let uint8_array = Uint8Array::from(&data[..]);
-//     let array_buffer: ArrayBuffer = uint8_array.buffer();
-
-//     let mut blob_options = web_sys::BlobPropertyBag::new();
-//     blob_options.type_("application/octet-stream");
-
-//     web_sys::Blob::new_with_u8_array_sequence_and_options(
-//         &js_sys::Array::of1(&JsValue::from(array_buffer)),
-//         &blob_options,
-//     )
-//     .unwrap()
-// }
 async fn js_value_uint8_array_to_vec(data: JsValue) -> Result<Vec<u8>, JsValue> {
     let uint8_array: Uint8Array = data.dyn_into()?;
     let mut vec = vec![0; uint8_array.length() as usize];
@@ -1189,9 +1175,6 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
             return Ok(());
         }
 
-        web_sys::console::log_1(&"🟦 Cleaning up media cache".into());
-        web_sys::console::log_1(&format!("🟦 Policy: {:?}", policy).into());
-
         let tx =
             self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
         let store = tx.object_store(keys::MEDIA)?;
@@ -1246,7 +1229,7 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
                 }
             }
 
-            media_items.sort_by_key(|media| media.last_access);
+            media_items.sort_by_key(|media| std::cmp::Reverse(media.last_access));
 
             for media in media_items {
                 let size = media.data.len();
@@ -1279,13 +1262,23 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_base::{
-        event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
-        event_cache_store_integration_tests_time, event_cache_store_media_integration_tests,
-    };
-    use uuid::Uuid;
+    use std::time::Duration;
 
-    use super::IndexeddbEventCacheStore;
+    use indexed_db_futures::IdbQuerySource;
+    use matrix_sdk_base::{
+        event_cache::store::{
+            media::IgnoreMediaRetentionPolicy, EventCacheStore, EventCacheStoreError,
+        },
+        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        event_cache_store_media_integration_tests,
+        media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    };
+    use matrix_sdk_test::async_test;
+    use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
+    use uuid::Uuid;
+    use web_sys::IdbTransactionMode;
+
+    use super::{keys, IndexeddbEventCacheStore, MediaForCache};
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -1294,7 +1287,111 @@ mod tests {
         Ok(IndexeddbEventCacheStore::builder().name(db_name).build().await?)
     }
 
+    #[cfg(target_arch = "wasm32")]
+    async fn sleep(duration: Duration) {
+        gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn sleep(duration: Duration) {
+        tokio::time::sleep(duration).await;
+    }
+
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
     event_cache_store_media_integration_tests!(with_media_size_tests);
+
+    async fn get_event_cache_store_content_sorted_by_last_access(
+        event_cache_store: &IndexeddbEventCacheStore,
+    ) -> Vec<Vec<u8>> {
+        let tx = event_cache_store
+            .inner
+            .transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)
+            .expect("creating transaction failed");
+        let store = tx.object_store(keys::MEDIA).expect("getting object store failed");
+
+        let items = store
+            .get_all()
+            .expect("getting all items failed")
+            .await
+            .expect("awaiting items failed");
+
+        let mut media_items: Vec<MediaForCache> = Vec::new();
+
+        for item in items {
+            let media: MediaForCache = MediaForCache::from_js_value(item).await;
+            media_items.push(media);
+        }
+
+        media_items.sort_by_key(|media| std::cmp::Reverse(media.last_access));
+
+        media_items.into_iter().map(|media| media.data).collect()
+    }
+
+    #[async_test]
+    async fn test_last_access() {
+        let event_cache_store = get_event_cache_store().await.expect("creating media cache failed");
+        let uri = mxc_uri!("mxc://localhost/media");
+        let file_request = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        let thumbnail_request = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
+                Method::Crop,
+                uint!(100),
+                uint!(100),
+            )),
+        };
+
+        let content: Vec<u8> = "hello world".into();
+        let thumbnail_content: Vec<u8> = "hello…".into();
+
+        // Add the media.
+        event_cache_store
+            .add_media_content(&file_request, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding file failed");
+
+        // Since the precision of the timestamp is in seconds, wait so the timestamps
+        // differ.
+        sleep(Duration::from_secs(3)).await;
+
+        event_cache_store
+            .add_media_content(
+                &thumbnail_request,
+                thumbnail_content.clone(),
+                IgnoreMediaRetentionPolicy::No,
+            )
+            .await
+            .expect("adding thumbnail failed");
+
+        // File's last access is older than thumbnail.
+        let contents =
+            get_event_cache_store_content_sorted_by_last_access(&event_cache_store).await;
+
+        assert_eq!(contents.len(), 2, "media cache contents length is wrong");
+        assert_eq!(contents[0], thumbnail_content, "thumbnail is not last access");
+        assert_eq!(contents[1], content, "file is not second-to-last access");
+
+        // Since the precision of the timestamp is in seconds, wait so the timestamps
+        // differ
+        sleep(Duration::from_secs(3)).await;
+
+        // Access the file so its last access is more recent.
+        let _ = event_cache_store
+            .get_media_content(&file_request)
+            .await
+            .expect("getting file failed")
+            .expect("file is missing");
+
+        // File's last access is more recent than thumbnail.
+        let contents =
+            get_event_cache_store_content_sorted_by_last_access(&event_cache_store).await;
+
+        assert_eq!(contents.len(), 2, "media cache contents length is wrong");
+        assert_eq!(contents[0], content, "file is not last access");
+        assert_eq!(contents[1], thumbnail_content, "thumbnail is not second-to-last access");
+    }
 }
