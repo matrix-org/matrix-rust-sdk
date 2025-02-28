@@ -64,7 +64,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 5;
+const DATABASE_VERSION: u8 = 6;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -347,6 +347,14 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/event_cache_store/005_events_index_on_event_id.sql"
             ))?;
             txn.set_db_version(5)
+        })
+        .await?;
+    }
+
+    if version < 6 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
+            txn.set_db_version(6)
         })
         .await?;
     }
