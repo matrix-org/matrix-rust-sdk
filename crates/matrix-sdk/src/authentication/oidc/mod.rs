@@ -246,7 +246,7 @@ pub(crate) struct OidcAuthData {
 impl OidcAuthData {
     /// Get the credentials of client.
     fn credentials(&self) -> ClientCredentials {
-        ClientCredentials::None { client_id: self.client_id.0.clone() }
+        ClientCredentials::None { client_id: self.client_id.as_str().to_owned() }
     }
 }
 
@@ -892,7 +892,7 @@ impl Oidc {
     /// );
     ///
     /// // The API only supports clients without secrets.
-    /// let client_id = ClientId(response.client_id);
+    /// let client_id = ClientId::new(response.client_id);
     /// let issuer = oidc.issuer().expect("issuer should be set after registration");
     ///
     /// persist_client_registration(issuer, &client_metadata, &client_id);
@@ -924,7 +924,7 @@ impl Oidc {
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
             provider_metadata.issuer().to_owned(),
-            ClientId(registration_response.client_id.clone()),
+            ClientId::new(registration_response.client_id.clone()),
         );
 
         Ok(registration_response)
@@ -1324,8 +1324,7 @@ impl Oidc {
             .into_iter()
             .map(|scope| oauth2::Scope::new(scope.to_string()));
 
-        let client_id =
-            oauth2::ClientId::new(self.client_id().ok_or(OidcError::NotRegistered)?.0.clone());
+        let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
 
         let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
         let device_authorization_url = server_metadata
@@ -1352,8 +1351,7 @@ impl Oidc {
     ) -> Result<(), qrcode::DeviceAuthorizationOauthError> {
         use oauth2::TokenResponse;
 
-        let client_id =
-            oauth2::ClientId::new(self.client_id().ok_or(OidcError::NotRegistered)?.0.clone());
+        let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
 
         let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
         let token_uri = oauth2::TokenUrl::from_url(server_metadata.token_endpoint().clone());

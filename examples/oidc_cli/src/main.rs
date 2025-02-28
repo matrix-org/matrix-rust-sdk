@@ -118,7 +118,7 @@ struct ClientSession {
 #[derive(Debug, Serialize, Deserialize)]
 struct Credentials {
     /// The client ID obtained after registration.
-    client_id: String,
+    client_id: ClientId,
 }
 
 /// The full session to persist.
@@ -189,7 +189,7 @@ impl OidcCli {
     /// Register the OIDC client with the provider.
     ///
     /// Returns the ID of the client returned by the provider.
-    async fn register_client(&self) -> anyhow::Result<String> {
+    async fn register_client(&self) -> anyhow::Result<ClientId> {
         let oidc = self.client.oidc();
 
         let provider_metadata = oidc.provider_metadata().await?;
@@ -214,7 +214,7 @@ impl OidcCli {
 
         println!("\nRegistered successfully");
 
-        Ok(res.client_id)
+        Ok(ClientId::new(res.client_id))
     }
 
     /// Login via the OIDC Authorization Code flow.
@@ -283,8 +283,7 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
-        let session =
-            OidcSession { client_id: ClientId(client_credentials.client_id), user: user_session };
+        let session = OidcSession { client_id: client_credentials.client_id, user: user_session };
         // Restore the Matrix user session.
         client.restore_session(session).await?;
 

@@ -162,7 +162,7 @@ pub mod oauth {
 
     /// An OAuth 2.0 `ClientId`, for unit or integration tests.
     pub fn mock_client_id() -> ClientId {
-        ClientId("test_client_id".to_owned())
+        ClientId::new("test_client_id".to_owned())
     }
 
     /// `VerifiedClientMetadata` that should be valid in most cases, for unit or
