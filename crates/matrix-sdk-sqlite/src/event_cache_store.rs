@@ -486,9 +486,18 @@ impl EventCacheStore for SqliteEventCacheStore {
                     }
 
                     Update::PushItems { at, items } => {
+                        if items.is_empty() {
+                            // Should never happens, but better be safe.
+                            continue;
+                        }
+
                         let chunk_id = at.chunk_identifier().index();
 
                         trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
+
+                        let mut statement = txn.prepare(
+                            "INSERT INTO events(chunk_id, room_id, event_id, content, position) VALUES (?, ?, ?, ?, ?)"
+                        )?;
 
                         for (i, event) in items.into_iter().enumerate() {
                             let serialized = serde_json::to_vec(&event)?;
@@ -497,13 +506,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             let event_id = event.event_id().map(|event_id| event_id.to_string());
                             let index = at.index() + i;
 
-                            txn.execute(
-                                r#"
-                                INSERT INTO events(chunk_id, room_id, event_id, content, position)
-                                VALUES (?, ?, ?, ?, ?)
-                            "#,
-                                (chunk_id, &hashed_room_id, event_id, content, index),
-                            )?;
+                            statement.execute((chunk_id, &hashed_room_id, event_id, content, index))?;
                         }
                     }
 
