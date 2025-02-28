@@ -318,45 +318,47 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     // Update previous if there
                     if let Some(previous) = previous {
-                        let previous_chunk_js_value = object_store
-                            .get_owned(&previous)?
-                            .await?
-                            .expect("Previous chunk not found");
+                        let previous_chunk_js_value = object_store.get_owned(&previous)?.await?;
 
-                        let previous_chunk: Chunk =
-                            self.serializer.deserialize_into_object(previous_chunk_js_value)?;
+                        if let Some(previous_chunk_js_value) = previous_chunk_js_value {
+                            let previous_chunk: Chunk =
+                                self.serializer.deserialize_into_object(previous_chunk_js_value)?;
 
-                        let updated_previous_chunk = Chunk {
-                            id: previous_chunk.id,
-                            previous: previous_chunk.previous,
-                            next: Some(id.clone()),
-                            type_str: previous_chunk.type_str,
-                        };
+                            let updated_previous_chunk = Chunk {
+                                id: previous_chunk.id,
+                                previous: previous_chunk.previous,
+                                next: Some(id.clone()),
+                                type_str: previous_chunk.type_str,
+                            };
 
-                        let updated_previous_value = self
-                            .serializer
-                            .serialize_into_object(&previous, &updated_previous_chunk)?;
+                            let updated_previous_value = self
+                                .serializer
+                                .serialize_into_object(&previous, &updated_previous_chunk)?;
 
-                        object_store.put_val(&updated_previous_value)?;
+                            object_store.put_val(&updated_previous_value)?;
+                        }
                     }
 
                     // update next if there
                     if let Some(next) = next {
-                        let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
-                        let next_chunk: Chunk =
-                            self.serializer.deserialize_into_object(next_chunk_js_value)?;
+                        let next_chunk_js_value = object_store.get_owned(&next)?.await?;
+                        if let Some(next_chunk_js_value) = next_chunk_js_value {
+                            let next_chunk: Chunk =
+                                self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
-                        let updated_next_chunk = Chunk {
-                            id: next_chunk.id,
-                            previous: Some(id),
-                            next: next_chunk.next,
-                            type_str: next_chunk.type_str,
-                        };
+                            let updated_next_chunk = Chunk {
+                                id: next_chunk.id,
+                                previous: Some(id.clone()),
+                                next: next_chunk.next,
+                                type_str: next_chunk.type_str,
+                            };
 
-                        let updated_next_value =
-                            self.serializer.serialize_into_object(&next, &updated_next_chunk)?;
+                            let updated_next_value = self
+                                .serializer
+                                .serialize_into_object(&next, &updated_next_chunk)?;
 
-                        object_store.put_val(&updated_next_value)?;
+                            object_store.put_val(&updated_next_value)?;
+                        }
                     }
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
@@ -1262,8 +1264,7 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
+    use assert_matches::assert_matches;
     use indexed_db_futures::IdbQuerySource;
     use matrix_sdk_base::{
         event_cache::store::{
@@ -1271,10 +1272,12 @@ mod tests {
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         event_cache_store_media_integration_tests,
+        linked_chunk::{ChunkContent, ChunkIdentifier, Update},
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     };
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
     use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
+    use std::time::Duration;
     use uuid::Uuid;
     use web_sys::IdbTransactionMode;
 
