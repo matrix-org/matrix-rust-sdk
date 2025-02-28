@@ -728,54 +728,21 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     /// This will empty and remove all the linked chunks stored previously,
     /// using the above [`Self::handle_linked_chunk_updates`] methods.
     async fn clear_all_rooms_chunks(&self) -> Result<()> {
-        let tx = self
-            .inner
-            .transaction_on_one_with_mode(keys::LINKED_CHUNKS, IdbTransactionMode::Readwrite)?;
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readwrite,
+        )?;
 
         let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+        object_store.clear()?.await?;
 
-        let linked_chunks = object_store.get_all()?.await?;
+        let object_store = tx.object_store(keys::EVENTS)?;
+        object_store.clear()?.await?;
 
-        for linked_chunk in linked_chunks {
-            let linked_chunk: Chunk = self.serializer.deserialize_into_object(linked_chunk)?;
-            let (_room_id, _chunk_id) = self.get_room_and_chunk_id(linked_chunk.id.as_ref());
-            let req = object_store.delete(&JsValue::from_str(&linked_chunk.id))?;
-            req.into_future().await?;
+        let object_store = tx.object_store(keys::GAPS)?;
+        object_store.clear()?.await?;
 
-            // TODO does this need to delete all of the events? The sqlite implementation seems to imply a cascading delete does happen
-
-            // if linked_chunk.type_str == CHUNK_TYPE_EVENT_TYPE_STRING {
-            //     let events_tx = self
-            //         .inner
-            //         .transaction_on_one_with_mode(keys::EVENTS, IdbTransactionMode::Readwrite)?;
-
-            //     let events_object_store = events_tx.object_store(keys::EVENTS)?;
-
-            //     let key_range =
-            //         IdbKeyRange::lower_bound(&JsValue::from_str(&linked_chunk.id.to_string()))
-            //             .unwrap();
-
-            //     let events = events_object_store.get_all_with_key(&key_range)?.await?;
-
-            //     for event in events {
-            //         let event: TimelineEventForCache =
-            //             self.serializer.deserialize_into_object(event)?;
-            //         let event_id = JsValue::from_str(&event.id);
-            //         events_object_store.delete(&event_id)?.into_future().await?;
-            //     }
-            // } else if linked_chunk.type_str == CHUNK_TYPE_GAP_TYPE_STRING {
-            //     let gaps_tx = self
-            //         .inner
-            //         .transaction_on_one_with_mode(keys::GAPS, IdbTransactionMode::Readwrite)?;
-
-            //     let gaps_object_store = gaps_tx.object_store(keys::GAPS)?;
-
-            //     let gap_id = JsValue::from_str(&linked_chunk.id);
-
-            //     gaps_object_store.delete(&gap_id)?;
-            // }
-        }
-
+        tx.await.into_result()?;
         Ok(())
     }
 
