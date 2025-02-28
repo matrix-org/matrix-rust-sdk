@@ -597,9 +597,17 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let key_range =
-                        IdbKeyRange::lower_bound(&JsValue::from_str(&chunk_id.to_string()))
-                            .unwrap();
+                    let lower_bound = JsValue::from_str(&self.get_event_id(
+                        room_id.as_ref(),
+                        &chunk_id.to_string(),
+                        index,
+                    ));
+                    let upper_bound = JsValue::from_str(
+                        &(self.get_event_id(room_id.as_ref(), &chunk_id.to_string(), index)
+                            + "\u{FFFF}"),
+                    );
+
+                    let key_range = IdbKeyRange::bound(&lower_bound, &upper_bound).unwrap();
 
                     let items = object_store.get_all_with_key(&key_range)?.await?;
 
