@@ -1150,9 +1150,9 @@ mod private {
             spawn(async move {
                 let store = store.lock().await?;
 
-                trace!("applying {} updates", updates.len());
+                trace!(?updates, "sending linked chunk updates to the store");
                 store.handle_linked_chunk_updates(&room_id, updates).await?;
-                trace!("done applying store changes");
+                trace!("linked chunk updates applied");
 
                 super::Result::Ok(())
             })
