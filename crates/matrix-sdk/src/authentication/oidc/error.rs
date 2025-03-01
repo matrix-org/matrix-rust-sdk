@@ -15,6 +15,10 @@
 //! Error types used in the [`Oidc`](super::Oidc) API.
 
 pub use mas_oidc_client::error::*;
+pub use oauth2::{
+    basic::{BasicErrorResponse, BasicErrorResponseType, BasicRequestTokenError},
+    HttpClientError, RequestTokenError, StandardErrorResponse,
+};
 
 pub use super::cross_process::CrossProcessRefreshLockError;
 
@@ -85,6 +89,11 @@ pub enum OidcError {
     /// The device ID is invalid.
     #[error("invalid device ID")]
     InvalidDeviceId,
+
+    /// An error occurred interacting with the OAuth 2.0 authorization server
+    /// while refreshing the access token.
+    #[error("failed to refresh token: {0}")]
+    RefreshToken(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
 
     /// The OpenID Connect Provider doesn't support token revocation, aka
     /// logging out.
