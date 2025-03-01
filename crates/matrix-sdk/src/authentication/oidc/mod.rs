@@ -150,9 +150,9 @@ use std::{collections::HashMap, fmt, future::Future, pin::Pin, sync::Arc};
 
 use as_variant::as_variant;
 use chrono::Utc;
+use error::{CrossProcessRefreshLockError, OauthDiscoveryError, RedirectUriQueryParseError};
 use eyeball::SharedObservable;
 use futures_core::Stream;
-pub use mas_oidc_client::{error, requests, types};
 use mas_oidc_client::{
     http_service::HttpService,
     requests::{
@@ -176,6 +176,7 @@ use mas_oidc_client::{
         scope::{MatrixApiScopeToken, ScopeToken},
     },
 };
+pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
@@ -184,13 +185,13 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::{get_authentication_issuer, get_authorization_server_metadata};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
-use thiserror::Error;
 use tokio::{spawn, sync::Mutex};
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
 mod auth_code_builder;
 mod cross_process;
+pub mod error;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registrations;
@@ -199,7 +200,7 @@ mod tests;
 
 pub use self::{
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
-    cross_process::CrossProcessRefreshLockError,
+    error::OidcError,
 };
 use self::{
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
@@ -1692,132 +1693,6 @@ pub struct AuthorizationError {
     pub error: ClientError,
     /// The unique identifier for this transaction.
     pub state: String,
-}
-
-/// An error when trying to parse the query of a redirect URI.
-#[derive(Debug, Clone, Error)]
-pub enum RedirectUriQueryParseError {
-    /// There is no query part in the URI.
-    #[error("No query in URI")]
-    MissingQuery,
-
-    /// Deserialization failed.
-    #[error("Query is not using one of the defined formats")]
-    UnknownFormat,
-}
-
-/// All errors that can occur when using the OpenID Connect API.
-#[derive(Debug, Error)]
-pub enum OidcError {
-    /// An error occurred when interacting with the provider.
-    #[error(transparent)]
-    Oidc(error::Error),
-
-    /// An error occurred when discovering the authorization server's issuer.
-    #[error("authorization server discovery failed: {0}")]
-    Discovery(#[from] OauthDiscoveryError),
-
-    /// The OpenID Connect Provider doesn't support dynamic client registration.
-    ///
-    /// The provider probably offers another way to register clients.
-    #[error("no dynamic registration support")]
-    NoRegistrationSupport,
-
-    /// The client has not registered while the operation requires it.
-    #[error("client not registered")]
-    NotRegistered,
-
-    /// The supplied redirect URIs are missing or empty.
-    #[error("missing or empty redirect URIs")]
-    MissingRedirectUri,
-
-    /// The device ID was not returned by the homeserver after login.
-    #[error("missing device ID in response")]
-    MissingDeviceId,
-
-    /// The client is not authenticated while the request requires it.
-    #[error("client not authenticated")]
-    NotAuthenticated,
-
-    /// The state used to complete authorization doesn't match an original
-    /// value.
-    #[error("the supplied state is unexpected")]
-    InvalidState,
-
-    /// The user cancelled authorization in the web view.
-    #[error("authorization cancelled")]
-    CancelledAuthorization,
-
-    /// The login was completed with an invalid callback.
-    #[error("the supplied callback URL is invalid")]
-    InvalidCallbackUrl,
-
-    /// An error occurred during authorization.
-    #[error("authorization failed")]
-    Authorization(AuthorizationError),
-
-    /// The device ID is invalid.
-    #[error("invalid device ID")]
-    InvalidDeviceId,
-
-    /// The OpenID Connect Provider doesn't support token revocation, aka
-    /// logging out.
-    #[error("no token revocation support")]
-    NoRevocationSupport,
-
-    /// An error occurred generating a random value.
-    #[error(transparent)]
-    Rand(rand::Error),
-
-    /// An error occurred parsing a URL.
-    #[error(transparent)]
-    Url(url::ParseError),
-
-    /// An error occurred caused by the cross-process locks.
-    #[error(transparent)]
-    LockError(#[from] CrossProcessRefreshLockError),
-
-    /// An unknown error occurred.
-    #[error("unknown error")]
-    UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
-}
-
-impl<E> From<E> for OidcError
-where
-    E: Into<error::Error>,
-{
-    fn from(value: E) -> Self {
-        Self::Oidc(value.into())
-    }
-}
-
-/// All errors that can occur when discovering the OAuth 2.0 server metadata.
-#[derive(Debug, Error)]
-#[non_exhaustive]
-pub enum OauthDiscoveryError {
-    /// OAuth 2.0 is not supported by the homeserver.
-    #[error("OAuth 2.0 is not supported by the homeserver")]
-    NotSupported,
-
-    /// An error occurred when making a request to the homeserver.
-    #[error(transparent)]
-    Http(#[from] HttpError),
-
-    /// The server metadata is invalid.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-
-    /// An error occurred when making a request to the OpenID Connect provider.
-    #[error(transparent)]
-    Oidc(#[from] error::DiscoveryError),
-}
-
-impl OauthDiscoveryError {
-    /// Whether this error occurred because OAuth 2.0 is not supported by the
-    /// homeserver.
-    pub fn is_not_supported(&self) -> bool {
-        matches!(self, Self::NotSupported)
-    }
 }
 
 fn rng() -> Result<StdRng, OidcError> {
