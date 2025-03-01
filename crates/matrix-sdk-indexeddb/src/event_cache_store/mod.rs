@@ -173,7 +173,7 @@ async fn js_value_uint8_array_to_vec(data: JsValue) -> Result<Vec<u8>, JsValue> 
 type Result<A, E = IndexeddbEventCacheStoreError> = std::result::Result<A, E>;
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Chunk {
+struct ChunkForCache {
     id: String,
     previous: Option<String>,
     next: Option<String>,
@@ -181,7 +181,7 @@ struct Chunk {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct IndexedDbGap {
+struct IndexedDbGapForCache {
     prev_token: String,
 }
 
@@ -309,7 +309,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={id}, next={next:?})");
 
-                    let chunk = Chunk {
+                    let chunk = ChunkForCache {
                         id: id.clone(),
                         previous: previous.clone(),
                         next: next.clone(),
@@ -325,10 +325,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         let previous_chunk_js_value = object_store.get_owned(&previous)?.await?;
 
                         if let Some(previous_chunk_js_value) = previous_chunk_js_value {
-                            let previous_chunk: Chunk =
+                            let previous_chunk: ChunkForCache =
                                 self.serializer.deserialize_into_object(previous_chunk_js_value)?;
 
-                            let updated_previous_chunk = Chunk {
+                            let updated_previous_chunk = ChunkForCache {
                                 id: previous_chunk.id,
                                 previous: previous_chunk.previous,
                                 next: Some(id.clone()),
@@ -347,10 +347,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     if let Some(next) = next {
                         let next_chunk_js_value = object_store.get_owned(&next)?.await?;
                         if let Some(next_chunk_js_value) = next_chunk_js_value {
-                            let next_chunk: Chunk =
+                            let next_chunk: ChunkForCache =
                                 self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
-                            let updated_next_chunk = Chunk {
+                            let updated_next_chunk = ChunkForCache {
                                 id: next_chunk.id,
                                 previous: Some(id.clone()),
                                 next: next_chunk.next,
@@ -381,7 +381,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%room_id,"Inserting new gap (prev={previous:?}, new={id}, next={next:?})");
 
-                    let chunk = Chunk {
+                    let chunk = ChunkForCache {
                         id: id.clone(),
                         previous: previous.clone(),
                         next: next.clone(),
@@ -398,10 +398,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                             .await?
                             .expect("Previous chunk not found");
 
-                        let previous_chunk: Chunk =
+                        let previous_chunk: ChunkForCache =
                             self.serializer.deserialize_into_object(previous_chunk_js_value)?;
 
-                        let updated_previous_chunk = Chunk {
+                        let updated_previous_chunk = ChunkForCache {
                             id: previous_chunk.id,
                             previous: previous_chunk.previous,
                             next: Some(id.clone()),
@@ -419,10 +419,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     if let Some(next) = next {
                         let next_chunk_js_value =
                             object_store.get_owned(&next)?.await?.expect("Next chunk not found");
-                        let next_chunk: Chunk =
+                        let next_chunk: ChunkForCache =
                             self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
-                        let updated_next_chunk = Chunk {
+                        let updated_next_chunk = ChunkForCache {
                             id: next_chunk.id,
                             previous: Some(id.clone()),
                             next: next_chunk.next,
@@ -437,7 +437,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let object_store = tx.object_store(keys::GAPS)?;
 
-                    let gap = IndexedDbGap { prev_token: gap.prev_token };
+                    let gap = IndexedDbGapForCache { prev_token: gap.prev_token };
 
                     let serialized_gap = self.serializer.serialize_into_object(&id, &gap)?;
 
@@ -453,16 +453,16 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     // Remove the chunk itself
                     let chunk_to_delete_js_value =
                         object_store.get_owned(id.clone())?.await?.unwrap();
-                    let chunk_to_delete: Chunk =
+                    let chunk_to_delete: ChunkForCache =
                         self.serializer.deserialize_into_object(chunk_to_delete_js_value)?;
 
                     if let Some(previous) = chunk_to_delete.previous.clone() {
                         let previous_chunk_js_value =
                             object_store.get_owned(&previous)?.await?.unwrap();
-                        let previous_chunk: Chunk =
+                        let previous_chunk: ChunkForCache =
                             self.serializer.deserialize_into_object(previous_chunk_js_value)?;
 
-                        let updated_previous_chunk = Chunk {
+                        let updated_previous_chunk = ChunkForCache {
                             id: previous.clone(),
                             previous: previous_chunk.previous,
                             next: chunk_to_delete.next.clone(),
@@ -476,10 +476,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     if let Some(next) = chunk_to_delete.next {
                         let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
-                        let next_chunk: Chunk =
+                        let next_chunk: ChunkForCache =
                             self.serializer.deserialize_into_object(next_chunk_js_value)?;
 
-                        let updated_next_chunk = Chunk {
+                        let updated_next_chunk = ChunkForCache {
                             id: next.clone(),
                             previous: chunk_to_delete.previous,
                             next: next_chunk.next,
@@ -607,7 +607,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let linked_chunks = chunks_store.get_all_with_key(&chunks_key_range)?.await?;
 
                     for linked_chunk in linked_chunks {
-                        let linked_chunk: Chunk =
+                        let linked_chunk: ChunkForCache =
                             self.serializer.deserialize_into_object(linked_chunk)?;
 
                         let lower =
@@ -655,8 +655,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         let mut raw_chunks = Vec::new();
 
         for linked_chunk in linked_chunks {
-            let linked_chunk: Chunk = self.serializer.deserialize_into_object(linked_chunk)?;
-            // TODO remove unwrap
+            let linked_chunk: ChunkForCache =
+                self.serializer.deserialize_into_object(linked_chunk)?;
             let chunk_id = self.get_chunk_id(&Some(linked_chunk.id.clone())).unwrap();
             let previous_chunk_id = self.get_chunk_id(&linked_chunk.previous);
             let next_chunk_id = self.get_chunk_id(&linked_chunk.next);
@@ -672,7 +672,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 let gap_id_js_value = JsValue::from_str(&gap_id);
                 let gap_js_value = gaps_object_store.get_owned(&gap_id_js_value)?.await?;
 
-                let gap: IndexedDbGap =
+                let gap: IndexedDbGapForCache =
                     self.serializer.deserialize_into_object(gap_js_value.unwrap())?;
 
                 let gap = Gap { prev_token: gap.prev_token };
@@ -1221,7 +1221,7 @@ mod tests {
     use uuid::Uuid;
     use web_sys::{IdbKeyRange, IdbTransactionMode};
 
-    use crate::event_cache_store::Chunk;
+    use crate::event_cache_store::ChunkForCache;
 
     use super::{keys, IndexeddbEventCacheStore, MediaForCache};
 
@@ -1548,7 +1548,7 @@ mod tests {
         let mut gap_ids = Vec::new();
 
         for gap in gaps {
-            let gap: Chunk = store.serializer.deserialize_into_object(gap).unwrap();
+            let gap: ChunkForCache = store.serializer.deserialize_into_object(gap).unwrap();
             let chunk_id = store.get_chunk_id(&Some(gap.id)).unwrap();
             gap_ids.push(chunk_id);
         }
