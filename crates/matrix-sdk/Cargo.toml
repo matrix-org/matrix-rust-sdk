@@ -93,7 +93,7 @@ matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
 mime = { workspace = true }
 mime2ext = "0.1.53"
-oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"], optional = true }
+oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"], optional = true }
 once_cell = { workspace = true }
 percent-encoding = "2.3.1"
 pin-project-lite = { workspace = true }

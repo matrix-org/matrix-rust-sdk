@@ -294,7 +294,8 @@ impl<'a> LoginWithQrCode<'a> {
         device_id: Curve25519PublicKey,
     ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOauthError> {
         let oidc = self.client.oidc();
-        let response = oidc.request_device_authorization(Some(device_id.to_base64())).await?;
+        let response =
+            oidc.request_device_authorization(Some(device_id.to_base64().into())).await?;
         Ok(response)
     }
 

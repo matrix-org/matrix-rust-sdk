@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use mas_oidc_client::{
-    requests::authorization_code::{build_authorization_url, AuthorizationRequestData},
-    types::{requests::Prompt, scope::Scope},
+use std::borrow::Cow;
+
+use oauth2::{
+    basic::BasicClient as OauthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
 };
-use ruma::UserId;
+use ruma::{api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, UserId};
 use tracing::{info, instrument};
 use url::Url;
 
 use super::{Oidc, OidcError};
-use crate::Result;
+use crate::{authentication::oidc::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
 /// OpenID Connect Provider via the Authorization Code flow.
@@ -30,15 +31,15 @@ use crate::Result;
 #[allow(missing_debug_implementations)]
 pub struct OidcAuthCodeUrlBuilder {
     oidc: Oidc,
-    scope: Scope,
+    scopes: Vec<Scope>,
     redirect_uri: Url,
     prompt: Option<Vec<Prompt>>,
     login_hint: Option<String>,
 }
 
 impl OidcAuthCodeUrlBuilder {
-    pub(super) fn new(oidc: Oidc, scope: Scope, redirect_uri: Url) -> Self {
-        Self { oidc, scope, redirect_uri, prompt: None, login_hint: None }
+    pub(super) fn new(oidc: Oidc, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
+        Self { oidc, scopes, redirect_uri, prompt: None, login_hint: None }
     }
 
     /// Set the [`Prompt`] of the authorization URL.
@@ -73,34 +74,44 @@ impl OidcAuthCodeUrlBuilder {
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OidcAuthorizationData, OidcError> {
-        let Self { oidc, scope, redirect_uri, prompt, login_hint } = self;
+        let Self { oidc, scopes, redirect_uri, prompt, login_hint } = self;
 
         let data = oidc.data().ok_or(OidcError::NotAuthenticated)?;
         info!(
             issuer = data.issuer,
-            %scope, "Authorizing scope via the OpenID Connect Authorization Code flow"
+            ?scopes,
+            "Authorizing scope via the OpenID Connect Authorization Code flow"
         );
 
         let provider_metadata = oidc.provider_metadata().await?;
+        let auth_url = AuthUrl::from_url(provider_metadata.authorization_endpoint().clone());
 
-        let mut authorization_data =
-            AuthorizationRequestData::new(data.client_id.as_str().to_owned(), scope, redirect_uri);
-        authorization_data.code_challenge_methods_supported =
-            provider_metadata.code_challenge_methods_supported.clone();
-        authorization_data.prompt = prompt;
-        authorization_data.login_hint = login_hint;
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+        let redirect_uri = RedirectUrl::from_url(redirect_uri);
 
-        let authorization_endpoint = provider_metadata.authorization_endpoint();
+        let client = OauthClient::new(data.client_id.clone()).set_auth_uri(auth_url);
+        let mut request = client
+            .authorize_url(CsrfToken::new_random)
+            .add_scopes(scopes)
+            .set_pkce_challenge(pkce_challenge)
+            .set_redirect_uri(Cow::Borrowed(&redirect_uri));
 
-        let (url, validation_data) = build_authorization_url(
-            authorization_endpoint.clone(),
-            authorization_data,
-            &mut super::rng()?,
-        )?;
+        if let Some(prompt) = prompt {
+            // This should be a list of space separated values.
+            let prompt_str = prompt.iter().map(Prompt::as_str).collect::<Vec<_>>().join(" ");
+            request = request.add_extra_param("prompt", prompt_str);
+        }
 
-        let state = validation_data.state.clone();
+        if let Some(login_hint) = login_hint {
+            request = request.add_extra_param("login_hint", login_hint);
+        }
 
-        data.authorization_data.lock().await.insert(state.clone(), validation_data);
+        let (url, state) = request.url();
+
+        data.authorization_data
+            .lock()
+            .await
+            .insert(state.clone(), AuthorizationValidationData { redirect_uri, pkce_verifier });
 
         Ok(OidcAuthorizationData { url, state })
     }
@@ -114,7 +125,7 @@ pub struct OidcAuthorizationData {
     pub url: Url,
     /// A unique identifier for the request, used to ensure the response
     /// originated from the authentication issuer.
-    pub state: String,
+    pub state: CsrfToken,
 }
 
 #[cfg(feature = "uniffi")]

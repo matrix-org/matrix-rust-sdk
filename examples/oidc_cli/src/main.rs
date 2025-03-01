@@ -38,7 +38,8 @@ use matrix_sdk::{
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::GrantType,
         },
-        AuthorizationCode, AuthorizationResponse, OidcAuthorizationData, OidcSession, UserSession,
+        AuthorizationCode, AuthorizationResponse, CsrfToken, OidcAuthorizationData, OidcSession,
+        UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -746,7 +747,7 @@ fn client_metadata() -> VerifiedClientMetadata {
 /// Returns the code to obtain the access token.
 async fn use_auth_url(
     url: &Url,
-    state: &str,
+    state: &CsrfToken,
     data_rx: oneshot::Receiver<String>,
     signal_tx: oneshot::Sender<()>,
 ) -> anyhow::Result<AuthorizationCode> {
@@ -759,8 +760,7 @@ async fn use_auth_url(
     let code = match AuthorizationResponse::parse_query(&response_query)? {
         AuthorizationResponse::Success(code) => code,
         AuthorizationResponse::Error(err) => {
-            let err = err.error;
-            return Err(anyhow!("{}: {:?}", err.error, err.error_description));
+            return Err(anyhow!(err.error));
         }
     };
 
@@ -768,7 +768,7 @@ async fn use_auth_url(
     // wrong, it is an error. Some clients might want to allow several
     // authorizations at once, in which case the state string can be used to
     // identify the session that was authorized.
-    if code.state != state {
+    if code.state != *state {
         bail!("State strings don't match")
     }
 

@@ -146,45 +146,52 @@
 //! [`AuthenticateError::InsufficientScope`]: ruma::api::client::error::AuthenticateError
 //! [`examples/oidc_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oidc_cli
 
-use std::{collections::HashMap, fmt, future::Future, pin::Pin, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, fmt, future::Future, pin::Pin, sync::Arc};
 
 use as_variant::as_variant;
 use chrono::Utc;
-use error::{CrossProcessRefreshLockError, OauthDiscoveryError, RedirectUriQueryParseError};
+use error::{
+    CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthDiscoveryError,
+    RedirectUriQueryParseError,
+};
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use mas_oidc_client::{
     http_service::HttpService,
     requests::{
         account_management::{build_account_management_url, AccountManagementActionFull},
-        authorization_code::{access_token_with_authorization_code, AuthorizationValidationData},
         discovery::{discover, insecure_discover},
         registration::register_client,
         revocation::revoke_token,
     },
     types::{
         client_credentials::ClientCredentials,
-        errors::{ClientError, ClientErrorCode::AccessDenied},
         iana::oauth::OAuthTokenTypeHint,
         oidc::{
             AccountManagementAction, ProviderMetadata, ProviderMetadataVerificationError,
             VerifiedProviderMetadata,
         },
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
-        requests::Prompt,
-        scope::{MatrixApiScopeToken, ScopeToken},
     },
 };
 pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
+pub use oauth2::CsrfToken;
 use oauth2::{
-    basic::BasicClient as OauthClient, AsyncHttpClient, HttpRequest, HttpResponse, RefreshToken,
-    TokenResponse, TokenUrl,
+    basic::BasicClient as OauthClient, AsyncHttpClient, HttpRequest, HttpResponse,
+    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, StandardErrorResponse, TokenResponse,
+    TokenUrl,
 };
-use rand::{rngs::StdRng, Rng, SeedableRng};
-use ruma::api::client::discovery::{get_authentication_issuer, get_authorization_server_metadata};
+use rand::{rngs::StdRng, SeedableRng};
+use ruma::{
+    api::client::discovery::{
+        get_authentication_issuer,
+        get_authorization_server_metadata::{self, msc2965::Prompt},
+    },
+    DeviceId, OwnedDeviceId,
+};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use tokio::{spawn, sync::Mutex};
@@ -243,7 +250,7 @@ pub(crate) struct OidcAuthData {
     pub(crate) client_id: ClientId,
     pub(crate) tokens: OnceCell<SharedObservable<OidcSessionTokens>>,
     /// The data necessary to validate authorization responses.
-    pub(crate) authorization_data: Mutex<HashMap<String, AuthorizationValidationData>>,
+    authorization_data: Mutex<HashMap<CsrfToken, AuthorizationValidationData>>,
 }
 
 impl OidcAuthData {
@@ -435,7 +442,7 @@ impl Oidc {
         &self,
         client_metadata: VerifiedClientMetadata,
         registrations: OidcRegistrations,
-        prompt: Prompt,
+        prompt: Option<Prompt>,
     ) -> Result<OidcAuthorizationData, OidcError> {
         let metadata = self.provider_metadata().await?;
 
@@ -447,7 +454,11 @@ impl Oidc {
         self.configure(metadata.issuer().to_owned(), client_metadata, registrations).await?;
 
         let mut data_builder = self.login(redirect_url.clone(), None)?;
-        data_builder = data_builder.prompt(vec![prompt]);
+
+        if let Some(prompt) = prompt {
+            data_builder = data_builder.prompt(vec![prompt]);
+        }
+
         let data = data_builder.build().await?;
 
         Ok(data)
@@ -462,16 +473,13 @@ impl Oidc {
         callback_url: Url,
     ) -> Result<()> {
         let response = AuthorizationResponse::parse_uri(&callback_url)
-            .or(Err(OidcError::InvalidCallbackUrl))?;
+            .map_err(OauthAuthorizationCodeError::from)
+            .map_err(OidcError::from)?;
 
         let code = match response {
             AuthorizationResponse::Success(code) => code,
             AuthorizationResponse::Error(err) => {
-                if err.error.error == AccessDenied {
-                    // The user cancelled the login in the web view.
-                    return Err(OidcError::CancelledAuthorization.into());
-                }
-                return Err(OidcError::Authorization(err).into());
+                return Err(OidcError::from(OauthAuthorizationCodeError::from(err.error)).into());
             }
         };
 
@@ -479,7 +487,7 @@ impl Oidc {
         // the client to have called `abort_authorization` which we can't guarantee so
         // lets double check with their supplied authorization data to be safe.
         if code.state != authorization_data.state {
-            return Err(OidcError::InvalidState.into());
+            return Err(OidcError::from(OauthAuthorizationCodeError::InvalidState).into());
         };
 
         self.finish_authorization(code).await?;
@@ -1083,21 +1091,20 @@ impl Oidc {
     }
 
     /// The scopes to request for logging in.
-    fn login_scopes(device_id: Option<String>) -> Result<[ScopeToken; 3], OidcError> {
-        // Generate the device ID if it is not provided.
-        let device_id = device_id.unwrap_or_else(|| {
-            rand::thread_rng()
-                .sample_iter(&rand::distributions::Alphanumeric)
-                .map(char::from)
-                .take(10)
-                .collect::<String>()
-        });
+    fn login_scopes(device_id: Option<OwnedDeviceId>) -> [Scope; 2] {
+        /// Scope to grand full access to the client-server API.
+        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
+            "urn:matrix:org.matrix.msc2967.client:api:*";
+        /// Prefix of the scope to bind a device ID to an access token.
+        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:org.matrix.msc2967.client:device:";
 
-        Ok([
-            ScopeToken::Openid,
-            ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
-            ScopeToken::try_with_matrix_device(device_id).or(Err(OidcError::InvalidDeviceId))?,
-        ])
+        // Generate the device ID if it is not provided.
+        let device_id = device_id.unwrap_or_else(DeviceId::new);
+
+        [
+            Scope::new(SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS.to_owned()),
+            Scope::new(format!("{SCOPE_MATRIX_DEVICE_ID_PREFIX}{device_id}")),
+        ]
     }
 
     /// Login via OpenID Connect with the Authorization Code flow.
@@ -1174,11 +1181,11 @@ impl Oidc {
     pub fn login(
         &self,
         redirect_uri: Url,
-        device_id: Option<String>,
+        device_id: Option<OwnedDeviceId>,
     ) -> Result<OidcAuthCodeUrlBuilder, OidcError> {
-        let scope = Self::login_scopes(device_id)?.into_iter().collect();
+        let scopes = Self::login_scopes(device_id).to_vec();
 
-        Ok(OidcAuthCodeUrlBuilder::new(self.clone(), scope, redirect_uri))
+        Ok(OidcAuthCodeUrlBuilder::new(self.clone(), scopes, redirect_uri))
     }
 
     /// Finish the login process.
@@ -1265,30 +1272,30 @@ impl Oidc {
         auth_code: AuthorizationCode,
     ) -> Result<(), OidcError> {
         let data = self.data().ok_or(OidcError::NotAuthenticated)?;
+        let client_id = data.client_id.clone();
+
         let validation_data = data
             .authorization_data
             .lock()
             .await
             .remove(&auth_code.state)
-            .ok_or(OidcError::InvalidState)?;
+            .ok_or(OauthAuthorizationCodeError::InvalidState)?;
 
         let provider_metadata = self.provider_metadata().await?;
+        let token_uri = TokenUrl::from_url(provider_metadata.token_endpoint().clone());
 
-        let (response, _) = access_token_with_authorization_code(
-            &self.http_service(),
-            data.credentials(),
-            provider_metadata.token_endpoint(),
-            auth_code.code,
-            validation_data,
-            None,
-            Utc::now(),
-            &mut rng()?,
-        )
-        .await?;
+        let response = OauthClient::new(client_id)
+            .set_token_uri(token_uri)
+            .exchange_code(oauth2::AuthorizationCode::new(auth_code.code))
+            .set_pkce_verifier(validation_data.pkce_verifier)
+            .set_redirect_uri(Cow::Owned(validation_data.redirect_uri))
+            .request_async(self.http_client())
+            .await
+            .map_err(OauthAuthorizationCodeError::RequestToken)?;
 
         self.set_session_tokens(OidcSessionTokens {
-            access_token: response.access_token,
-            refresh_token: response.refresh_token,
+            access_token: response.access_token().secret().clone(),
+            refresh_token: response.refresh_token().map(RefreshToken::secret).cloned(),
         });
 
         Ok(())
@@ -1309,7 +1316,7 @@ impl Oidc {
     /// * `state` - The state received as part of the redirect URI when the
     ///   authorization failed, or the one provided in [`OidcAuthorizationData`]
     ///   after building the authorization URL.
-    pub async fn abort_authorization(&self, state: &str) {
+    pub async fn abort_authorization(&self, state: &CsrfToken) {
         if let Some(data) = self.data() {
             data.authorization_data.lock().await.remove(state);
         }
@@ -1320,12 +1327,10 @@ impl Oidc {
     #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
     async fn request_device_authorization(
         &self,
-        device_id: Option<String>,
+        device_id: Option<OwnedDeviceId>,
     ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOauthError>
     {
-        let scopes = Self::login_scopes(device_id)?
-            .into_iter()
-            .map(|scope| oauth2::Scope::new(scope.to_string()));
+        let scopes = Self::login_scopes(device_id);
 
         let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
 
@@ -1635,6 +1640,17 @@ impl fmt::Debug for OidcSessionTokens {
     }
 }
 
+/// The data necessary to validate a response from the Token endpoint in the
+/// Authorization Code flow.
+#[derive(Debug)]
+struct AuthorizationValidationData {
+    /// The URI where the end-user will be redirected after authorization.
+    redirect_uri: RedirectUrl,
+
+    /// A string to correlate the authorization request to the token request.
+    pkce_verifier: PkceCodeVerifier,
+}
+
 /// The data returned by the provider in the redirect URI after a successful
 /// authorization.
 #[derive(Debug, Clone)]
@@ -1680,7 +1696,7 @@ pub struct AuthorizationCode {
     /// The code to use to retrieve the access token.
     pub code: String,
     /// The unique identifier for this transaction.
-    pub state: String,
+    pub state: CsrfToken,
 }
 
 /// The data returned by the provider in the redirect URI after an authorization
@@ -1689,9 +1705,9 @@ pub struct AuthorizationCode {
 pub struct AuthorizationError {
     /// The error.
     #[serde(flatten)]
-    pub error: ClientError,
+    pub error: StandardErrorResponse<error::AuthorizationCodeErrorResponseType>,
     /// The unique identifier for this transaction.
-    pub state: String,
+    pub state: CsrfToken,
 }
 
 fn rng() -> Result<StdRng, OidcError> {

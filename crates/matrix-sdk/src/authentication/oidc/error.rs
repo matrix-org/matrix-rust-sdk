@@ -15,10 +15,13 @@
 //! Error types used in the [`Oidc`](super::Oidc) API.
 
 pub use mas_oidc_client::error::*;
+use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
+use oauth2::ErrorResponseType;
 pub use oauth2::{
     basic::{BasicErrorResponse, BasicErrorResponseType, BasicRequestTokenError},
     HttpClientError, RequestTokenError, StandardErrorResponse,
 };
+use ruma::serde::{PartialEqAsRefStr, StringEnum};
 
 pub use super::cross_process::CrossProcessRefreshLockError;
 
@@ -69,26 +72,9 @@ pub enum OidcError {
     #[error("client not authenticated")]
     NotAuthenticated,
 
-    /// The state used to complete authorization doesn't match an original
-    /// value.
-    #[error("the supplied state is unexpected")]
-    InvalidState,
-
-    /// The user cancelled authorization in the web view.
-    #[error("authorization cancelled")]
-    CancelledAuthorization,
-
-    /// The login was completed with an invalid callback.
-    #[error("the supplied callback URL is invalid")]
-    InvalidCallbackUrl,
-
-    /// An error occurred during authorization.
-    #[error("authorization failed")]
-    Authorization(super::AuthorizationError),
-
-    /// The device ID is invalid.
-    #[error("invalid device ID")]
-    InvalidDeviceId,
+    /// An error occurred using the OAuth 2.0 authorization code grant.
+    #[error("authorization code grant failed: {0}")]
+    AuthorizationCode(#[from] OauthAuthorizationCodeError),
 
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while refreshing the access token.
@@ -154,3 +140,87 @@ impl OauthDiscoveryError {
         matches!(self, Self::NotSupported)
     }
 }
+
+/// All errors that can occur when using the Authorization Code grant with the
+/// OAuth 2.0 API.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OauthAuthorizationCodeError {
+    /// The query of the redirect URI doesn't have the expected format.
+    #[error(transparent)]
+    RedirectUri(#[from] RedirectUriQueryParseError),
+
+    /// The user cancelled the authorization in the web UI.
+    #[error("authorization cancelled by the user")]
+    Cancelled,
+
+    /// An error occurred when getting the authorization from the user in the
+    /// web UI.
+    #[error("authorization failed: {0}")]
+    Authorization(StandardErrorResponse<AuthorizationCodeErrorResponseType>),
+
+    /// The state used to complete authorization doesn't match any of the
+    /// ongoing authorizations.
+    #[error("authorization state value is unexpected")]
+    InvalidState,
+
+    /// An error occurred interacting with the OAuth 2.0 authorization server
+    /// while exchanging the authorization code for an access token.
+    #[error("failed to request token: {0}")]
+    RequestToken(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
+}
+
+impl From<StandardErrorResponse<AuthorizationCodeErrorResponseType>>
+    for OauthAuthorizationCodeError
+{
+    fn from(value: StandardErrorResponse<AuthorizationCodeErrorResponseType>) -> Self {
+        if *value.error() == AuthorizationCodeErrorResponseType::AccessDenied {
+            // The user cancelled the login in the web view.
+            Self::Cancelled
+        } else {
+            Self::Authorization(value)
+        }
+    }
+}
+
+/// Error response returned by server after requesting an authorization code.
+///
+/// The fields in this structure are defined in [Section 4.1.2.1 of RFC 6749].
+///
+/// [Section 4.1.2.1 of RFC 6749]: https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
+#[derive(Clone, StringEnum, PartialEqAsRefStr, Eq)]
+#[ruma_enum(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AuthorizationCodeErrorResponseType {
+    /// The request is invalid.
+    ///
+    /// It is missing a required parameter, includes an invalid parameter value,
+    /// includes a parameter more than once, or is otherwise malformed.
+    InvalidRequest,
+
+    /// The client is not authorized to request an authorization code using this
+    /// method.
+    UnauthorizedClient,
+
+    /// The resource owner or authorization server denied the request.
+    AccessDenied,
+
+    /// The authorization server does not support obtaining an authorization
+    /// code using this method.
+    UnsupportedResponseType,
+
+    /// The requested scope is invalid, unknown, or malformed.
+    InvalidScope,
+
+    /// The authorization server encountered an unexpected error.
+    ServerError,
+
+    /// The authorization server is currently unable to handle the request due
+    /// to a temporary overloading or maintenance of the server.
+    TemporarilyUnavailable,
+
+    #[doc(hidden)]
+    _Custom(PrivOwnedStr),
+}
+
+impl ErrorResponseType for AuthorizationCodeErrorResponseType {}
