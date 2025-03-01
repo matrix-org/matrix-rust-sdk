@@ -291,11 +291,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             IdbTransactionMode::Readwrite,
         )?;
 
+        let linked_chunks = tx.object_store(keys::LINKED_CHUNKS)?;
+        let gaps = tx.object_store(keys::GAPS)?;
+        let events = tx.object_store(keys::EVENTS)?;
+
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
-
                     let previous = previous
                         .as_ref()
                         .map(ChunkIdentifier::index)
@@ -316,58 +318,51 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         type_str: CHUNK_TYPE_EVENT_TYPE_STRING.to_owned(),
                     };
 
-                    let serialized_value = self.serializer.serialize_into_object(&id, &chunk)?;
+                    let chunk_serialized = self.serializer.serialize_into_object(&id, &chunk)?;
 
-                    object_store.add_val_owned(serialized_value)?;
+                    linked_chunks.add_val_owned(chunk_serialized)?;
 
-                    // Update previous if there
                     if let Some(previous) = previous {
-                        let previous_chunk_js_value = object_store.get_owned(&previous)?.await?;
+                        let previous = linked_chunks.get_owned(&previous)?.await?;
 
-                        if let Some(previous_chunk_js_value) = previous_chunk_js_value {
-                            let previous_chunk: ChunkForCache =
-                                self.serializer.deserialize_into_object(previous_chunk_js_value)?;
+                        if let Some(previous) = previous {
+                            let previous: ChunkForCache =
+                                self.serializer.deserialize_into_object(previous)?;
 
-                            let updated_previous_chunk = ChunkForCache {
-                                id: previous_chunk.id,
-                                previous: previous_chunk.previous,
+                            let previous = ChunkForCache {
+                                id: previous.id,
+                                previous: previous.previous,
                                 next: Some(id.clone()),
-                                type_str: previous_chunk.type_str,
+                                type_str: previous.type_str,
                             };
 
-                            let updated_previous_value = self
-                                .serializer
-                                .serialize_into_object(&previous, &updated_previous_chunk)?;
+                            let previous =
+                                self.serializer.serialize_into_object(&previous.id, &previous)?;
 
-                            object_store.put_val_owned(updated_previous_value)?;
+                            linked_chunks.put_val_owned(previous)?;
                         }
                     }
 
-                    // update next if there
                     if let Some(next) = next {
-                        let next_chunk_js_value = object_store.get_owned(&next)?.await?;
-                        if let Some(next_chunk_js_value) = next_chunk_js_value {
-                            let next_chunk: ChunkForCache =
-                                self.serializer.deserialize_into_object(next_chunk_js_value)?;
+                        let next = linked_chunks.get_owned(&next)?.await?;
+                        if let Some(next) = next {
+                            let next: ChunkForCache =
+                                self.serializer.deserialize_into_object(next)?;
 
-                            let updated_next_chunk = ChunkForCache {
-                                id: next_chunk.id,
+                            let next = ChunkForCache {
+                                id: next.id,
                                 previous: Some(id.clone()),
-                                next: next_chunk.next,
-                                type_str: next_chunk.type_str,
+                                next: next.next,
+                                type_str: next.type_str,
                             };
 
-                            let updated_next_value = self
-                                .serializer
-                                .serialize_into_object(&next, &updated_next_chunk)?;
+                            let next = self.serializer.serialize_into_object(&next.id, &next)?;
 
-                            object_store.put_val_owned(updated_next_value)?;
+                            linked_chunks.put_val_owned(next)?;
                         }
                     }
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
-
                     let previous = previous
                         .as_ref()
                         .map(ChunkIdentifier::index)
@@ -388,117 +383,112 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         type_str: CHUNK_TYPE_GAP_TYPE_STRING.to_owned(),
                     };
 
-                    let serialized_value = self.serializer.serialize_into_object(&id, &chunk)?;
+                    let chunk_serialized = self.serializer.serialize_into_object(&id, &chunk)?;
 
-                    object_store.add_val_owned(serialized_value)?;
+                    linked_chunks.add_val_owned(chunk_serialized)?;
 
                     if let Some(previous) = previous {
-                        let previous_chunk_js_value = object_store
-                            .get_owned(&previous)?
-                            .await?
-                            .expect("Previous chunk not found");
+                        let previous = linked_chunks.get_owned(&previous)?.await?;
+                        if let Some(previous) = previous {
+                            let previous: ChunkForCache =
+                                self.serializer.deserialize_into_object(previous)?;
 
-                        let previous_chunk: ChunkForCache =
-                            self.serializer.deserialize_into_object(previous_chunk_js_value)?;
+                            let previous = ChunkForCache {
+                                id: previous.id,
+                                previous: previous.previous,
+                                next: Some(id.clone()),
+                                type_str: previous.type_str,
+                            };
 
-                        let updated_previous_chunk = ChunkForCache {
-                            id: previous_chunk.id,
-                            previous: previous_chunk.previous,
-                            next: Some(id.clone()),
-                            type_str: previous_chunk.type_str,
-                        };
+                            let previous =
+                                self.serializer.serialize_into_object(&previous.id, &previous)?;
 
-                        let updated_previous_value = self
-                            .serializer
-                            .serialize_into_object(&previous, &updated_previous_chunk)?;
-
-                        object_store.put_val(&updated_previous_value)?;
+                            linked_chunks.put_val(&previous)?;
+                        }
                     }
 
                     // update next if there
                     if let Some(next) = next {
-                        let next_chunk_js_value =
-                            object_store.get_owned(&next)?.await?.expect("Next chunk not found");
-                        let next_chunk: ChunkForCache =
-                            self.serializer.deserialize_into_object(next_chunk_js_value)?;
+                        let next = linked_chunks.get_owned(&next)?.await?;
+                        if let Some(next) = next {
+                            let next: ChunkForCache =
+                                self.serializer.deserialize_into_object(next)?;
 
-                        let updated_next_chunk = ChunkForCache {
-                            id: next_chunk.id,
-                            previous: Some(id.clone()),
-                            next: next_chunk.next,
-                            type_str: next_chunk.type_str,
-                        };
+                            let next = ChunkForCache {
+                                id: next.id,
+                                previous: Some(id.clone()),
+                                next: next.next,
+                                type_str: next.type_str,
+                            };
 
-                        let updated_next_value =
-                            self.serializer.serialize_into_object(&next, &updated_next_chunk)?;
+                            let next = self.serializer.serialize_into_object(&next.id, &next)?;
 
-                        object_store.put_val(&updated_next_value)?;
+                            linked_chunks.put_val(&next)?;
+                        }
                     }
-
-                    let object_store = tx.object_store(keys::GAPS)?;
 
                     let gap = IndexedDbGapForCache { prev_token: gap.prev_token };
 
                     let serialized_gap = self.serializer.serialize_into_object(&id, &gap)?;
 
-                    object_store.add_val_owned(serialized_gap)?;
+                    gaps.add_val_owned(serialized_gap)?;
                 }
-                Update::RemoveChunk(id) => {
-                    let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
 
+                Update::RemoveChunk(id) => {
                     let id = self.get_id(room_id.as_ref(), id.index().to_string().as_ref());
 
                     trace!("Removing chunk {id:?}");
 
-                    // Remove the chunk itself
-                    let chunk_to_delete_js_value =
-                        object_store.get_owned(id.clone())?.await?.unwrap();
-                    let chunk_to_delete: ChunkForCache =
-                        self.serializer.deserialize_into_object(chunk_to_delete_js_value)?;
+                    let chunk = linked_chunks.get_owned(id.clone())?.await?;
+                    if let Some(chunk) = chunk {
+                        let chunk: ChunkForCache =
+                            self.serializer.deserialize_into_object(chunk)?;
 
-                    if let Some(previous) = chunk_to_delete.previous.clone() {
-                        let previous_chunk_js_value =
-                            object_store.get_owned(&previous)?.await?.unwrap();
-                        let previous_chunk: ChunkForCache =
-                            self.serializer.deserialize_into_object(previous_chunk_js_value)?;
+                        if let Some(previous) = chunk.previous.clone() {
+                            let previous = linked_chunks.get_owned(previous)?.await?;
+                            if let Some(previous) = previous {
+                                let previous: ChunkForCache =
+                                    self.serializer.deserialize_into_object(previous)?;
 
-                        let updated_previous_chunk = ChunkForCache {
-                            id: previous.clone(),
-                            previous: previous_chunk.previous,
-                            next: chunk_to_delete.next.clone(),
-                            type_str: previous_chunk.type_str,
-                        };
-                        let updated_previous_value = self
-                            .serializer
-                            .serialize_into_object(&previous, &updated_previous_chunk)?;
-                        object_store.put_val(&updated_previous_value)?;
+                                let previous = ChunkForCache {
+                                    id: previous.id,
+                                    previous: previous.previous,
+                                    next: chunk.next.clone(),
+                                    type_str: previous.type_str,
+                                };
+                                let previous = self
+                                    .serializer
+                                    .serialize_into_object(&previous.id, &previous)?;
+                                linked_chunks.put_val(&previous)?;
+                            }
+                        }
+
+                        if let Some(next) = chunk.next {
+                            let next = linked_chunks.get_owned(next)?.await?;
+                            if let Some(next) = next {
+                                let next: ChunkForCache =
+                                    self.serializer.deserialize_into_object(next)?;
+
+                                let next = ChunkForCache {
+                                    id: next.id,
+                                    previous: chunk.previous,
+                                    next: next.next,
+                                    type_str: next.type_str,
+                                };
+                                let next =
+                                    self.serializer.serialize_into_object(&next.id, &next)?;
+
+                                linked_chunks.put_val(&next)?;
+                            }
+                        }
+
+                        linked_chunks.delete_owned(id)?;
                     }
-
-                    if let Some(next) = chunk_to_delete.next {
-                        let next_chunk_js_value = object_store.get_owned(&next)?.await?.unwrap();
-                        let next_chunk: ChunkForCache =
-                            self.serializer.deserialize_into_object(next_chunk_js_value)?;
-
-                        let updated_next_chunk = ChunkForCache {
-                            id: next.clone(),
-                            previous: chunk_to_delete.previous,
-                            next: next_chunk.next,
-                            type_str: next_chunk.type_str,
-                        };
-                        let updated_next_value =
-                            self.serializer.serialize_into_object(&next, &updated_next_chunk)?;
-
-                        object_store.put_val(&updated_next_value)?;
-                    }
-
-                    object_store.delete_owned(id)?;
                 }
                 Update::PushItems { at, items } => {
                     let chunk_id = at.chunk_identifier().index();
 
                     trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
-
-                    let object_store = tx.object_store(keys::EVENTS)?;
 
                     for (i, event) in items.into_iter().enumerate() {
                         let index = at.index() + i;
@@ -517,7 +507,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                         let value = self.serializer.serialize_into_object(&id, &value)?;
 
-                        object_store.put_val(&value)?.into_future().await?;
+                        events.put_val(&value)?.into_future().await?;
                     }
                 }
                 Update::ReplaceItem { at, item } => {
@@ -525,8 +515,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let index = at.index();
 
                     trace!(%room_id, "replacing item @ {chunk_id}:{index}");
-
-                    let object_store = tx.object_store(keys::EVENTS)?;
 
                     let event_id = self.get_event_id(
                         room_id.to_string().as_ref(),
@@ -544,7 +532,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let value =
                         self.serializer.serialize_into_object(&event_id, &timeline_event)?;
 
-                    object_store.put_val(&value)?;
+                    events.put_val(&value)?;
                 }
                 Update::RemoveItem { at } => {
                     let chunk_id = at.chunk_identifier().index();
@@ -602,30 +590,22 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let chunks_key_range = IdbKeyRange::bound(&lower_bound, &upper_bound).unwrap();
 
-                    let chunks_store = tx.object_store(keys::LINKED_CHUNKS)?;
+                    let chunks = linked_chunks.get_all_with_key(&chunks_key_range)?.await?;
 
-                    let linked_chunks = chunks_store.get_all_with_key(&chunks_key_range)?.await?;
+                    for chunk in chunks {
+                        let chunk: ChunkForCache =
+                            self.serializer.deserialize_into_object(chunk)?;
 
-                    for linked_chunk in linked_chunks {
-                        let linked_chunk: ChunkForCache =
-                            self.serializer.deserialize_into_object(linked_chunk)?;
-
-                        let lower =
-                            JsValue::from_str(&self.get_id(room_id.as_ref(), &linked_chunk.id));
+                        let lower = JsValue::from_str(&self.get_id(room_id.as_ref(), &chunk.id));
                         let upper = JsValue::from_str(
-                            &(self.get_id(room_id.as_ref(), &linked_chunk.id) + "\u{FFFF}"),
+                            &(self.get_id(room_id.as_ref(), &chunk.id) + "\u{FFFF}"),
                         );
 
                         let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
 
-                        let events_object_store = tx.object_store(keys::EVENTS)?;
-                        let req = events_object_store.delete_owned(key_range)?;
-                        req.into_future().await?;
+                        events.delete_owned(key_range)?;
 
-                        let chunks_store = tx.object_store(keys::LINKED_CHUNKS)?;
-
-                        let linked_chunk_id = JsValue::from_str(&linked_chunk.id);
-                        chunks_store.delete(&linked_chunk_id)?;
+                        linked_chunks.delete_owned(&chunk.id)?;
                     }
                 }
             }
