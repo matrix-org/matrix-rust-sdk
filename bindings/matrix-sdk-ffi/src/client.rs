@@ -20,6 +20,7 @@ use matrix_sdk::{
     },
     ruma::{
         api::client::{
+            discovery::get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
@@ -399,7 +400,7 @@ impl Client {
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
-        prompt: OidcPrompt,
+        prompt: Option<OidcPrompt>,
     ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
         let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
         let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
@@ -420,8 +421,11 @@ impl Client {
             static_registrations,
         )?;
 
-        let data =
-            self.inner.oidc().url_for_oidc(oidc_metadata, registrations, prompt.into()).await?;
+        let data = self
+            .inner
+            .oidc()
+            .url_for_oidc(oidc_metadata, registrations, prompt.map(Into::into))
+            .await?;
 
         Ok(Arc::new(data))
     }
@@ -1813,26 +1817,6 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
 
 #[derive(Clone, uniffi::Enum)]
 pub enum OidcPrompt {
-    /// The Authorization Server must not display any authentication or consent
-    /// user interface pages.
-    None,
-
-    /// The Authorization Server should prompt the End-User for
-    /// reauthentication.
-    Login,
-
-    /// The Authorization Server should prompt the End-User for consent before
-    /// returning information to the Client.
-    Consent,
-
-    /// The Authorization Server should prompt the End-User to select a user
-    /// account.
-    ///
-    /// This enables an End-User who has multiple accounts at the Authorization
-    /// Server to select amongst the multiple accounts that they might have
-    /// current sessions for.
-    SelectAccount,
-
     /// The Authorization Server should prompt the End-User to create a user
     /// account.
     ///
@@ -1846,26 +1830,17 @@ pub enum OidcPrompt {
 impl From<&SdkOidcPrompt> for OidcPrompt {
     fn from(value: &SdkOidcPrompt) -> Self {
         match value {
-            SdkOidcPrompt::None => Self::None,
-            SdkOidcPrompt::Login => Self::Login,
-            SdkOidcPrompt::Consent => Self::Consent,
-            SdkOidcPrompt::SelectAccount => Self::SelectAccount,
             SdkOidcPrompt::Create => Self::Create,
-            SdkOidcPrompt::Unknown(value) => Self::Unknown { value: value.to_owned() },
             _ => Self::Unknown { value: value.to_string() },
         }
     }
 }
 
-impl From<OidcPrompt> for SdkOidcPrompt {
+impl From<OidcPrompt> for RumaOidcPrompt {
     fn from(value: OidcPrompt) -> Self {
         match value {
-            OidcPrompt::None => Self::None,
-            OidcPrompt::Login => Self::Login,
-            OidcPrompt::Consent => Self::Consent,
-            OidcPrompt::SelectAccount => Self::SelectAccount,
             OidcPrompt::Create => Self::Create,
-            OidcPrompt::Unknown { value } => Self::Unknown(value),
+            OidcPrompt::Unknown { value } => value.into(),
         }
     }
 }
