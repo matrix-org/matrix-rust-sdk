@@ -159,7 +159,6 @@ use mas_oidc_client::{
         account_management::{build_account_management_url, AccountManagementActionFull},
         authorization_code::{access_token_with_authorization_code, AuthorizationValidationData},
         discovery::{discover, insecure_discover},
-        refresh_token::refresh_access_token,
         registration::register_client,
         revocation::revoke_token,
     },
@@ -180,7 +179,10 @@ pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
-use oauth2::{AsyncHttpClient, HttpClientError, HttpRequest, HttpResponse};
+use oauth2::{
+    basic::BasicClient as OauthClient, AsyncHttpClient, HttpRequest, HttpResponse, RefreshToken,
+    TokenResponse, TokenUrl,
+};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruma::api::client::discovery::{get_authentication_issuer, get_authorization_server_metadata};
 use serde::{Deserialize, Serialize};
@@ -1334,7 +1336,7 @@ impl Oidc {
             .map(oauth2::DeviceAuthorizationUrl::from_url)
             .ok_or(qrcode::DeviceAuthorizationOauthError::NoDeviceAuthorizationEndpoint)?;
 
-        let response = oauth2::basic::BasicClient::new(client_id)
+        let response = OauthClient::new(client_id)
             .set_device_authorization_url(device_authorization_url)
             .exchange_device_code()
             .add_scopes(scopes)
@@ -1355,9 +1357,9 @@ impl Oidc {
         let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
 
         let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
-        let token_uri = oauth2::TokenUrl::from_url(server_metadata.token_endpoint().clone());
+        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint().clone());
 
-        let response = oauth2::basic::BasicClient::new(client_id)
+        let response = OauthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_device_access_token(device_authorization_response)
             .request_async(self.http_client(), tokio::time::sleep, None)
@@ -1374,8 +1376,8 @@ impl Oidc {
     async fn refresh_access_token_inner(
         self,
         refresh_token: String,
-        provider_metadata: VerifiedProviderMetadata,
-        credentials: ClientCredentials,
+        token_endpoint: Url,
+        client_id: ClientId,
         cross_process_lock: Option<CrossProcessRefreshLockGuard>,
     ) -> Result<(), OidcError> {
         trace!(
@@ -1383,32 +1385,31 @@ impl Oidc {
             hash_str(&refresh_token)
         );
 
-        let (response, _) = refresh_access_token(
-            &self.http_service(),
-            credentials,
-            provider_metadata.token_endpoint(),
-            refresh_token.clone(),
-            None,
-            None,
-            None,
-            Utc::now(),
-            &mut rng()?,
-        )
-        .await?;
+        let token = RefreshToken::new(refresh_token.clone());
+        let token_uri = TokenUrl::from_url(token_endpoint);
+
+        let response = OauthClient::new(client_id)
+            .set_token_uri(token_uri)
+            .exchange_refresh_token(&token)
+            .request_async(self.http_client())
+            .await
+            .map_err(OidcError::RefreshToken)?;
+
+        let new_access_token = response.access_token().secret().clone();
+        let new_refresh_token = response.refresh_token().map(RefreshToken::secret).cloned();
 
         trace!(
             "Token refresh: new refresh_token: {} / access_token: {:x}",
-            response
-                .refresh_token
+            new_refresh_token
                 .as_deref()
                 .map(|token| format!("{:x}", hash_str(token)))
                 .unwrap_or_else(|| "<none>".to_owned()),
-            hash_str(&response.access_token)
+            hash_str(&new_access_token)
         );
 
         let tokens = OidcSessionTokens {
-            access_token: response.access_token,
-            refresh_token: response.refresh_token.or(Some(refresh_token)),
+            access_token: new_access_token,
+            refresh_token: new_refresh_token.or(Some(refresh_token)),
         };
 
         self.set_session_tokens(tokens.clone());
@@ -1519,15 +1520,13 @@ impl Oidc {
             }
         };
 
-        let Some(auth_data) = self.data() else {
-            warn!("invalid state: missing auth data");
+        let Some(client_id) = self.client_id().cloned() else {
+            warn!("invalid state: missing client ID");
             fail!(
                 refresh_status_guard,
                 RefreshTokenError::Oidc(Arc::new(OidcError::NotAuthenticated))
             );
         };
-
-        let credentials = auth_data.credentials();
 
         // Do not interrupt refresh access token requests and processing, by detaching
         // the request sending and response processing.
@@ -1539,8 +1538,8 @@ impl Oidc {
             match this
                 .refresh_access_token_inner(
                     refresh_token,
-                    provider_metadata,
-                    credentials,
+                    provider_metadata.token_endpoint().clone(),
+                    client_id,
                     cross_process_guard,
                 )
                 .await
@@ -1704,7 +1703,7 @@ fn hash_str(x: &str) -> impl fmt::LowerHex {
 }
 
 impl<'c> AsyncHttpClient<'c> for HttpClient {
-    type Error = HttpClientError<reqwest::Error>;
+    type Error = error::HttpClientError<reqwest::Error>;
 
     type Future =
         Pin<Box<dyn Future<Output = Result<HttpResponse, Self::Error>> + Send + Sync + 'c>>;
