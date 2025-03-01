@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Context as _;
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use mas_oidc_client::{
     requests::account_management::AccountManagementActionFull,
     types::registration::VerifiedClientMetadata,
@@ -10,7 +11,7 @@ use matrix_sdk_test::async_test;
 use oauth2::{CsrfToken, PkceCodeChallenge, RedirectUrl};
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, owned_device_id,
-    ServerName,
+    user_id, DeviceId, ServerName,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -23,7 +24,7 @@ use wiremock::{
 
 use super::{
     registrations::OidcRegistrations, AuthorizationCode, AuthorizationError, AuthorizationResponse,
-    Oidc, OidcError, OidcSessionTokens, RedirectUriQueryParseError,
+    Oidc, OidcAuthorizationData, OidcError, OidcSessionTokens, RedirectUriQueryParseError,
 };
 use crate::{
     authentication::oidc::{
@@ -72,6 +73,95 @@ async fn mock_environment(
     Ok((client.oidc(), server, client_metadata, registrations))
 }
 
+/// Check the URL in the given authorization data.
+async fn check_authorization_url(
+    authorization_data: &OidcAuthorizationData,
+    oidc: &Oidc,
+    issuer: &str,
+    device_id: Option<&DeviceId>,
+    expected_prompt: Option<&str>,
+    expected_login_hint: Option<&str>,
+) {
+    tracing::debug!("authorization data URL = {}", authorization_data.url);
+
+    let data = oidc.data().unwrap();
+    let authorization_data_guard = data.authorization_data.lock().await;
+    let validation_data =
+        authorization_data_guard.get(&authorization_data.state).expect("missing validation data");
+
+    let mut num_expected =
+        7 + expected_prompt.is_some() as i8 + expected_login_hint.is_some() as i8;
+    let mut code_challenge = None;
+    let mut prompt = None;
+    let mut login_hint = None;
+
+    for (key, val) in authorization_data.url.query_pairs() {
+        match &*key {
+            "response_type" => {
+                assert_eq!(val, "code");
+                num_expected -= 1;
+            }
+            "client_id" => {
+                assert_eq!(val, "test_client_id");
+                num_expected -= 1;
+            }
+            "redirect_uri" => {
+                assert_eq!(val, validation_data.redirect_uri.as_str());
+                num_expected -= 1;
+            }
+            "scope" => {
+                let expected_start = "urn:matrix:org.matrix.msc2967.client:api:* urn:matrix:org.matrix.msc2967.client:device:";
+                assert!(val.starts_with(expected_start));
+                assert!(val.len() > expected_start.len());
+
+                // Only check the device ID if we know it. If it's generated randomly we don't
+                // know it.
+                if let Some(device_id) = device_id {
+                    assert!(val.ends_with(device_id.as_str()));
+                    assert_eq!(val.len(), expected_start.len() + device_id.as_str().len());
+                }
+
+                num_expected -= 1;
+            }
+            "state" => {
+                num_expected -= 1;
+                assert_eq!(val, authorization_data.state.secret().as_str());
+            }
+            "code_challenge" => {
+                code_challenge = Some(val);
+                num_expected -= 1;
+            }
+            "code_challenge_method" => {
+                assert_eq!(val, "S256");
+                num_expected -= 1;
+            }
+            "prompt" => {
+                prompt = Some(val);
+                num_expected -= 1;
+            }
+            "login_hint" => {
+                login_hint = Some(val);
+                num_expected -= 1;
+            }
+            _ => panic!("unexpected query parameter: {key}={val}"),
+        }
+    }
+
+    assert_eq!(num_expected, 0);
+
+    let code_challenge = code_challenge.expect("missing code_challenge");
+    assert_eq!(
+        code_challenge,
+        PkceCodeChallenge::from_code_verifier_sha256(&validation_data.pkce_verifier).as_str()
+    );
+
+    assert_eq!(prompt.as_deref(), expected_prompt);
+    assert_eq!(login_hint.as_deref(), expected_login_hint);
+
+    assert!(authorization_data.url.as_str().starts_with(issuer));
+    assert_eq!(authorization_data.url.path(), "/oauth2/authorize");
+}
+
 #[async_test]
 async fn test_high_level_login() -> anyhow::Result<()> {
     // Given a fresh environment.
@@ -84,8 +174,10 @@ async fn test_high_level_login() -> anyhow::Result<()> {
         oidc.url_for_oidc(metadata.clone(), registrations, Some(Prompt::Create)).await.unwrap();
 
     // Then the client should be configured correctly.
-    assert!(oidc.issuer().is_some());
+    assert_let!(Some(issuer) = oidc.issuer());
     assert!(oidc.client_id().is_some());
+
+    check_authorization_url(&authorization_data, &oidc, issuer, None, Some("create"), None).await;
 
     // When completing the login with a valid callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -104,8 +196,10 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     let authorization_data =
         oidc.url_for_oidc(metadata.clone(), registrations, None).await.unwrap();
 
-    assert!(oidc.issuer().is_some());
+    assert_let!(Some(issuer) = oidc.issuer());
     assert!(oidc.client_id().is_some());
+
+    check_authorization_url(&authorization_data, &oidc, issuer, None, None, None).await;
 
     // When completing login with a cancellation callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -132,8 +226,10 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     let authorization_data =
         oidc.url_for_oidc(metadata.clone(), registrations, None).await.unwrap();
 
-    assert!(oidc.issuer().is_some());
+    assert_let!(Some(issuer) = oidc.issuer());
     assert!(oidc.client_id().is_some());
+
+    check_authorization_url(&authorization_data, &oidc, issuer, None, None, None).await;
 
     // When completing login with an old/tampered state.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
@@ -151,12 +247,12 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
 }
 
 #[async_test]
-async fn test_login() -> anyhow::Result<()> {
+async fn test_login_url() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
     let issuer = server.server().uri();
 
     let oauth_server = server.oauth();
-    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+    oauth_server.mock_server_metadata().ok().expect(1..).mount().await;
 
     let client = server.client_builder().registered_with_oauth(server.server().uri()).build().await;
     let oidc = client.oidc();
@@ -165,61 +261,44 @@ async fn test_login() -> anyhow::Result<()> {
 
     let redirect_uri_str = REDIRECT_URI_STRING;
     let redirect_uri = Url::parse(redirect_uri_str)?;
-    let authorization_data = oidc.login(redirect_uri, Some(device_id.clone()))?.build().await?;
 
-    tracing::debug!("authorization data URL = {}", authorization_data.url);
+    // No extra parameters.
+    let authorization_data =
+        oidc.login(redirect_uri.clone(), Some(device_id.clone()))?.build().await?;
+    check_authorization_url(&authorization_data, &oidc, &issuer, Some(&device_id), None, None)
+        .await;
 
-    let mut num_expected = 7;
-    let mut code_challenge = None;
+    // With prompt parameter.
+    let authorization_data = oidc
+        .login(redirect_uri.clone(), Some(device_id.clone()))?
+        .prompt(vec![Prompt::Create])
+        .build()
+        .await?;
+    check_authorization_url(
+        &authorization_data,
+        &oidc,
+        &issuer,
+        Some(&device_id),
+        Some("create"),
+        None,
+    )
+    .await;
 
-    for (key, val) in authorization_data.url.query_pairs() {
-        match &*key {
-            "response_type" => {
-                assert_eq!(val, "code");
-                num_expected -= 1;
-            }
-            "client_id" => {
-                assert_eq!(val, "test_client_id");
-                num_expected -= 1;
-            }
-            "redirect_uri" => {
-                assert_eq!(val, redirect_uri_str);
-                num_expected -= 1;
-            }
-            "scope" => {
-                assert_eq!(val, format!("urn:matrix:org.matrix.msc2967.client:api:* urn:matrix:org.matrix.msc2967.client:device:{device_id}"));
-                num_expected -= 1;
-            }
-            "state" => {
-                num_expected -= 1;
-                assert_eq!(val, authorization_data.state.secret().as_str());
-            }
-            "code_challenge" => {
-                code_challenge = Some(val);
-                num_expected -= 1;
-            }
-            "code_challenge_method" => {
-                assert_eq!(val, "S256");
-                num_expected -= 1;
-            }
-            _ => panic!("unexpected query parameter: {key}={val}"),
-        }
-    }
-
-    assert_eq!(num_expected, 0);
-
-    let data = oidc.data().unwrap();
-    let authorization_data_guard = data.authorization_data.lock().await;
-
-    let state = authorization_data_guard.get(&authorization_data.state).context("missing state")?;
-    let code_challenge = code_challenge.context("missing code_challenge")?;
-    assert_eq!(
-        code_challenge,
-        PkceCodeChallenge::from_code_verifier_sha256(&state.pkce_verifier).as_str()
-    );
-
-    assert!(authorization_data.url.as_str().starts_with(&issuer));
-    assert_eq!(authorization_data.url.path(), "/oauth2/authorize");
+    // With user_id_hint parameter.
+    let authorization_data = oidc
+        .login(redirect_uri.clone(), Some(device_id.clone()))?
+        .user_id_hint(user_id!("@joe:example.org"))
+        .build()
+        .await?;
+    check_authorization_url(
+        &authorization_data,
+        &oidc,
+        &issuer,
+        Some(&device_id),
+        None,
+        Some("mxid:@joe:example.org"),
+    )
+    .await;
 
     Ok(())
 }
