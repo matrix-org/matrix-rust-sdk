@@ -141,10 +141,9 @@ impl RoomListService {
             }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
-            }));
-        // TODO: Re-enable once we know it creates slowness.
-        // // We don't deal with encryption device messages here so this is safe
-        // .share_pos();
+            }))
+            // We don't deal with encryption device messages here so this is safe
+            .share_pos();
 
         let sliding_sync = builder
             .add_cached_list(
