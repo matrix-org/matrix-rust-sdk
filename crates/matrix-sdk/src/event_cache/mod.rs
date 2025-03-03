@@ -717,13 +717,6 @@ impl EventCacheInner {
                 let pagination_status =
                     SharedObservable::new(RoomPaginationStatus::Idle { hit_timeline_start: false });
 
-                let room_state = RoomEventCacheState::new(
-                    room_id.to_owned(),
-                    self.store.clone(),
-                    pagination_status.clone(),
-                )
-                .await?;
-
                 let room_version = self
                     .client
                     .get()
@@ -734,6 +727,14 @@ impl EventCacheInner {
                         warn!("unknown room version for {room_id}, using default V1");
                         RoomVersionId::V1
                     });
+
+                let room_state = RoomEventCacheState::new(
+                    room_id.to_owned(),
+                    room_version,
+                    self.store.clone(),
+                    pagination_status.clone(),
+                )
+                .await?;
 
                 // SAFETY: we must have subscribed before reaching this coed, otherwise
                 // something is very wrong.
@@ -747,7 +748,6 @@ impl EventCacheInner {
                     room_state,
                     pagination_status,
                     room_id.to_owned(),
-                    room_version,
                     self.all_events.clone(),
                     auto_shrink_sender,
                 );
