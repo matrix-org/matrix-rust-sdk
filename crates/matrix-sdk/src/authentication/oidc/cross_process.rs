@@ -251,7 +251,6 @@ pub enum CrossProcessRefreshLockError {
 
 #[cfg(all(test, feature = "e2e-encryption"))]
 mod tests {
-    use std::sync::Arc;
 
     use anyhow::Context as _;
     use futures_util::future::join_all;
@@ -261,12 +260,7 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        authentication::oidc::{
-            backend::mock::{MockImpl, ISSUER_URL},
-            cross_process::SessionHash,
-            tests::prev_session_tokens,
-            Oidc,
-        },
+        authentication::oidc::{cross_process::SessionHash, tests::prev_session_tokens},
         test_utils::{
             client::{
                 oauth::{mock_session, mock_session_tokens},
@@ -302,7 +296,13 @@ mod tests {
         )?;
 
         let session_hash = compute_session_hash(&tokens);
-        client.oidc().restore_session(mock_session(tokens.clone(), ISSUER_URL.to_owned())).await?;
+        client
+            .oidc()
+            .restore_session(mock_session(
+                tokens.clone(),
+                "https://oidc.example.com/issuer".to_owned(),
+            ))
+            .await?;
 
         assert_eq!(client.oidc().session_tokens().unwrap(), tokens);
 
@@ -376,36 +376,28 @@ mod tests {
         // This tests that refresh token works, and that it doesn't cause multiple token
         // refreshes whenever one spawns two refreshes around the same time.
 
+        let server = MatrixMockServer::new().await;
+
+        let oauth_server = server.oauth();
+        oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+        oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
         let tmp_dir = tempfile::tempdir()?;
-        let client = MockClientBuilder::new("https://example.org".to_owned())
-            .sqlite_store(&tmp_dir)
-            .unlogged()
-            .build()
-            .await;
+        let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
+        let oidc = client.oidc();
 
-        let prev_tokens = prev_session_tokens();
         let next_tokens = mock_session_tokens();
-
-        let backend = Arc::new(
-            MockImpl::new()
-                .next_session_tokens(next_tokens.clone())
-                .expected_refresh_token(prev_tokens.refresh_token.clone().unwrap()),
-        );
-        let oidc = Oidc { client: client.clone(), backend: backend.clone() };
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
-        oidc.restore_session(mock_session(prev_tokens.clone(), ISSUER_URL.to_owned())).await?;
+        oidc.restore_session(mock_session(prev_session_tokens(), server.server().uri())).await?;
 
         // Immediately try to refresh the access token twice in parallel.
         for result in join_all([oidc.refresh_access_token(), oidc.refresh_access_token()]).await {
             result?;
         }
-
-        // There should have been at most one refresh.
-        assert_eq!(*backend.num_refreshes.lock().unwrap(), 1);
 
         {
             // The cross process lock has been correctly updated, and the next attempt to
@@ -424,51 +416,40 @@ mod tests {
 
     #[async_test]
     async fn test_cross_process_concurrent_refresh() -> anyhow::Result<()> {
-        // Create the backend.
+        let server = MatrixMockServer::new().await;
+        let issuer = server.server().uri();
+
+        let oauth_server = server.oauth();
+        oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+        oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
         let prev_tokens = prev_session_tokens();
         let next_tokens = mock_session_tokens();
 
-        let backend = Arc::new(
-            MockImpl::new()
-                .next_session_tokens(next_tokens.clone())
-                .expected_refresh_token(prev_tokens.refresh_token.clone().unwrap()),
-        );
-
         // Create the first client.
         let tmp_dir = tempfile::tempdir()?;
-        let client = MockClientBuilder::new("https://example.org".to_owned())
-            .sqlite_store(&tmp_dir)
-            .unlogged()
-            .build()
-            .await;
+        let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
 
-        let oidc = Oidc { client: client.clone(), backend: backend.clone() };
+        let oidc = client.oidc();
         oidc.enable_cross_process_refresh_lock("client1".to_owned()).await?;
 
-        oidc.restore_session(mock_session(prev_tokens.clone(), ISSUER_URL.to_owned())).await?;
+        oidc.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
 
         // Create a second client, without restoring it, to test that a token update
         // before restoration doesn't cause new issues.
-        let unrestored_client = MockClientBuilder::new("https://example.org".to_owned())
-            .sqlite_store(&tmp_dir)
-            .unlogged()
-            .build()
-            .await;
-        let unrestored_oidc = Oidc { client: unrestored_client.clone(), backend: backend.clone() };
+        let unrestored_client =
+            server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
+        let unrestored_oidc = unrestored_client.oidc();
         unrestored_oidc.enable_cross_process_refresh_lock("unrestored_client".to_owned()).await?;
 
         {
             // Create a third client that will run a refresh while the others two are doing
             // nothing.
-            let client3 = MockClientBuilder::new("https://example.org".to_owned())
-                .sqlite_store(&tmp_dir)
-                .unlogged()
-                .build()
-                .await;
+            let client3 = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
 
-            let oidc3 = Oidc { client: client3.clone(), backend: backend.clone() };
+            let oidc3 = client3.oidc();
             oidc3.enable_cross_process_refresh_lock("client3".to_owned()).await?;
-            oidc3.restore_session(mock_session(prev_tokens.clone(), ISSUER_URL.to_owned())).await?;
+            oidc3.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
 
             // Run a refresh in the second client; this will invalidate the tokens from the
             // first token.
@@ -500,7 +481,7 @@ mod tests {
                 Box::new(|_| panic!("save_session_callback shouldn't be called here")),
             )?;
 
-            oidc.restore_session(mock_session(prev_tokens.clone(), ISSUER_URL.to_owned())).await?;
+            oidc.restore_session(mock_session(prev_tokens.clone(), issuer)).await?;
 
             // And this client is now aware of the latest tokens.
             let xp_manager =
@@ -549,9 +530,6 @@ mod tests {
             assert_eq!(guard.hash_guard.as_ref(), Some(&actual_hash));
             assert!(!guard.hash_mismatch);
         }
-
-        // There should have been at most one refresh.
-        assert_eq!(*backend.num_refreshes.lock().unwrap(), 1);
 
         Ok(())
     }
