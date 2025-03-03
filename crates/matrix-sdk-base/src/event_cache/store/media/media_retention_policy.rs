@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// [`EventCacheStore`]: crate::event_cache::store::EventCacheStore
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[non_exhaustive]
 pub struct MediaRetentionPolicy {
     /// The maximum authorized size of the overall media cache, in bytes.

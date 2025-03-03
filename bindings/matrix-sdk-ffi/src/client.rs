@@ -21,7 +21,7 @@ use matrix_sdk::{
     event_cache::EventCacheError,
     media::{
         MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
-        MediaThumbnailSettings,
+        MediaRetentionPolicy, MediaThumbnailSettings,
     },
     ruma::{
         api::client::{
@@ -1159,6 +1159,19 @@ impl Client {
     pub async fn is_room_alias_available(&self, alias: String) -> Result<bool, ClientError> {
         let alias = RoomAliasId::parse(alias)?;
         self.inner.is_room_alias_available(&alias).await.map_err(Into::into)
+    }
+
+    /// Set the media retention policy.
+    pub async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), ClientError> {
+        let closure = async || -> Result<_, EventCacheError> {
+            let store = self.inner.event_cache_store().lock().await?;
+            Ok(store.set_media_retention_policy(policy).await?)
+        };
+
+        Ok(closure().await?)
     }
 
     /// Clear all the non-critical caches for this Client instance.
