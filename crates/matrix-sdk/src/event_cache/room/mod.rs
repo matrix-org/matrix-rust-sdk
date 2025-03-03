@@ -1244,7 +1244,7 @@ mod private {
                     let room_version = self.room_version.clone();
 
                     for event in &events {
-                        self.maybe_apply_new_redaction(&room_version, &event);
+                        self.maybe_apply_new_redaction(&room_version, &event).await?;
                     }
                 }
 
@@ -1268,7 +1268,11 @@ mod private {
         /// to-be-redacted event in the chunk, and replace it by the
         /// redacted form.
         #[instrument(skip_all)]
-        fn maybe_apply_new_redaction(&mut self, room_version: &RoomVersionId, event: &Event) {
+        async fn maybe_apply_new_redaction(
+            &mut self,
+            room_version: &RoomVersionId,
+            event: &Event,
+        ) -> Result<(), EventCacheError> {
             let raw_event = event.raw();
 
             // Do not deserialise the entire event if we aren't certain it's a
@@ -1276,7 +1280,7 @@ mod private {
             let Ok(Some(MessageLikeEventType::RoomRedaction)) =
                 raw_event.get_field::<MessageLikeEventType>("type")
             else {
-                return;
+                return Ok(());
             };
 
             // It is a `m.room.redaction`! We can deserialize it entirely.
@@ -1285,33 +1289,29 @@ mod private {
                 ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
             )) = event.raw().deserialize()
             else {
-                return;
+                return Ok(());
             };
 
             let Some(event_id) = redaction.redacts(room_version) else {
                 warn!("missing target event id from the redaction event");
-                return;
+                return Ok(());
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            let mut events = self.events.events();
-
-            if let Some((pos, target_event)) =
-                events.find(|(_, item)| item.event_id().as_deref() == Some(event_id))
-            {
+            if let Some((location, position, target_event)) = self.find_event(&event_id).await? {
                 // Don't redact already redacted events.
                 if let Ok(deserialized) = target_event.raw().deserialize() {
                     match deserialized {
                         AnySyncTimelineEvent::MessageLike(ev) => {
                             if ev.original_content().is_none() {
                                 // Already redacted.
-                                return;
+                                return Ok(());
                             }
                         }
                         AnySyncTimelineEvent::State(ev) => {
                             if ev.original_content().is_none() {
                                 // Already redacted.
-                                return;
+                                return Ok(());
                             }
                         }
                     }
@@ -1330,18 +1330,24 @@ mod private {
                     // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
                     copy.replace_raw(redacted_event.cast());
 
-                    // Get rid of the immutable borrow on self.chunks.
-                    drop(events);
-
-                    self.events
-                        .replace_event_at(pos, copy)
-                        .expect("should have been a valid position of an item");
+                    match location {
+                        EventLocation::Memory => {
+                            self.events
+                                .replace_event_at(position, copy)
+                                .expect("should have been a valid position of an item");
+                        }
+                        EventLocation::Store => {
+                            todo!()
+                        }
+                    }
                 }
             } else {
                 trace!("redacted event is missing from the linked chunk");
             }
 
             // TODO: remove all related events too!
+
+            Ok(())
         }
     }
 }
