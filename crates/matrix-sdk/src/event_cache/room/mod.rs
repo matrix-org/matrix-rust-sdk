@@ -196,7 +196,7 @@ impl RoomEventCache {
         };
 
         // Search in `AllEventsCache` for known events that are not stored.
-        if let Some(event) = maybe_position_and_event.map(|(_position, event)| event) {
+        if let Some(event) = maybe_position_and_event.map(|(_location, _position, event)| event) {
             Some(event)
         } else if let Some((room_id, event)) =
             self.inner.all_events.read().await.events.get(event_id).cloned()
@@ -689,7 +689,8 @@ mod private {
             EventCacheError,
         },
         events::RoomEvents,
-        sort_positions_descending, EventsPostProcessing, LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending, EventLocation, EventsPostProcessing,
+        LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::RoomPaginationStatus;
 
@@ -1226,14 +1227,14 @@ mod private {
         pub async fn find_event(
             &self,
             event_id: &EventId,
-        ) -> Result<Option<(Position, TimelineEvent)>, EventCacheError> {
+        ) -> Result<Option<(EventLocation, Position, TimelineEvent)>, EventCacheError> {
             let room_id = self.room.as_ref();
 
             // There are supposedly fewer events loaded in memory than in the store. Let's
             // start by looking up in the `RoomEvents`.
             for (position, event) in self.events().revents() {
                 if event.event_id().as_deref() == Some(event_id) {
-                    return Ok(Some((position, event.clone())));
+                    return Ok(Some((EventLocation::Memory, position, event.clone())));
                 }
             }
 
@@ -1244,7 +1245,10 @@ mod private {
 
             let store = store.lock().await?;
 
-            Ok(store.find_event(room_id, event_id).await?)
+            Ok(store
+                .find_event(room_id, event_id)
+                .await?
+                .map(|(position, event)| (EventLocation::Store, position, event)))
         }
 
         /// Gives a temporary mutable handle to the underlying in-memory events,
@@ -1375,6 +1379,11 @@ mod private {
 pub(super) enum EventsPostProcessing {
     HaveBeenInserted(Vec<TimelineEvent>),
     None,
+}
+
+pub(super) enum EventLocation {
+    Memory,
+    Store,
 }
 
 pub(super) use private::RoomEventCacheState;
