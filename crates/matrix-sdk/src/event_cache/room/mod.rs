@@ -654,14 +654,21 @@ mod private {
     use eyeball::SharedObservable;
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
+        apply_redaction,
         deserialized_responses::{TimelineEvent, TimelineEventKind},
         event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, EventId, OwnedEventId, OwnedRoomId, RoomVersionId};
-    use tracing::{debug, error, instrument, trace};
+    use ruma::{
+        events::{
+            room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType,
+        },
+        serde::Raw,
+        EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
+    };
+    use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
         super::{
@@ -1230,8 +1237,10 @@ mod private {
 
             match post_processing {
                 EventsPostProcessing::HaveBeenInserted(events) => {
+                    let room_version = self.room_version.clone();
+
                     for event in &events {
-                        self.events.maybe_apply_new_redaction(&self.room_version, &event);
+                        self.maybe_apply_new_redaction(&room_version, &event);
                     }
                 }
 
@@ -1249,6 +1258,86 @@ mod private {
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
 
             Ok(updates_as_vector_diffs)
+        }
+
+        /// If the given event is a redaction, try to retrieve the
+        /// to-be-redacted event in the chunk, and replace it by the
+        /// redacted form.
+        #[instrument(skip_all)]
+        fn maybe_apply_new_redaction(&mut self, room_version: &RoomVersionId, event: &Event) {
+            let raw_event = event.raw();
+
+            // Do not deserialise the entire event if we aren't certain it's a
+            // `m.room.redaction`. It saves a non-negligible amount of computations.
+            let Ok(Some(MessageLikeEventType::RoomRedaction)) =
+                raw_event.get_field::<MessageLikeEventType>("type")
+            else {
+                return;
+            };
+
+            // It is a `m.room.redaction`! We can deserialize it entirely.
+
+            let Ok(AnySyncTimelineEvent::MessageLike(
+                ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
+            )) = event.raw().deserialize()
+            else {
+                return;
+            };
+
+            let Some(event_id) = redaction.redacts(room_version) else {
+                warn!("missing target event id from the redaction event");
+                return;
+            };
+
+            // Replace the redacted event by a redacted form, if we knew about it.
+            let mut events = self.events.events();
+
+            if let Some((pos, target_event)) =
+                events.find(|(_, item)| item.event_id().as_deref() == Some(event_id))
+            {
+                // Don't redact already redacted events.
+                if let Ok(deserialized) = target_event.raw().deserialize() {
+                    match deserialized {
+                        AnySyncTimelineEvent::MessageLike(ev) => {
+                            if ev.original_content().is_none() {
+                                // Already redacted.
+                                return;
+                            }
+                        }
+                        AnySyncTimelineEvent::State(ev) => {
+                            if ev.original_content().is_none() {
+                                // Already redacted.
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                if let Some(redacted_event) = apply_redaction(
+                    target_event.raw(),
+                    event.raw().cast_ref::<SyncRoomRedactionEvent>(),
+                    room_version,
+                ) {
+                    let mut copy = target_event.clone();
+
+                    // It's safe to cast `redacted_event` here:
+                    // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
+                    //   when calling .raw(), so it's still one under the hood.
+                    // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+                    copy.replace_raw(redacted_event.cast());
+
+                    // Get rid of the immutable borrow on self.chunks.
+                    drop(events);
+
+                    self.events
+                        .replace_event_at(pos, copy)
+                        .expect("should have been a valid position of an item");
+                }
+            } else {
+                trace!("redacted event is missing from the linked chunk");
+            }
+
+            // TODO: remove all related events too!
         }
     }
 }

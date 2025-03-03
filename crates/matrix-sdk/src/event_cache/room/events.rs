@@ -16,7 +16,6 @@ use as_variant::as_variant;
 use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
-    apply_redaction,
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
     linked_chunk::{
         lazy_loader::{self, LazyLoaderError},
@@ -27,11 +26,6 @@ use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, EmptyChunkRule, Error, Iter, IterBackward, LinkedChunk,
     ObservableUpdates, Position,
 };
-use ruma::{
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType},
-    RoomVersionId,
-};
-use tracing::{instrument, trace, warn};
 
 /// This type represents all events of a single room.
 #[derive(Debug)]
@@ -97,89 +91,6 @@ impl RoomEvents {
         chunk_identifier_generator: ChunkIdentifierGenerator,
     ) -> Result<(), LazyLoaderError> {
         lazy_loader::replace_with(&mut self.chunks, last_chunk, chunk_identifier_generator)
-    }
-
-    /// If the given event is a redaction, try to retrieve the to-be-redacted
-    /// event in the chunk, and replace it by the redacted form.
-    #[instrument(skip_all)]
-    pub(super) fn maybe_apply_new_redaction(
-        &mut self,
-        room_version: &RoomVersionId,
-        event: &Event,
-    ) {
-        let raw_event = event.raw();
-
-        // Do not deserialise the entire event if we aren't certain it's a
-        // `m.room.redaction`. It saves a non-negligible amount of computations.
-        let Ok(Some(MessageLikeEventType::RoomRedaction)) =
-            raw_event.get_field::<MessageLikeEventType>("type")
-        else {
-            return;
-        };
-
-        // It is a `m.room.redaction`! We can deserialize it entirely.
-
-        let Ok(AnySyncTimelineEvent::MessageLike(
-            ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
-        )) = event.raw().deserialize()
-        else {
-            return;
-        };
-
-        let Some(event_id) = redaction.redacts(room_version) else {
-            warn!("missing target event id from the redaction event");
-            return;
-        };
-
-        // Replace the redacted event by a redacted form, if we knew about it.
-        let mut items = self.chunks.items();
-
-        if let Some((pos, target_event)) =
-            items.find(|(_, item)| item.event_id().as_deref() == Some(event_id))
-        {
-            // Don't redact already redacted events.
-            if let Ok(deserialized) = target_event.raw().deserialize() {
-                match deserialized {
-                    AnySyncTimelineEvent::MessageLike(ev) => {
-                        if ev.original_content().is_none() {
-                            // Already redacted.
-                            return;
-                        }
-                    }
-                    AnySyncTimelineEvent::State(ev) => {
-                        if ev.original_content().is_none() {
-                            // Already redacted.
-                            return;
-                        }
-                    }
-                }
-            }
-
-            if let Some(redacted_event) = apply_redaction(
-                target_event.raw(),
-                event.raw().cast_ref::<SyncRoomRedactionEvent>(),
-                room_version,
-            ) {
-                let mut copy = target_event.clone();
-
-                // It's safe to cast `redacted_event` here:
-                // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
-                //   when calling .raw(), so it's still one under the hood.
-                // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
-                copy.replace_raw(redacted_event.cast());
-
-                // Get rid of the immutable borrow on self.chunks.
-                drop(items);
-
-                self.chunks
-                    .replace_item_at(pos, copy)
-                    .expect("should have been a valid position of an item");
-            }
-        } else {
-            trace!("redacted event is missing from the linked chunk");
-        }
-
-        // TODO: remove all related events too!
     }
 
     /// Push events after all events or gaps.
@@ -260,6 +171,14 @@ impl RoomEvents {
         }
 
         Ok(())
+    }
+
+    /// Replace event at a specified position.
+    ///
+    /// `position` must point to a valid item, otherwise the method returns an
+    /// error.
+    pub fn replace_event_at(&mut self, position: Position, event: Event) -> Result<(), Error> {
+        self.chunks.replace_item_at(position, event)
     }
 
     /// Search for a chunk, and return its identifier.
