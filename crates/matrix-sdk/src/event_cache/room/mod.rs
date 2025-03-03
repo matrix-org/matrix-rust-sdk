@@ -1386,13 +1386,21 @@ mod private {
     }
 }
 
+/// Output of the callback passed to `RoomEventCacheState::with_events_mut`.
 pub(super) enum EventsPostProcessing {
+    /// Trigger the post-processing when new events have been inserted.
     HaveBeenInserted(Vec<TimelineEvent>),
+
+    /// No post-processing.
     None,
 }
 
+/// An enum representing where an event has been found.
 pub(super) enum EventLocation {
+    /// Event lives in memory (and likely in the store!).
     Memory,
+
+    /// Event lives in the store only, it has not been loaded in memory yet.
     Store,
 }
 
