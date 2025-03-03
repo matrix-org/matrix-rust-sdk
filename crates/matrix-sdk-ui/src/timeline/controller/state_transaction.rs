@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::{HashMap, HashSet};
+
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -168,7 +170,39 @@ impl<'a> TimelineStateTransaction<'a> {
         }
 
         self.adjust_date_dividers(date_divider_adjuster);
+        self.check_invariants();
+    }
+
+    fn check_invariants(&self) {
+        self.check_no_duplicate_read_receipts();
         self.check_no_unused_unique_ids();
+    }
+
+    fn check_no_duplicate_read_receipts(&self) {
+        let mut by_user_id = HashMap::new();
+        let mut duplicates = HashSet::new();
+
+        for item in self.items.iter().filter_map(|item| item.as_event()) {
+            if let Some(event_id) = item.event_id() {
+                for (user_id, _read_receipt) in item.read_receipts() {
+                    if let Some(prev_event_id) = by_user_id.insert(user_id, event_id) {
+                        duplicates.insert((user_id.clone(), prev_event_id, event_id));
+                    }
+                }
+            }
+        }
+
+        if !duplicates.is_empty() {
+            #[cfg(any(debug_assertions, test))]
+            panic!("duplicate read receipts in this timeline:{:?}\n{:?}", duplicates, self.items);
+
+            #[cfg(not(any(debug_assertions, test)))]
+            tracing::error!(
+                "duplicate read receipts in this timeline:{:?}\n{:?}",
+                duplicates,
+                self.items
+            );
+        }
     }
 
     fn check_no_unused_unique_ids(&self) {
