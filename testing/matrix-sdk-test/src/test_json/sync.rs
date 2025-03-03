@@ -1502,7 +1502,7 @@ pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "call_id": "12345",
                                     "candidates": [
                                         {
-                                            "candidate": "candidate:863018703 1 udp 2122260223 10.9.64.156 43670 typ host generation 0",
+                                            "candidate": "candidate:863018703 1 udp 2122260223 10.9.64.156 43670 type host generation 0",
                                             "sdpMLineIndex": 0,
                                             "sdpMid": "audio"
                                         }
