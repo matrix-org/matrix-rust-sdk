@@ -29,7 +29,6 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
-    linked_chunk::ChunkContent,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -560,12 +559,8 @@ impl RoomEventCacheInner {
                             // one, as it's not useful to keep it before a gap.
                             let prev_chunk_to_remove =
                                 room_events.rchunks().next().and_then(|chunk| {
-                                    match chunk.content() {
-                                        ChunkContent::Items(events) if events.is_empty() => {
-                                            Some(chunk.identifier())
-                                        }
-                                        _ => None,
-                                    }
+                                    (chunk.is_items() && chunk.num_items() == 0)
+                                        .then_some(chunk.identifier())
                                 });
 
                             room_events.push_gap(Gap { prev_token: prev_token.clone() });
