@@ -50,7 +50,7 @@ pub struct MediaRetentionPolicy {
     ///
     /// Defaults to 400 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_cache_size: Option<usize>,
+    pub max_cache_size: Option<u64>,
 
     /// The maximum authorized size of a single media content, in bytes.
     ///
@@ -68,7 +68,7 @@ pub struct MediaRetentionPolicy {
     ///
     /// Defaults to 20 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_file_size: Option<usize>,
+    pub max_file_size: Option<u64>,
 
     /// The duration after which unaccessed media content is considered
     /// expired.
@@ -111,13 +111,13 @@ impl MediaRetentionPolicy {
     }
 
     /// Set the maximum authorized size of the overall media cache, in bytes.
-    pub fn with_max_cache_size(mut self, size: Option<usize>) -> Self {
+    pub fn with_max_cache_size(mut self, size: Option<u64>) -> Self {
         self.max_cache_size = size;
         self
     }
 
     /// Set the maximum authorized size of a single media content, in bytes.
-    pub fn with_max_file_size(mut self, size: Option<usize>) -> Self {
+    pub fn with_max_file_size(mut self, size: Option<u64>) -> Self {
         self.max_file_size = size;
         self
     }
@@ -152,7 +152,7 @@ impl MediaRetentionPolicy {
     /// # Arguments
     ///
     /// * `size` - The overall size of the media cache to check, in bytes.
-    pub fn exceeds_max_cache_size(&self, size: usize) -> bool {
+    pub fn exceeds_max_cache_size(&self, size: u64) -> bool {
         self.max_cache_size.is_some_and(|max_size| size > max_size)
     }
 
@@ -160,7 +160,7 @@ impl MediaRetentionPolicy {
     /// bytes.
     ///
     /// This is the lowest value between `max_cache_size` and `max_file_size`.
-    pub fn computed_max_file_size(&self) -> Option<usize> {
+    pub fn computed_max_file_size(&self) -> Option<u64> {
         match (self.max_cache_size, self.max_file_size) {
             (None, None) => None,
             (None, Some(size)) => Some(size),
@@ -175,7 +175,7 @@ impl MediaRetentionPolicy {
     /// # Arguments
     ///
     /// * `size` - The size of the media content to check, in bytes.
-    pub fn exceeds_max_file_size(&self, size: usize) -> bool {
+    pub fn exceeds_max_file_size(&self, size: u64) -> bool {
         self.computed_max_file_size().is_some_and(|max_size| size > max_size)
     }
 
