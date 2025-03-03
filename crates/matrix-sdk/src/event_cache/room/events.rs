@@ -102,7 +102,11 @@ impl RoomEvents {
     /// If the given event is a redaction, try to retrieve the to-be-redacted
     /// event in the chunk, and replace it by the redacted form.
     #[instrument(skip_all)]
-    fn maybe_apply_new_redaction(&mut self, room_version: &RoomVersionId, event: &Event) {
+    pub(super) fn maybe_apply_new_redaction(
+        &mut self,
+        room_version: &RoomVersionId,
+        event: &Event,
+    ) {
         let raw_event = event.raw();
 
         // Do not deserialise the entire event if we aren't certain it's a
@@ -176,17 +180,6 @@ impl RoomEvents {
         }
 
         // TODO: remove all related events too!
-    }
-
-    /// Callback to call whenever we touch events in the database.
-    pub fn on_new_events<'a>(
-        &mut self,
-        room_version: &RoomVersionId,
-        events: impl Iterator<Item = &'a Event>,
-    ) {
-        for ev in events {
-            self.maybe_apply_new_redaction(room_version, ev);
-        }
     }
 
     /// Push events after all events or gaps.

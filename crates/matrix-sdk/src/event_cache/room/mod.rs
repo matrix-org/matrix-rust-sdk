@@ -34,7 +34,7 @@ use matrix_sdk_base::{
 use ruma::{
     events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
+    EventId, OwnedEventId, OwnedRoomId,
 };
 use tokio::sync::{
     broadcast::{Receiver, Sender},
@@ -144,7 +144,6 @@ impl RoomEventCache {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
@@ -154,7 +153,6 @@ impl RoomEventCache {
                 state,
                 pagination_status,
                 room_id,
-                room_version,
                 all_events_cache,
                 auto_shrink_sender,
             )),
@@ -295,9 +293,6 @@ pub(super) struct RoomEventCacheInner {
 
     pub weak_room: WeakRoom,
 
-    /// The room version for this room.
-    pub room_version: RoomVersionId,
-
     /// Sender part for subscribers to this room.
     pub sender: Sender<RoomEventCacheUpdate>,
 
@@ -330,7 +325,6 @@ impl RoomEventCacheInner {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
@@ -339,7 +333,6 @@ impl RoomEventCacheInner {
         Self {
             room_id: weak_room.room_id().to_owned(),
             weak_room,
-            room_version,
             state: RwLock::new(state),
             all_events: all_events_cache,
             sender,
@@ -574,7 +567,7 @@ impl RoomEventCacheInner {
 
                     room_events.push_events(events.clone());
 
-                    room_events.on_new_events(&self.room_version, events.iter());
+                    EventsPostProcessing::HaveBeenInserted(events)
                 })
                 .await?;
 
@@ -681,7 +674,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, EventId, OwnedEventId, OwnedRoomId};
+    use ruma::{serde::Raw, EventId, OwnedEventId, OwnedRoomId, RoomVersionId};
     use tracing::{debug, error, instrument, trace};
 
     use super::{
@@ -690,7 +683,7 @@ mod private {
             EventCacheError,
         },
         events::RoomEvents,
-        sort_positions_descending, LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending, EventsPostProcessing, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::RoomPaginationStatus;
 
@@ -701,6 +694,9 @@ mod private {
     pub struct RoomEventCacheState {
         /// The room this state relates to.
         room: OwnedRoomId,
+
+        /// The room version for this room.
+        room_version: RoomVersionId,
 
         /// Reference to the underlying backing store.
         ///
@@ -739,6 +735,7 @@ mod private {
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
             room_id: OwnedRoomId,
+            room_version: RoomVersionId,
             store: Arc<OnceCell<EventCacheStoreLock>>,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
@@ -778,6 +775,7 @@ mod private {
 
             Ok(Self {
                 room: room_id,
+                room_version,
                 store,
                 events,
                 deduplicator,
@@ -1114,7 +1112,9 @@ mod private {
                                 .map(|(_event_id, position)| position)
                                 .collect(),
                         )
-                        .expect("failed to remove an event")
+                        .expect("failed to remove an event");
+
+                    EventsPostProcessing::None
                 })
                 .await?;
 
@@ -1247,13 +1247,27 @@ mod private {
         /// Returns the updates to the linked chunk, as vector diffs, so the
         /// caller may propagate such updates, if needs be.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
-        pub async fn with_events_mut<F: FnOnce(&mut RoomEvents)>(
+        pub async fn with_events_mut<F>(
             &mut self,
             func: F,
-        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
-            func(&mut self.events);
+        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError>
+        where
+            F: FnOnce(&mut RoomEvents) -> EventsPostProcessing,
+        {
+            let post_processing = func(&mut self.events);
 
+            // Update the store before doing the post-processing.
             self.propagate_changes().await?;
+
+            match post_processing {
+                EventsPostProcessing::HaveBeenInserted(events) => {
+                    for event in &events {
+                        self.events.maybe_apply_new_redaction(&self.room_version, &event);
+                    }
+                }
+
+                EventsPostProcessing::None => {}
+            }
 
             // If we've never waited for an initial previous-batch token, and we now have at
             // least one gap in the chunk, no need to wait for a previous-batch token later.
@@ -1268,6 +1282,11 @@ mod private {
             Ok(updates_as_vector_diffs)
         }
     }
+}
+
+pub(super) enum EventsPostProcessing {
+    HaveBeenInserted(Vec<TimelineEvent>),
+    None,
 }
 
 pub(super) use private::RoomEventCacheState;
