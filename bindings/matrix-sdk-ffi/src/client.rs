@@ -18,6 +18,7 @@ use matrix_sdk::{
         },
         OidcAuthorizationData, OidcSession,
     },
+    event_cache::EventCacheError,
     media::{
         MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
         MediaThumbnailSettings,
@@ -1158,6 +1159,28 @@ impl Client {
     pub async fn is_room_alias_available(&self, alias: String) -> Result<bool, ClientError> {
         let alias = RoomAliasId::parse(alias)?;
         self.inner.is_room_alias_available(&alias).await.map_err(Into::into)
+    }
+
+    /// Clear all the non-critical caches for this Client instance.
+    ///
+    /// - This will empty all the room's persisted event caches, so all rooms
+    ///   will start as if they were empty.
+    /// - This will empty the media cache according to the current media
+    ///   retention policy.
+    pub async fn clear_caches(&self) -> Result<(), ClientError> {
+        let closure = async || -> Result<_, EventCacheError> {
+            let store = self.inner.event_cache_store().lock().await?;
+
+            // Clear all the room chunks.
+            store.clear_all_rooms_chunks().await?;
+
+            // Clean up the media cache according to the current media retention policy.
+            store.clean_up_media_cache().await?;
+
+            Ok(())
+        };
+
+        Ok(closure().await?)
     }
 }
 
