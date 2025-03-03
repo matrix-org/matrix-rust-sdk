@@ -307,7 +307,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         if let Some(updates) = self.updates.as_mut() {
             // Clear the previous updates, as we're about to insert a clear they would be
             // useless.
-            updates.clear();
+            updates.clear_pending();
             updates.push(Update::Clear);
             updates.push(Update::NewItemsChunk {
                 previous: None,

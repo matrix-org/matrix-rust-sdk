@@ -139,8 +139,8 @@ impl<Item, Gap> ObservableUpdates<Item, Gap> {
     }
 
     /// Clear all pending updates.
-    pub(super) fn clear(&mut self) {
-        self.inner.write().unwrap().clear();
+    pub(super) fn clear_pending(&mut self) {
+        self.inner.write().unwrap().clear_pending();
     }
 
     /// Take new updates.
@@ -248,7 +248,7 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
     }
 
     /// Clear all pending updates.
-    fn clear(&mut self) {
+    fn clear_pending(&mut self) {
         self.updates.clear();
 
         // Reset all the per-reader indices.

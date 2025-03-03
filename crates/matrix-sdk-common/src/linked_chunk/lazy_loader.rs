@@ -254,7 +254,7 @@ where
     if let Some(updates) = linked_chunk.updates.as_mut() {
         // Clear the previous updates, as we're about to insert a clear they would be
         // useless.
-        updates.clear();
+        updates.clear_pending();
         updates.push(Update::Clear);
 
         emit_new_first_chunk_updates(linked_chunk.links.first_chunk(), updates);
