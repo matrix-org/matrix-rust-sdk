@@ -711,7 +711,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             .chunk_mut(chunk_identifier)
             .ok_or(Error::InvalidChunkIdentifier { identifier: chunk_identifier })?;
 
-        if chunk.len() > 0 {
+        if chunk.num_items() > 0 {
             return Err(Error::RemovingNonEmptyItemsChunk { identifier: chunk_identifier });
         }
 
@@ -1328,10 +1328,10 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         }
     }
 
-    /// The length of the chunk, i.e. how many items are in it.
+    /// The number of items in the linked chunk.
     ///
     /// It will always return 0 if it's a gap chunk.
-    fn len(&self) -> usize {
+    pub fn num_items(&self) -> usize {
         match &self.content {
             ChunkContent::Gap(..) => 0,
             ChunkContent::Items(items) => items.len(),
@@ -1360,15 +1360,13 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         Item: Clone,
         Gap: Clone,
     {
-        let number_of_new_items = new_items.len();
-        let chunk_length = self.len();
-
         // A small optimisation. Skip early if there is no new items.
-        if number_of_new_items == 0 {
+        if new_items.len() == 0 {
             return self;
         }
 
         let identifier = self.identifier();
+        let prev_num_items = self.num_items();
 
         match &mut self.content {
             // Cannot push items on a `Gap`. Let's insert a new `Items` chunk to push the
@@ -1384,10 +1382,10 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
 
             ChunkContent::Items(items) => {
                 // Calculate the free space of the current chunk.
-                let free_space = CAPACITY.saturating_sub(chunk_length);
+                let free_space = CAPACITY.saturating_sub(prev_num_items);
 
                 // There is enough space to push all the new items.
-                if number_of_new_items <= free_space {
+                if new_items.len() <= free_space {
                     let start = items.len();
                     items.extend(new_items);
 
