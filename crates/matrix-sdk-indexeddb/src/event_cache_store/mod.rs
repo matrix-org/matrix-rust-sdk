@@ -111,7 +111,8 @@ impl IndexeddbEventCacheStore {
         IndexeddbEventCacheStoreBuilder::new()
     }
 
-    // Encodes the key using separators, escaping characters and encrypting only if 3rd element is true (to allow for range queries)
+    /// Encodes the key using separators, escaping characters and encrypting each tuple only if 3rd element is true
+    /// The reason is indexeddb requires the ids to be naturally sortable so we can use range queries and they also maintain order
     pub fn encode_key(&self, parts: Vec<(&str, &str, bool)>) -> String {
         let mut end_key = String::new();
         for (i, (table_name, key, should_encrypt)) in parts.iter().enumerate() {
@@ -128,13 +129,17 @@ impl IndexeddbEventCacheStore {
         end_key
     }
 
-    pub fn encode_upper_key(&self, parts: Vec<(&str, &str)>) -> String {
+    pub fn encode_upper_key(&self, parts: Vec<(&str, &str, bool)>) -> String {
         let mut end_key = String::new();
-        for (i, (table_name, key)) in parts.iter().enumerate() {
+        for (i, (table_name, key, should_encrypt)) in parts.iter().enumerate() {
             if i > 0 {
                 end_key.push_str(KEY_SEPARATOR);
             }
-            let encoded_key = self.serializer.encode_key_as_string(table_name, key);
+            let encoded_key = if *should_encrypt {
+                self.serializer.encode_key_as_string(table_name, key)
+            } else {
+                key.to_string()
+            };
             end_key.push_str(&encoded_key);
         }
         end_key.push_str(KEY_SEPARATOR);
@@ -304,17 +309,17 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let previous_id = previous.map(|n| {
                         self.encode_key(vec![
                             (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, &n.index().to_string(), true),
+                            (keys::LINKED_CHUNKS, &n.index().to_string(), false),
                         ])
                     });
                     let id = self.encode_key(vec![
                         (keys::ROOMS, room_id.as_ref(), true),
-                        (keys::LINKED_CHUNKS, &new.index().to_string(), true),
+                        (keys::LINKED_CHUNKS, &new.index().to_string(), false),
                     ]);
                     let next_id = next.map(|n| {
                         self.encode_key(vec![
                             (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, &n.index().to_string(), true),
+                            (keys::LINKED_CHUNKS, &n.index().to_string(), false),
                         ])
                     });
 
@@ -384,17 +389,17 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let previous_id = previous.map(|n| {
                         self.encode_key(vec![
                             (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, &n.index().to_string(), true),
+                            (keys::LINKED_CHUNKS, &n.index().to_string(), false),
                         ])
                     });
                     let id = self.encode_key(vec![
                         (keys::ROOMS, room_id.as_ref(), true),
-                        (keys::LINKED_CHUNKS, &new.index().to_string(), true),
+                        (keys::LINKED_CHUNKS, &new.index().to_string(), false),
                     ]);
                     let next_id = next.map(|n| {
                         self.encode_key(vec![
                             (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, &n.index().to_string(), true),
+                            (keys::LINKED_CHUNKS, &n.index().to_string(), false),
                         ])
                     });
                     trace!(%room_id, "Inserting new gap (prev={previous:?}, new={id}, next={next:?})");
@@ -469,7 +474,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 Update::RemoveChunk(id) => {
                     let id = self.encode_key(vec![
                         (keys::ROOMS, room_id.as_ref(), true),
-                        (keys::LINKED_CHUNKS, &id.index().to_string(), true),
+                        (keys::LINKED_CHUNKS, &id.index().to_string(), false),
                     ]);
 
                     trace!("Removing chunk {id:?}");
@@ -535,7 +540,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         let index = at.index() + i;
                         let id = self.encode_key(vec![
                             (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref(), true),
+                            (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref(), false),
                             (keys::EVENTS, &index.to_string(), false),
                         ]);
 
@@ -559,7 +564,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let event_id = self.encode_key(vec![
                         (keys::ROOMS, room_id.as_ref(), true),
-                        (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
                         (keys::EVENTS, &index.to_string(), false),
                     ]);
 
@@ -583,7 +588,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let id = self.encode_key(vec![
                         (keys::ROOMS, room_id.as_ref(), true),
-                        (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
                         (keys::EVENTS, &index.to_string(), false),
                     ]);
 
@@ -599,13 +604,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     let lower = self.encode_key(vec![
                         (keys::ROOMS, room_id.as_ref(), true),
-                        (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref(), true),
+                        (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref(), false),
                         (keys::EVENTS, &index.to_string(), false),
                     ]);
 
                     let upper = self.encode_upper_key(vec![
-                        (keys::ROOMS, room_id.as_ref()),
-                        (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref()),
+                        (keys::ROOMS, room_id.as_ref(), true),
+                        (keys::LINKED_CHUNKS, chunk_id.to_string().as_ref(), false),
                     ]);
 
                     let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
@@ -626,7 +631,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 Update::Clear => {
                     trace!(%room_id, "clearing all events");
                     let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-                    let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref())]);
+                    let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
 
                     let chunks_key_range =
                         IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
@@ -637,13 +642,15 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         let chunk: ChunkForCache =
                             self.serializer.deserialize_into_object(chunk)?;
 
+                        // Delete all events for this chunk
+
                         let lower = self.encode_key(vec![
                             (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, &chunk.id, true),
+                            (keys::LINKED_CHUNKS, &chunk.id, false),
                         ]);
                         let upper = self.encode_upper_key(vec![
-                            (keys::ROOMS, room_id.as_ref()),
-                            (keys::LINKED_CHUNKS, &chunk.id),
+                            (keys::ROOMS, room_id.as_ref(), true),
+                            (keys::LINKED_CHUNKS, &chunk.id, false),
                         ]);
 
                         let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
@@ -674,7 +681,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         let events = tx.object_store(keys::EVENTS)?;
 
         let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref())]);
+        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
 
         let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
@@ -689,55 +696,109 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             let previous_chunk_id = linked_chunk.raw_previous;
             let next_chunk_id = linked_chunk.raw_next;
 
-            if linked_chunk.type_str == CHUNK_TYPE_GAP_TYPE_STRING {
-                let gap_id = linked_chunk.id;
-                let gap_id_js_value = JsValue::from_str(&gap_id);
-                let gap_js_value = gaps.get_owned(&gap_id_js_value)?.await?;
+            match linked_chunk.type_str.as_str() {
+                CHUNK_TYPE_EVENT_TYPE_STRING => {
+                    let lower = self.encode_key(vec![
+                        (keys::ROOMS, room_id.as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
+                    ]);
 
-                let gap: IndexedDbGapForCache =
-                    self.serializer.deserialize_into_object(gap_js_value.unwrap())?;
+                    let upper = self.encode_upper_key(vec![
+                        (keys::ROOMS, room_id.as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
+                    ]);
 
-                let gap = Gap { prev_token: gap.prev_token };
+                    let events_key_range =
+                        IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
-                let raw_chunk = RawChunk {
-                    identifier: ChunkIdentifier::new(chunk_id),
-                    content: linked_chunk::ChunkContent::Gap(gap),
-                    previous: previous_chunk_id.map(ChunkIdentifier::new),
-                    next: next_chunk_id.map(ChunkIdentifier::new),
-                };
+                    let events = events.get_all_with_key(&events_key_range)?.await?;
+                    let mut events_vec = Vec::new();
 
-                raw_chunks.push(raw_chunk);
-            } else {
-                let lower = self.encode_key(vec![
-                    (keys::ROOMS, room_id.as_ref(), true),
-                    (keys::LINKED_CHUNKS, &chunk_id.to_string(), true),
-                ]);
+                    for event in events {
+                        let event: TimelineEventForCache =
+                            self.serializer.deserialize_into_object(event)?;
+                        events_vec.push(event.content);
+                    }
 
-                let upper = self.encode_upper_key(vec![
-                    (keys::ROOMS, room_id.as_ref()),
-                    (keys::LINKED_CHUNKS, &chunk_id.to_string()),
-                ]);
+                    let raw_chunk = RawChunk {
+                        identifier: ChunkIdentifier::new(chunk_id),
+                        content: linked_chunk::ChunkContent::Items(events_vec),
+                        previous: previous_chunk_id.map(ChunkIdentifier::new),
+                        next: next_chunk_id.map(ChunkIdentifier::new),
+                    };
 
-                let events_key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
-
-                let events = events.get_all_with_key(&events_key_range)?.await?;
-                let mut events_vec = Vec::new();
-
-                for event in events {
-                    let event: TimelineEventForCache =
-                        self.serializer.deserialize_into_object(event)?;
-                    events_vec.push(event.content);
+                    raw_chunks.push(raw_chunk);
                 }
+                CHUNK_TYPE_GAP_TYPE_STRING => {
+                    let id = linked_chunk.id;
+                    let gap = gaps.get_owned(id.clone())?.await?.unwrap();
 
-                let raw_chunk = RawChunk {
-                    identifier: ChunkIdentifier::new(chunk_id),
-                    content: linked_chunk::ChunkContent::Items(events_vec),
-                    previous: previous_chunk_id.map(ChunkIdentifier::new),
-                    next: next_chunk_id.map(ChunkIdentifier::new),
-                };
+                    let gap: IndexedDbGapForCache = self.serializer.deserialize_into_object(gap)?;
 
-                raw_chunks.push(raw_chunk);
+                    let gap = Gap { prev_token: gap.prev_token };
+
+                    let raw_chunk = RawChunk {
+                        identifier: ChunkIdentifier::new(chunk_id),
+                        content: linked_chunk::ChunkContent::Gap(gap),
+                        previous: previous_chunk_id.map(ChunkIdentifier::new),
+                        next: next_chunk_id.map(ChunkIdentifier::new),
+                    };
+
+                    raw_chunks.push(raw_chunk);
+                }
+                _ => {
+                    return Err(IndexeddbEventCacheStoreError::UnknownChunkType(
+                        linked_chunk.type_str.clone(),
+                    ));
+                }
             }
+
+            // if linked_chunk.type_str == CHUNK_TYPE_GAP_TYPE_STRING {
+            //     let gap = gaps.get_owned(linked_chunk.id.into())?.await?.unwrap();
+
+            //     let gap: IndexedDbGapForCache = self.serializer.deserialize_into_object(gap)?;
+
+            //     let gap = Gap { prev_token: gap.prev_token };
+
+            //     let raw_chunk = RawChunk {
+            //         identifier: ChunkIdentifier::new(chunk_id),
+            //         content: linked_chunk::ChunkContent::Gap(gap),
+            //         previous: previous_chunk_id.map(ChunkIdentifier::new),
+            //         next: next_chunk_id.map(ChunkIdentifier::new),
+            //     };
+
+            //     raw_chunks.push(raw_chunk);
+            // } else {
+            //     let lower = self.encode_key(vec![
+            //         (keys::ROOMS, room_id.as_ref(), true),
+            //         (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
+            //     ]);
+
+            //     let upper = self.encode_upper_key(vec![
+            //         (keys::ROOMS, room_id.as_ref(), true),
+            //         (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
+            //     ]);
+
+            //     let events_key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+            //     let events = events.get_all_with_key(&events_key_range)?.await?;
+            //     let mut events_vec = Vec::new();
+
+            //     for event in events {
+            //         let event: TimelineEventForCache =
+            //             self.serializer.deserialize_into_object(event)?;
+            //         events_vec.push(event.content);
+            //     }
+
+            //     let raw_chunk = RawChunk {
+            //         identifier: ChunkIdentifier::new(chunk_id),
+            //         content: linked_chunk::ChunkContent::Items(events_vec),
+            //         previous: previous_chunk_id.map(ChunkIdentifier::new),
+            //         next: next_chunk_id.map(ChunkIdentifier::new),
+            //     };
+
+            //     raw_chunks.push(raw_chunk);
+            // }
         }
 
         Ok(raw_chunks)
@@ -1678,8 +1739,10 @@ mod tests {
             (keys::LINKED_CHUNKS, "42", true),
             (keys::EVENTS, "0", false),
         ]);
-        let upper = store
-            .encode_upper_key(vec![(keys::ROOMS, room_id.as_ref()), (keys::LINKED_CHUNKS, "42")]);
+        let upper = store.encode_upper_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+            (keys::LINKED_CHUNKS, "42", false),
+        ]);
 
         let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 

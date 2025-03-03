@@ -16,6 +16,8 @@ pub enum IndexeddbEventCacheStoreError {
     MigrationConflict { name: String, old_version: u32, new_version: u32 },
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
+    #[error("Uknown Chunk Type {0}")]
+    UnknownChunkType(String),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
