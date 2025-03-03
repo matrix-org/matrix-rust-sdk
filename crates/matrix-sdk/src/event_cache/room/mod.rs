@@ -1214,9 +1214,8 @@ mod private {
         /// Gives a temporary mutable handle to the underlying in-memory events,
         /// and will propagate changes to the storage once done.
         ///
-        /// Returns the output of the given callback, as well as updates to the
-        /// linked chunk, as vector diff, so the caller may propagate
-        /// such updates, if needs be.
+        /// Returns the updates to the linked chunk, as vector diffs, so the
+        /// caller may propagate such updates, if needs be.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub async fn with_events_mut<F: FnOnce(&mut RoomEvents)>(
             &mut self,
