@@ -48,6 +48,7 @@ pub fn make_test_event(room_id: &RoomId, content: &str) -> TimelineEvent {
             sender_claimed_keys: Default::default(),
         },
         verification_state: VerificationState::Verified,
+        session_id: Some("mysessionid9".to_owned()),
     };
 
     let event = EventFactory::new()

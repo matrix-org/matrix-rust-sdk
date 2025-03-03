@@ -19,8 +19,10 @@ use indexmap::IndexMap;
 #[cfg(test)]
 use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustRequirement};
 use matrix_sdk::{
-    crypto::types::events::CryptoContextInfo, deserialized_responses::TimelineEvent,
-    event_cache::paginator::PaginableRoom, AsyncTraitDeps, Result, Room, SendOutsideWasm,
+    crypto::types::events::CryptoContextInfo,
+    deserialized_responses::{EncryptionInfo, TimelineEvent},
+    event_cache::paginator::PaginableRoom,
+    AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
 use ruma::{
@@ -121,6 +123,12 @@ pub(super) trait RoomDataProvider:
     ) -> impl Future<Output = Result<(), super::Error>> + SendOutsideWasm + 'a;
 
     fn room_info(&self) -> Subscriber<RoomInfo>;
+
+    fn get_encryption_info(
+        &self,
+        session_id: &str,
+        sender: &UserId,
+    ) -> impl Future<Output = Option<EncryptionInfo>> + SendOutsideWasm;
 }
 
 impl RoomDataProvider for Room {
@@ -272,6 +280,14 @@ impl RoomDataProvider for Room {
 
     fn room_info(&self) -> Subscriber<RoomInfo> {
         self.subscribe_info()
+    }
+
+    async fn get_encryption_info(
+        &self,
+        session_id: &str,
+        sender: &UserId,
+    ) -> Option<EncryptionInfo> {
+        self.get_encryption_info(session_id, sender).await
     }
 }
 

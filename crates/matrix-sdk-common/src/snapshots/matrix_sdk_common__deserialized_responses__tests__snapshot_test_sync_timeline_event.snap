@@ -17,6 +17,7 @@ expression: "serde_json::to_value(&room_event).unwrap()"
         },
         "sender": "@sender:example.com",
         "sender_device": "ABCDEFGHIJ",
+        "session_id": "mysessionid112",
         "verification_state": "Verified"
       },
       "event": {

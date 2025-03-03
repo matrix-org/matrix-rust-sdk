@@ -302,6 +302,10 @@ pub struct EncryptionInfo {
     /// Callers that persist this should mark the state as dirty when a device
     /// change is received down the sync.
     pub verification_state: VerificationState,
+    /// The Megolm session ID that was used to encrypt this event, or None if
+    /// this info was stored before we collected this data.
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// Represents a matrix room event that has been returned from `/sync`,
@@ -538,6 +542,18 @@ impl TimelineEventKind {
             TimelineEventKind::Decrypted(d) => d.event.cast(),
             TimelineEventKind::UnableToDecrypt { event, .. } => event.cast(),
             TimelineEventKind::PlainText { event } => event,
+        }
+    }
+
+    /// The Megolm session ID that was used to send this event, if it was
+    /// encrypted.
+    pub fn session_id(&self) -> Option<String> {
+        match self {
+            TimelineEventKind::Decrypted(decrypted_room_event) => {
+                decrypted_room_event.encryption_info.session_id.clone()
+            }
+            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.clone(),
+            TimelineEventKind::PlainText { .. } => None,
         }
     }
 }
@@ -1042,6 +1058,7 @@ mod tests {
                         sender_claimed_keys: Default::default(),
                     },
                     verification_state: VerificationState::Verified,
+                    session_id: Some("xyz".to_owned()),
                 },
                 unsigned_encryption_info: Some(BTreeMap::from([(
                     UnsignedEventLocation::RelationsReplace,
@@ -1080,6 +1097,7 @@ mod tests {
                                 }
                             },
                             "verification_state": "Verified",
+                            "session_id": "xyz",
                         },
                         "unsigned_encryption_info": {
                             "RelationsReplace": {"UnableToDecrypt": {
@@ -1128,6 +1146,7 @@ mod tests {
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
         );
+        assert_eq!(event.encryption_info().unwrap().session_id, None);
 
         // Test that the previous format, with an undecryptable unsigned event, can also
         // be deserialized.
@@ -1354,6 +1373,7 @@ mod tests {
                 sender_claimed_keys: Default::default(),
             },
             verification_state: VerificationState::Verified,
+            session_id: Some("mysessionid76".to_owned()),
         };
 
         with_settings!({sort_maps =>true}, {
@@ -1383,6 +1403,7 @@ mod tests {
                         ]),
                     },
                     verification_state: VerificationState::Verified,
+                    session_id: Some("mysessionid112".to_owned()),
                 },
                 unsigned_encryption_info: Some(BTreeMap::from([(
                     UnsignedEventLocation::RelationsThreadLatestEvent,
