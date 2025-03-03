@@ -2502,10 +2502,10 @@ mod tests {
         )
     }
 
-    fn make_raw_event(typ: &str, id: &str) -> Raw<AnySyncTimelineEvent> {
+    fn make_raw_event(event_type: &str, id: &str) -> Raw<AnySyncTimelineEvent> {
         Raw::from_json_string(
             json!({
-                "type": typ,
+                "type": event_type,
                 "event_id": id,
                 "content": { "msgtype": "m.text", "body": "my msg" },
                 "sender": "@u:h.uk",
@@ -2517,8 +2517,8 @@ mod tests {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    fn make_event(typ: &str, id: &str) -> TimelineEvent {
-        TimelineEvent::new(make_raw_event(typ, id))
+    fn make_event(event_type: &str, id: &str) -> TimelineEvent {
+        TimelineEvent::new(make_raw_event(event_type, id))
     }
 
     #[cfg(feature = "e2e-encryption")]
