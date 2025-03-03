@@ -461,7 +461,7 @@ impl RoomEventCacheInner {
     /// storage, notifying observers.
     pub(super) async fn replace_all_events_by(
         &self,
-        sync_timeline_events: Vec<TimelineEvent>,
+        timeline_events: Vec<TimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
@@ -481,7 +481,7 @@ impl RoomEventCacheInner {
         // Push the new events.
         self.append_events_locked(
             &mut state,
-            sync_timeline_events,
+            timeline_events,
             prev_batch.clone(),
             ephemeral_events,
             ambiguity_changes,
@@ -498,12 +498,12 @@ impl RoomEventCacheInner {
     async fn append_events_locked(
         &self,
         state: &mut RoomEventCacheState,
-        sync_timeline_events: Vec<TimelineEvent>,
+        timeline_events: Vec<TimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if sync_timeline_events.is_empty()
+        if timeline_events.is_empty()
             && prev_batch.is_none()
             && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
@@ -518,7 +518,7 @@ impl RoomEventCacheInner {
                 in_store_duplicated_event_ids,
             },
             all_duplicates,
-        ) = state.collect_valid_and_duplicated_events(sync_timeline_events.clone()).await?;
+        ) = state.collect_valid_and_duplicated_events(timeline_events).await?;
 
         // During a sync, when a duplicated event is found, the old event is removed and
         // the new event is added. This is the opposite strategy than during a backwards
@@ -554,7 +554,7 @@ impl RoomEventCacheInner {
 
                     room_events.push_events(events.clone());
 
-                    EventsPostProcessing::HaveBeenInserted(events)
+                    EventsPostProcessing::HaveBeenInserted(events.clone())
                 })
                 .await?;
 
@@ -577,15 +577,14 @@ impl RoomEventCacheInner {
 
             {
                 // Fill the AllEventsCache.
-                let mut all_events = self.all_events.write().await;
+                let mut all_events_cache = self.all_events.write().await;
 
-                for sync_timeline_event in sync_timeline_events {
-                    if let Some(event_id) = sync_timeline_event.event_id() {
-                        all_events.append_related_event(&sync_timeline_event);
-                        all_events.events.insert(
-                            event_id.to_owned(),
-                            (self.room_id.clone(), sync_timeline_event),
-                        );
+                for event in events {
+                    if let Some(event_id) = event.event_id() {
+                        all_events_cache.append_related_event(&event);
+                        all_events_cache
+                            .events
+                            .insert(event_id.to_owned(), (self.room_id.clone(), event));
                     }
                 }
             }
