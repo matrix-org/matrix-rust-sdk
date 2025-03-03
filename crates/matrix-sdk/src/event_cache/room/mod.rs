@@ -1274,7 +1274,7 @@ mod private {
                     let room_version = self.room_version.clone();
 
                     for event in &events {
-                        self.maybe_apply_new_redaction(&room_version, &event).await?;
+                        self.maybe_apply_new_redaction(&room_version, event).await?;
                     }
                 }
 
@@ -1328,7 +1328,7 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            if let Some((location, position, target_event)) = self.find_event(&event_id).await? {
+            if let Some((location, position, target_event)) = self.find_event(event_id).await? {
                 // Don't redact already redacted events.
                 if let Ok(deserialized) = target_event.raw().deserialize() {
                     match deserialized {
