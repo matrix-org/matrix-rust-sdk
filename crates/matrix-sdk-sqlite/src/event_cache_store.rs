@@ -64,7 +64,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 5;
+const DATABASE_VERSION: u8 = 6;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -351,6 +351,14 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 6 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
+            txn.set_db_version(6)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -486,24 +494,27 @@ impl EventCacheStore for SqliteEventCacheStore {
                     }
 
                     Update::PushItems { at, items } => {
+                        if items.is_empty() {
+                            // Should never happens, but better be safe.
+                            continue;
+                        }
+
                         let chunk_id = at.chunk_identifier().index();
 
                         trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
-                        for (i, event) in items.into_iter().enumerate() {
+                        let mut statement = txn.prepare(
+                            "INSERT INTO events(chunk_id, room_id, event_id, content, position) VALUES (?, ?, ?, ?, ?)"
+                        )?;
+
+                        for (nth, event) in items.into_iter().enumerate() {
                             let serialized = serde_json::to_vec(&event)?;
                             let content = this.encode_value(serialized)?;
 
                             let event_id = event.event_id().map(|event_id| event_id.to_string());
-                            let index = at.index() + i;
+                            let index = at.index() + nth;
 
-                            txn.execute(
-                                r#"
-                                INSERT INTO events(chunk_id, room_id, event_id, content, position)
-                                VALUES (?, ?, ?, ?, ?)
-                            "#,
-                                (chunk_id, &hashed_room_id, event_id, content, index),
-                            )?;
+                            statement.execute((chunk_id, &hashed_room_id, event_id, content, index))?;
                         }
                     }
 
@@ -1867,6 +1878,9 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
+        let event_0 = make_test_event(room_id, "hello");
+        let event_1 = make_test_event(room_id, "world");
+        let event_2 = make_test_event(room_id, "howdy");
 
         store
             .handle_linked_chunk_updates(
@@ -1885,11 +1899,7 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
-                            make_test_event(room_id, "howdy"),
-                        ],
+                        items: vec![event_0.clone(), event_1, event_2],
                     },
                     Update::Clear,
                 ],
@@ -1899,6 +1909,25 @@ mod tests {
 
         let chunks = store.load_all_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
+
+        // It's okay to re-insert a past event.
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![event_0],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
     }
 
     #[async_test]

@@ -30,6 +30,10 @@ name = "crypto_bench"
 harness = false
 
 [[bench]]
+name = "linked_chunk"
+harness = false
+
+[[bench]]
 name = "store_bench"
 harness = false
 
