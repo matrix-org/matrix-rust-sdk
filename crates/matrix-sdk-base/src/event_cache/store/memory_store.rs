@@ -346,7 +346,7 @@ impl EventCacheStoreMedia for MemoryStore {
 
         let ignore_policy = ignore_policy.is_yes();
 
-        if !ignore_policy && policy.exceeds_max_file_size(data.len()) {
+        if !ignore_policy && policy.exceeds_max_file_size(data.len() as u64) {
             // Do not store it.
             return Ok(());
         };
@@ -452,7 +452,7 @@ impl EventCacheStoreMedia for MemoryStore {
         // First, check media content that exceed the max filesize.
         if policy.computed_max_file_size().is_some() {
             inner.media.retain(|content| {
-                content.ignore_policy || !policy.exceeds_max_file_size(content.data.len())
+                content.ignore_policy || !policy.exceeds_max_file_size(content.data.len() as u64)
             });
         }
 
@@ -470,7 +470,7 @@ impl EventCacheStoreMedia for MemoryStore {
             // to count the number of old items to remove. Items are sorted by last access
             // and old items are at the start.
             let (_, items_to_remove) = inner.media.iter().enumerate().rev().fold(
-                (0usize, Vec::with_capacity(NUMBER_OF_MEDIAS.into())),
+                (0u64, Vec::with_capacity(NUMBER_OF_MEDIAS.into())),
                 |(mut cache_size, mut items_to_remove), (index, content)| {
                     if content.ignore_policy {
                         // Do not count it.
@@ -479,7 +479,7 @@ impl EventCacheStoreMedia for MemoryStore {
 
                     let remove_item = if items_to_remove.is_empty() {
                         // We have not reached the max cache size yet.
-                        if let Some(sum) = cache_size.checked_add(content.data.len()) {
+                        if let Some(sum) = cache_size.checked_add(content.data.len() as u64) {
                             cache_size = sum;
                             // Start removing items if we have exceeded the max cache size.
                             cache_size > max_cache_size

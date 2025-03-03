@@ -166,7 +166,7 @@ where
         let policy = self.media_retention_policy();
 
         if ignore_policy == IgnoreMediaRetentionPolicy::No
-            && policy.exceeds_max_file_size(content.len())
+            && policy.exceeds_max_file_size(content.len() as u64)
         {
             // We do not cache the content.
             return Ok(());
@@ -659,7 +659,7 @@ mod tests {
         ) -> Result<(), Self::Error> {
             let ignore_policy = ignore_policy.is_yes();
 
-            if !ignore_policy && policy.exceeds_max_file_size(content.len()) {
+            if !ignore_policy && policy.exceeds_max_file_size(content.len() as u64) {
                 return Ok(());
             }
 

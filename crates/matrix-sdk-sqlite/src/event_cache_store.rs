@@ -1006,7 +1006,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         let ignore_policy = ignore_policy.is_yes();
         let data = self.encode_value(data)?;
 
-        if !ignore_policy && policy.exceeds_max_file_size(data.len()) {
+        if !ignore_policy && policy.exceeds_max_file_size(data.len() as u64) {
             return Ok(());
         }
 
@@ -1148,22 +1148,19 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                 if let Some(max_cache_size) = policy.max_cache_size {
                     // i64 is the integer type used by SQLite, use it here to avoid usize overflow
                     // during the conversion of the result.
-                    let cache_size_int = txn
+                    let cache_size = txn
                         .query_row(
                             "SELECT sum(length(data)) FROM media WHERE ignore_policy IS FALSE",
                             (),
                             |row| {
                                 // `sum()` returns `NULL` if there are no rows.
-                                row.get::<_, Option<i64>>(0)
+                                row.get::<_, Option<u64>>(0)
                             },
                         )?
                         .unwrap_or_default();
-                    let cache_size_usize = usize::try_from(cache_size_int);
 
                     // If the cache size is overflowing or bigger than max cache size, clean up.
-                    if cache_size_usize.is_err()
-                        || cache_size_usize.is_ok_and(|cache_size| cache_size > max_cache_size)
-                    {
+                    if cache_size > max_cache_size {
                         // Get the sizes of the media contents ordered by last access.
                         let mut cached_stmt = txn.prepare_cached(
                             "SELECT rowid, length(data) FROM media \
@@ -1171,9 +1168,9 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                         )?;
                         let content_sizes = cached_stmt
                             .query(())?
-                            .mapped(|row| Ok((row.get::<_, i64>(0)?, row.get::<_, usize>(1)?)));
+                            .mapped(|row| Ok((row.get::<_, i64>(0)?, row.get::<_, u64>(1)?)));
 
-                        let mut accumulated_items_size = 0usize;
+                        let mut accumulated_items_size = 0u64;
                         let mut limit_reached = false;
                         let mut rows_to_remove = Vec::new();
 
