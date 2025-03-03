@@ -926,23 +926,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     /// * `uri` - The `MxcUri` of the media file.
     async fn get_media_content_for_uri(&self, uri: &MxcUri) -> Result<Option<Vec<u8>>> {
         self.media_service.get_media_content_for_uri(self, uri).await
-        // let tx =
-        //     self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?;
-        // let store = tx.object_store(keys::MEDIA)?;
-
-        // let lower = JsValue::from_str(&(uri.to_string() + "_"));
-        // let upper = JsValue::from_str(&(uri.to_string() + "_" + "\u{FFFF}"));
-
-        // let key_range = IdbKeyRange::bound(&lower, &upper).unwrap();
-
-        // let blob = store.get_owned(&key_range)?.await?;
-
-        // if let Some(blob) = blob {
-        //     let data = blob_to_vec(blob).await.unwrap();
-        //     Ok(Some(data))
-        // } else {
-        //     Ok(None)
-        // }
     }
 
     /// Remove all the media files' content associated to an `MxcUri` from the
@@ -1061,7 +1044,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-// #[async_trait(?Send)]
 impl EventCacheStoreMedia for IndexeddbEventCacheStore {
     type Error = IndexeddbEventCacheStoreError;
 
