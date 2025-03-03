@@ -1337,7 +1337,11 @@ mod private {
                                 .expect("should have been a valid position of an item");
                         }
                         EventLocation::Store => {
-                            todo!()
+                            self.send_updates_to_store(vec![Update::ReplaceItem {
+                                at: position,
+                                item: copy,
+                            }])
+                            .await?;
                         }
                     }
                 }
