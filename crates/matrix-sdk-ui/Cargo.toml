@@ -38,12 +38,15 @@ indexmap = { workspace = true }
 itertools = { workspace = true }
 matrix-sdk = { workspace = true, features = ["e2e-encryption"] }
 matrix-sdk-base = { workspace = true }
+matrix-sdk-common = { workspace = true }
+matrix-sdk-test = { workspace = true }
 mime = { workspace = true }
 once_cell = { workspace = true }
 pin-project-lite = { workspace = true }
 ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+rand = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
