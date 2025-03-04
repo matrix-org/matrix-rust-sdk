@@ -40,6 +40,9 @@ simpler methods:
 
 ### Refactor
 
+- [**breaking**] We now require Rust 1.85 as the minimum supported Rust version to compile.
+  Yay for async closures!
+  ([#4745](https://github.com/matrix-org/matrix-rust-sdk/pull/4745)
 - [**breaking**]: The `Oidc` API only supports public clients, i.e. clients
   without a secret.
   ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
