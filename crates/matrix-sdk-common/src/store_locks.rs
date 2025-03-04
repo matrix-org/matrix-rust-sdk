@@ -47,7 +47,7 @@ use std::{
 };
 
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, instrument, trace};
 
 use crate::{
     executor::{spawn, JoinHandle},
@@ -216,7 +216,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
         if let Some(_prev) = renew_task.take() {
             #[cfg(not(target_arch = "wasm32"))]
             if !_prev.is_finished() {
-                info!("aborting the previous renew task");
+                trace!("aborting the previous renew task");
                 _prev.abort();
             }
         }
@@ -238,7 +238,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
 
                     // If there are no more users, we can quit.
                     if this.num_holders.load(atomic::Ordering::SeqCst) == 0 {
-                        info!("exiting the lease extension loop");
+                        trace!("exiting the lease extension loop");
 
                         // Cancel the lease with another 0ms lease.
                         // If we don't get the lock, that's (weird but) fine.

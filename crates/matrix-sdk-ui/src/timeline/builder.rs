@@ -24,7 +24,7 @@ use matrix_sdk::{
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
 use tokio::sync::broadcast::error::RecvError;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{info, info_span, trace, warn, Instrument, Span};
+use tracing::{trace, trace_span, warn, Instrument, Span};
 
 use super::{
     controller::{TimelineController, TimelineSettings},
@@ -212,7 +212,7 @@ impl TimelineBuilder {
             let room_event_cache = room_event_cache.clone();
             let inner = controller.clone();
 
-            let span = info_span!(
+            let span = trace_span!(
                 parent: Span::none(),
                 "live_update_handler",
                 room_id = ?room.room_id(),
@@ -315,7 +315,7 @@ impl TimelineBuilder {
                     timeline.handle_local_echo(echo).await;
                 }
 
-                let span = info_span!(
+                let span = trace_span!(
                     parent: Span::none(),
                     "local_echo_handler",
                     room_id = ?room.room_id(),
@@ -326,7 +326,7 @@ impl TimelineBuilder {
 
                 // React to future local echoes too.
                 async move {
-                    info!("spawned the local echo handler!");
+                    trace!("spawned the local echo handler!");
 
                     loop {
                         match listener.recv().await {
@@ -337,7 +337,7 @@ impl TimelineBuilder {
                             }
 
                             Err(RecvError::Closed) => {
-                                info!("channel closed, exiting the local echo handler");
+                                trace!("channel closed, exiting the local echo handler");
                                 break;
                             }
                         }
