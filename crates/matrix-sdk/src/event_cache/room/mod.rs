@@ -1169,7 +1169,7 @@ mod private {
             spawn(async move {
                 let store = store.lock().await?;
 
-                trace!(?updates, "sending linked chunk updates to the store");
+                trace!(%room_id, ?updates, "sending linked chunk updates to the store");
                 store.handle_linked_chunk_updates(&room_id, updates).await?;
                 trace!("linked chunk updates applied");
 
