@@ -258,11 +258,11 @@ impl ReadReceipts {
     ///
     /// This includes all the receipts on the event as well as all the receipts
     /// on the following events that are filtered out (not visible).
-    #[instrument(skip(self, all_events, at_end))]
+    #[instrument(skip(self, timeline_items, at_end))]
     pub(super) fn compute_event_receipts(
         &self,
         event_id: &EventId,
-        all_events: &AllRemoteEvents,
+        timeline_items: &mut ObservableItemsTransaction<'_>,
         at_end: bool,
     ) -> IndexMap<OwnedUserId, Receipt> {
         let mut all_receipts = self.get_event_receipts(event_id).cloned().unwrap_or_default();
@@ -281,20 +281,61 @@ impl ReadReceipts {
             all_receipts.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>().join(", ")
         );
 
-        // Find the event.
-        let events_iter = all_events.iter().skip_while(|meta| meta.event_id != event_id);
+        // We are going to add receipts for hidden events to this item.
+        //
+        // However: since we may be inserting an event at a random position, the
+        // previous timeline item may already be holding some hidden read
+        // receipts. As a result, we need to be careful here: if we're inserting
+        // after an event that holds hidden read receipts, then we should steal
+        // them from it.
+        //
+        // Find the event, go past it, and keep a reference to the previous rendered
+        // timeline item, if any.
+        let mut events_iter = timeline_items.all_remote_events().iter();
+        let mut prev_event_and_item_index = None;
 
-        // Get past the event
-        let events_iter = events_iter.skip(1);
-
-        // Include receipts from all the following non-visible events.
-        for hidden_event_meta in events_iter.take_while(|meta| !meta.visible) {
-            if let Some(event_receipts) = self.get_event_receipts(&hidden_event_meta.event_id) {
-                trace!(%hidden_event_meta.event_id, "found receipts on hidden event");
-                all_receipts.extend(event_receipts.clone());
+        for meta in events_iter.by_ref() {
+            if meta.event_id == event_id {
+                break;
+            }
+            if let Some(item_index) = meta.timeline_item_index {
+                prev_event_and_item_index = Some((meta.event_id.clone(), item_index));
             }
         }
 
+        // Include receipts for all the following non-visible events.
+        let mut hidden = Vec::new();
+        for hidden_event_meta in events_iter.take_while(|meta| !meta.visible) {
+            if let Some(event_receipts) = self.get_event_receipts(&hidden_event_meta.event_id) {
+                trace!(%hidden_event_meta.event_id, "found receipts on hidden event");
+                hidden.extend(event_receipts.clone());
+            }
+        }
+
+        // Steal hidden receipts from the previous timeline item, if it carried them.
+        if let Some((prev_event_id, prev_item_index)) = prev_event_and_item_index {
+            let prev_item = &timeline_items[prev_item_index];
+            // Technically, we could unwrap the `as_event()`, because this is a rendered
+            // item for an event in all_remote_events, but this extra check is
+            // cheap.
+            if let Some(remote_prev_item) = prev_item.as_event() {
+                let prev_receipts = remote_prev_item.read_receipts().clone();
+                for (user_id, _) in &hidden {
+                    if !prev_receipts.contains_key(user_id) {
+                        continue;
+                    }
+                    let mut up = ReadReceiptTimelineUpdate {
+                        old_item_pos: Some(prev_item_index),
+                        old_event_id: Some(prev_event_id.clone()),
+                        new_item_pos: None,
+                        new_event_id: None,
+                    };
+                    up.remove_old_receipt(timeline_items, user_id);
+                }
+            }
+        }
+
+        all_receipts.extend(hidden);
         trace!(
             "computed receipts: {}",
             all_receipts.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>().join(", ")
@@ -573,7 +614,7 @@ impl TimelineStateTransaction<'_> {
 
         let read_receipts = self.meta.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
-            self.items.all_remote_events(),
+            &mut self.items,
             false,
         );
 
