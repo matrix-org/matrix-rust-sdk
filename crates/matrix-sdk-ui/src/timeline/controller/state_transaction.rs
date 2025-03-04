@@ -424,7 +424,7 @@ impl<'a> TimelineStateTransaction<'a> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    self.items.all_remote_events(),
+                    &mut self.items,
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
