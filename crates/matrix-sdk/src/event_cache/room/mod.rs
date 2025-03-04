@@ -528,8 +528,7 @@ impl RoomEventCacheInner {
         ) = state.collect_valid_and_duplicated_events(sync_timeline_events.clone()).await?;
 
         // During a sync, when a duplicated event is found, the old event is removed and
-        // the new event is added. This is the opposite strategy than during a backwards
-        // pagination where the old event is kept and the new event is ignored.
+        // the new event is added.
         //
         // Let's remove the old events that are duplicated.
         let timeline_event_diffs = if all_duplicates {
@@ -1081,7 +1080,7 @@ mod private {
         /// This method is purposely isolated because it must ensure that
         /// positions are sorted appropriately or it can be disastrous.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
-        pub(super) async fn remove_events(
+        pub(crate) async fn remove_events(
             &mut self,
             in_memory_events: Vec<(OwnedEventId, Position)>,
             in_store_events: Vec<(OwnedEventId, Position)>,

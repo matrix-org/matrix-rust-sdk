@@ -1855,7 +1855,7 @@ async fn test_lazy_loading() {
     //
     // A new chunk containing a gap has been inserted by the previous network
     // pagination, because it contained an `end` token. Let's see how the
-    // `EventCache` will reconciliate all that. A new chunk will not be loaded from
+    // `EventCache` will reconcile all that. A new chunk will not be loaded from
     // the store because the last chunk is a gap.
     //
     // The new network pagination will return 1 new event, and 1 event already
@@ -1880,29 +1880,28 @@ async fn test_lazy_loading() {
 
         let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
-        // 🙊… 1 event! Indeed, `$ev0_5` has been filtered out.
-        assert_eq!(outcome.events.len(), 1);
-
-        // Hello lonely.
+        // 2 events; the already known is reinserted.
+        assert_eq!(outcome.events.len(), 2);
         assert_event_id!(outcome.events[0], "$ev1_0");
+        assert_event_id!(outcome.events[1], "$ev0_5");
 
         // Still not the start of the timeline.
         assert!(outcome.reached_start.not());
 
-        // Let's check the stream.
-        //
-        // So, things are getting serious now. `$ev1_0` is definitely new and should be
-        // inserted before `$ev1_1`, so at index 0. However, `$ev0_5` is known: it's
-        // absent from the memory but it's present in the store. It's a ✨ duplicate ✨!
-        // It's going to be filtered out.
+        // The stream is consistent with what we observed.
         let update = updates_stream.recv().await.unwrap();
 
         assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
-            // 1 lonely diff only! Live deduplication in action. Beautiful.
-            assert_eq!(diffs.len(), 1);
+            // 2 diffs: one for inserting each event.
+            //
+            // We don't get a notification about the removal, because it happened *in the store*,
+            // so it's not reflected in the vector that materializes the lazy-loaded chunk.
+            assert_eq!(diffs.len(), 2);
 
-            // Hello lonely.
             assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+                assert_event_id!(event, "$ev0_5");
+            });
+            assert_matches!(&diffs[1], VectorDiff::Insert { index: 1, value: event } => {
                 assert_event_id!(event, "$ev1_0");
             });
         });
@@ -1917,10 +1916,10 @@ async fn test_lazy_loading() {
     // fetched events were duplicated. Let's paginate again!
     //
     // The new network pagination will return, let's say, 2 known events. They will
-    // all be deduplicated, so zero events will be inserted. However, we use a
-    // `until_at_least_one_event` function as a pagination criteria. The first
-    // pagination will return zero event, the gap chunk will be removed, a second
-    // pagination will then run. This time, the store will be hit.
+    // all be deduplicated, so zero events will be inserted. However, we do paginate
+    // until there's at least one event. The first pagination will return zero
+    // event, the gap chunk will be removed, a second pagination will then run.
+    // This time, the store will be hit.
     {
         let _network_pagination = mock_server
             .mock_room_messages()
@@ -1943,19 +1942,18 @@ async fn test_lazy_loading() {
 
         let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
-        // 🙊 … 6 events! Wait, what? Yes! The network has returned 2 known events, they
+        // 🙊 … 5 events! Wait, what? Yes! The network has returned 2 known events, they
         // have all been deduplicated, resulting in the removal of the gap chunk.
-        // `until_at_least_one_event` re-runs the pagination, and this time the store is
-        // reached.
-        assert_eq!(outcome.events.len(), 6);
+        // We then re-ran the pagination, and this time the store is reached, and it
+        // reflects the deduplicated $ev0_5 from a previous back-pagination.
+        assert_eq!(outcome.events.len(), 5);
 
         // Hello to all of you!
-        assert_event_id!(outcome.events[0], "$ev0_5");
-        assert_event_id!(outcome.events[1], "$ev0_4");
-        assert_event_id!(outcome.events[2], "$ev0_3");
-        assert_event_id!(outcome.events[3], "$ev0_2");
-        assert_event_id!(outcome.events[4], "$ev0_1");
-        assert_event_id!(outcome.events[5], "$ev0_0");
+        assert_event_id!(outcome.events[0], "$ev0_4");
+        assert_event_id!(outcome.events[1], "$ev0_3");
+        assert_event_id!(outcome.events[2], "$ev0_2");
+        assert_event_id!(outcome.events[3], "$ev0_1");
+        assert_event_id!(outcome.events[4], "$ev0_0");
 
         // This was the start of the timeline \o/
         assert!(outcome.reached_start);
@@ -1964,8 +1962,7 @@ async fn test_lazy_loading() {
         let update = updates_stream.recv().await.unwrap();
 
         assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
-            // 6 diffs, but who's counting?
-            assert_eq!(diffs.len(), 6);
+            assert_eq!(diffs.len(), 5);
 
             assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
                 assert_event_id!(event, "$ev0_0");
@@ -1981,9 +1978,6 @@ async fn test_lazy_loading() {
             });
             assert_matches!(&diffs[4], VectorDiff::Insert { index: 4, value: event } => {
                 assert_event_id!(event, "$ev0_4");
-            });
-            assert_matches!(&diffs[5], VectorDiff::Insert { index: 5, value: event } => {
-                assert_event_id!(event, "$ev0_5");
             });
         });
     }
@@ -2082,21 +2076,19 @@ async fn test_deduplication() {
     // - 2 of them are duplicated with events in the store (so not loaded yet),
     // - 2 events are unique.
     mock_server
-        .mock_sync()
-        .ok_and_run(&client, |sync_builder| {
-            sync_builder.add_joined_room({
-                JoinedRoomBuilder::new(room_id)
-                    // The 2 events duplicated with the ones from the loaded chunk.
-                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev1_0")))
-                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev1_2")))
-                    // The 2 events duplicated with the ones from the not-loaded chunk.
-                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev0_1")))
-                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev0_2")))
-                    // The 2 unique events.
-                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev3_0")))
-                    .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev3_1")))
-            });
-        })
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                // The 2 events duplicated with the ones from the loaded chunk.
+                .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev1_0")))
+                .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev1_2")))
+                // The 2 events duplicated with the ones from the not-loaded chunk.
+                .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev0_1")))
+                .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev0_2")))
+                // The 2 unique events.
+                .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev3_0")))
+                .add_timeline_event(event_factory.text_msg("foo").event_id(event_id!("$ev3_1"))),
+        )
         .await;
 
     // What should we see?
