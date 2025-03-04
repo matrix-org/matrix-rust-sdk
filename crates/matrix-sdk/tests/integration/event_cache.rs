@@ -2257,3 +2257,114 @@ async fn test_timeline_then_empty_timeline_then_deduplication() {
     // That's all, folks!
     assert!(subscriber.is_empty());
 }
+
+#[async_test]
+async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+    // TODO: remove the other test above, which doesn't enable storage, when
+    // persistent storage's enabled by default.
+    client.event_cache().enable_storage().unwrap();
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+    // Previous batch of events which will be received via /messages, in
+    // chronological order.
+    let previous_events = [
+        f.text_msg("previous1").event_id(event_id!("$prev1")).into_raw_timeline(),
+        f.text_msg("previous2").event_id(event_id!("$prev2")).into_raw_timeline(),
+        f.text_msg("previous3").event_id(event_id!("$prev3")).into_raw_timeline(),
+    ];
+
+    // Latest events which will be received via /sync, in chronological order.
+    let latest_events = [
+        f.text_msg("latest3").event_id(event_id!("$latest3")).into_raw_timeline(),
+        f.text_msg("latest2").event_id(event_id!("$latest2")).into_raw_timeline(),
+        f.text_msg("latest1").event_id(event_id!("$latest1")).into_raw_timeline(),
+    ];
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
+    assert!(initial_events.is_empty());
+
+    // Receive a sync with only the latest events.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("token-before-latest")
+                .add_timeline_bulk(latest_events.clone().into_iter().map(ruma::serde::Raw::cast)),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+    assert_eq!(diffs.len(), 2);
+    assert_let!(VectorDiff::Clear = &diffs[0]);
+    assert_let!(VectorDiff::Append { values } = &diffs[1]);
+
+    assert_eq!(values.len(), 3);
+    assert_event_matches_msg(&values[0], "latest3");
+    assert_event_matches_msg(&values[1], "latest2");
+    assert_event_matches_msg(&values[2], "latest1");
+
+    // Receive a timeline without any items.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("token-after-latest"),
+        )
+        .await;
+
+    // The timeline is limited, so the linked chunk is shrunk to the latest chunk.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Clear = &diffs[0]);
+
+    assert!(subscriber.is_empty());
+
+    // Back-paginate.
+    let all_events = previous_events.into_iter().chain(latest_events).rev().collect::<Vec<_>>();
+
+    server
+        .mock_room_messages()
+        // The prev_batch from the second sync.
+        .match_from("token-after-latest")
+        .ok(RoomMessagesResponseTemplate::default().end_token("messages-end-2").events(all_events))
+        .named("messages-since-after-latest")
+        .mount()
+        .await;
+
+    let outcome = room_event_cache.pagination().run_backwards_once(10).await.unwrap();
+    assert!(outcome.reached_start.not());
+    assert_eq!(outcome.events.len(), 6);
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+
+    // Yay.
+    assert_let!(VectorDiff::Append { values } = &diffs[0]);
+    assert_eq!(values.len(), 6);
+    assert_event_matches_msg(&values[0], "previous1");
+    assert_event_matches_msg(&values[1], "previous2");
+    assert_event_matches_msg(&values[2], "previous3");
+    assert_event_matches_msg(&values[3], "latest3");
+    assert_event_matches_msg(&values[4], "latest2");
+    assert_event_matches_msg(&values[5], "latest1");
+
+    // That's all, folks!
+    assert!(subscriber.is_empty());
+}
