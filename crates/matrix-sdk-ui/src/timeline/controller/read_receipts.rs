@@ -22,7 +22,7 @@ use ruma::{
 };
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
     rfind_event_by_id, AllRemoteEvents, FullEventMeta, ObservableItemsTransaction,
@@ -91,6 +91,7 @@ impl ReadReceipts {
     ///
     /// Currently this method only works reliably if the timeline was started
     /// from the end of the timeline.
+    #[instrument(skip_all, fields(user_id = %new_receipt.user_id, event_id = %new_receipt.event_id))]
     fn maybe_update_read_receipt(
         &mut self,
         new_receipt: FullReceipt<'_>,
@@ -107,6 +108,9 @@ impl ReadReceipts {
             .is_some_and(|(old_receipt_event_id, _)| old_receipt_event_id == new_receipt.event_id)
         {
             // The receipt has not changed so there is nothing to do.
+            if !is_own_user_id {
+                trace!("receipt hasn't changed, nothing to do");
+            }
             return;
         }
 
@@ -152,11 +156,17 @@ impl ReadReceipts {
             let Some(new_receipt_pos) = new_receipt_pos else {
                 // The old receipt is more recent since we can't find the new receipt in the
                 // timeline and we supposedly have all events since the end of the timeline.
+                if !is_own_user_id {
+                    trace!("we had a previous read receipt, but couldn't find the event targeted by the new read receipt in the timeline, exiting");
+                }
                 return;
             };
 
             if old_receipt_pos < new_receipt_pos {
                 // The old receipt is more recent than the new one.
+                if !is_own_user_id {
+                    trace!("the previous read receipt is more recent than the new one, exiting");
+                }
                 return;
             }
         }
@@ -171,6 +181,8 @@ impl ReadReceipts {
         //   more recent because it has a place in the timeline.
 
         if !is_own_user_id {
+            trace!(from_event = ?old_event_id, from_visible_event = ?old_item_event_id, to_event = ?new_receipt.event_id, to_visible_event = ?new_item_event_id, ?old_item_pos, ?new_item_pos, "moving read receipt");
+
             // Remove the old receipt from the old event.
             if let Some(old_event_id) = old_event_id.cloned() {
                 self.remove_event_receipt_for_user(&old_event_id, new_receipt.user_id);
@@ -246,6 +258,7 @@ impl ReadReceipts {
     ///
     /// This includes all the receipts on the event as well as all the receipts
     /// on the following events that are filtered out (not visible).
+    #[instrument(skip(self, all_events, at_end))]
     pub(super) fn compute_event_receipts(
         &self,
         event_id: &EventId,
@@ -256,8 +269,17 @@ impl ReadReceipts {
 
         if at_end {
             // No need to search for extra receipts, there are no events after.
+            trace!(
+                "early return because @end, retrieved receipts: {}",
+                all_receipts.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>().join(", ")
+            );
             return all_receipts;
         }
+
+        trace!(
+            "loaded receipts: {}",
+            all_receipts.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>().join(", ")
+        );
 
         // Find the event.
         let events_iter = all_events.iter().skip_while(|meta| meta.event_id != event_id);
@@ -268,10 +290,15 @@ impl ReadReceipts {
         // Include receipts from all the following non-visible events.
         for hidden_event_meta in events_iter.take_while(|meta| !meta.visible) {
             if let Some(event_receipts) = self.get_event_receipts(&hidden_event_meta.event_id) {
+                trace!(%hidden_event_meta.event_id, "found receipts on hidden event");
                 all_receipts.extend(event_receipts.clone());
             }
         }
 
+        trace!(
+            "computed receipts: {}",
+            all_receipts.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>().join(", ")
+        );
         all_receipts
     }
 }
@@ -300,6 +327,7 @@ struct ReadReceiptTimelineUpdate {
 
 impl ReadReceiptTimelineUpdate {
     /// Remove the old receipt from the corresponding timeline item.
+    #[instrument(skip_all)]
     fn remove_old_receipt(&mut self, items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
         let Some(event_id) = &self.old_event_id else {
             // Nothing to do.
@@ -340,6 +368,7 @@ impl ReadReceiptTimelineUpdate {
                      receipt doesn't have a receipt for the user"
                 );
             }
+            trace!(%user_id, %event_id, "removed read receipt from event item");
             items.replace(item_pos, TimelineItem::new(event_item, event_item_id));
         } else {
             warn!("received a read receipt for a local item, this should not be possible");
@@ -347,6 +376,7 @@ impl ReadReceiptTimelineUpdate {
     }
 
     /// Add the new receipt to the corresponding timeline item.
+    #[instrument(skip_all)]
     fn add_new_receipt(
         self,
         items: &mut ObservableItemsTransaction<'_>,
@@ -390,6 +420,7 @@ impl ReadReceiptTimelineUpdate {
         };
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
+            trace!(%user_id, %event_id, "added read receipt to event item");
             remote_event_item.read_receipts.insert(user_id, receipt);
             items.replace(item_pos, TimelineItem::new(event_item, event_item_id));
         } else {
@@ -415,6 +446,7 @@ impl TimelineStateTransaction<'_> {
         receipt_event_content: ReceiptEventContent,
         own_user_id: &UserId,
     ) {
+        trace!("handling explicit read receipts");
         for (event_id, receipt_types) in receipt_event_content.0 {
             for (receipt_type, receipts) in receipt_types {
                 // We only care about read receipts here.
@@ -453,6 +485,7 @@ impl TimelineStateTransaction<'_> {
         event_id: &EventId,
         room_data_provider: &P,
     ) {
+        trace!(%event_id, "loading initial receipts for an event");
         let read_receipts = room_data_provider.load_event_receipts(event_id).await;
         let own_user_id = room_data_provider.own_user_id();
 
@@ -490,6 +523,7 @@ impl TimelineStateTransaction<'_> {
             return;
         };
 
+        trace!(%event_id, "adding implicit read receipt");
         let receipt = Receipt::new(timestamp);
         let full_receipt =
             FullReceipt { event_id, user_id, receipt_type: ReceiptType::Read, receipt: &receipt };
@@ -503,6 +537,7 @@ impl TimelineStateTransaction<'_> {
 
     /// Update the read receipts on the event with the given event ID and the
     /// previous visible event because of a visibility change.
+    #[instrument(skip(self))]
     pub(super) fn maybe_update_read_receipts_of_prev_event(&mut self, event_id: &EventId) {
         // Find the previous visible event, if there is one.
         let Some(prev_event_meta) = self
@@ -517,6 +552,7 @@ impl TimelineStateTransaction<'_> {
             // Find the first visible item.
             .find(|meta| meta.visible)
         else {
+            trace!("Couldn't find any previous visible event, exiting");
             return;
         };
 
@@ -543,9 +579,11 @@ impl TimelineStateTransaction<'_> {
 
         // If the count did not change, the receipts did not change either.
         if read_receipts.len() == remote_prev_event_item.read_receipts.len() {
+            trace!("same count of read receipts, not doing anything");
             return;
         }
 
+        trace!("replacing read receipts with the new ones");
         remote_prev_event_item.read_receipts = read_receipts;
         self.items.replace(prev_item_pos, TimelineItem::new(prev_event_item, prev_event_item_id));
     }
