@@ -304,6 +304,15 @@ impl<'a> TimelineStateTransaction<'a> {
                                 }
                             }
                         }
+                        TimelineFocusKind::Thread => match origin {
+                            RemoteEventOrigin::Sync
+                            | RemoteEventOrigin::Unknown
+                            | RemoteEventOrigin::Cache
+                            | RemoteEventOrigin::Pagination => {
+                                should_add = true;
+                                // todo!("Figure out how to handle this properly")
+                            }
+                        },
                     }
                 }
 
