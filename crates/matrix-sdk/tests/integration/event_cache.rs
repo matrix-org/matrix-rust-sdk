@@ -28,6 +28,12 @@ use ruma::{
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, task::yield_now, time::sleep};
 
+macro_rules! assert_event_id {
+    ($timeline_event:expr, $event_id:literal) => {
+        assert_eq!($timeline_event.event_id().unwrap().as_str(), $event_id);
+    };
+}
+
 #[async_test]
 async fn test_must_explicitly_subscribe() {
     let server = MatrixMockServer::new().await;
@@ -1544,6 +1550,145 @@ async fn test_apply_redaction_when_redaction_comes_later() {
 }
 
 #[async_test]
+async fn test_apply_redaction_on_an_in_store_event() {
+    let room_id = room_id!("!foo:bar.baz");
+    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    // Set up the event cache store.
+    {
+        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+
+        // The event cache contains 2 chunks as such (from older to newewst):
+        // 1. a chunk of 1 item, the one we are going to redact!
+        // 2. a chunk of 1 item, the chunk that is going to be loaded.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    // chunk #1
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    // … and its item
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_factory
+                            .text_msg("foo")
+                            .event_id(event_id!("$ev0"))
+                            .into_event()],
+                    },
+                    // chunk #2
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    // … and its item
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event_factory
+                            .text_msg("foo")
+                            .event_id(event_id!("$ev1"))
+                            .into_event()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+    }
+
+    // Set up the event cache.
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
+
+    let room = mock_server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+
+    let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await;
+
+    // Initial events!
+    //
+    // Only 1 events is loaded, as expected, from the last chunk.
+    {
+        assert_eq!(initial_updates.len(), 1);
+        assert_event_id!(initial_updates[0], "$ev1");
+
+        // The stream of updates is waiting, patiently.
+        assert!(updates_stream.is_empty());
+    }
+
+    // Sync a redaction for `$ev0`.
+    mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                event_factory
+                    .redaction(event_id!("$ev0"))
+                    .event_id(event_id!("$ev2"))
+                    .into_raw_sync(),
+            ),
+        )
+        .await;
+
+    // Let's check the stream.
+    let update = updates_stream.recv().await.unwrap();
+
+    assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        // 1 diff for the `m.room.redaction`. The event being redacted is not
+        // in-memory yet, it's only in the store, so no update for it.
+        assert_eq!(diffs.len(), 1);
+
+        assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
+            assert_eq!(events.len(), 1);
+            assert_event_id!(&events[0], "$ev2");
+        });
+    });
+
+    assert!(updates_stream.is_empty());
+
+    // To see if `$ev0` has been redacted in the store, let's paginate!
+    let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
+
+    // 1 event, no surprise.
+    assert_eq!(outcome.events.len(), 1);
+    assert_event_id!(outcome.events[0], "$ev0");
+    assert_matches!(
+        outcome.events[0].raw().deserialize().unwrap(),
+        AnySyncTimelineEvent::MessageLike(event) => {
+            // The event has been redacted!
+            assert!(event.is_redacted());
+        }
+    );
+
+    // Let's check the stream. It should reflect what the `pagination_outcome`
+    // provides.
+    let update = updates_stream.recv().await.unwrap();
+
+    assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. } => {
+        assert_eq!(diffs.len(), 1);
+
+        assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+            assert_event_id!(event, "$ev0");
+            assert_matches!(
+                event.raw().deserialize().unwrap(),
+                AnySyncTimelineEvent::MessageLike(event) => {
+                    // The event has been redacted!
+                    assert!(event.is_redacted());
+                }
+            );
+        });
+    });
+
+    assert!(updates_stream.is_empty());
+}
+
+#[async_test]
 async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -1610,12 +1755,6 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
 
     // That's all, folks!
     assert!(subscriber.is_empty());
-}
-
-macro_rules! assert_event_id {
-    ($timeline_event:expr, $event_id:literal) => {
-        assert_eq!($timeline_event.event_id().unwrap().as_str(), $event_id);
-    };
 }
 
 #[async_test]
