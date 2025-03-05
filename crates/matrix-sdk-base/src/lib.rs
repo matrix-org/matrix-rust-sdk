@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::error::{Error, Result};
 
 mod client;
+pub use client::RequestedRequiredStates;
 pub mod debug;
 pub mod deserialized_responses;
 mod error;

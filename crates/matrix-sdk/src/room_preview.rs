@@ -316,7 +316,7 @@ impl RoomPreview {
                     continue;
                 }
             };
-            room_info.handle_state_event(&ev.into());
+            room_info.handle_state_event(&[], &ev.into());
         }
 
         let room = client.get_room(room_id);

@@ -1589,19 +1589,34 @@ impl RoomInfo {
     /// Handle the given state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        let ret = self.base_info.handle_state_event(event);
+    pub fn handle_state_event(
+        &mut self,
+        requested_required_states: &[(StateEventType, String)],
+        event: &AnySyncStateEvent,
+    ) -> bool {
+        // Store the state event in the `BaseRoomInfo` first.
+        let base_info_has_been_modified = self.base_info.handle_state_event(event);
 
-        // If we received an `m.room.encryption` event here, and encryption got enabled,
-        // then we can be certain that we have synced the encryption state event, so
-        // mark it here as synced.
-        if let AnySyncStateEvent::RoomEncryption(_) = event {
+        // The `m.room.encryption` event was requested during the sync. Whether we have
+        // received a `m.room.encryption` event in return doesn't matter: we must mark
+        // the encryption state as synced; if the event is present, it means the room
+        // _is_ encrypted, otherwise it means the room _is not_ encrypted.
+        if requested_required_states
+            .iter()
+            .any(|(state_event, _)| state_event == &StateEventType::RoomEncryption)
+        {
+            self.mark_encryption_state_synced();
+        }
+        // The `m.room.encryption` event wasn't explicitely requested but we got one in
+        // return! In this case, we can deduce the room _is_ encrypted, but we cannot
+        // know if it _is not_ encrypted.
+        else if let AnySyncStateEvent::RoomEncryption(_) = event {
             if self.is_encrypted() {
                 self.mark_encryption_state_synced();
             }
         }
 
-        ret
+        base_info_has_been_modified
     }
 
     /// Handle the given stripped state event.
@@ -1993,7 +2008,7 @@ impl RoomInfo {
                 Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) => {
                     match raw_event.deserialize() {
                         Ok(event) => {
-                            self.handle_state_event(&event.into());
+                            self.handle_state_event(&[], &event.into());
                         }
                         Err(error) => {
                             warn!("Failed to deserialize room pinned events: {error}");
@@ -3436,7 +3451,7 @@ mod tests {
         room.inner.update_if(|info| {
             let mut res = false;
             for ev in events {
-                res |= info.handle_state_event(ev);
+                res |= info.handle_state_event(&[], ev);
             }
             res
         });
