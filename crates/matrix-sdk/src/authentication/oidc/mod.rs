@@ -641,11 +641,49 @@ impl Oidc {
         self.management_url_from_provider_metadata(metadata, action)
     }
 
+    /// Discover the authentication issuer and retrieve the
+    /// [`VerifiedProviderMetadata`] using the GET `/auth_metadata` endpoint
+    /// defined in [MSC2965].
+    ///
+    /// **Note**: This endpoint is deprecated.
+    ///
+    /// MSC2956: https://github.com/matrix-org/matrix-spec-proposals/pull/2965
+    async fn fallback_discover(
+        &self,
+        insecure: bool,
+    ) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+        #[allow(deprecated)]
+        let issuer =
+            match self.client.send(get_authentication_issuer::msc2965::Request::new()).await {
+                Ok(response) => response.issuer,
+                Err(error)
+                    if error
+                        .as_client_api_error()
+                        .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND) =>
+                {
+                    return Err(OauthDiscoveryError::NotSupported);
+                }
+                Err(error) => return Err(error.into()),
+            };
+
+        if insecure {
+            insecure_discover(&self.http_service(), &issuer).await.map_err(Into::into)
+        } else {
+            discover(&self.http_service(), &issuer).await.map_err(Into::into)
+        }
+    }
+
     /// Fetch the OAuth 2.0 server metadata of the homeserver.
     ///
     /// Returns an error if a problem occurred when fetching or validating the
     /// metadata.
     pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+        let is_endpoint_unsupported = |error: &HttpError| {
+            error
+                .as_client_api_error()
+                .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND)
+        };
+
         match self.client.send(get_authorization_server_metadata::msc2965::Request::new()).await {
             Ok(response) => {
                 let metadata = response.metadata.deserialize_as::<ProviderMetadata>()?;
@@ -662,38 +700,16 @@ impl Oidc {
                     metadata.validate(&issuer)
                 };
 
-                return Ok(result.map_err(error::DiscoveryError::Validation)?);
+                Ok(result.map_err(error::DiscoveryError::Validation)?)
             }
-            Err(error)
-                if error
-                    .as_client_api_error()
-                    .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND) =>
-            {
-                // Fallback to OIDC discovery.
+            // If the endpoint returns a 404, i.e. the server doesn't support the endpoint, attempt
+            // to use the equivalent, but deprecated, endpoint.
+            Err(error) if is_endpoint_unsupported(&error) => {
+                // TODO: remove this fallback behavior when the metadata endpoint has wider
+                // support.
+                self.fallback_discover(self.ctx().insecure_discover).await
             }
-            Err(error) => return Err(error.into()),
-        };
-
-        // TODO: remove this fallback behavior when the metadata endpoint has wider
-        // support.
-        #[allow(deprecated)]
-        let issuer =
-            match self.client.send(get_authentication_issuer::msc2965::Request::new()).await {
-                Ok(response) => response.issuer,
-                Err(error)
-                    if error
-                        .as_client_api_error()
-                        .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND) =>
-                {
-                    return Err(OauthDiscoveryError::NotSupported);
-                }
-                Err(error) => return Err(error.into()),
-            };
-
-        if self.ctx().insecure_discover {
-            insecure_discover(&self.http_service(), &issuer).await.map_err(Into::into)
-        } else {
-            discover(&self.http_service(), &issuer).await.map_err(Into::into)
+            Err(error) => Err(error.into()),
         }
     }
 
