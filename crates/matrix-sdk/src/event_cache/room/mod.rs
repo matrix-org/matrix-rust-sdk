@@ -1271,10 +1271,8 @@ mod private {
 
             match post_processing {
                 EventsPostProcessing::HaveBeenInserted(events) => {
-                    let room_version = self.room_version.clone();
-
                     for event in &events {
-                        self.maybe_apply_new_redaction(&room_version, event).await?;
+                        self.maybe_apply_new_redaction(event).await?;
                     }
                 }
 
@@ -1300,7 +1298,6 @@ mod private {
         #[instrument(skip_all)]
         async fn maybe_apply_new_redaction(
             &mut self,
-            room_version: &RoomVersionId,
             event: &Event,
         ) -> Result<(), EventCacheError> {
             let raw_event = event.raw();
@@ -1322,7 +1319,7 @@ mod private {
                 return Ok(());
             };
 
-            let Some(event_id) = redaction.redacts(room_version) else {
+            let Some(event_id) = redaction.redacts(&self.room_version) else {
                 warn!("missing target event id from the redaction event");
                 return Ok(());
             };
@@ -1350,7 +1347,7 @@ mod private {
                 if let Some(redacted_event) = apply_redaction(
                     target_event.raw(),
                     event.raw().cast_ref::<SyncRoomRedactionEvent>(),
-                    room_version,
+                    &self.room_version,
                 ) {
                     let mut copy = target_event.clone();
 
