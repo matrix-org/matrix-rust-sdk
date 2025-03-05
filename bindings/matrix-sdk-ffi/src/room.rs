@@ -110,8 +110,8 @@ impl Room {
         self.inner.avatar_url().map(|m| m.to_string())
     }
 
-    pub fn is_direct(&self) -> bool {
-        get_runtime_handle().block_on(self.inner.is_direct()).unwrap_or(false)
+    pub async fn is_direct(&self) -> bool {
+        self.inner.is_direct().await.unwrap_or(false)
     }
 
     pub fn is_public(&self) -> bool {
