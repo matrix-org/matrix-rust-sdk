@@ -98,6 +98,21 @@ simpler methods:
   - `Oidc::restore_registered_client()` doesn't take a `VerifiedClientMetadata`
     anymore.
   - `Oidc::latest_id_token()` and `Oidc::client_metadata()` were removed.
+- [**breaking**]: The `Oidc` API makes use of the oauth2 crate rather than
+  mas-oidc-client.
+  ([#4761](https://github.com/matrix-org/matrix-rust-sdk/pull/4761))
+  - `ClientId` is a different type reexported from the oauth2 crate.
+  - The error types that were in the `oidc` module have been moved to the
+    `oidc::error` module.
+  - The `prompt` parameter of `Oidc::url_for_oidc()` is now optional, and
+    `Prompt` is a different type reexported from Ruma, that only supports the
+    `create` value.
+  - The `device_id` parameter of `Oidc::login` is now an `Option<OwnedDeviceId>`.
+  - The `state` field of `OidcAuthorizationData` and `AuthorizationCode`, and
+    the parameter of the same name in `Oidc::abort_authorization()` now use
+    `CsrfToken`.
+  - The `error` field of `AuthorizationError` uses an error type from the oauth2
+    crate rather than one from mas-oidc-client.
 
 ## [0.10.0] - 2025-02-04
 
