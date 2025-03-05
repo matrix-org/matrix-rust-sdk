@@ -1328,14 +1328,12 @@ mod private {
                 if let Ok(deserialized) = target_event.raw().deserialize() {
                     match deserialized {
                         AnySyncTimelineEvent::MessageLike(ev) => {
-                            if ev.original_content().is_none() {
-                                // Already redacted.
+                            if ev.is_redacted() {
                                 return Ok(());
                             }
                         }
                         AnySyncTimelineEvent::State(ev) => {
-                            if ev.original_content().is_none() {
-                                // Already redacted.
+                            if ev.is_redacted() {
                                 return Ok(());
                             }
                         }
