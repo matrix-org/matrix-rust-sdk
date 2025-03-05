@@ -1356,7 +1356,7 @@ mod tests {
             verification_state: VerificationState::Verified,
         };
 
-        with_settings!({sort_maps =>true}, {
+        with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
             assert_json_snapshot!(info)
         })
     }
