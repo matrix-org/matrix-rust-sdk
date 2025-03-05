@@ -666,10 +666,8 @@ impl Client {
     }
 
     /// Retrieves an avatar cached from a previous call to [`Self::avatar_url`].
-    pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
-        Ok(get_runtime_handle()
-            .block_on(self.inner.account().get_cached_avatar_url())?
-            .map(Into::into))
+    pub async fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
+        Ok(self.inner.account().get_cached_avatar_url().await?.map(Into::into))
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
@@ -931,8 +929,8 @@ impl Client {
         SyncServiceBuilder::new((*self.inner).clone())
     }
 
-    pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
-        let inner = get_runtime_handle().block_on(self.inner.notification_settings());
+    pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {
+        let inner = self.inner.notification_settings().await;
 
         Arc::new(NotificationSettings::new((*self.inner).clone(), inner))
     }
