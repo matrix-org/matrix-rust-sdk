@@ -721,7 +721,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     let bob = new_cross_signed_client("bob").await;
     let room_for_alice = create_encrypted_room(&alice).await;
     invite_to_room(&room_for_alice, &bob).await;
-    let room_for_bob = join_room(&bob, &room_for_alice.room_id()).await;
+    let room_for_bob = join_room(&bob, room_for_alice.room_id()).await;
 
     // We focus on the timeline that gives bob's view of the room
     let timeline = room_for_bob.timeline().await.expect("should be able to get a timeline");
@@ -751,7 +751,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     assert_eq!(summarize_vector_diffs(&update2), "Set at 10");
 }
 
-fn summarize_vector_diffs(v: &Vec<VectorDiff<Arc<TimelineItem>>>) -> String {
+fn summarize_vector_diffs(v: &[VectorDiff<Arc<TimelineItem>>]) -> String {
     v.iter().map(summarize_vector_diff).collect::<Vec<_>>().join("\n")
 }
 
