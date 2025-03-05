@@ -715,7 +715,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_secure() {
-    // Given two clients who are in an room encrypted room, but alice has not yet
+    // Given two clients who are in an encrypted room, but alice has not yet
     // completed cross-signing.
     let alice = new_client("alice").await;
     let bob = new_cross_signed_client("bob").await;
@@ -743,8 +743,8 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     // Then we updated the timeline to reflect the fact that the message is from a
     // verified device.
     assert_eq!(summarize_timeline(&timeline).await, "secret message (UnverifiedIdentity)");
-    // (note: the _identity_ is not verified but we're not worried about that
-    // - it's "pinned"
+    // (Note: the device is verified, but the _identity_ is not. We're not worried
+    // about that - it's "pinned".)
 
     // Sanity: the final update just changed the one item
     assert_eq!(timeline.items().await.len(), 11);
