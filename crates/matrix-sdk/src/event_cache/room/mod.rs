@@ -554,7 +554,7 @@ impl RoomEventCacheInner {
 
                     room_events.push_events(events.clone());
 
-                    EventsPostProcessing::HaveBeenInserted(events.clone())
+                    events.clone()
                 })
                 .await?;
 
@@ -676,8 +676,7 @@ mod private {
             EventCacheError,
         },
         events::RoomEvents,
-        sort_positions_descending, EventLocation, EventsPostProcessing,
-        LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::RoomPaginationStatus;
 
@@ -1102,7 +1101,7 @@ mod private {
                         )
                         .expect("failed to remove an event");
 
-                    EventsPostProcessing::None
+                    vec![]
                 })
                 .await?;
 
@@ -1226,27 +1225,26 @@ mod private {
         ///
         /// Returns the updates to the linked chunk, as vector diffs, so the
         /// caller may propagate such updates, if needs be.
+        ///
+        /// The function `func` takes a mutable reference to `RoomEvents`. It
+        /// returns a set of events that will be post-processed. At the time of
+        /// writing, all these events are passed to
+        /// `Self::maybe_apply_new_redaction`.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub async fn with_events_mut<F>(
             &mut self,
             func: F,
         ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError>
         where
-            F: FnOnce(&mut RoomEvents) -> EventsPostProcessing,
+            F: FnOnce(&mut RoomEvents) -> Vec<TimelineEvent>,
         {
-            let post_processing = func(&mut self.events);
+            let events_to_post_process = func(&mut self.events);
 
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
-            match post_processing {
-                EventsPostProcessing::HaveBeenInserted(events) => {
-                    for event in &events {
-                        self.maybe_apply_new_redaction(event).await?;
-                    }
-                }
-
-                EventsPostProcessing::None => {}
+            for event in &events_to_post_process {
+                self.maybe_apply_new_redaction(event).await?;
             }
 
             // If we've never waited for an initial previous-batch token, and we now have at
@@ -1351,15 +1349,6 @@ mod private {
             Ok(())
         }
     }
-}
-
-/// Output of the callback passed to `RoomEventCacheState::with_events_mut`.
-pub(super) enum EventsPostProcessing {
-    /// Trigger the post-processing when new events have been inserted.
-    HaveBeenInserted(Vec<TimelineEvent>),
-
-    /// No post-processing.
-    None,
 }
 
 /// An enum representing where an event has been found.

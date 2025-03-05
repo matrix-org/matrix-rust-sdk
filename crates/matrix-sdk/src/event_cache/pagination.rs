@@ -27,9 +27,7 @@ use tracing::{debug, instrument, trace};
 
 use super::{
     deduplicator::DeduplicationOutcome,
-    room::{
-        events::Gap, EventsPostProcessing, LoadMoreEventsBackwardsOutcome, RoomEventCacheInner,
-    },
+    room::{events::Gap, LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheState, RoomEventCacheUpdate,
 };
 use crate::{event_cache::EventCacheError, room::MessagesOptions};
@@ -419,7 +417,7 @@ impl RoomPagination {
                 debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
             }
 
-            EventsPostProcessing::HaveBeenInserted(reversed_events)
+            reversed_events
         })
         .await?;
 
