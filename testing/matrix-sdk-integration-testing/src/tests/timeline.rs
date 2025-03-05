@@ -728,8 +728,10 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // When alice sends a message in the room and bob syncs it
-    send_message(&room_for_alice, "secret message").await;
-    bob.sync_once(SyncSettings::new()).await.expect("should not fail to sync");
+    let event_id = send_message(&room_for_alice, "secret message").await;
+    while timeline.item_by_event_id(&event_id).await.is_none() {
+        bob.sync_once(SyncSettings::new()).await.expect("should not fail to sync");
+    }
     assert_next_with_timeout!(timeline_stream);
 
     // Then the message is decrypted but it's not from a verified device
