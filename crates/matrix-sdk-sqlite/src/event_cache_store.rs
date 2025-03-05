@@ -19,6 +19,7 @@ use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
+    deserialized_responses::TimelineEvent,
     event_cache::{
         store::{
             media::{
@@ -38,7 +39,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId};
 use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::fs;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     error::{Error, Result},
@@ -64,7 +65,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 5;
+const DATABASE_VERSION: u8 = 6;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -351,6 +352,14 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 6 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
+            txn.set_db_version(6)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -486,24 +495,35 @@ impl EventCacheStore for SqliteEventCacheStore {
                     }
 
                     Update::PushItems { at, items } => {
+                        if items.is_empty() {
+                            // Should never happens, but better be safe.
+                            continue;
+                        }
+
                         let chunk_id = at.chunk_identifier().index();
 
                         trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
-                        for (i, event) in items.into_iter().enumerate() {
+                        let mut statement = txn.prepare(
+                            "INSERT INTO events(chunk_id, room_id, event_id, content, position) VALUES (?, ?, ?, ?, ?)"
+                        )?;
+
+                        let invalid_event = |event: TimelineEvent| {
+                            let Some(event_id) = event.event_id() else {
+                                error!(%room_id, "Trying to push an event with no ID");
+                                return None;
+                            };
+
+                            Some((event_id.to_string(), event))
+                        };
+
+                        for (i, (event_id, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
                             let serialized = serde_json::to_vec(&event)?;
                             let content = this.encode_value(serialized)?;
 
-                            let event_id = event.event_id().map(|event_id| event_id.to_string());
                             let index = at.index() + i;
 
-                            txn.execute(
-                                r#"
-                                INSERT INTO events(chunk_id, room_id, event_id, content, position)
-                                VALUES (?, ?, ?, ?, ?)
-                            "#,
-                                (chunk_id, &hashed_room_id, event_id, content, index),
-                            )?;
+                            statement.execute((chunk_id, &hashed_room_id, event_id, content, index))?;
                         }
                     }
 
@@ -517,7 +537,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let content = this.encode_value(serialized)?;
 
                         // The event id should be the same, but just in case it changed…
-                        let event_id = event.event_id().map(|event_id| event_id.to_string());
+                        let Some(event_id) = event.event_id().map(|event_id| event_id.to_string()) else {
+                            error!(%room_id, "Trying to replace an event with a new one that has no ID");
+                            continue;
+                        };
 
                         txn.execute(
                             r#"
@@ -826,7 +849,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         .prepare(&query)?
                         .query_map(parameters, |row| {
                             Ok((
-                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, String>(0)?,
                                 row.get::<_, u64>(1)?,
                                 row.get::<_, usize>(2)?
                             ))
@@ -834,14 +857,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                     {
                         let (duplicated_event, chunk_identifier, index) = duplicated_event?;
 
-                        let Some(duplicated_event) = duplicated_event else {
-                            // Event ID is malformed, let's skip it.
-                            continue;
-                        };
-
-                        let Ok(duplicated_event) = EventId::parse(duplicated_event) else {
+                        let Ok(duplicated_event) = EventId::parse(duplicated_event.clone()) else {
                             // Normally unreachable, but the event ID has been stored even if it is
                             // malformed, let's skip it.
+                            error!(%duplicated_event, %room_id, "Reading an malformed event ID");
                             continue;
                         };
 
@@ -1006,7 +1025,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         let ignore_policy = ignore_policy.is_yes();
         let data = self.encode_value(data)?;
 
-        if !ignore_policy && policy.exceeds_max_file_size(data.len()) {
+        if !ignore_policy && policy.exceeds_max_file_size(data.len() as u64) {
             return Ok(());
         }
 
@@ -1148,22 +1167,19 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                 if let Some(max_cache_size) = policy.max_cache_size {
                     // i64 is the integer type used by SQLite, use it here to avoid usize overflow
                     // during the conversion of the result.
-                    let cache_size_int = txn
+                    let cache_size = txn
                         .query_row(
                             "SELECT sum(length(data)) FROM media WHERE ignore_policy IS FALSE",
                             (),
                             |row| {
                                 // `sum()` returns `NULL` if there are no rows.
-                                row.get::<_, Option<i64>>(0)
+                                row.get::<_, Option<u64>>(0)
                             },
                         )?
                         .unwrap_or_default();
-                    let cache_size_usize = usize::try_from(cache_size_int);
 
                     // If the cache size is overflowing or bigger than max cache size, clean up.
-                    if cache_size_usize.is_err()
-                        || cache_size_usize.is_ok_and(|cache_size| cache_size > max_cache_size)
-                    {
+                    if cache_size > max_cache_size {
                         // Get the sizes of the media contents ordered by last access.
                         let mut cached_stmt = txn.prepare_cached(
                             "SELECT rowid, length(data) FROM media \
@@ -1171,9 +1187,9 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                         )?;
                         let content_sizes = cached_stmt
                             .query(())?
-                            .mapped(|row| Ok((row.get::<_, i64>(0)?, row.get::<_, usize>(1)?)));
+                            .mapped(|row| Ok((row.get::<_, i64>(0)?, row.get::<_, u64>(1)?)));
 
-                        let mut accumulated_items_size = 0usize;
+                        let mut accumulated_items_size = 0u64;
                         let mut limit_reached = false;
                         let mut rows_to_remove = Vec::new();
 
@@ -1867,6 +1883,9 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
+        let event_0 = make_test_event(room_id, "hello");
+        let event_1 = make_test_event(room_id, "world");
+        let event_2 = make_test_event(room_id, "howdy");
 
         store
             .handle_linked_chunk_updates(
@@ -1885,11 +1904,7 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
-                            make_test_event(room_id, "howdy"),
-                        ],
+                        items: vec![event_0.clone(), event_1, event_2],
                     },
                     Update::Clear,
                 ],
@@ -1899,6 +1914,25 @@ mod tests {
 
         let chunks = store.load_all_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
+
+        // It's okay to re-insert a past event.
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![event_0],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
     }
 
     #[async_test]

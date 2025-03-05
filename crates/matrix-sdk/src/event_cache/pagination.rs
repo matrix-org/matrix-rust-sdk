@@ -326,32 +326,31 @@ impl RoomPagination {
             all_duplicates,
         ) = state.collect_valid_and_duplicated_events(events).await?;
 
-        // During a backwards pagination, when a duplicated event is found, the old
-        // event is kept and the new event is ignored. This is the opposite strategy
-        // than during a sync where the old event is removed and the new event is added.
-        if !all_duplicates {
-            // Let's forget the new events that are duplicated.
-            events.retain(|new_event| {
-                new_event
-                    .event_id()
-                    .map(|event_id| {
-                        !in_memory_duplicated_event_ids
-                            .iter()
-                            .chain(in_store_duplicated_event_ids.iter())
-                            .any(|(duplicated_event_id, _position)| {
-                                duplicated_event_id == &event_id
-                            })
-                    })
-                    // Forget event with no ID, should be unreachable because of
-                    // `collect_valid_and_duplicated_events` though.
-                    .unwrap_or(false)
-            });
+        // If not all the events have been back-paginated, we need to remove the
+        // previous ones, otherwise we can end up with misordered events.
+        //
+        // Consider the following scenario:
+        // - sync returns [D, E, F]
+        // - then sync returns [] with a previous batch token PB1, so the internal
+        //   linked chunk state is [D, E, F, PB1].
+        // - back-paginating with PB1 may return [A, B, C, D, E, F].
+        //
+        // Only inserting the new events when replacing PB1 would result in a timeline
+        // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
+        // all the events, in case this happens (see also #4746).
+
+        let mut event_diffs = if !all_duplicates {
+            // Let's forget all the previous events.
+            state
+                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?
         } else {
             // All new events are duplicated, they can all be ignored.
             events.clear();
-        }
+            Default::default()
+        };
 
-        let timeline_event_diffs = state
+        let next_diffs = state
             .with_events_mut(|room_events| {
             // Reverse the order of the events as `/messages` has been called with `dir=b`
             // (backwards). The `RoomEvents` API expects the first event to be the oldest.
@@ -371,7 +370,7 @@ impl RoomPagination {
                     // All the events were duplicated; don't act upon them, and only remove the
                     // prior gap that we just filled.
                     trace!("removing previous gap, as all events have been deduplicated");
-                    room_events.remove_gap_at(gap_id).expect("gap identifier is a valid gap chunk id we read previously")
+                    room_events.remove_empty_chunk_at(gap_id).expect("gap identifier is a valid gap chunk id we read previously")
                 } else {
                     trace!("replacing previous gap with the back-paginated events");
 
@@ -417,9 +416,11 @@ impl RoomPagination {
                 debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
             }
 
-            room_events.on_new_events(&self.inner.room_version, reversed_events.iter());
+            reversed_events
         })
         .await?;
+
+        event_diffs.extend(next_diffs);
 
         // There could be an inconsistency between the network (which thinks we hit the
         // start of the timeline) and the disk (which has the initial empty
@@ -437,9 +438,9 @@ impl RoomPagination {
 
         let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
-        if !timeline_event_diffs.is_empty() {
+        if !event_diffs.is_empty() {
             let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs: timeline_event_diffs,
+                diffs: event_diffs,
                 origin: EventsOrigin::Pagination,
             });
         }

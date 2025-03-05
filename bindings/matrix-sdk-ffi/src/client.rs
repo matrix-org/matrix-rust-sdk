@@ -10,17 +10,13 @@ use matrix_sdk::{
     authentication::oidc::{
         registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
-        types::{
-            registration::{
-                ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
-            },
-            requests::Prompt as SdkOidcPrompt,
-        },
+        types::{registration::VerifiedClientMetadata, requests::Prompt as SdkOidcPrompt},
         OidcAuthorizationData, OidcSession,
     },
+    event_cache::EventCacheError,
     media::{
         MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
-        MediaThumbnailSettings,
+        MediaRetentionPolicy, MediaThumbnailSettings,
     },
     ruma::{
         api::client::{
@@ -1159,6 +1155,41 @@ impl Client {
         let alias = RoomAliasId::parse(alias)?;
         self.inner.is_room_alias_available(&alias).await.map_err(Into::into)
     }
+
+    /// Set the media retention policy.
+    pub async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), ClientError> {
+        let closure = async || -> Result<_, EventCacheError> {
+            let store = self.inner.event_cache_store().lock().await?;
+            Ok(store.set_media_retention_policy(policy).await?)
+        };
+
+        Ok(closure().await?)
+    }
+
+    /// Clear all the non-critical caches for this Client instance.
+    ///
+    /// - This will empty all the room's persisted event caches, so all rooms
+    ///   will start as if they were empty.
+    /// - This will empty the media cache according to the current media
+    ///   retention policy.
+    pub async fn clear_caches(&self) -> Result<(), ClientError> {
+        let closure = async || -> Result<_, EventCacheError> {
+            let store = self.inner.event_cache_store().lock().await?;
+
+            // Clear all the room chunks.
+            store.clear_all_rooms_chunks().await?;
+
+            // Clean up the media cache according to the current media retention policy.
+            store.clean_up_media_cache().await?;
+
+            Ok(())
+        };
+
+        Ok(closure().await?)
+    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -1577,19 +1608,11 @@ impl Session {
                         matrix_sdk::authentication::oidc::OidcSessionTokens {
                             access_token,
                             refresh_token,
-                            latest_id_token,
                         },
                     issuer,
                 } = api.user_session().context("Missing session")?;
                 let client_id = api.client_id().context("OIDC client ID is missing.")?.0.clone();
-                let client_metadata =
-                    api.client_metadata().context("OIDC client metadata is missing.")?.clone();
-                let oidc_data = OidcSessionData {
-                    client_id,
-                    client_metadata,
-                    latest_id_token: latest_id_token.map(|t| t.to_string()),
-                    issuer,
-                };
+                let oidc_data = OidcSessionData { client_id, issuer };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
                 Ok(Session {
@@ -1622,14 +1645,7 @@ impl TryFrom<Session> for AuthSession {
 
         if let Some(oidc_data) = oidc_data {
             // Create an OidcSession.
-            let oidc_data = serde_json::from_str::<OidcUnvalidatedSessionData>(&oidc_data)?
-                .validate()
-                .context("OIDC metadata validation failed.")?;
-            let latest_id_token = oidc_data
-                .latest_id_token
-                .map(TryInto::try_into)
-                .transpose()
-                .context("OIDC latest_id_token is invalid.")?;
+            let oidc_data = serde_json::from_str::<OidcSessionData>(&oidc_data)?;
 
             let user_session = matrix_sdk::authentication::oidc::UserSession {
                 meta: matrix_sdk::SessionMeta {
@@ -1639,16 +1655,12 @@ impl TryFrom<Session> for AuthSession {
                 tokens: matrix_sdk::authentication::oidc::OidcSessionTokens {
                     access_token,
                     refresh_token,
-                    latest_id_token,
                 },
                 issuer: oidc_data.issuer,
             };
 
-            let session = OidcSession {
-                client_id: ClientId(oidc_data.client_id),
-                metadata: oidc_data.client_metadata,
-                user: user_session,
-            };
+            let session =
+                OidcSession { client_id: ClientId(oidc_data.client_id), user: user_session };
 
             Ok(AuthSession::Oidc(session.into()))
         } else {
@@ -1671,63 +1683,31 @@ impl TryFrom<Session> for AuthSession {
 
 /// Represents a client registration against an OpenID Connect authentication
 /// issuer.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(try_from = "OidcSessionDataDeHelper")]
 pub(crate) struct OidcSessionData {
     client_id: String,
-    client_metadata: VerifiedClientMetadata,
-    latest_id_token: Option<String>,
     issuer: String,
 }
 
-/// Represents an unverified client registration against an OpenID Connect
-/// authentication issuer. Call `validate` on this to use it for restoration.
 #[derive(Deserialize)]
-#[serde(try_from = "OidcUnvalidatedSessionDataDeHelper")]
-pub(crate) struct OidcUnvalidatedSessionData {
+struct OidcSessionDataDeHelper {
     client_id: String,
-    client_metadata: ClientMetadata,
-    latest_id_token: Option<String>,
-    issuer: String,
-}
-
-impl OidcUnvalidatedSessionData {
-    /// Validates the data so that it can be used.
-    fn validate(self) -> Result<OidcSessionData, ClientMetadataVerificationError> {
-        Ok(OidcSessionData {
-            client_id: self.client_id,
-            client_metadata: self.client_metadata.validate()?,
-            latest_id_token: self.latest_id_token,
-            issuer: self.issuer,
-        })
-    }
-}
-
-#[derive(Deserialize)]
-struct OidcUnvalidatedSessionDataDeHelper {
-    client_id: String,
-    client_metadata: ClientMetadata,
-    latest_id_token: Option<String>,
     issuer_info: Option<AuthenticationServerInfo>,
     issuer: Option<String>,
 }
 
-impl TryFrom<OidcUnvalidatedSessionDataDeHelper> for OidcUnvalidatedSessionData {
+impl TryFrom<OidcSessionDataDeHelper> for OidcSessionData {
     type Error = String;
 
-    fn try_from(value: OidcUnvalidatedSessionDataDeHelper) -> Result<Self, Self::Error> {
-        let OidcUnvalidatedSessionDataDeHelper {
-            client_id,
-            client_metadata,
-            latest_id_token,
-            issuer_info,
-            issuer,
-        } = value;
+    fn try_from(value: OidcSessionDataDeHelper) -> Result<Self, Self::Error> {
+        let OidcSessionDataDeHelper { client_id, issuer_info, issuer } = value;
 
         let issuer = issuer
             .or(issuer_info.map(|info| info.issuer))
             .ok_or_else(|| "missing field `issuer`".to_owned())?;
 
-        Ok(Self { client_id, client_metadata, latest_id_token, issuer })
+        Ok(Self { client_id, issuer })
     }
 }
 

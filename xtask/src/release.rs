@@ -137,7 +137,7 @@ fn weekly_report() -> Result<()> {
     let _env_pager = sh.push_env("GH_PAGER", "");
 
     let header = format!("# This Week in the Matrix Rust SDK ({today})\n\n");
-    let template = "{{range .}}- {{.title}} by @{{.author.login}}{{\"\\n\\n\"}}{{end}}";
+    let template = "{{range .}}- {{.title}} ([#{{.number}}](https://github.com/matrix-org/matrix-rust-sdk/pull/{{.number}})){{\"\\n\\n\"}}{{end}}";
     let template = format!("{header}{template}");
 
     cmd!(

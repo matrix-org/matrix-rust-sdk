@@ -20,7 +20,7 @@ use std::{collections::BTreeSet, fmt, sync::Mutex};
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk_base::{event_cache::store::EventCacheStoreLock, linked_chunk::Position};
 use ruma::{OwnedEventId, OwnedRoomId};
-use tracing::{debug, warn};
+use tracing::{debug, error};
 
 use super::{
     room::events::{Event, RoomEvents},
@@ -204,26 +204,22 @@ impl BloomFilterDeduplicator {
 
         let events = self
             .scan_and_learn(events.into_iter(), room_events)
-            .filter_map(|decorated_event| match decorated_event {
-                Decoration::Unique(event) => Some(event),
+            .map(|decorated_event| match decorated_event {
+                Decoration::Unique(event) => event,
                 Decoration::Duplicated((event, position)) => {
                     debug!(event_id = ?event.event_id(), "Found a duplicated event");
 
                     let event_id = event
                         .event_id()
-                        // SAFETY: An event with no ID is decorated as
-                        // `Decoration::Invalid`. Thus, it's
-                        // safe to unwrap the `Option<OwnedEventId>` here.
+                        // SAFETY: An event with no ID is not possible, as invalid events are
+                        // already filtered out. Thus, it's safe to unwrap the
+                        // `Option<OwnedEventId>` here.
                         .expect("The event has no ID");
 
                     duplicated_event_ids.push((event_id, position));
 
                     // Keep the new event!
-                    Some(event)
-                }
-                Decoration::Invalid(event) => {
-                    warn!(?event, "Found an event with no ID");
-                    None
+                    event
                 }
             })
             .collect::<Vec<_>>();
@@ -253,13 +249,15 @@ impl BloomFilterDeduplicator {
     where
         I: Iterator<Item = Event> + 'a,
     {
-        new_events_to_scan.map(move |event| {
+        new_events_to_scan.filter_map(move |event| {
             let Some(event_id) = event.event_id() else {
-                // The event has no `event_id`.
-                return Decoration::Invalid(event);
+                // The event has no `event_id`. This is normally unreachable as event with no ID
+                // are already filtered out.
+                error!(?event, "Found an event with no ID");
+                return None;
             };
 
-            if self.bloom_filter.lock().unwrap().check_and_set(&event_id) {
+            Some(if self.bloom_filter.lock().unwrap().check_and_set(&event_id) {
                 // Oh oh, it looks like we have found a duplicate!
                 //
                 // However, bloom filters have false positives. We are NOT sure the event is NOT
@@ -282,7 +280,7 @@ impl BloomFilterDeduplicator {
                 // Bloom filter has no false negatives. We are sure the event is NOT present: we
                 // can keep it in the iterator.
                 Decoration::Unique(event)
-            }
+            })
         })
     }
 }
@@ -295,9 +293,6 @@ enum Decoration<I> {
 
     /// This event is duplicated.
     Duplicated((I, Position)),
-
-    /// This event is invalid (i.e. not well formed).
-    Invalid(I),
 }
 
 pub(super) struct DeduplicationOutcome {

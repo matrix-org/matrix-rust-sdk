@@ -140,7 +140,6 @@ impl HttpClient {
             uri,
             method,
             request_size,
-            request_body,
             request_id,
             status,
             response_size,

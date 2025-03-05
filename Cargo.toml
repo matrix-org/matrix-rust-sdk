@@ -18,7 +18,7 @@ default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.83"
+rust-version = "1.85"
 
 [workspace.dependencies]
 anyhow = "1.0.95"
@@ -112,10 +112,6 @@ matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.10.0", def
 matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.10.0" }
 matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.10.0" }
 matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.10.0", default-features = false }
-
-# Default release profile, select with `--release`
-[profile.release]
-lto = true
 
 # Default development profile; default for most Cargo commands, otherwise
 # selected with `--debug`

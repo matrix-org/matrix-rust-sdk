@@ -1,0 +1,40 @@
+# Check if the path of changed file is longer than 260 characters
+# that windows filesystem allows
+
+name: Detect long path among changed files
+
+on:
+  workflow_dispatch:
+  pull_request: # focus on the changed files in current PR
+    branches: [main]
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  long-path:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v45
+      - name: Detect long path
+        env:
+          ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }} # ignore the deleted files
+          MAX_LENGTH: 120 # set max length to 120, considering the base path of app project that uses matrix-sdk
+        run: |
+          for file in ${ALL_CHANGED_FILES}; do
+            if [ ${#file} -gt $MAX_LENGTH ]; then
+              echo "File path is too long. Length: ${#file}, Path: $file"
+              exit 1
+            fi
+          done
+          exit 0
