@@ -8,12 +8,8 @@ use std::{
     time::Duration,
 };
 
-use color_eyre::config::HookBuilder;
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
-};
+use color_eyre::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use matrix_sdk::{
@@ -46,7 +42,7 @@ const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
 const TEXT_COLOR: Color = tailwind::SLATE.c200;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     let file_writer = tracing_appender::rolling::hourly("/tmp/", "logs-");
 
     tracing_subscriber::fmt()
@@ -54,6 +50,8 @@ async fn main() -> anyhow::Result<()> {
         .with_ansi(false)
         .with_writer(file_writer)
         .init();
+
+    color_eyre::install()?;
 
     // Read the server name from the command line.
     let Some(server_name) = env::args().nth(1) else {
@@ -64,45 +62,14 @@ async fn main() -> anyhow::Result<()> {
     let config_path = env::args().nth(2).unwrap_or("/tmp/".to_owned());
     let client = configure_client(&server_name, &config_path).await?;
 
-    let ec = client.event_cache();
-    ec.subscribe().unwrap();
-    ec.enable_storage().unwrap();
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
 
-    init_error_hooks()?;
-    let terminal = init_terminal()?;
-
+    let terminal = ratatui::init();
     let mut app = App::new(client).await?;
 
     app.run(terminal).await
-}
-
-fn init_error_hooks() -> anyhow::Result<()> {
-    let (panic, error) = HookBuilder::default().into_hooks();
-    let panic = panic.into_panic_hook();
-    let error = error.into_eyre_hook();
-    color_eyre::eyre::set_hook(Box::new(move |e| {
-        let _ = restore_terminal();
-        error(e)
-    }))?;
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal();
-        panic(info)
-    }));
-    Ok(())
-}
-
-fn init_terminal() -> anyhow::Result<Terminal<impl Backend>> {
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout());
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
-}
-
-fn restore_terminal() -> anyhow::Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    Ok(())
 }
 
 #[derive(Default)]
@@ -177,7 +144,7 @@ struct App {
 }
 
 impl App {
-    async fn new(client: Client) -> anyhow::Result<Self> {
+    async fn new(client: Client) -> Result<Self> {
         let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
 
         let rooms = Arc::new(Mutex::new(Vector::<room_list_service::Room>::new()));
@@ -455,7 +422,7 @@ impl App {
         }
     }
 
-    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> anyhow::Result<()> {
+    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
@@ -547,11 +514,11 @@ impl App {
         }
     }
 
-    async fn run(&mut self, terminal: Terminal<impl Backend>) -> anyhow::Result<()> {
+    async fn run(&mut self, terminal: Terminal<impl Backend>) -> Result<()> {
         self.render_loop(terminal).await?;
 
         // At this point the user has exited the loop, so shut down the application.
-        restore_terminal()?;
+        ratatui::restore();
 
         println!("Closing sync service...");
 
@@ -981,7 +948,7 @@ impl<T> StatefulList<T> {
 /// Configure the client so it's ready for sync'ing.
 ///
 /// Will log in or reuse a previous session.
-async fn configure_client(server_name: &str, config_path: &str) -> anyhow::Result<Client> {
+async fn configure_client(server_name: &str, config_path: &str) -> Result<Client> {
     let server_name = ServerName::parse(server_name)?;
 
     let config_path = Path::new(config_path);
@@ -1009,6 +976,7 @@ async fn configure_client(server_name: &str, config_path: &str) -> anyhow::Resul
 
     // Try reading a session, otherwise create a new one.
     let session_path = config_path.join("session.json");
+
     if let Ok(serialized) = std::fs::read_to_string(&session_path) {
         let session: MatrixSession = serde_json::from_str(&serialized)?;
         client.restore_session(session).await?;
@@ -1031,7 +999,7 @@ async fn configure_client(server_name: &str, config_path: &str) -> anyhow::Resul
 
 /// Asks the user of a username and password, and try to login using the matrix
 /// auth with those.
-async fn login_with_password(client: &Client) -> anyhow::Result<()> {
+async fn login_with_password(client: &Client) -> Result<()> {
     println!("Logging in with username and password…");
 
     loop {

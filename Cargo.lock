@@ -3722,7 +3722,6 @@ dependencies = [
 name = "multiverse"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "color-eyre",
  "crossterm",
  "futures-util",
