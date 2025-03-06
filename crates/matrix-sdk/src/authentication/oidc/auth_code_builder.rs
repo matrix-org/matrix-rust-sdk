@@ -84,7 +84,7 @@ impl OidcAuthCodeUrlBuilder {
         );
 
         let provider_metadata = oidc.provider_metadata().await?;
-        let auth_url = AuthUrl::from_url(provider_metadata.authorization_endpoint().clone());
+        let auth_url = AuthUrl::from_url(provider_metadata.authorization_endpoint);
 
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
         let redirect_uri = RedirectUrl::from_url(redirect_uri);

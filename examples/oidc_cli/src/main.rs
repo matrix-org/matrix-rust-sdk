@@ -661,7 +661,7 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
                     Ok(server_metadata) => {
                         println!(
                             "Found OAuth 2.0 server metadata with issuer: {}",
-                            server_metadata.issuer()
+                            server_metadata.issuer
                         );
 
                         let homeserver = client.homeserver().to_string();
