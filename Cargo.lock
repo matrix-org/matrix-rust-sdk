@@ -3198,7 +3198,6 @@ dependencies = [
  "backoff",
  "bytes",
  "bytesize",
- "chrono",
  "dirs 6.0.0",
  "event-listener",
  "eyeball",

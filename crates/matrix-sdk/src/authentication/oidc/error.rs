@@ -18,8 +18,12 @@ pub use mas_oidc_client::error::*;
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;
 pub use oauth2::{
-    basic::{BasicErrorResponse, BasicErrorResponseType, BasicRequestTokenError},
-    HttpClientError, RequestTokenError, StandardErrorResponse,
+    basic::{
+        BasicErrorResponse, BasicErrorResponseType, BasicRequestTokenError,
+        BasicRevocationErrorResponse,
+    },
+    ConfigurationError, HttpClientError, RequestTokenError, RevocationErrorResponseType,
+    StandardErrorResponse,
 };
 use ruma::serde::{PartialEqAsRefStr, StringEnum};
 
@@ -81,14 +85,9 @@ pub enum OidcError {
     #[error("failed to refresh token: {0}")]
     RefreshToken(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
 
-    /// The OpenID Connect Provider doesn't support token revocation, aka
-    /// logging out.
-    #[error("no token revocation support")]
-    NoRevocationSupport,
-
-    /// An error occurred generating a random value.
-    #[error(transparent)]
-    Rand(rand::Error),
+    /// An error occurred revoking an OAuth 2.0 access token.
+    #[error("failed to log out: {0}")]
+    Logout(#[from] OauthTokenRevocationError),
 
     /// An error occurred parsing a URL.
     #[error(transparent)]
@@ -224,3 +223,21 @@ pub enum AuthorizationCodeErrorResponseType {
 }
 
 impl ErrorResponseType for AuthorizationCodeErrorResponseType {}
+
+/// All errors that can occur when revoking an OAuth 2.0 token.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OauthTokenRevocationError {
+    /// Revocation is not supported by the OAuth 2.0 authorization server.
+    #[error("token revocation is not supported")]
+    NotSupported,
+
+    /// The revocation endpoint URL is insecure.
+    #[error(transparent)]
+    Url(ConfigurationError),
+
+    /// An error occurred interacting with the OAuth 2.0 authorization server
+    /// while revoking the token.
+    #[error("failed to revoke token: {0}")]
+    Revoke(RequestTokenError<HttpClientError<reqwest::Error>, BasicRevocationErrorResponse>),
+}
