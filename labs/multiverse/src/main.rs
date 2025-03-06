@@ -37,7 +37,7 @@ use matrix_sdk_ui::{
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::{error, warn};
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 const HEADER_BG: Color = tailwind::BLUE.c950;
 const NORMAL_ROW_COLOR: Color = tailwind::SLATE.c950;
@@ -47,13 +47,12 @@ const TEXT_COLOR: Color = tailwind::SLATE.c200;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(false)
-        .with_writer(tracing_appender::rolling::hourly("/tmp/", "logs-"));
+    let file_writer = tracing_appender::rolling::hourly("/tmp/", "logs-");
 
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(env::var("RUST_LOG").unwrap_or("".into())))
-        .with(file_layer)
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(false)
+        .with_writer(file_writer)
         .init();
 
     // Read the server name from the command line.
