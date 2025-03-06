@@ -146,7 +146,7 @@
 //! [`AuthenticateError::InsufficientScope`]: ruma::api::client::error::AuthenticateError
 //! [`examples/oidc_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oidc_cli
 
-use std::{borrow::Cow, collections::HashMap, fmt, future::Future, pin::Pin, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, fmt, sync::Arc};
 
 use as_variant::as_variant;
 use error::{
@@ -155,10 +155,7 @@ use error::{
 };
 use mas_oidc_client::{
     http_service::HttpService,
-    requests::{
-        discovery::{discover, insecure_discover},
-        registration::register_client,
-    },
+    requests::registration::register_client,
     types::{
         oidc::{
             AccountManagementAction, ProviderMetadata, ProviderMetadataVerificationError,
@@ -173,15 +170,18 @@ use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 pub use oauth2::CsrfToken;
 use oauth2::{
-    basic::BasicClient as OauthClient, AccessToken, AsyncHttpClient, HttpRequest, HttpResponse,
-    PkceCodeVerifier, RedirectUrl, RefreshToken, RevocationUrl, Scope, StandardErrorResponse,
-    StandardRevocableToken, TokenResponse, TokenUrl,
+    basic::BasicClient as OauthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
+    RevocationUrl, Scope, StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
 };
 use ruma::{
     api::client::discovery::{
         get_authentication_issuer,
-        get_authorization_server_metadata::{self, msc2965::Prompt},
+        get_authorization_server_metadata::{
+            self,
+            msc2965::{AuthorizationServerMetadata, Prompt},
+        },
     },
+    serde::Raw,
     DeviceId, OwnedDeviceId,
 };
 use serde::{Deserialize, Serialize};
@@ -194,6 +194,8 @@ mod account_management_url;
 mod auth_code_builder;
 mod cross_process;
 pub mod error;
+mod http_client;
+mod oidc_discovery;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registrations;
@@ -203,6 +205,8 @@ mod tests;
 use self::{
     account_management_url::build_account_management_url,
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
+    http_client::OauthHttpClient,
+    oidc_discovery::discover,
     qrcode::LoginWithQrCode,
     registrations::{ClientId, OidcRegistrations},
 };
@@ -677,8 +681,7 @@ impl Oidc {
     /// MSC2956: https://github.com/matrix-org/matrix-spec-proposals/pull/2965
     async fn fallback_discover(
         &self,
-        insecure: bool,
-    ) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+    ) -> Result<Raw<AuthorizationServerMetadata>, OauthDiscoveryError> {
         #[allow(deprecated)]
         let issuer =
             match self.client.send(get_authentication_issuer::msc2965::Request::new()).await {
@@ -693,11 +696,7 @@ impl Oidc {
                 Err(error) => return Err(error.into()),
             };
 
-        if insecure {
-            insecure_discover(&self.http_service(), &issuer).await.map_err(Into::into)
-        } else {
-            discover(&self.http_service(), &issuer).await.map_err(Into::into)
-        }
+        discover(self.http_client(), &issuer).await
     }
 
     /// Fetch the OAuth 2.0 server metadata of the homeserver.
@@ -711,33 +710,35 @@ impl Oidc {
                 .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND)
         };
 
-        match self.client.send(get_authorization_server_metadata::msc2965::Request::new()).await {
-            Ok(response) => {
-                let metadata = response.metadata.deserialize_as::<ProviderMetadata>()?;
-
-                let result = if self.ctx().insecure_discover {
-                    metadata.insecure_verify_metadata()
-                } else {
-                    // The mas-oidc-client method needs to compare the issuer for validation. It's a
-                    // bit unnecessary because we take it from the metadata, oh well.
-                    let issuer =
-                        metadata.issuer.clone().ok_or(error::DiscoveryError::Validation(
-                            ProviderMetadataVerificationError::MissingIssuer,
-                        ))?;
-                    metadata.validate(&issuer)
-                };
-
-                Ok(result.map_err(error::DiscoveryError::Validation)?)
-            }
+        let raw_metadata = match self
+            .client
+            .send(get_authorization_server_metadata::msc2965::Request::new())
+            .await
+        {
+            Ok(response) => response.metadata,
             // If the endpoint returns a 404, i.e. the server doesn't support the endpoint, attempt
             // to use the equivalent, but deprecated, endpoint.
             Err(error) if is_endpoint_unsupported(&error) => {
                 // TODO: remove this fallback behavior when the metadata endpoint has wider
                 // support.
-                self.fallback_discover(self.ctx().insecure_discover).await
+                self.fallback_discover().await?
             }
-            Err(error) => Err(error.into()),
-        }
+            Err(error) => return Err(error.into()),
+        };
+
+        let metadata = raw_metadata.deserialize_as::<ProviderMetadata>()?;
+
+        let metadata = if self.ctx().insecure_discover {
+            metadata.insecure_verify_metadata()?
+        } else {
+            // The mas-oidc-client method needs to compare the issuer for validation. It's a
+            // bit unnecessary because we take it from the metadata, oh well.
+            let issuer =
+                metadata.issuer.clone().ok_or(ProviderMetadataVerificationError::MissingIssuer)?;
+            metadata.validate(&issuer)?
+        };
+
+        Ok(metadata)
     }
 
     /// The OpenID Connect unique identifier of this client obtained after
@@ -1612,46 +1613,4 @@ pub struct AuthorizationError {
 
 fn hash_str(x: &str) -> impl fmt::LowerHex {
     sha2::Sha256::new().chain_update(x).finalize()
-}
-
-#[derive(Debug, Clone)]
-struct OauthHttpClient {
-    inner: reqwest::Client,
-    /// Rewrite HTTPS requests to use HTTP instead.
-    ///
-    /// This is a workaround to bypass some checks that require an HTTPS URL,
-    /// but we can only mock HTTP URLs.
-    #[cfg(test)]
-    insecure_rewrite_https_to_http: bool,
-}
-
-impl<'c> AsyncHttpClient<'c> for OauthHttpClient {
-    type Error = error::HttpClientError<reqwest::Error>;
-
-    type Future =
-        Pin<Box<dyn Future<Output = Result<HttpResponse, Self::Error>> + Send + Sync + 'c>>;
-
-    fn call(&'c self, request: HttpRequest) -> Self::Future {
-        Box::pin(async move {
-            #[cfg(test)]
-            let request = if self.insecure_rewrite_https_to_http
-                && request.uri().scheme().is_some_and(|scheme| *scheme == http::uri::Scheme::HTTPS)
-            {
-                let mut request = request;
-
-                let mut uri_parts = request.uri().clone().into_parts();
-                uri_parts.scheme = Some(http::uri::Scheme::HTTP);
-                *request.uri_mut() = http::uri::Uri::from_parts(uri_parts)
-                    .expect("reconstructing URI from parts should work");
-
-                request
-            } else {
-                request
-            };
-
-            let response = self.inner.call(request).await?;
-
-            Ok(response)
-        })
-    }
 }

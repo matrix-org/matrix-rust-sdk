@@ -15,6 +15,7 @@
 //! Error types used in the [`Oidc`](super::Oidc) API.
 
 pub use mas_oidc_client::error::*;
+use mas_oidc_client::types::oidc::ProviderMetadataVerificationError;
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;
 pub use oauth2::{
@@ -131,9 +132,18 @@ pub enum OauthDiscoveryError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 
+    /// The server metadata is incomplete or insecure.
+    #[error(transparent)]
+    Validation(#[from] ProviderMetadataVerificationError),
+
+    /// An error occurred when building the OpenID Connect provider
+    /// configuration URL.
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+
     /// An error occurred when making a request to the OpenID Connect provider.
     #[error(transparent)]
-    Oidc(#[from] DiscoveryError),
+    Oidc(#[from] OauthRequestError<BasicErrorResponseType>),
 }
 
 impl OauthDiscoveryError {
