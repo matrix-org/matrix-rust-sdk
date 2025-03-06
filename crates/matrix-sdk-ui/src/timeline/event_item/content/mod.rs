@@ -552,6 +552,8 @@ impl EncryptedMessage {
         }
     }
 
+    /// Return the ID of the Megolm session used to encrypt this message, if it
+    /// was received via a Megolm session.
     pub(crate) fn session_id(&self) -> Option<&str> {
         match self {
             EncryptedMessage::OlmV1Curve25519AesSha2 { .. } => None,
