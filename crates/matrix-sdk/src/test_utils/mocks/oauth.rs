@@ -119,6 +119,21 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
         MatrixMock { server: self.server, mock }
     }
 
+    /// Returns a successful metadata response with all the supported endpoints
+    /// using HTTPS URLs.
+    ///
+    /// This should be used with
+    /// `MockClientBuilder::insecure_rewrite_https_to_http()` to bypass checks
+    /// from the oauth2 crate.
+    pub fn ok_https(self) -> MatrixMock<'a> {
+        let issuer = self.server.uri().replace("http://", "https://");
+
+        let metadata = MockServerMetadataBuilder::new(&issuer).build();
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(metadata));
+
+        MatrixMock { server: self.server, mock }
+    }
+
     /// Returns a successful metadata response without the device authorization
     /// endpoint.
     pub fn ok_without_device_authorization(self) -> MatrixMock<'a> {

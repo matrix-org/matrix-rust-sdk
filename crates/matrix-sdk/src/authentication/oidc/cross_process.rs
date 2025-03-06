@@ -539,12 +539,18 @@ mod tests {
         let server = MatrixMockServer::new().await;
 
         let oauth_server = server.oauth();
-        oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
-        oauth_server.mock_revocation().ok().expect(1).named("token").mount().await;
+        oauth_server
+            .mock_server_metadata()
+            .ok_https()
+            .expect(1..)
+            .named("server_metadata")
+            .mount()
+            .await;
+        oauth_server.mock_revocation().ok().expect(1).named("revocation").mount().await;
 
         let tmp_dir = tempfile::tempdir()?;
         let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
-        let oidc = client.oidc();
+        let oidc = client.oidc().insecure_rewrite_https_to_http();
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;

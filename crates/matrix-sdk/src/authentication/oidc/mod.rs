@@ -149,10 +149,9 @@
 use std::{borrow::Cow, collections::HashMap, fmt, future::Future, pin::Pin, sync::Arc};
 
 use as_variant::as_variant;
-use chrono::Utc;
 use error::{
     CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthDiscoveryError,
-    RedirectUriQueryParseError,
+    OauthTokenRevocationError, RedirectUriQueryParseError,
 };
 use eyeball::SharedObservable;
 use futures_core::Stream;
@@ -162,11 +161,8 @@ use mas_oidc_client::{
         account_management::{build_account_management_url, AccountManagementActionFull},
         discovery::{discover, insecure_discover},
         registration::register_client,
-        revocation::revoke_token,
     },
     types::{
-        client_credentials::ClientCredentials,
-        iana::oauth::OAuthTokenTypeHint,
         oidc::{
             AccountManagementAction, ProviderMetadata, ProviderMetadataVerificationError,
             VerifiedProviderMetadata,
@@ -180,11 +176,10 @@ use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 pub use oauth2::CsrfToken;
 use oauth2::{
-    basic::BasicClient as OauthClient, AsyncHttpClient, HttpRequest, HttpResponse,
-    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, StandardErrorResponse, TokenResponse,
-    TokenUrl,
+    basic::BasicClient as OauthClient, AccessToken, AsyncHttpClient, HttpRequest, HttpResponse,
+    PkceCodeVerifier, RedirectUrl, RefreshToken, RevocationUrl, Scope, StandardErrorResponse,
+    StandardRevocableToken, TokenResponse, TokenUrl,
 };
-use rand::{rngs::StdRng, SeedableRng};
 use ruma::{
     api::client::discovery::{
         get_authentication_issuer,
@@ -217,9 +212,7 @@ use self::{
     registrations::{ClientId, OidcRegistrations},
 };
 use super::AuthData;
-use crate::{
-    client::SessionChange, http_client::HttpClient, Client, HttpError, RefreshTokenError, Result,
-};
+use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
 
 pub(crate) struct OidcCtx {
     /// Lock and state when multiple processes may refresh an OIDC session.
@@ -253,13 +246,6 @@ pub(crate) struct OidcAuthData {
     authorization_data: Mutex<HashMap<CsrfToken, AuthorizationValidationData>>,
 }
 
-impl OidcAuthData {
-    /// Get the credentials of client.
-    fn credentials(&self) -> ClientCredentials {
-        ClientCredentials::None { client_id: self.client_id.as_str().to_owned() }
-    }
-}
-
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for OidcAuthData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -272,23 +258,40 @@ impl fmt::Debug for OidcAuthData {
 pub struct Oidc {
     /// The underlying Matrix API client.
     client: Client,
+    /// The HTTP client used for making OAuth 2.0 request.
+    http_client: OauthHttpClient,
 }
 
 impl Oidc {
     pub(crate) fn new(client: Client) -> Self {
-        Self { client }
+        let http_client = OauthHttpClient {
+            inner: client.inner.http_client.inner.clone(),
+            #[cfg(test)]
+            insecure_rewrite_https_to_http: false,
+        };
+        Self { client, http_client }
+    }
+
+    /// Rewrite HTTPS requests to use HTTP instead.
+    ///
+    /// This is a workaround to bypass some checks that require an HTTPS URL,
+    /// but we can only mock HTTP URLs.
+    #[cfg(test)]
+    pub(crate) fn insecure_rewrite_https_to_http(mut self) -> Self {
+        self.http_client.insecure_rewrite_https_to_http = true;
+        self
     }
 
     fn ctx(&self) -> &OidcCtx {
         &self.client.inner.auth_ctx.oidc
     }
 
-    fn http_client(&self) -> &HttpClient {
-        &self.client.inner.http_client
+    fn http_client(&self) -> &OauthHttpClient {
+        &self.http_client
     }
 
     fn http_service(&self) -> HttpService {
-        HttpService::new(self.http_client().clone())
+        HttpService::new(self.client.inner.http_client.clone())
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
@@ -1582,25 +1585,27 @@ impl Oidc {
 
     /// Log out from the currently authenticated session.
     pub async fn logout(&self) -> Result<(), OidcError> {
-        let provider_metadata = self.provider_metadata().await?;
-        let client_credentials = self.data().ok_or(OidcError::NotAuthenticated)?.credentials();
+        let client_id = self.client_id().ok_or(OidcError::NotAuthenticated)?.clone();
 
-        let revocation_endpoint =
-            provider_metadata.revocation_endpoint.as_ref().ok_or(OidcError::NoRevocationSupport)?;
+        let provider_metadata = self.provider_metadata().await?;
+        let revocation_endpoint = provider_metadata
+            .revocation_endpoint
+            .clone()
+            .ok_or(OauthTokenRevocationError::NotSupported)?;
+        let revocation_url = RevocationUrl::from_url(revocation_endpoint);
 
         let tokens = self.session_tokens().ok_or(OidcError::NotAuthenticated)?;
 
         // Revoke the access token, it should revoke both tokens.
-        revoke_token(
-            &self.http_service(),
-            client_credentials,
-            revocation_endpoint,
-            tokens.access_token,
-            Some(OAuthTokenTypeHint::AccessToken),
-            Utc::now(),
-            &mut rng()?,
-        )
-        .await?;
+        OauthClient::new(client_id)
+            .set_revocation_url(revocation_url)
+            .revoke_token(StandardRevocableToken::AccessToken(AccessToken::new(
+                tokens.access_token,
+            )))
+            .map_err(OauthTokenRevocationError::Url)?
+            .request_async(self.http_client())
+            .await
+            .map_err(OauthTokenRevocationError::Revoke)?;
 
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager.on_logout().await?;
@@ -1724,15 +1729,22 @@ pub struct AuthorizationError {
     pub state: CsrfToken,
 }
 
-fn rng() -> Result<StdRng, OidcError> {
-    StdRng::from_rng(rand::thread_rng()).map_err(OidcError::Rand)
-}
-
 fn hash_str(x: &str) -> impl fmt::LowerHex {
     sha2::Sha256::new().chain_update(x).finalize()
 }
 
-impl<'c> AsyncHttpClient<'c> for HttpClient {
+#[derive(Debug, Clone)]
+struct OauthHttpClient {
+    inner: reqwest::Client,
+    /// Rewrite HTTPS requests to use HTTP instead.
+    ///
+    /// This is a workaround to bypass some checks that require an HTTPS URL,
+    /// but we can only mock HTTP URLs.
+    #[cfg(test)]
+    insecure_rewrite_https_to_http: bool,
+}
+
+impl<'c> AsyncHttpClient<'c> for OauthHttpClient {
     type Error = error::HttpClientError<reqwest::Error>;
 
     type Future =
@@ -1740,6 +1752,22 @@ impl<'c> AsyncHttpClient<'c> for HttpClient {
 
     fn call(&'c self, request: HttpRequest) -> Self::Future {
         Box::pin(async move {
+            #[cfg(test)]
+            let request = if self.insecure_rewrite_https_to_http
+                && request.uri().scheme().is_some_and(|scheme| *scheme == http::uri::Scheme::HTTPS)
+            {
+                let mut request = request;
+
+                let mut uri_parts = request.uri().clone().into_parts();
+                uri_parts.scheme = Some(http::uri::Scheme::HTTP);
+                *request.uri_mut() = http::uri::Uri::from_parts(uri_parts)
+                    .expect("reconstructing URI from parts should work");
+
+                request
+            } else {
+                request
+            };
+
             let response = self.inner.call(request).await?;
 
             Ok(response)
