@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
-use mas_oidc_client::requests::account_management::AccountManagementActionFull;
 use matrix_sdk_test::async_test;
 use oauth2::{CsrfToken, PkceCodeChallenge, RedirectUrl};
 use ruma::{
@@ -25,8 +24,8 @@ use super::{
 };
 use crate::{
     authentication::oidc::{
-        error::AuthorizationCodeErrorResponseType, AuthorizationValidationData,
-        OauthAuthorizationCodeError,
+        error::AuthorizationCodeErrorResponseType, AccountManagementActionFull,
+        AuthorizationValidationData, OauthAuthorizationCodeError,
     },
     test_utils::{
         client::{

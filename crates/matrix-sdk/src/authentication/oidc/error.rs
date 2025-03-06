@@ -89,6 +89,10 @@ pub enum OidcError {
     #[error("failed to log out: {0}")]
     Logout(#[from] OauthTokenRevocationError),
 
+    /// An error occurred building the account management URL.
+    #[error("failed to build account management URL: {0}")]
+    AccountManagementUrl(serde_html_form::ser::Error),
+
     /// An error occurred parsing a URL.
     #[error(transparent)]
     Url(url::ParseError),

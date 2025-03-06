@@ -8,8 +8,8 @@ use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oidc::{
-        registrations::ClientId, requests::account_management::AccountManagementActionFull,
-        types::requests::Prompt as SdkOidcPrompt, OidcAuthorizationData, OidcSession,
+        registrations::ClientId, types::requests::Prompt as SdkOidcPrompt,
+        AccountManagementActionFull, OidcAuthorizationData, OidcSession,
     },
     event_cache::EventCacheError,
     media::{
@@ -1723,8 +1723,12 @@ impl From<AccountManagementAction> for AccountManagementActionFull {
         match value {
             AccountManagementAction::Profile => Self::Profile,
             AccountManagementAction::SessionsList => Self::SessionsList,
-            AccountManagementAction::SessionView { device_id } => Self::SessionView { device_id },
-            AccountManagementAction::SessionEnd { device_id } => Self::SessionEnd { device_id },
+            AccountManagementAction::SessionView { device_id } => {
+                Self::SessionView { device_id: device_id.into() }
+            }
+            AccountManagementAction::SessionEnd { device_id } => {
+                Self::SessionEnd { device_id: device_id.into() }
+            }
             AccountManagementAction::AccountDeactivate => Self::AccountDeactivate,
             AccountManagementAction::CrossSigningReset => Self::CrossSigningReset,
         }
