@@ -79,6 +79,12 @@ impl MockClientBuilder {
         self
     }
 
+    /// Handle refreshing access tokens automatically.
+    pub fn handle_refresh_tokens(mut self) -> Self {
+        self.builder = self.builder.handle_refresh_tokens();
+        self
+    }
+
     /// Finish building the client into the final [`Client`] instance.
     pub async fn build(self) -> Client {
         let client = self.builder.build().await.expect("building client failed");
@@ -194,6 +200,15 @@ pub mod oauth {
         OidcSessionTokens {
             access_token: "1234".to_owned(),
             refresh_token: Some("ZYXWV".to_owned()),
+        }
+    }
+
+    /// Different session tokens than the ones returned by
+    /// [`mock_session_tokens()`].
+    pub fn mock_prev_session_tokens() -> OidcSessionTokens {
+        OidcSessionTokens {
+            access_token: "prev-access-token".to_owned(),
+            refresh_token: Some("prev-refresh-token".to_owned()),
         }
     }
 

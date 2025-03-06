@@ -951,11 +951,20 @@ impl MatrixMockServer {
     }
 
     /// Creates a prebuilt mock for the endpoint used to get information about
-    /// the owner of the current access token.
+    /// the owner of the default access token.
     pub fn mock_who_am_i(&self) -> MockEndpoint<'_, WhoAmIEndpoint> {
+        self.mock_who_am_i_with_access_token("1234")
+    }
+
+    /// Creates a prebuilt mock for the endpoint used to get information about
+    /// the owner of the given access token.
+    pub fn mock_who_am_i_with_access_token(
+        &self,
+        access_token: &str,
+    ) -> MockEndpoint<'_, WhoAmIEndpoint> {
         let mock = Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/v3/account/whoami"))
-            .and(header("authorization", "Bearer 1234"));
+            .and(header("authorization", format!("Bearer {access_token}")));
         MockEndpoint { mock, server: &self.server, endpoint: WhoAmIEndpoint }
     }
 
@@ -2417,6 +2426,16 @@ impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "user_id": "@joe:example.org",
             "device_id": "D3V1C31D",
+        })));
+
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns an error response with an `M_UNKNOWN_TOKEN`.
+    pub fn err_unknown_token(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "errcode": "M_UNKNOWN_TOKEN",
+            "error": "Invalid token"
         })));
 
         MatrixMock { server: self.server, mock }
