@@ -14,9 +14,9 @@
 
 //! Helpers to mock an OAuth 2.0 server for the purpose of integration tests.
 
-use mas_oidc_client::types::{
-    iana::{jose::JsonWebSignatureAlg, oauth::OAuthAuthorizationEndpointResponseType},
-    oidc::{ProviderMetadata, SubjectType},
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata,
+    serde::Raw,
 };
 use serde_json::json;
 use url::Url;
@@ -155,7 +155,8 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
     }
 }
 
-/// Helper struct to construct a `ProviderMetadata` for integration tests.
+/// Helper struct to construct an `AuthorizationServerMetadata` for integration
+/// tests.
 #[derive(Debug, Clone)]
 pub struct MockServerMetadataBuilder {
     issuer: Url,
@@ -220,27 +221,37 @@ impl MockServerMetadataBuilder {
     }
 
     /// Build the server metadata.
-    pub fn build(&self) -> ProviderMetadata {
-        let device_authorization_endpoint =
-            self.with_device_authorization.then(|| self.device_authorization_endpoint());
-        let registration_endpoint = self.with_registration.then(|| self.registration_endpoint());
+    pub fn build(&self) -> Raw<AuthorizationServerMetadata> {
+        let mut json_metadata = json!({
+            "issuer": self.issuer,
+            "authorization_endpoint": self.authorization_endpoint(),
+            "token_endpoint": self.token_endpoint(),
+            "response_types_supported": ["code"],
+            "response_modes_supported": ["query", "fragment"],
+            "grant_types_supported": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+            "revocation_endpoint": self.revocation_endpoint(),
+            "code_challenge_methods_supported": ["S256"],
+            "account_management_uri": self.account_management_uri(),
+            "account_management_actions_supported": ["org.matrix.profile", "org.matrix.sessions_list", "org.matrix.session_view", "org.matrix.session_end", "org.matrix.deactivateaccount", "org.matrix.cross_signing_reset"],
+            "prompt_values_supported": ["create"],
+        });
+        let json_metadata_object = json_metadata.as_object_mut().unwrap();
 
-        ProviderMetadata {
-            issuer: Some(self.issuer.to_string()),
-            authorization_endpoint: Some(self.authorization_endpoint()),
-            token_endpoint: Some(self.token_endpoint()),
-            jwks_uri: Some(self.jwks_uri()),
-            registration_endpoint,
-            revocation_endpoint: Some(self.revocation_endpoint()),
-            account_management_uri: Some(self.account_management_uri()),
-            device_authorization_endpoint,
-            response_types_supported: Some(vec![
-                OAuthAuthorizationEndpointResponseType::Code.into()
-            ]),
-            subject_types_supported: Some(vec![SubjectType::Public]),
-            id_token_signing_alg_values_supported: Some(vec![JsonWebSignatureAlg::Rs256]),
-            ..Default::default()
+        if self.with_device_authorization {
+            json_metadata_object.insert(
+                "device_authorization_endpoint".to_owned(),
+                self.device_authorization_endpoint().as_str().into(),
+            );
         }
+
+        if self.with_registration {
+            json_metadata_object.insert(
+                "registration_endpoint".to_owned(),
+                self.registration_endpoint().as_str().into(),
+            );
+        }
+
+        serde_json::from_value(json_metadata).unwrap()
     }
 }
 

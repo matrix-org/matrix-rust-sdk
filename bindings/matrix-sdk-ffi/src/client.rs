@@ -8,8 +8,7 @@ use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oidc::{
-        registrations::ClientId, types::requests::Prompt as SdkOidcPrompt,
-        AccountManagementActionFull, OidcAuthorizationData, OidcSession,
+        registrations::ClientId, AccountManagementActionFull, OidcAuthorizationData, OidcSession,
     },
     event_cache::EventCacheError,
     media::{
@@ -280,12 +279,10 @@ impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let oidc = self.inner.oidc();
-        let (supports_oidc_login, supported_oidc_prompts) = match &oidc.provider_metadata().await {
+        let (supports_oidc_login, supported_oidc_prompts) = match oidc.provider_metadata().await {
             Ok(metadata) => {
-                let prompts = metadata
-                    .prompt_values_supported
-                    .as_ref()
-                    .map_or_else(Vec::new, |prompts| prompts.iter().map(Into::into).collect());
+                let prompts =
+                    metadata.prompt_values_supported.into_iter().map(Into::into).collect();
 
                 (true, prompts)
             }
@@ -1833,13 +1830,15 @@ pub enum OidcPrompt {
     Unknown { value: String },
 }
 
-impl From<&SdkOidcPrompt> for OidcPrompt {
-    fn from(value: &SdkOidcPrompt) -> Self {
+impl From<RumaOidcPrompt> for OidcPrompt {
+    fn from(value: RumaOidcPrompt) -> Self {
         match value {
-            SdkOidcPrompt::Create => Self::Create,
-            SdkOidcPrompt::Login => Self::Login,
-            SdkOidcPrompt::Consent => Self::Consent,
-            _ => Self::Unknown { value: value.to_string() },
+            RumaOidcPrompt::Create => Self::Create,
+            value => match value.as_str() {
+                "consent" => Self::Consent,
+                "login" => Self::Login,
+                _ => Self::Unknown { value: value.to_string() },
+            },
         }
     }
 }
@@ -1848,8 +1847,8 @@ impl From<OidcPrompt> for RumaOidcPrompt {
     fn from(value: OidcPrompt) -> Self {
         match value {
             OidcPrompt::Create => Self::Create,
-            OidcPrompt::Consent => Self::from(SdkOidcPrompt::Consent.to_string()),
-            OidcPrompt::Login => Self::from(SdkOidcPrompt::Login.to_string()),
+            OidcPrompt::Consent => Self::from("consent"),
+            OidcPrompt::Login => Self::from("login"),
             OidcPrompt::Unknown { value } => value.into(),
         }
     }

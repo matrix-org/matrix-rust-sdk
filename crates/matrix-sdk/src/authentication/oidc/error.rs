@@ -15,7 +15,6 @@
 //! Error types used in the [`Oidc`](super::Oidc) API.
 
 pub use mas_oidc_client::error::*;
-use mas_oidc_client::types::oidc::ProviderMetadataVerificationError;
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;
 pub use oauth2::{
@@ -26,7 +25,10 @@ pub use oauth2::{
     ConfigurationError, HttpClientError, RequestTokenError, RevocationErrorResponseType,
     StandardErrorResponse,
 };
-use ruma::serde::{PartialEqAsRefStr, StringEnum};
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadataUrlError,
+    serde::{PartialEqAsRefStr, StringEnum},
+};
 
 pub use super::cross_process::CrossProcessRefreshLockError;
 
@@ -132,9 +134,9 @@ pub enum OauthDiscoveryError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 
-    /// The server metadata is incomplete or insecure.
+    /// The server metadata URLs are insecure.
     #[error(transparent)]
-    Validation(#[from] ProviderMetadataVerificationError),
+    Validation(#[from] AuthorizationServerMetadataUrlError),
 
     /// An error occurred when building the OpenID Connect provider
     /// configuration URL.
@@ -242,10 +244,6 @@ impl ErrorResponseType for AuthorizationCodeErrorResponseType {}
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum OauthTokenRevocationError {
-    /// Revocation is not supported by the OAuth 2.0 authorization server.
-    #[error("token revocation is not supported")]
-    NotSupported,
-
     /// The revocation endpoint URL is insecure.
     #[error(transparent)]
     Url(ConfigurationError),

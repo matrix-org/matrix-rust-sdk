@@ -146,7 +146,12 @@
 //! [`AuthenticateError::InsufficientScope`]: ruma::api::client::error::AuthenticateError
 //! [`examples/oidc_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oidc_cli
 
-use std::{borrow::Cow, collections::HashMap, fmt, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{BTreeSet, HashMap},
+    fmt,
+    sync::Arc,
+};
 
 use as_variant::as_variant;
 use error::{
@@ -156,13 +161,7 @@ use error::{
 use mas_oidc_client::{
     http_service::HttpService,
     requests::registration::register_client,
-    types::{
-        oidc::{
-            AccountManagementAction, ProviderMetadata, ProviderMetadataVerificationError,
-            VerifiedProviderMetadata,
-        },
-        registration::{ClientRegistrationResponse, VerifiedClientMetadata},
-    },
+    types::registration::{ClientRegistrationResponse, VerifiedClientMetadata},
 };
 pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
@@ -178,7 +177,7 @@ use ruma::{
         get_authentication_issuer,
         get_authorization_server_metadata::{
             self,
-            msc2965::{AuthorizationServerMetadata, Prompt},
+            msc2965::{AccountManagementAction, AuthorizationServerMetadata, Prompt},
         },
     },
     serde::Raw,
@@ -467,7 +466,7 @@ impl Oidc {
     ) -> Result<OidcAuthorizationData, OidcError> {
         let metadata = self.provider_metadata().await?;
 
-        self.configure(metadata.issuer().to_owned(), registrations).await?;
+        self.configure(metadata.issuer.to_string(), registrations).await?;
 
         let mut data_builder = self.login(redirect_uri, None)?;
 
@@ -590,10 +589,10 @@ impl Oidc {
     /// request to get the provider metadata fails.
     pub async fn account_management_actions_supported(
         &self,
-    ) -> Result<Option<Vec<AccountManagementAction>>, OidcError> {
+    ) -> Result<BTreeSet<AccountManagementAction>, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
 
-        Ok(provider_metadata.account_management_actions_supported.clone())
+        Ok(provider_metadata.account_management_actions_supported)
     }
 
     /// Build the URL where the user can manage their account.
@@ -602,7 +601,7 @@ impl Oidc {
     ///
     /// * `action` - An optional action that wants to be performed by the user
     ///   when they open the URL. The list of supported actions by the account
-    ///   management URL can be found in the [`VerifiedProviderMetadata`], or
+    ///   management URL can be found in the [`AuthorizationServerMetadata`], or
     ///   directly with [`Oidc::account_management_actions_supported()`].
     ///
     /// Returns `Ok(None)` if the URL was not found. Returns an error if the
@@ -618,10 +617,10 @@ impl Oidc {
 
     fn management_url_from_provider_metadata(
         &self,
-        provider_metadata: VerifiedProviderMetadata,
+        provider_metadata: AuthorizationServerMetadata,
         action: Option<AccountManagementActionFull>,
     ) -> Result<Option<Url>, OidcError> {
-        let Some(base_url) = provider_metadata.account_management_uri.clone() else {
+        let Some(base_url) = provider_metadata.account_management_uri else {
             return Ok(None);
         };
 
@@ -642,7 +641,7 @@ impl Oidc {
     ///
     /// * `action` - An optional action that wants to be performed by the user
     ///   when they open the URL. The list of supported actions by the account
-    ///   management URL can be found in the [`VerifiedProviderMetadata`], or
+    ///   management URL can be found in the [`AuthorizationServerMetadata`], or
     ///   directly with [`Oidc::account_management_actions_supported()`].
     ///
     /// Returns `Ok(None)` if the URL was not found. Returns an error if the
@@ -673,7 +672,7 @@ impl Oidc {
     }
 
     /// Discover the authentication issuer and retrieve the
-    /// [`VerifiedProviderMetadata`] using the GET `/auth_metadata` endpoint
+    /// [`AuthorizationServerMetadata`] using the GET `/auth_metadata` endpoint
     /// defined in [MSC2965].
     ///
     /// **Note**: This endpoint is deprecated.
@@ -703,7 +702,9 @@ impl Oidc {
     ///
     /// Returns an error if a problem occurred when fetching or validating the
     /// metadata.
-    pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+    pub async fn provider_metadata(
+        &self,
+    ) -> Result<AuthorizationServerMetadata, OauthDiscoveryError> {
         let is_endpoint_unsupported = |error: &HttpError| {
             error
                 .as_client_api_error()
@@ -726,17 +727,13 @@ impl Oidc {
             Err(error) => return Err(error.into()),
         };
 
-        let metadata = raw_metadata.deserialize_as::<ProviderMetadata>()?;
+        let metadata = raw_metadata.deserialize()?;
 
-        let metadata = if self.ctx().insecure_discover {
-            metadata.insecure_verify_metadata()?
+        if self.ctx().insecure_discover {
+            metadata.insecure_validate_urls()?;
         } else {
-            // The mas-oidc-client method needs to compare the issuer for validation. It's a
-            // bit unnecessary because we take it from the metadata, oh well.
-            let issuer =
-                metadata.issuer.clone().ok_or(ProviderMetadataVerificationError::MissingIssuer)?;
-            metadata.validate(&issuer)?
-        };
+            metadata.validate_urls()?;
+        }
 
         Ok(metadata)
     }
@@ -868,7 +865,7 @@ impl Oidc {
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
-            provider_metadata.issuer().to_owned(),
+            provider_metadata.issuer.to_string(),
             ClientId::new(registration_response.client_id.clone()),
         );
 
@@ -1201,7 +1198,7 @@ impl Oidc {
             .ok_or(OauthAuthorizationCodeError::InvalidState)?;
 
         let provider_metadata = self.provider_metadata().await?;
-        let token_uri = TokenUrl::from_url(provider_metadata.token_endpoint().clone());
+        let token_uri = TokenUrl::from_url(provider_metadata.token_endpoint);
 
         let response = OauthClient::new(client_id)
             .set_token_uri(token_uri)
@@ -1281,7 +1278,7 @@ impl Oidc {
         let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
 
         let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
-        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint().clone());
+        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
 
         let response = OauthClient::new(client_id)
             .set_token_uri(token_uri)
@@ -1461,7 +1458,7 @@ impl Oidc {
             match this
                 .refresh_access_token_inner(
                     refresh_token,
-                    provider_metadata.token_endpoint().clone(),
+                    provider_metadata.token_endpoint,
                     client_id,
                     cross_process_guard,
                 )
@@ -1489,11 +1486,7 @@ impl Oidc {
         let client_id = self.client_id().ok_or(OidcError::NotAuthenticated)?.clone();
 
         let provider_metadata = self.provider_metadata().await?;
-        let revocation_endpoint = provider_metadata
-            .revocation_endpoint
-            .clone()
-            .ok_or(OauthTokenRevocationError::NotSupported)?;
-        let revocation_url = RevocationUrl::from_url(revocation_endpoint);
+        let revocation_url = RevocationUrl::from_url(provider_metadata.revocation_endpoint);
 
         let tokens = self.client.session_tokens().ok_or(OidcError::NotAuthenticated)?;
 
