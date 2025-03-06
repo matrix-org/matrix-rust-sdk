@@ -289,6 +289,7 @@ impl RoomDataProvider for Room {
         session_id: &str,
         sender: &UserId,
     ) -> Option<EncryptionInfo> {
+        // Just pass directly on to `Room::get_encryption_info`
         self.get_encryption_info(session_id, sender).await
     }
 }
