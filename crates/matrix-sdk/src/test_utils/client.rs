@@ -119,6 +119,7 @@ impl AuthState {
             }
             #[cfg(feature = "experimental-oidc")]
             AuthState::RegisteredWithOauth { issuer } => {
+                let issuer = url::Url::parse(&issuer).unwrap();
                 client.oidc().restore_registered_client(issuer, oauth::mock_client_id());
             }
             #[cfg(feature = "experimental-oidc")]
@@ -220,7 +221,9 @@ pub mod oauth {
     }
 
     /// An [`OidcSession`] to restore, for unit or integration tests.
-    pub fn mock_session(tokens: SessionTokens, issuer: String) -> OidcSession {
+    pub fn mock_session(tokens: SessionTokens, issuer: impl AsRef<str>) -> OidcSession {
+        let issuer = Url::parse(issuer.as_ref()).unwrap();
+
         OidcSession {
             client_id: mock_client_id(),
             user: UserSession { meta: super::mock_session_meta(), tokens, issuer },

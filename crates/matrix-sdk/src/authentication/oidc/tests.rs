@@ -63,7 +63,7 @@ async fn mock_environment() -> anyhow::Result<(Oidc, MatrixMockServer, Url, Oidc
 async fn check_authorization_url(
     authorization_data: &OidcAuthorizationData,
     oidc: &Oidc,
-    issuer: &str,
+    issuer: &Url,
     device_id: Option<&DeviceId>,
     expected_prompt: Option<&str>,
     expected_login_hint: Option<&str>,
@@ -144,7 +144,8 @@ async fn check_authorization_url(
     assert_eq!(prompt.as_deref(), expected_prompt);
     assert_eq!(login_hint.as_deref(), expected_login_hint);
 
-    assert!(authorization_data.url.as_str().starts_with(issuer));
+    assert_eq!(authorization_data.url.scheme(), issuer.scheme());
+    assert_eq!(authorization_data.url.authority(), issuer.authority());
     assert_eq!(authorization_data.url.path(), "/oauth2/authorize");
 }
 
@@ -232,7 +233,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
 #[async_test]
 async fn test_login_url() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
-    let issuer = server.server().uri();
+    let issuer = Url::parse(&server.server().uri())?;
 
     let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1..).mount().await;
@@ -388,7 +389,7 @@ async fn test_oidc_session() -> anyhow::Result<()> {
 
     let tokens = mock_session_tokens_with_refresh();
     let issuer = "https://oidc.example.com/issuer";
-    let session = mock_session(tokens.clone(), issuer.to_owned());
+    let session = mock_session(tokens.clone(), issuer);
     oidc.restore_session(session.clone()).await?;
 
     // Test a few extra getters.
@@ -397,14 +398,14 @@ async fn test_oidc_session() -> anyhow::Result<()> {
     let user_session = oidc.user_session().unwrap();
     assert_eq!(user_session.meta, session.user.meta);
     assert_eq!(user_session.tokens, tokens);
-    assert_eq!(user_session.issuer, issuer);
+    assert_eq!(user_session.issuer.as_str(), issuer);
 
     let full_session = oidc.full_session().unwrap();
 
     assert_eq!(full_session.client_id.as_str(), "test_client_id");
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
-    assert_eq!(full_session.user.issuer, issuer);
+    assert_eq!(full_session.user.issuer.as_str(), issuer);
 
     Ok(())
 }
@@ -438,7 +439,7 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
         let oidc = client.oidc();
 
         // Restore the previous session so we have an existing set of refresh tokens.
-        oidc.restore_session(mock_session(prev_tokens.clone(), server_url.clone())).await?;
+        oidc.restore_session(mock_session(prev_tokens.clone(), &server_url)).await?;
 
         let mut session_changes = client.subscribe_to_session_changes();
 
@@ -501,7 +502,7 @@ async fn test_register_client() {
     let auth_data = oidc.data().unwrap();
     // There is a difference of ending slash between the strings so we parse them
     // with `Url` which will normalize that.
-    assert_eq!(Url::parse(&auth_data.issuer), Url::parse(&server.server().uri()));
+    assert_eq!(auth_data.issuer, Url::parse(&server.server().uri()).unwrap());
     assert_eq!(auth_data.client_id.as_str(), response.client_id);
 }
 

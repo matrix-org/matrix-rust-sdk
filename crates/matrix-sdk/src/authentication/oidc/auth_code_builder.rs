@@ -78,7 +78,7 @@ impl OidcAuthCodeUrlBuilder {
 
         let data = oidc.data().ok_or(OidcError::NotAuthenticated)?;
         info!(
-            issuer = data.issuer,
+            issuer = data.issuer.as_str(),
             ?scopes,
             "Authorizing scope via the OpenID Connect Authorization Code flow"
         );

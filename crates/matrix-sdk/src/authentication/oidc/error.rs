@@ -96,10 +96,6 @@ pub enum OidcError {
     #[error("failed to build account management URL: {0}")]
     AccountManagementUrl(serde_html_form::ser::Error),
 
-    /// An error occurred parsing a URL.
-    #[error(transparent)]
-    Url(url::ParseError),
-
     /// An error occurred caused by the cross-process locks.
     #[error(transparent)]
     LockError(#[from] CrossProcessRefreshLockError),
