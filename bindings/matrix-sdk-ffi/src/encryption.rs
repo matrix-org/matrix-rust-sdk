@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption,
@@ -9,7 +10,6 @@ use thiserror::Error;
 use tracing::{error, info};
 use zeroize::Zeroize;
 
-use super::RUNTIME;
 use crate::{client::Client, error::ClientError, ruma::AuthData, task_handle::TaskHandle};
 
 #[derive(uniffi::Object)]
@@ -230,7 +230,7 @@ impl Encryption {
     pub fn backup_state_listener(&self, listener: Box<dyn BackupStateListener>) -> Arc<TaskHandle> {
         let mut stream = self.inner.backups().state_stream();
 
-        let stream_task = TaskHandle::new(RUNTIME.spawn(async move {
+        let stream_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = stream.next().await {
                 let Ok(state) = state else { continue };
                 listener.on_update(state.into());
@@ -267,7 +267,7 @@ impl Encryption {
     ) -> Arc<TaskHandle> {
         let mut stream = self.inner.recovery().state_stream();
 
-        let stream_task = TaskHandle::new(RUNTIME.spawn(async move {
+        let stream_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = stream.next().await {
                 listener.on_update(state.into());
             }
@@ -294,7 +294,7 @@ impl Encryption {
         let task = if let Some(listener) = progress_listener {
             let mut progress_stream = wait_for_steady_state.subscribe_to_progress();
 
-            Some(RUNTIME.spawn(async move {
+            Some(get_runtime_handle().spawn(async move {
                 while let Some(progress) = progress_stream.next().await {
                     let Ok(progress) = progress else { continue };
                     listener.on_update(progress.into());
@@ -335,7 +335,7 @@ impl Encryption {
 
         let mut progress_stream = enable.subscribe_to_progress();
 
-        let task = RUNTIME.spawn(async move {
+        let task = get_runtime_handle().spawn(async move {
             while let Some(progress) = progress_stream.next().await {
                 let Ok(progress) = progress else { continue };
                 progress_listener.on_update(progress.into());
@@ -400,7 +400,7 @@ impl Encryption {
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.verification_state();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(verification_state) = subscriber.next().await {
                 listener.on_update(verification_state.into());
             }

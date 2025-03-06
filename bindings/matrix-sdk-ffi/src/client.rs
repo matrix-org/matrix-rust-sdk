@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context as _};
+use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oidc::{
         registrations::ClientId, requests::account_management::AccountManagementActionFull,
@@ -68,7 +69,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
 
-use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
+use super::{room::Room, session_verification::SessionVerificationController};
 use crate::{
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
@@ -500,7 +501,7 @@ impl Client {
         let q = self.inner.send_queue();
         let mut subscriber = q.subscribe_errors();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             // Respawn tasks for rooms that had unsent events. At this point we've just
             // created the subscriber, so it'll be notified about errors.
             q.respawn_tasks_for_rooms_with_unsent_requests().await;
@@ -580,7 +581,7 @@ impl Client {
         delegate.map(|delegate| {
             let mut session_change_receiver = self.inner.subscribe_to_session_changes();
             let client_clone = self.clone();
-            let session_change_task = RUNTIME.spawn(async move {
+            let session_change_task = get_runtime_handle().spawn(async move {
                 loop {
                     match session_change_receiver.recv().await {
                         Ok(session_change) => client_clone.process_session_change(session_change),
@@ -666,7 +667,9 @@ impl Client {
 
     /// Retrieves an avatar cached from a previous call to [`Self::avatar_url`].
     pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
-        Ok(RUNTIME.block_on(self.inner.account().get_cached_avatar_url())?.map(Into::into))
+        Ok(get_runtime_handle()
+            .block_on(self.inner.account().get_cached_avatar_url())?
+            .map(Into::into))
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
@@ -712,7 +715,7 @@ impl Client {
 
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
-            RUNTIME.spawn(async move {
+            get_runtime_handle().spawn(async move {
                 while let Some(progress) = subscriber.next().await {
                     progress_watcher.transmission_progress(progress.into());
                 }
@@ -929,7 +932,7 @@ impl Client {
     }
 
     pub fn get_notification_settings(&self) -> Arc<NotificationSettings> {
-        let inner = RUNTIME.block_on(self.inner.notification_settings());
+        let inner = get_runtime_handle().block_on(self.inner.notification_settings());
 
         Arc::new(NotificationSettings::new((*self.inner).clone(), inner))
     }
@@ -974,7 +977,7 @@ impl Client {
         listener: Box<dyn IgnoredUsersListener>,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.subscribe_to_ignore_user_list_changes();
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(user_ids) = subscriber.next().await {
                 listener.call(user_ids);
             }
@@ -1283,7 +1286,7 @@ impl Client {
     fn process_session_change(&self, session_change: SessionChange) {
         if let Some(delegate) = self.delegate.read().unwrap().clone() {
             debug!("Applying session change: {session_change:?}");
-            RUNTIME.spawn_blocking(move || match session_change {
+            get_runtime_handle().spawn_blocking(move || match session_change {
                 SessionChange::UnknownToken { soft_logout } => {
                     delegate.did_receive_auth_error(soft_logout);
                 }

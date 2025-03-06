@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use async_compat::get_runtime_handle;
 use language_tags::LanguageTag;
 use matrix_sdk::{
     async_trait,
@@ -8,7 +9,7 @@ use matrix_sdk::{
 use ruma::events::MessageLikeEventType;
 use tracing::error;
 
-use crate::{room::Room, RUNTIME};
+use crate::room::Room;
 
 #[derive(uniffi::Record)]
 pub struct WidgetDriverAndHandle {
@@ -501,7 +502,7 @@ impl matrix_sdk::widget::CapabilitiesProvider for CapabilitiesProviderWrap {
         // This could require a prompt to the user. Ideally the callback
         // interface would just be async, but that's not supported yet so use
         // one of tokio's blocking task threads instead.
-        RUNTIME
+        get_runtime_handle()
             .spawn_blocking(move || this.acquire_capabilities(capabilities.into()).into())
             .await
             // propagate panics from the blocking task

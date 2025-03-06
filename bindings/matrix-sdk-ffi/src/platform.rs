@@ -358,6 +358,38 @@ pub fn setup_tracing(config: TracingConfiguration) {
         .init();
 }
 
+/// Set up a lightweight tokio runtime, for processes that have memory
+/// limitations (like the NSE process on iOS).
+#[matrix_sdk_ffi_macros::export]
+pub fn setup_lightweight_tokio_runtime() {
+    async_compat::set_runtime_builder(Box::new(|| {
+        eprintln!("spawning a lightweight tokio runtime");
+
+        // Get the number of available cores through the system, if possible.
+        let num_available_cores =
+            std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+
+        // The number of worker threads will be either that or 4, whichever is smaller.
+        let num_worker_threads = num_available_cores.min(4);
+
+        // Chosen by a fair dice roll.
+        let num_blocking_threads = 2;
+
+        // 1 MiB of memory per worker thread. Should be enough for everyone™.
+        let max_memory_bytes = 1024 * 1024;
+
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+
+        builder
+            .enable_all()
+            .worker_threads(num_worker_threads)
+            .thread_stack_size(max_memory_bytes)
+            .max_blocking_threads(num_blocking_threads);
+
+        builder
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::build_tracing_filter;
