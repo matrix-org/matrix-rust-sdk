@@ -27,7 +27,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
-    sync_service::{self, SyncService},
+    sync_service::SyncService,
     timeline::{TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem},
     Timeline as SdkTimeline,
 };
@@ -529,25 +529,17 @@ impl App {
         // At this point the user has exited the loop, so shut down the application.
         ratatui::restore();
 
-        println!("Closing sync service...");
-
-        let s = self.sync_service.clone();
-        let wait_for_termination = spawn(async move {
-            while let Some(state) = s.state().next().await {
-                if !matches!(state, sync_service::State::Running) {
-                    break;
-                }
-            }
-        });
+        println!("Stopping the sync service...");
 
         self.sync_service.stop().await;
         self.listen_task.abort();
+
         for timeline in self.timelines.lock().unwrap().values() {
             timeline.task.abort();
         }
-        wait_for_termination.await.unwrap();
 
         println!("okthxbye!");
+
         Ok(())
     }
 }
