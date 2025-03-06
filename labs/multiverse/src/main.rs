@@ -1,13 +1,12 @@
 use std::{
     collections::HashMap,
-    env,
     io::{self, stdout, Write},
-    path::Path,
-    process::exit,
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use clap::Parser;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use futures_util::{pin_mut, StreamExt as _};
@@ -16,13 +15,15 @@ use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
+    reqwest::Url,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
     sleep::sleep,
-    AuthSession, Client, ServerName, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    AuthSession, Client, OwnedServerName, SqliteCryptoStore, SqliteEventCacheStore,
+    SqliteStateStore,
 };
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
@@ -41,6 +42,20 @@ const ALT_ROW_COLOR: Color = tailwind::SLATE.c900;
 const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
 const TEXT_COLOR: Color = tailwind::SLATE.c200;
 
+#[derive(Debug, Parser)]
+struct Cli {
+    /// The homeserver the client should connect to.
+    server_name: OwnedServerName,
+
+    /// The path where session specific data should be stored.
+    #[clap(default_value = "/tmp/")]
+    session_path: PathBuf,
+
+    /// Set the proxy that should be used for the connection.
+    #[clap(short, long, env = "PROXY")]
+    proxy: Option<Url>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let file_writer = tracing_appender::rolling::hourly("/tmp/", "logs-");
@@ -53,14 +68,8 @@ async fn main() -> Result<()> {
 
     color_eyre::install()?;
 
-    // Read the server name from the command line.
-    let Some(server_name) = env::args().nth(1) else {
-        eprintln!("Usage: {} <server_name> <session_path?>", env::args().next().unwrap());
-        exit(1)
-    };
-
-    let config_path = env::args().nth(2).unwrap_or("/tmp/".to_owned());
-    let client = configure_client(&server_name, &config_path).await?;
+    let cli = Cli::parse();
+    let client = configure_client(cli).await?;
 
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
@@ -948,17 +957,16 @@ impl<T> StatefulList<T> {
 /// Configure the client so it's ready for sync'ing.
 ///
 /// Will log in or reuse a previous session.
-async fn configure_client(server_name: &str, config_path: &str) -> Result<Client> {
-    let server_name = ServerName::parse(server_name)?;
+async fn configure_client(cli: Cli) -> Result<Client> {
+    let Cli { server_name, session_path, proxy } = cli;
 
-    let config_path = Path::new(config_path);
     let mut client_builder = Client::builder()
         .store_config(
             StoreConfig::new("multiverse".to_owned())
-                .crypto_store(SqliteCryptoStore::open(config_path.join("crypto"), None).await?)
-                .state_store(SqliteStateStore::open(config_path.join("state"), None).await?)
+                .crypto_store(SqliteCryptoStore::open(session_path.join("crypto"), None).await?)
+                .state_store(SqliteStateStore::open(session_path.join("state"), None).await?)
                 .event_cache_store(
-                    SqliteEventCacheStore::open(config_path.join("cache"), None).await?,
+                    SqliteEventCacheStore::open(session_path.join("cache"), None).await?,
                 ),
         )
         .server_name(&server_name)
@@ -968,7 +976,7 @@ async fn configure_client(server_name: &str, config_path: &str) -> Result<Client
             auto_enable_backups: true,
         });
 
-    if let Ok(proxy_url) = env::var("PROXY") {
+    if let Some(proxy_url) = proxy {
         client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();
     }
 
