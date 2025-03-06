@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{self, stdout, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -983,14 +983,21 @@ async fn configure_client(cli: Cli) -> Result<Client> {
     let client = client_builder.build().await?;
 
     // Try reading a session, otherwise create a new one.
-    let session_path = config_path.join("session.json");
+    log_in_or_restore_session(&client, &session_path).await?;
+
+    Ok(client)
+}
+
+async fn log_in_or_restore_session(client: &Client, session_path: &Path) -> Result<()> {
+    let session_path = session_path.join("session.json");
 
     if let Ok(serialized) = std::fs::read_to_string(&session_path) {
         let session: MatrixSession = serde_json::from_str(&serialized)?;
         client.restore_session(session).await?;
+
         println!("restored session");
     } else {
-        login_with_password(&client).await?;
+        login_with_password(client).await?;
         println!("new login");
 
         // Immediately save the session to disk.
@@ -998,11 +1005,12 @@ async fn configure_client(cli: Cli) -> Result<Client> {
             let AuthSession::Matrix(session) = session else { panic!("unexpected oidc session") };
             let serialized = serde_json::to_string(&session)?;
             std::fs::write(session_path, serialized)?;
+
             println!("saved session");
         }
     }
 
-    Ok(client)
+    Ok(())
 }
 
 /// Asks the user of a username and password, and try to login using the matrix
