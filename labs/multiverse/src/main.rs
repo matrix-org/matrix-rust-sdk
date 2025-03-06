@@ -458,7 +458,7 @@ impl App {
 
     async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> anyhow::Result<()> {
         loop {
-            terminal.draw(|f| f.render_widget(&mut *self, f.size()))?;
+            terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
