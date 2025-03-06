@@ -24,7 +24,7 @@ use wiremock::{
 
 use super::{
     registrations::OidcRegistrations, AuthorizationCode, AuthorizationError, AuthorizationResponse,
-    Oidc, OidcAuthorizationData, OidcError, OidcSessionTokens, RedirectUriQueryParseError,
+    Oidc, OidcAuthorizationData, OidcError, RedirectUriQueryParseError,
 };
 use crate::{
     authentication::oidc::{
@@ -33,7 +33,9 @@ use crate::{
     },
     test_utils::{
         client::{
-            oauth::{mock_client_metadata, mock_session, mock_session_tokens},
+            oauth::{
+                mock_client_metadata, mock_prev_session_tokens, mock_session, mock_session_tokens,
+            },
             MockClientBuilder,
         },
         mocks::{oauth::MockServerMetadataBuilder, MatrixMockServer},
@@ -42,15 +44,6 @@ use crate::{
 };
 
 const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oidc/callback";
-
-/// Different session tokens than the ones returned by the mock server's
-/// token endpoint.
-pub(crate) fn prev_session_tokens() -> OidcSessionTokens {
-    OidcSessionTokens {
-        access_token: "prev-access-token".to_owned(),
-        refresh_token: Some("prev-refresh-token".to_owned()),
-    }
-}
 
 async fn mock_environment(
 ) -> anyhow::Result<(Oidc, MatrixMockServer, VerifiedClientMetadata, OidcRegistrations)> {
@@ -439,7 +432,7 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     oauth_server.mock_server_metadata().ok().expect(2..).named("server_metadata").mount().await;
     oauth_server.mock_token().ok().expect(2).named("token").mount().await;
 
-    let prev_tokens = prev_session_tokens();
+    let prev_tokens = mock_prev_session_tokens();
     let next_tokens = mock_session_tokens();
 
     for client in [

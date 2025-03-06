@@ -298,6 +298,8 @@ async fn test_refresh_token_handled_success() {
         tokens_changed_stream.next().await.unwrap();
     });
 
+    let mut session_changes = client.subscribe_to_session_changes();
+
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
@@ -329,6 +331,9 @@ async fn test_refresh_token_handled_success() {
     client.whoami().await.unwrap();
     tokens_join_handle.await.unwrap();
     changed_join_handle.await.unwrap();
+
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[async_test]
@@ -345,6 +350,8 @@ async fn test_refresh_token_handled_failure() {
 
     let session = session();
     auth.restore_session(session).await.unwrap();
+
+    let mut session_changes = client.subscribe_to_session_changes();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -378,7 +385,13 @@ async fn test_refresh_token_handled_failure() {
 
     let res = client.whoami().await;
     assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) = res);
-    assert_matches!(http_err.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }))
+    assert_matches!(
+        http_err.client_api_error_kind(),
+        Some(ErrorKind::UnknownToken { soft_logout: true })
+    );
+
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::UnknownToken { soft_logout: true }));
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[async_test]
@@ -559,4 +572,138 @@ async fn test_refresh_token_handled_other_error() {
         .await;
 
     client.whoami().await.unwrap_err();
+}
+
+#[cfg(feature = "experimental-oidc")]
+#[async_test]
+async fn test_oauth_refresh_token_handled_success() {
+    use matrix_sdk::test_utils::{
+        client::oauth::{mock_prev_session_tokens, mock_session, mock_session_tokens},
+        mocks::MatrixMockServer,
+    };
+
+    let server = MatrixMockServer::new().await;
+    // Return an error first so the token is refreshed.
+    server
+        .mock_who_am_i_with_access_token("prev-access-token")
+        .err_unknown_token()
+        .expect(1)
+        .named("whoami_unknown_token")
+        .mount()
+        .await;
+    server.mock_who_am_i().ok().expect(1).named("whoami_ok").mount().await;
+
+    let oauth_server = server.oauth();
+    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+    oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
+    let issuer = server.server().uri();
+    let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
+    let oidc = client.oidc();
+
+    oidc.restore_session(mock_session(mock_prev_session_tokens(), issuer)).await.unwrap();
+
+    let mut tokens_stream = oidc.session_tokens_stream().unwrap();
+    let tokens_join_handle = spawn(async move {
+        let tokens = tokens_stream.next().await.unwrap();
+        assert_eq!(tokens, mock_session_tokens());
+    });
+
+    let mut session_changes = client.subscribe_to_session_changes();
+
+    client.whoami().await.unwrap();
+
+    tokens_join_handle.await.unwrap();
+
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[cfg(feature = "experimental-oidc")]
+#[async_test]
+async fn test_oauth_refresh_token_handled_failure() {
+    use matrix_sdk::{
+        authentication::oidc::OidcError,
+        test_utils::{
+            client::oauth::{mock_prev_session_tokens, mock_session},
+            mocks::MatrixMockServer,
+        },
+    };
+
+    let server = MatrixMockServer::new().await;
+    // Return an error first so the token is refreshed.
+    server
+        .mock_who_am_i_with_access_token("prev-access-token")
+        .err_unknown_token()
+        .expect(1)
+        .named("whoami_unknown_token")
+        .mount()
+        .await;
+
+    let oauth_server = server.oauth();
+    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+    // Return an error to fail the token refresh.
+    oauth_server.mock_token().invalid_grant().expect(1).named("token").mount().await;
+
+    let issuer = server.server().uri();
+    let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
+    let oidc = client.oidc();
+
+    oidc.restore_session(mock_session(mock_prev_session_tokens(), issuer)).await.unwrap();
+
+    let mut session_changes = client.subscribe_to_session_changes();
+
+    let res = client.whoami().await;
+    assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::Oidc(oidc_err))) = res);
+    assert_matches!(*oidc_err, OidcError::RefreshToken(_));
+
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::UnknownToken { soft_logout: false }));
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[cfg(feature = "experimental-oidc")]
+#[async_test]
+async fn test_oauth_handle_refresh_tokens() {
+    use matrix_sdk::test_utils::{
+        client::oauth::{mock_prev_session_tokens, mock_session, mock_session_tokens},
+        mocks::MatrixMockServer,
+    };
+
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+
+    let issuer = server.server().uri();
+    let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
+
+    let oidc = client.oidc();
+    oidc.restore_session(mock_session(mock_prev_session_tokens(), issuer)).await.unwrap();
+
+    let num_save_session_callback_calls = Arc::new(Mutex::new(0));
+    client
+        .set_session_callbacks(Box::new(|_| panic!("reload session never called")), {
+            let num_save_session_callback_calls = num_save_session_callback_calls.clone();
+            Box::new(move |_client| {
+                *num_save_session_callback_calls.lock().unwrap() += 1;
+                Ok(())
+            })
+        })
+        .unwrap();
+
+    let mut session_changes = client.subscribe_to_session_changes();
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+
+    assert_eq!(oidc.session_tokens(), Some(mock_prev_session_tokens()));
+
+    // Refresh token successfully.
+    oauth_server.mock_token().ok().mock_once().named("refresh_token").mount().await;
+
+    oidc.refresh_access_token().await.unwrap();
+    assert_eq!(oidc.session_tokens(), Some(mock_session_tokens()));
+
+    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 1);
+
+    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 }

@@ -260,10 +260,10 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        authentication::oidc::{cross_process::SessionHash, tests::prev_session_tokens},
+        authentication::oidc::cross_process::SessionHash,
         test_utils::{
             client::{
-                oauth::{mock_session, mock_session_tokens},
+                oauth::{mock_prev_session_tokens, mock_session, mock_session_tokens},
                 MockClientBuilder,
             },
             mocks::MatrixMockServer,
@@ -392,7 +392,8 @@ mod tests {
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
-        oidc.restore_session(mock_session(prev_session_tokens(), server.server().uri())).await?;
+        oidc.restore_session(mock_session(mock_prev_session_tokens(), server.server().uri()))
+            .await?;
 
         // Immediately try to refresh the access token twice in parallel.
         for result in join_all([oidc.refresh_access_token(), oidc.refresh_access_token()]).await {
@@ -423,7 +424,7 @@ mod tests {
         oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
         oauth_server.mock_token().ok().expect(1).named("token").mount().await;
 
-        let prev_tokens = prev_session_tokens();
+        let prev_tokens = mock_prev_session_tokens();
         let next_tokens = mock_session_tokens();
 
         // Create the first client.

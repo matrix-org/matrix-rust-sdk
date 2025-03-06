@@ -303,6 +303,15 @@ impl<'a> MockEndpoint<'a, TokenEndpoint> {
 
         MatrixMock { server: self.server, mock }
     }
+
+    /// Returns an error response when the token in the request is invalid.
+    pub fn invalid_grant(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": "invalid_grant",
+        })));
+
+        MatrixMock { server: self.server, mock }
+    }
 }
 
 /// A prebuilt mock for a `POST /oauth/revoke` request.
