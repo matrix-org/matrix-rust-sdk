@@ -2,6 +2,7 @@
 
 use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
 
+use async_compat::get_runtime_handle;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt, TryFutureExt};
 use matrix_sdk::ruma::{
@@ -28,7 +29,7 @@ use crate::{
     room_preview::RoomPreview,
     timeline::{configuration::TimelineEventTypeFilter, EventTimelineItem, Timeline},
     utils::AsyncRuntimeDropped,
-    TaskHandle, RUNTIME,
+    TaskHandle,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -91,7 +92,7 @@ impl RoomListService {
     fn state(&self, listener: Box<dyn RoomListServiceStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(state_stream);
 
             while let Some(state) = state_stream.next().await {
@@ -127,7 +128,7 @@ impl RoomListService {
             Duration::from_millis(delay_before_hiding_in_ms.into()),
         );
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(sync_indicator_stream);
 
             while let Some(sync_indicator) = sync_indicator_stream.next().await {
@@ -166,7 +167,7 @@ impl RoomList {
 
         Ok(RoomListLoadingStateResult {
             state: loading_state.get().into(),
-            state_stream: Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            state_stream: Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
                 pin_mut!(loading_state);
 
                 while let Some(loading_state) = loading_state.next().await {
@@ -236,7 +237,7 @@ impl RoomList {
         let dynamic_entries_controller =
             Arc::new(RoomListDynamicEntriesController::new(dynamic_entries_controller));
 
-        let entries_stream = Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        let entries_stream = Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(entries_stream);
 
             while let Some(diffs) = entries_stream.next().await {
@@ -557,7 +558,7 @@ impl RoomListItem {
     }
 
     fn is_direct(&self) -> bool {
-        RUNTIME.block_on(self.inner.inner_room().is_direct()).unwrap_or(false)
+        get_runtime_handle().block_on(self.inner.inner_room().is_direct()).unwrap_or(false)
     }
 
     fn canonical_alias(&self) -> Option<String> {

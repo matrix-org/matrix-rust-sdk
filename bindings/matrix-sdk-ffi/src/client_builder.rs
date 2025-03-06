@@ -1,5 +1,6 @@
 use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
+use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oidc::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
@@ -22,7 +23,7 @@ use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use zeroize::Zeroizing;
 
-use super::{client::Client, RUNTIME};
+use super::client::Client;
 use crate::{
     authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
     helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
@@ -697,7 +698,7 @@ impl ClientBuilder {
 
         // We create this task, which will get cancelled once it's dropped, just in case
         // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(RUNTIME.spawn(async move {
+        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
             }

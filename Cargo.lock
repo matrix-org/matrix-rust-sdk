@@ -287,8 +287,8 @@ dependencies = [
 
 [[package]]
 name = "async-compat"
-version = "0.2.2"
-source = "git+https://github.com/jplatte/async-compat?rev=16dc8597ec09a6102d58d4e7b67714a35dd0ecb8#16dc8597ec09a6102d58d4e7b67714a35dd0ecb8"
+version = "0.2.5"
+source = "git+https://github.com/element-hq/async-compat?rev=5a27c8b290f1f1dcfc0c4ec22c464e38528aa591#5a27c8b290f1f1dcfc0c4ec22c464e38528aa591"
 dependencies = [
  "futures-core",
  "futures-io",

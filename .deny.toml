@@ -60,7 +60,7 @@ allow-git = [
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
-    "https://github.com/jplatte/async-compat",
+    "https://github.com/element-hq/async-compat",
     # We can release vodozemac whenever we need but let's not block development
     # on releases.
     "https://github.com/matrix-org/vodozemac",

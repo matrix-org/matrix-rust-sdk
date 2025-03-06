@@ -1,6 +1,7 @@
 use std::{collections::HashMap, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
+use async_compat::get_runtime_handle;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     crypto::LocalTrust,
@@ -30,7 +31,6 @@ use ruma::{
 use tokio::sync::RwLock;
 use tracing::{error, warn};
 
-use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
@@ -111,7 +111,7 @@ impl Room {
     }
 
     pub fn is_direct(&self) -> bool {
-        RUNTIME.block_on(self.inner.is_direct()).unwrap_or(false)
+        get_runtime_handle().block_on(self.inner.is_direct()).unwrap_or(false)
     }
 
     pub fn is_public(&self) -> bool {
@@ -296,7 +296,7 @@ impl Room {
         listener: Box<dyn RoomInfoListener>,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.subscribe_info();
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while subscriber.next().await.is_some() {
                 match self.room_info().await {
                     Ok(room_info) => listener.call(room_info),
@@ -600,7 +600,7 @@ impl Room {
         self: Arc<Self>,
         listener: Box<dyn TypingNotificationsListener>,
     ) -> Arc<TaskHandle> {
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             let (_event_handler_drop_guard, mut subscriber) =
                 self.inner.subscribe_to_typing_notifications();
             while let Ok(typing_user_ids) = subscriber.recv().await {
@@ -616,7 +616,7 @@ impl Room {
         listener: Box<dyn IdentityStatusChangeListener>,
     ) -> Arc<TaskHandle> {
         let room = self.inner.clone();
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             let status_changes = room.subscribe_to_identity_status_changes().await;
             if let Ok(status_changes) = status_changes {
                 // TODO: what to do with failures?
@@ -884,7 +884,7 @@ impl Room {
     ) -> Result<Arc<TaskHandle>, ClientError> {
         let (stream, seen_ids_cleanup_handle) = self.inner.subscribe_to_knock_requests().await?;
 
-        let handle = Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        let handle = Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(stream);
             while let Some(requests) = stream.next().await {
                 listener.call(requests.into_iter().map(Into::into).collect());
@@ -1034,7 +1034,7 @@ impl Room {
     ) -> Arc<TaskHandle> {
         let room = self.inner.clone();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             let subscription = room.observe_live_location_shares();
             let mut stream = subscription.subscribe();
             let mut pinned_stream = pin!(stream);

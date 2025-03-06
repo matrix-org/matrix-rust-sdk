@@ -14,6 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
+use async_compat::get_runtime_handle;
 use futures_util::pin_mut;
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
 use matrix_sdk_ui::{
@@ -29,7 +30,6 @@ use tracing::error;
 
 use crate::{
     error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService, TaskHandle,
-    RUNTIME,
 };
 
 #[derive(uniffi::Enum)]
@@ -84,7 +84,7 @@ impl SyncService {
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(state_stream);
 
             while let Some(state) = state_stream.next().await {
