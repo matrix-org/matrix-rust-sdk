@@ -293,10 +293,7 @@ mod tests {
         let session_hash = compute_session_hash(&tokens);
         client
             .oidc()
-            .restore_session(mock_session(
-                tokens.clone(),
-                "https://oidc.example.com/issuer".to_owned(),
-            ))
+            .restore_session(mock_session(tokens.clone(), "https://oidc.example.com/issuer"))
             .await?;
 
         assert_eq!(client.session_tokens().unwrap(), tokens);
@@ -558,7 +555,7 @@ mod tests {
         let tokens = mock_session_tokens_with_refresh();
         oidc.restore_session(mock_session(tokens.clone(), server.server().uri())).await?;
 
-        oidc.logout().await?;
+        oidc.logout().await.unwrap();
 
         {
             // The cross process lock has been correctly updated, and all the hashes are

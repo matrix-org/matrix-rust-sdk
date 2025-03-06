@@ -1681,14 +1681,14 @@ impl TryFrom<Session> for AuthSession {
 #[serde(try_from = "OidcSessionDataDeHelper")]
 pub(crate) struct OidcSessionData {
     client_id: ClientId,
-    issuer: String,
+    issuer: Url,
 }
 
 #[derive(Deserialize)]
 struct OidcSessionDataDeHelper {
     client_id: ClientId,
     issuer_info: Option<AuthenticationServerInfo>,
-    issuer: Option<String>,
+    issuer: Option<Url>,
 }
 
 impl TryFrom<OidcSessionDataDeHelper> for OidcSessionData {
@@ -1698,7 +1698,7 @@ impl TryFrom<OidcSessionDataDeHelper> for OidcSessionData {
         let OidcSessionDataDeHelper { client_id, issuer_info, issuer } = value;
 
         let issuer = issuer
-            .or(issuer_info.map(|info| info.issuer))
+            .or(issuer_info.and_then(|info| Url::parse(&info.issuer).ok()))
             .ok_or_else(|| "missing field `issuer`".to_owned())?;
 
         Ok(Self { client_id, issuer })

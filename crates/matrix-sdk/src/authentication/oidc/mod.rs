@@ -242,7 +242,7 @@ impl OidcCtx {
 }
 
 pub(crate) struct OidcAuthData {
-    pub(crate) issuer: String,
+    pub(crate) issuer: Url,
     pub(crate) client_id: ClientId,
     /// The data necessary to validate authorization responses.
     authorization_data: Mutex<HashMap<CsrfToken, AuthorizationValidationData>>,
@@ -251,7 +251,9 @@ pub(crate) struct OidcAuthData {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for OidcAuthData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OidcAuthData").field("issuer", &self.issuer).finish_non_exhaustive()
+        f.debug_struct("OidcAuthData")
+            .field("issuer", &self.issuer.as_str())
+            .finish_non_exhaustive()
     }
 }
 
@@ -466,7 +468,7 @@ impl Oidc {
     ) -> Result<OidcAuthorizationData, OidcError> {
         let metadata = self.provider_metadata().await?;
 
-        self.configure(metadata.issuer.to_string(), registrations).await?;
+        self.configure(metadata.issuer, registrations).await?;
 
         let mut data_builder = self.login(redirect_uri, None)?;
 
@@ -515,7 +517,7 @@ impl Oidc {
     /// static/dynamic client registration.
     async fn configure(
         &self,
-        issuer: String,
+        issuer: Url,
         registrations: OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
         if self.client_id().is_some() {
@@ -523,7 +525,7 @@ impl Oidc {
             return Ok(());
         };
 
-        if self.load_client_registration(issuer.clone(), &registrations) {
+        if self.load_client_registration(issuer, &registrations) {
             tracing::info!("OIDC configuration loaded from disk.");
             return Ok(());
         }
@@ -544,8 +546,7 @@ impl Oidc {
         &self,
         registrations: &OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
-        let issuer = Url::parse(self.issuer().expect("issuer should be set after registration"))
-            .map_err(OidcError::Url)?;
+        let issuer = self.issuer().expect("issuer should be set after registration").to_owned();
         let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.to_owned();
 
         registrations
@@ -559,12 +560,8 @@ impl Oidc {
     /// given issuer.
     ///
     /// Returns `true` if an existing registration was found and `false` if not.
-    fn load_client_registration(&self, issuer: String, registrations: &OidcRegistrations) -> bool {
-        let Ok(issuer_url) = Url::parse(&issuer) else {
-            error!("Failed to parse {issuer:?}");
-            return false;
-        };
-        let Some(client_id) = registrations.client_id(&issuer_url) else {
+    fn load_client_registration(&self, issuer: Url, registrations: &OidcRegistrations) -> bool {
+        let Some(client_id) = registrations.client_id(&issuer) else {
             return false;
         };
 
@@ -578,8 +575,8 @@ impl Oidc {
     /// Returns `None` if the client was not registered or if the registration
     /// was not restored with [`Oidc::restore_registered_client()`] or
     /// [`Oidc::restore_session()`].
-    pub fn issuer(&self) -> Option<&str> {
-        self.data().map(|data| data.issuer.as_str())
+    pub fn issuer(&self) -> Option<&Url> {
+        self.data().map(|data| &data.issuer)
     }
 
     /// The account management actions supported by the provider's account
@@ -810,7 +807,7 @@ impl Oidc {
     /// use matrix_sdk::authentication::oidc::registrations::ClientId;
     /// use matrix_sdk::authentication::oidc::types::registration::ClientMetadata;
     /// # let client_metadata = ClientMetadata::default().validate().unwrap();
-    /// # fn persist_client_registration (_: &str, _: &ClientMetadata, _: &ClientId) {}
+    /// # fn persist_client_registration (_: &url::Url, _: &ClientMetadata, _: &ClientId) {}
     /// # _ = async {
     /// let server_name = ServerName::parse("myhomeserver.org")?;
     /// let client = Client::builder().server_name(&server_name).build().await?;
@@ -865,7 +862,7 @@ impl Oidc {
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
-            provider_metadata.issuer.to_string(),
+            provider_metadata.issuer,
             ClientId::new(registration_response.client_id.clone()),
         );
 
@@ -892,7 +889,7 @@ impl Oidc {
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub fn restore_registered_client(&self, issuer: String, client_id: ClientId) {
+    pub fn restore_registered_client(&self, issuer: Url, client_id: ClientId) {
         let data = OidcAuthData { issuer, client_id, authorization_data: Default::default() };
 
         self.client
@@ -1531,7 +1528,7 @@ pub struct UserSession {
     pub tokens: SessionTokens,
 
     /// The OpenID Connect provider used for this session.
-    pub issuer: String,
+    pub issuer: Url,
 }
 
 /// The data necessary to validate a response from the Token endpoint in the
