@@ -438,6 +438,20 @@ impl Oidc {
     /// webview for a user to login to their account. Call
     /// [`Oidc::login_with_oidc_callback`] to finish the process when the
     /// webview is complete.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_metadata` - The [`VerifiedClientMetadata`] to register, if
+    ///   needed.
+    ///
+    /// * `registrations` - The storage where the registered client ID will be
+    ///   loaded from, if the client is already registered, or stored into, if
+    ///   the client is not registered yet.
+    ///
+    /// * `prompt` - The desired user experience in the web UI. `None` means
+    ///   that the user wishes to login into an existing account, and
+    ///   `Some(Prompt::Create)` means that the user wishes to register a new
+    ///   account.
     pub async fn url_for_oidc(
         &self,
         client_metadata: VerifiedClientMetadata,

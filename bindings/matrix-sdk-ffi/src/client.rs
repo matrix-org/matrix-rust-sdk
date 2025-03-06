@@ -397,6 +397,16 @@ impl Client {
     /// view has succeeded, call `login_with_oidc_callback` with the callback it
     /// returns. If a failure occurs and a callback isn't available, make sure
     /// to call `abort_oidc_auth` to inform the client of this.
+    ///
+    /// # Arguments
+    ///
+    /// * `oidc_configuration` - The configuration used to load the credentials
+    ///   of the client if it is already registered with the authorization
+    ///   server, or register the client and store its credentials if it isn't.
+    ///
+    /// * `prompt` - The desired user experience in the web UI. No value means
+    ///   that the user wishes to login into an existing account, and a value of
+    ///   `Create` means that the user wishes to register a new account.
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
