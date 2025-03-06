@@ -729,6 +729,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
 
     // When alice sends a message in the room and bob syncs it
     let event_id = send_message(&room_for_alice, "secret message").await;
+    // Wait for the event to appear
     while timeline.item_by_event_id(&event_id).await.is_none() {
         bob.sync_once(SyncSettings::new()).await.expect("should not fail to sync");
     }
