@@ -11,6 +11,7 @@ test = false
 
 [dependencies]
 color-eyre = "0.6.2"
+clap = { version = "4.0.15", features = ["derive", "env"] }
 crossterm = "0.28.1"
 futures-util = { workspace = true }
 imbl = { workspace = true }
