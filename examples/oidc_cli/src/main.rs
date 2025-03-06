@@ -31,15 +31,14 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oidc::{
         registrations::ClientId,
-        requests::account_management::AccountManagementActionFull,
         types::{
             iana::oauth::OAuthClientAuthenticationMethod,
             oidc::ApplicationType,
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::GrantType,
         },
-        AuthorizationCode, AuthorizationResponse, CsrfToken, OidcAuthorizationData, OidcSession,
-        UserSession,
+        AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, CsrfToken,
+        OidcAuthorizationData, OidcSession, UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},

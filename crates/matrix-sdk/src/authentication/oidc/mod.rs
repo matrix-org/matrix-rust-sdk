@@ -156,7 +156,6 @@ use error::{
 use mas_oidc_client::{
     http_service::HttpService,
     requests::{
-        account_management::{build_account_management_url, AccountManagementActionFull},
         discovery::{discover, insecure_discover},
         registration::register_client,
     },
@@ -191,6 +190,7 @@ use tokio::{spawn, sync::Mutex};
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
+mod account_management_url;
 mod auth_code_builder;
 mod cross_process;
 pub mod error;
@@ -200,14 +200,16 @@ pub mod registrations;
 #[cfg(test)]
 mod tests;
 
-pub use self::{
-    auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
-    error::OidcError,
-};
 use self::{
+    account_management_url::build_account_management_url,
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
     qrcode::LoginWithQrCode,
     registrations::{ClientId, OidcRegistrations},
+};
+pub use self::{
+    account_management_url::AccountManagementActionFull,
+    auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
+    error::OidcError,
 };
 use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
@@ -619,7 +621,12 @@ impl Oidc {
             return Ok(None);
         };
 
-        let url = build_account_management_url(base_url, action, None)?;
+        let url = if let Some(action) = action {
+            build_account_management_url(base_url, action)
+                .map_err(OidcError::AccountManagementUrl)?
+        } else {
+            base_url
+        };
 
         Ok(Some(url))
     }
