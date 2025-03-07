@@ -21,7 +21,6 @@ use matrix_sdk::{
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
-    sleep::sleep,
     AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
@@ -277,25 +276,6 @@ impl App {
         }
     }
 
-    /// Set the current status message (displayed at the bottom), for a few
-    /// seconds.
-    fn set_status_message(&mut self, status: String) {
-        if let Some(handle) = self.status.clear_status_message.take() {
-            // Cancel the previous task to clear the status message.
-            handle.abort();
-        }
-
-        *self.status.last_status_message.lock().unwrap() = Some(status);
-
-        let message = self.status.last_status_message.clone();
-        self.status.clear_status_message = Some(spawn(async move {
-            // Clear the status message in 4 seconds.
-            sleep(Duration::from_secs(4)).await;
-
-            *message.lock().unwrap() = None;
-        }));
-    }
-
     /// Mark the currently selected room as read.
     async fn mark_as_read(&mut self) {
         let Some(room) = self
@@ -303,20 +283,21 @@ impl App {
             .get_selected_room_id()
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         else {
-            self.set_status_message("missing room or nothing to show".to_owned());
+            self.status.set_status_message("missing room or nothing to show".to_owned());
             return;
         };
 
         // Mark as read!
         match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
             Ok(did) => {
-                self.set_status_message(format!(
+                self.status.set_status_message(format!(
                     "did {}send a read receipt!",
                     if did { "" } else { "not " }
                 ));
             }
             Err(err) => {
-                self.set_status_message(format!("error when marking a room as read: {err}",));
+                self.status
+                    .set_status_message(format!("error when marking a room as read: {err}",));
             }
         }
     }
@@ -344,15 +325,17 @@ impl App {
             if let Some(item_id) = item_id {
                 match sdk_timeline.toggle_reaction(&item_id, "🥰").await {
                     Ok(_) => {
-                        self.set_status_message("reaction sent!".to_owned());
+                        self.status.set_status_message("reaction sent!".to_owned());
                     }
-                    Err(err) => self.set_status_message(format!("error when reacting: {err}")),
+                    Err(err) => {
+                        self.status.set_status_message(format!("error when reacting: {err}"))
+                    }
                 }
             } else {
-                self.set_status_message("no item to react to".to_owned());
+                self.status.set_status_message("no item to react to".to_owned());
             }
         } else {
-            self.set_status_message("missing timeline for room".to_owned());
+            self.status.set_status_message("missing timeline for room".to_owned());
         };
     }
 
@@ -362,7 +345,7 @@ impl App {
         let Some(sdk_timeline) = self.room_list.get_selected_room_id().and_then(|room_id| {
             self.timelines.lock().unwrap().get(&room_id).map(|timeline| timeline.timeline.clone())
         }) else {
-            self.set_status_message("missing timeline for room".to_owned());
+            self.status.set_status_message("missing timeline for room".to_owned());
             return;
         };
 
@@ -388,13 +371,14 @@ impl App {
     }
 
     async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+        use KeyCode::*;
+
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        use KeyCode::*;
                         match key.code {
                             Char('q') | Esc => return Ok(()),
 
@@ -436,16 +420,18 @@ impl App {
                                         .await
                                     {
                                         Ok(_) => {
-                                            self.set_status_message("message sent!".to_owned());
+                                            self.status
+                                                .set_status_message("message sent!".to_owned());
                                         }
                                         Err(err) => {
-                                            self.set_status_message(format!(
+                                            self.status.set_status_message(format!(
                                                 "error when sending event: {err}"
                                             ));
                                         }
                                     }
                                 } else {
-                                    self.set_status_message("missing timeline for room".to_owned());
+                                    self.status
+                                        .set_status_message("missing timeline for room".to_owned());
                                 };
                             }
 
