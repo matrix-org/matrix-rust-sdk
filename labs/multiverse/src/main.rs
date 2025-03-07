@@ -84,9 +84,59 @@ async fn main() -> Result<()> {
 }
 
 #[derive(Default)]
-struct StatefulList {
+struct RoomList {
     state: ListState,
     items: Arc<Mutex<Vector<room_list_service::Room>>>,
+}
+
+impl RoomList {
+    /// Focus the list on the next item, wraps around if needs be.
+    ///
+    /// Returns the index only if there was a meaningful change.
+    fn next(&mut self) -> Option<usize> {
+        let num_items = self.items.lock().unwrap().len();
+
+        // If there's no item to select, leave early.
+        if num_items == 0 {
+            self.state.select(None);
+            return None;
+        }
+
+        // Otherwise, select the next one or wrap around.
+        let prev = self.state.selected();
+        let new = prev.map_or(0, |i| if i >= num_items - 1 { 0 } else { i + 1 });
+
+        if prev != Some(new) {
+            self.state.select(Some(new));
+            Some(new)
+        } else {
+            None
+        }
+    }
+
+    /// Focus the list on the previous item, wraps around if needs be.
+    ///
+    /// Returns the index only if there was a meaningful change.
+    fn previous(&mut self) -> Option<usize> {
+        let num_items = self.items.lock().unwrap().len();
+
+        // If there's no item to select, leave early.
+        if num_items == 0 {
+            self.state.select(None);
+            return None;
+        }
+
+        // Otherwise, select the previous one or wrap around.
+        let prev = self.state.selected();
+        let new = prev.map_or(0, |i| if i == 0 { num_items - 1 } else { i - 1 });
+
+        if prev != Some(new) {
+            self.state.select(Some(new));
+            Some(new)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Default, PartialEq)]
@@ -131,7 +181,7 @@ struct App {
     timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
 
     /// Ratatui's list of room list rooms.
-    room_list_rooms: StatefulList,
+    room_list_rooms: RoomList,
 
     /// Extra information about rooms.
     room_info: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>,
@@ -281,7 +331,7 @@ impl App {
 
         Ok(Self {
             sync_service,
-            room_list_rooms: StatefulList { state: Default::default(), items: rooms },
+            room_list_rooms: RoomList { state: Default::default(), items: rooms },
             room_info: room_infos,
             client,
             listen_task,
@@ -557,11 +607,11 @@ impl Widget for &mut App {
         // Create two chunks with equal horizontal screen space. One for the list and
         // the other for the info block.
         let horizontal =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]);
-        let [lhs, rhs] = horizontal.areas(rest_area);
+            Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]);
+        let [room_list, rhs] = horizontal.areas(rest_area);
 
         self.render_title(header_area, buf);
-        self.render_left(lhs, buf);
+        self.render_room_list(room_list, buf);
         self.render_right(rhs, buf);
         self.render_footer(footer_area, buf);
     }
@@ -574,7 +624,7 @@ impl App {
     }
 
     /// Renders the left part of the screen, that is, the list of rooms.
-    fn render_left(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_room_list(&mut self, area: Rect, buf: &mut Buffer) {
         // We create two blocks, one is for the header (outer) and the other is for list
         // (inner).
         let outer_block = Block::default()
@@ -911,56 +961,6 @@ impl App {
             }
         };
         Paragraph::new(content).centered().render(area, buf);
-    }
-}
-
-impl StatefulList {
-    /// Focus the list on the next item, wraps around if needs be.
-    ///
-    /// Returns the index only if there was a meaningful change.
-    fn next(&mut self) -> Option<usize> {
-        let num_items = self.items.lock().unwrap().len();
-
-        // If there's no item to select, leave early.
-        if num_items == 0 {
-            self.state.select(None);
-            return None;
-        }
-
-        // Otherwise, select the next one or wrap around.
-        let prev = self.state.selected();
-        let new = prev.map_or(0, |i| if i >= num_items - 1 { 0 } else { i + 1 });
-
-        if prev != Some(new) {
-            self.state.select(Some(new));
-            Some(new)
-        } else {
-            None
-        }
-    }
-
-    /// Focus the list on the previous item, wraps around if needs be.
-    ///
-    /// Returns the index only if there was a meaningful change.
-    fn previous(&mut self) -> Option<usize> {
-        let num_items = self.items.lock().unwrap().len();
-
-        // If there's no item to select, leave early.
-        if num_items == 0 {
-            self.state.select(None);
-            return None;
-        }
-
-        // Otherwise, select the previous one or wrap around.
-        let prev = self.state.selected();
-        let new = prev.map_or(0, |i| if i == 0 { num_items - 1 } else { i - 1 });
-
-        if prev != Some(new) {
-            self.state.select(Some(new));
-            Some(new)
-        } else {
-            None
-        }
     }
 }
 
