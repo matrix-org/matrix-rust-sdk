@@ -34,11 +34,13 @@ use matrix_sdk_ui::{
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
+use status::Status;
 use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
 mod room_list;
+mod status;
 
 use room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms};
 
@@ -124,11 +126,8 @@ struct App {
     /// Task listening to room list service changes, and spawning timelines.
     listen_task: JoinHandle<()>,
 
-    /// Content of the latest status message, if set.
-    last_status_message: Arc<Mutex<Option<String>>>,
-
-    /// A task to automatically clear the status message in N seconds, if set.
-    clear_status_message: Option<JoinHandle<()>>,
+    /// The status widet at the bottom of the screen.
+    status: Status,
 
     /// What's shown in the details view, aka the right panel.
     details_mode: DetailsMode,
@@ -161,6 +160,7 @@ impl App {
         sync_service.start().await;
 
         let room_list = RoomList::new(rooms, ui_rooms.clone(), room_infos, sync_service.clone());
+        let status = Status::new();
 
         Ok(Self {
             sync_service,
@@ -168,8 +168,7 @@ impl App {
             room_list,
             client,
             listen_task,
-            last_status_message: Default::default(),
-            clear_status_message: None,
+            status,
             details_mode: Default::default(),
             timelines,
             current_pagination: Default::default(),
@@ -281,15 +280,15 @@ impl App {
     /// Set the current status message (displayed at the bottom), for a few
     /// seconds.
     fn set_status_message(&mut self, status: String) {
-        if let Some(handle) = self.clear_status_message.take() {
+        if let Some(handle) = self.status.clear_status_message.take() {
             // Cancel the previous task to clear the status message.
             handle.abort();
         }
 
-        *self.last_status_message.lock().unwrap() = Some(status);
+        *self.status.last_status_message.lock().unwrap() = Some(status);
 
-        let message = self.last_status_message.clone();
-        self.clear_status_message = Some(spawn(async move {
+        let message = self.status.last_status_message.clone();
+        self.status.clear_status_message = Some(spawn(async move {
             // Clear the status message in 4 seconds.
             sleep(Duration::from_secs(4)).await;
 
@@ -760,7 +759,8 @@ impl App {
     /// Render the bottom part of the screen, with a status message if one is
     /// set, or a default help message otherwise.
     fn render_footer(&self, area: Rect, buf: &mut Buffer) {
-        let content = if let Some(status_message) = self.last_status_message.lock().unwrap().clone()
+        let content = if let Some(status_message) =
+            self.status.last_status_message.lock().unwrap().clone()
         {
             status_message
         } else {
