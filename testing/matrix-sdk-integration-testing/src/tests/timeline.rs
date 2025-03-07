@@ -41,7 +41,11 @@ use matrix_sdk_ui::{
     notification_client::NotificationClient,
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
-    timeline::{EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent},
+    timeline::{
+        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineItem,
+        TimelineItemContent,
+    },
+    Timeline,
 };
 use similar_asserts::assert_eq;
 use stream_assert::assert_pending;
@@ -733,14 +737,11 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
 
     {
         // Then the message is decrypted but it's not from a verified device
-        let items = timeline.items().await;
-        assert_eq!(items.len(), 1);
+        let messages = timeline_messages(&timeline).await;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content().as_message().unwrap().body(), "secret message");
         assert_eq!(
-            items[0].as_event().unwrap().content().as_message().unwrap().body(),
-            "secret message"
-        );
-        assert_eq!(
-            items[0].as_event().unwrap().encryption_info().unwrap().verification_state,
+            messages[0].encryption_info().unwrap().verification_state,
             VerificationState::Unverified(VerificationLevel::UnsignedDevice)
         );
     }
@@ -753,14 +754,11 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     {
         // Then we updated the timeline to reflect the fact that the message is from a
         // verified device.
-        let items = timeline.items().await;
-        assert_eq!(items.len(), 1);
+        let messages = timeline_messages(&timeline).await;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content().as_message().unwrap().body(), "secret message");
         assert_eq!(
-            items[0].as_event().unwrap().content().as_message().unwrap().body(),
-            "secret message"
-        );
-        assert_eq!(
-            items[0].as_event().unwrap().encryption_info().unwrap().verification_state,
+            messages[0].encryption_info().unwrap().verification_state,
             VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
         );
         // (Note: the device is verified, but the _identity_ is not. We're not
@@ -768,13 +766,25 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     }
 
     {
-        // Sanity: the final update just changed the one item
-        let items = timeline.items().await;
-        assert_eq!(items.len(), 11);
+        // Sanity: there is still just one message
+        assert_eq!(timeline_messages(&timeline).await.len(), 1);
+
+        // And the final update just changed the one item
         assert_eq!(update2.len(), 1);
         assert_let!(VectorDiff::Set { index, .. } = &update2[0]);
         assert_eq!(*index, 10);
     }
+}
+
+async fn timeline_messages(timeline: &Timeline) -> Vec<EventTimelineItem> {
+    timeline
+        .items()
+        .await
+        .iter()
+        .filter_map(|item| item.as_event())
+        .filter(|e| e.content().as_message().is_some())
+        .cloned()
+        .collect()
 }
 
 /// Send the supplied message in the supplied room
