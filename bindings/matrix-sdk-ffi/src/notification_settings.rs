@@ -321,7 +321,7 @@ pub enum Action {
 }
 
 impl TryFrom<SdkAction> for Action {
-        type Error = ();
+    type Error = ();
 
     fn try_from(value: SdkAction) -> Result<Self, Self::Error> {
         Ok(match value {
