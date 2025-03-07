@@ -531,7 +531,7 @@ impl Oidc {
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(registrations.verified_metadata.clone(), None).await?;
+        self.register_client(registrations.verified_metadata.clone()).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -784,13 +784,6 @@ impl Oidc {
     ///
     /// * `client_metadata` - The [`VerifiedClientMetadata`] to register.
     ///
-    /// * `software_statement` - A [software statement], a digitally signed
-    ///   version of the metadata, as a JWT. Any claim in this JWT will override
-    ///   the corresponding field in the client metadata. It must include a
-    ///   `software_id` claim that is used to uniquely identify a client and
-    ///   ensure the same `client_id` is returned on subsequent registration,
-    ///   allowing to update the registered client metadata.
-    ///
     /// The client ID in the response should be persisted for future use and
     /// reused for the same authorization server, identified by the
     /// [`Oidc::issuer()`], along with the client metadata sent to the provider,
@@ -822,7 +815,7 @@ impl Oidc {
     /// }
     ///
     /// let response = oidc
-    ///     .register_client(client_metadata.clone(), None)
+    ///     .register_client(client_metadata.clone())
     ///     .await?;
     ///
     /// println!(
@@ -837,12 +830,9 @@ impl Oidc {
     /// persist_client_registration(issuer, &client_metadata, &client_id);
     /// # anyhow::Ok(()) };
     /// ```
-    ///
-    /// [software statement]: https://datatracker.ietf.org/doc/html/rfc7591#autoid-8
     pub async fn register_client(
         &self,
         client_metadata: VerifiedClientMetadata,
-        software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
 
@@ -851,13 +841,9 @@ impl Oidc {
             .as_ref()
             .ok_or(OidcError::NoRegistrationSupport)?;
 
-        let registration_response = register_client(
-            &self.http_service(),
-            registration_endpoint,
-            client_metadata,
-            software_statement,
-        )
-        .await?;
+        let registration_response =
+            register_client(&self.http_service(), registration_endpoint, client_metadata, None)
+                .await?;
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
