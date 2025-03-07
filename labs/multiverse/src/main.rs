@@ -283,21 +283,20 @@ impl App {
             .get_selected_room_id()
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         else {
-            self.status.set_status_message("missing room or nothing to show".to_owned());
+            self.status.set_message("missing room or nothing to show".to_owned());
             return;
         };
 
         // Mark as read!
         match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
             Ok(did) => {
-                self.status.set_status_message(format!(
+                self.status.set_message(format!(
                     "did {}send a read receipt!",
                     if did { "" } else { "not " }
                 ));
             }
             Err(err) => {
-                self.status
-                    .set_status_message(format!("error when marking a room as read: {err}",));
+                self.status.set_message(format!("error when marking a room as read: {err}",));
             }
         }
     }
@@ -325,17 +324,15 @@ impl App {
             if let Some(item_id) = item_id {
                 match sdk_timeline.toggle_reaction(&item_id, "🥰").await {
                     Ok(_) => {
-                        self.status.set_status_message("reaction sent!".to_owned());
+                        self.status.set_message("reaction sent!".to_owned());
                     }
-                    Err(err) => {
-                        self.status.set_status_message(format!("error when reacting: {err}"))
-                    }
+                    Err(err) => self.status.set_message(format!("error when reacting: {err}")),
                 }
             } else {
-                self.status.set_status_message("no item to react to".to_owned());
+                self.status.set_message("no item to react to".to_owned());
             }
         } else {
-            self.status.set_status_message("missing timeline for room".to_owned());
+            self.status.set_message("missing timeline for room".to_owned());
         };
     }
 
@@ -345,7 +342,7 @@ impl App {
         let Some(sdk_timeline) = self.room_list.get_selected_room_id().and_then(|room_id| {
             self.timelines.lock().unwrap().get(&room_id).map(|timeline| timeline.timeline.clone())
         }) else {
-            self.status.set_status_message("missing timeline for room".to_owned());
+            self.status.set_message("missing timeline for room".to_owned());
             return;
         };
 
@@ -420,18 +417,16 @@ impl App {
                                         .await
                                     {
                                         Ok(_) => {
-                                            self.status
-                                                .set_status_message("message sent!".to_owned());
+                                            self.status.set_message("message sent!".to_owned());
                                         }
                                         Err(err) => {
-                                            self.status.set_status_message(format!(
+                                            self.status.set_message(format!(
                                                 "error when sending event: {err}"
                                             ));
                                         }
                                     }
                                 } else {
-                                    self.status
-                                        .set_status_message("missing timeline for room".to_owned());
+                                    self.status.set_message("missing timeline for room".to_owned());
                                 };
                             }
 
