@@ -128,7 +128,7 @@ async fn decryption_task<D: Decryptor>(
         // Retry fetching encryption info for events that are already decrypted
         if !retry_info_indices.is_empty() {
             debug!("Retrying fetching encryption info");
-            retry_event_encryption_info(
+            retry_fetch_encryption_info(
                 &mut *state.write().await,
                 retry_info_indices,
                 &room_data_provider,
@@ -207,7 +207,7 @@ fn event_indices_to_retry_decryption<'a>(
 
 /// Try to fetch [`EncryptionInfo`] for the events with the supplied
 /// indices, and update them where we succeed.
-pub(super) async fn retry_event_encryption_info<P: RoomDataProvider>(
+pub(super) async fn retry_fetch_encryption_info<P: RoomDataProvider>(
     state: &mut TimelineState,
     retry_indices: Vec<usize>,
     room_data_provider: &P,
