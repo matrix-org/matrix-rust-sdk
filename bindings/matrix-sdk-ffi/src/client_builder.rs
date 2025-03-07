@@ -25,7 +25,7 @@ use zeroize::Zeroizing;
 use super::{client::Client, RUNTIME};
 use crate::{
     authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
-    helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
+    helpers::unwrap_or_clone_arc, init_tokio_runtime, task_handle::TaskHandle,
 };
 
 /// A list of bytes containing a certificate in DER or PEM form.
@@ -281,6 +281,8 @@ pub struct ClientBuilder {
 impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
+        init_tokio_runtime();
+
         Arc::new(Self {
             session_paths: None,
             username: None,

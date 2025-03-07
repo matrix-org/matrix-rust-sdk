@@ -14,9 +14,10 @@
 
 use std::{mem::ManuallyDrop, ops::Deref};
 
-use async_compat::TOKIO1 as RUNTIME;
 use ruma::{MilliSecondsSinceUnixEpoch, UInt};
 use tracing::warn;
+
+use crate::RUNTIME;
 
 #[derive(Debug, Clone)]
 pub struct Timestamp(u64);
