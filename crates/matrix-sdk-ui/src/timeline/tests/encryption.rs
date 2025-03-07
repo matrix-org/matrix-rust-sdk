@@ -634,12 +634,22 @@ async fn test_retry_fetching_encryption_info() {
 
     // Sanity: the events come through as unverified
     assert_eq!(timeline.controller.items().await.len(), 3);
-    let event_1 = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let fetched_encryption_info_1 = event_1.as_remote().unwrap().encryption_info.as_ref().unwrap();
-    assert_matches!(fetched_encryption_info_1.verification_state, VerificationState::Unverified(_));
-    let event_2 = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let fetched_encryption_info_2 = event_2.as_remote().unwrap().encryption_info.as_ref().unwrap();
-    assert_matches!(fetched_encryption_info_2.verification_state, VerificationState::Unverified(_));
+    {
+        let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
+        assert_matches!(
+            fetched_encryption_info.verification_state,
+            VerificationState::Unverified(_)
+        );
+    }
+    {
+        let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
+        assert_matches!(
+            fetched_encryption_info.verification_state,
+            VerificationState::Unverified(_)
+        );
+    }
 
     // When we retry the session with ID SESSION_ID
     let own_user_id = user_id!("@me:s.co");
