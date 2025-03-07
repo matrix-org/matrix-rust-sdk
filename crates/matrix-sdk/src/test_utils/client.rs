@@ -191,16 +191,20 @@ pub mod oauth {
         ClientId::new("test_client_id".to_owned())
     }
 
+    /// A redirect URI, for unit or integration tests.
+    pub fn mock_redirect_uri() -> Url {
+        Url::parse("http://127.0.0.1/").expect("redirect URI should be valid")
+    }
+
     /// `VerifiedClientMetadata` that should be valid in most cases, for unit or
     /// integration tests.
     pub fn mock_client_metadata() -> VerifiedClientMetadata {
-        let redirect_uri = Url::parse("http://127.0.0.1/").expect("redirect URI should be valid");
         let client_uri = Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
             .expect("client URI should be valid");
 
         ClientMetadata {
             application_type: Some(ApplicationType::Native),
-            redirect_uris: Some(vec![redirect_uri]),
+            redirect_uris: Some(vec![mock_redirect_uri()]),
             grant_types: Some(vec![
                 GrantType::AuthorizationCode,
                 GrantType::RefreshToken,
