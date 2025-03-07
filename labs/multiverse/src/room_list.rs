@@ -86,6 +86,12 @@ impl RoomList {
             None
         }
     }
+
+    /// Returns the currently selected room id, if any.
+    pub fn get_selected_room_id(&self, selected: Option<usize>) -> Option<OwnedRoomId> {
+        let selected = selected.or_else(|| self.state.selected())?;
+        self.rooms.lock().unwrap().get(selected).cloned().map(|room| room.room_id().to_owned())
+    }
 }
 
 impl Widget for &mut RoomList {
