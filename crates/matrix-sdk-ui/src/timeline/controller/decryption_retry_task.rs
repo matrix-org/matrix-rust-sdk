@@ -16,8 +16,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{
-    deserialized_responses::{EncryptionInfo, TimelineEventKind as SdkTimelineEventKind},
-    executor::JoinHandle,
+    deserialized_responses::TimelineEventKind as SdkTimelineEventKind, executor::JoinHandle,
 };
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
@@ -27,7 +26,7 @@ use tracing::{debug, error, field, info, info_span, Instrument as _};
 
 use crate::timeline::{
     controller::{TimelineSettings, TimelineState},
-    event_item::{EventTimelineItemKind, RemoteEventTimelineItem},
+    event_item::EventTimelineItemKind,
     traits::{Decryptor, RoomDataProvider},
     EncryptedMessage, EventTimelineItem, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
@@ -242,28 +241,12 @@ async fn replacement_for<P: RoomDataProvider>(
     let remote = event.as_remote()?;
     let session_id = remote.encryption_info.as_ref()?.session_id.as_ref()?;
 
-    Some(replacement_item(
-        item,
-        event,
-        remote,
-        room_data_provider.get_encryption_info(session_id, sender).await,
-    ))
-}
-
-/// Make a new [`TimelineItem`] based on the supplied `item`, `event` and
-/// `remote`, but with the supplied `encryption_info` replacing its existing
-/// encryption info.
-fn replacement_item(
-    item: &TimelineItem,
-    event: &EventTimelineItem,
-    remote: &RemoteEventTimelineItem,
-    new_encryption_info: Option<EncryptionInfo>,
-) -> Arc<TimelineItem> {
+    let new_encryption_info = room_data_provider.get_encryption_info(session_id, sender).await;
     let mut new_remote = remote.clone();
     new_remote.encryption_info = new_encryption_info;
-    item.with_kind(TimelineItemKind::Event(
+    Some(item.with_kind(TimelineItemKind::Event(
         event.with_kind(EventTimelineItemKind::Remote(new_remote)),
-    ))
+    )))
 }
 
 /// Attempt decryption of the events encrypted with the session IDs in the
