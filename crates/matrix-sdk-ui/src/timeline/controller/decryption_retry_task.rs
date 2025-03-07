@@ -367,7 +367,7 @@ mod tests {
     };
 
     #[test]
-    fn non_events_are_not_retried() {
+    fn test_non_events_are_not_retried() {
         // Given a timeline with only non-events
         let timeline = [TimelineItem::read_marker(), date_divider()];
         // When we ask what to retry
@@ -378,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn non_remote_events_are_not_retried() {
+    fn test_non_remote_events_are_not_retried() {
         // Given a timeline with only local events
         let timeline = [local_event()];
         // When we ask what to retry
@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn utds_are_retried() {
+    fn test_utds_are_retried() {
         // Given a timeline with a UTD
         let timeline = [utd_event("session1")];
         // When we ask what to retry
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_decrypted_info_is_refetched() {
+    fn test_remote_decrypted_info_is_refetched() {
         // Given a timeline with a decrypted event
         let timeline = [decrypted_event("session1")];
         // When we ask what to retry
@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn only_required_sessions_are_retried() {
+    fn test_only_required_sessions_are_retried() {
         // Given we want to retry everything in session1 only
 
         fn retry(s: &str) -> bool {
