@@ -133,9 +133,6 @@ struct App {
     /// What's shown in the details view, aka the right panel.
     details_mode: DetailsMode,
 
-    /// The current room that's subscribed to in the room list's sliding sync.
-    current_room_subscription: Option<room_list_service::Room>,
-
     current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
@@ -163,17 +160,18 @@ impl App {
         // stopped.
         sync_service.start().await;
 
+        let room_list = RoomList::new(rooms, ui_rooms.clone(), room_infos, sync_service.clone());
+
         Ok(Self {
             sync_service,
-            room_list: RoomList::new(rooms, room_infos),
+            ui_rooms,
+            room_list,
             client,
             listen_task,
             last_status_message: Default::default(),
             clear_status_message: None,
-            ui_rooms,
             details_mode: Default::default(),
             timelines,
-            current_room_subscription: None,
             current_pagination: Default::default(),
         })
     }
@@ -392,21 +390,6 @@ impl App {
         }));
     }
 
-    fn subscribe_to_selected_room(&mut self, selected: usize) {
-        // Cancel the subscription to the previous room, if any.
-        self.current_room_subscription.take();
-
-        // Subscribe to the new room.
-        if let Some(room) = self
-            .room_list
-            .get_room_id_of_entry(selected)
-            .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
-        {
-            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
-            self.current_room_subscription = Some(room);
-        }
-    }
-
     async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
@@ -419,15 +402,11 @@ impl App {
                             Char('q') | Esc => return Ok(()),
 
                             Char('j') | Down => {
-                                if let Some(i) = self.room_list.next() {
-                                    self.subscribe_to_selected_room(i);
-                                }
+                                self.room_list.next_room();
                             }
 
                             Char('k') | Up => {
-                                if let Some(i) = self.room_list.previous() {
-                                    self.subscribe_to_selected_room(i);
-                                }
+                                self.room_list.previous_room();
                             }
 
                             Char('s') => self.sync_service.start().await,
