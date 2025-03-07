@@ -425,17 +425,10 @@ impl Client {
                 Some((issuer, ClientId::new(client_id.clone())))
             })
             .collect::<HashMap<_, _>>();
-        let registrations = OidcRegistrations::new(
-            registrations_file,
-            oidc_metadata.clone(),
-            static_registrations,
-        )?;
+        let registrations =
+            OidcRegistrations::new(registrations_file, oidc_metadata, static_registrations)?;
 
-        let data = self
-            .inner
-            .oidc()
-            .url_for_oidc(oidc_metadata, registrations, prompt.map(Into::into))
-            .await?;
+        let data = self.inner.oidc().url_for_oidc(registrations, prompt.map(Into::into)).await?;
 
         Ok(Arc::new(data))
     }
