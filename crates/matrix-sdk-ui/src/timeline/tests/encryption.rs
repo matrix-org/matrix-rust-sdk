@@ -609,7 +609,7 @@ async fn test_retry_fetching_encryption_info() {
     let provider = TestRoomDataProvider::default().with_encryption_info(verified_encryption_info);
     let timeline = TestTimelineBuilder::new().provider(provider).build();
     let f = &timeline.factory;
-    let mut stream = timeline.subscribe().await;
+    let mut stream = timeline.subscribe_events().await;
 
     // But right now the timeline contains 2 events whose info says "unverified"
     // One is linked to SESSION_ID, the other is linked to some other session.
@@ -634,16 +634,11 @@ async fn test_retry_fetching_encryption_info() {
 
     // Sanity: the events come through as unverified
     assert_eq!(timeline.controller.items().await.len(), 3);
-    let item_1 = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let fetched_encryption_info_1 =
-        item_1.as_event().unwrap().as_remote().unwrap().encryption_info.as_ref().unwrap();
+    let event_1 = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let fetched_encryption_info_1 = event_1.as_remote().unwrap().encryption_info.as_ref().unwrap();
     assert_matches!(fetched_encryption_info_1.verification_state, VerificationState::Unverified(_));
-    // (Plus a date divider is emitted - not sure why it's in the middle...)
-    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(date_divider.is_date_divider());
-    let item_2 = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let fetched_encryption_info_2 =
-        item_2.as_event().unwrap().as_remote().unwrap().encryption_info.as_ref().unwrap();
+    let event_2 = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let fetched_encryption_info_2 = event_2.as_remote().unwrap().encryption_info.as_ref().unwrap();
     assert_matches!(fetched_encryption_info_2.verification_state, VerificationState::Unverified(_));
 
     // When we retry the session with ID SESSION_ID
@@ -659,10 +654,9 @@ async fn test_retry_fetching_encryption_info() {
         .await;
 
     // Then the event in that session has been updated to be verified
-    let item =
-        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
+    let event =
+        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
 
-    let event = item.as_event().unwrap();
     let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
     assert_matches!(fetched_encryption_info.verification_state, VerificationState::Verified);
     assert_eq!(timeline.controller.items().await.len(), 3);
