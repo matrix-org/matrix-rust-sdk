@@ -606,7 +606,8 @@ async fn test_retry_fetching_encryption_info() {
     // Given when I ask the room for new encryption info for any session, it will
     // say "verified"
     let verified_encryption_info = make_encryption_info(SESSION_ID, VerificationState::Verified);
-    let provider = TestRoomDataProvider::default().with_encryption_info(verified_encryption_info);
+    let provider =
+        TestRoomDataProvider::default().with_encryption_info(SESSION_ID, verified_encryption_info);
     let timeline = TestTimelineBuilder::new().provider(provider).build();
     let f = &timeline.factory;
     let mut stream = timeline.subscribe_events().await;

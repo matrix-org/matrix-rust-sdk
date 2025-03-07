@@ -269,8 +269,9 @@ struct TestRoomDataProvider {
     /// Events redacted with that room data providier.
     pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
 
-    /// Returned from get_encryption_info method
-    pub encryption_info: Option<EncryptionInfo>,
+    /// The [`EncryptionInfo`] describing the Megolm sessions that were used to
+    /// encrypt events.
+    pub encryption_info: HashMap<String, EncryptionInfo>,
 }
 
 impl TestRoomDataProvider {
@@ -285,9 +286,10 @@ impl TestRoomDataProvider {
 
     pub(crate) fn with_encryption_info(
         mut self,
+        session_id: &str,
         encryption_info: EncryptionInfo,
     ) -> TestRoomDataProvider {
-        self.encryption_info = Some(encryption_info);
+        self.encryption_info.insert(session_id.to_owned(), encryption_info);
         self
     }
 }
@@ -429,9 +431,9 @@ impl RoomDataProvider for TestRoomDataProvider {
 
     async fn get_encryption_info(
         &self,
-        _session_id: &str,
+        session_id: &str,
         _sender: &UserId,
     ) -> Option<EncryptionInfo> {
-        self.encryption_info.clone()
+        self.encryption_info.get(session_id).cloned()
     }
 }
