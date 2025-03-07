@@ -257,8 +257,8 @@ impl Room {
         self.inner.room_id().to_string()
     }
 
-    pub fn is_encrypted(&self) -> Result<bool, ClientError> {
-        Ok(RUNTIME.block_on(self.inner.is_encrypted())?)
+    pub async fn is_encrypted(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.is_encrypted().await?)
     }
 
     pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
