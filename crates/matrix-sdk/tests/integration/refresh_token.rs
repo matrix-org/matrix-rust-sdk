@@ -613,11 +613,23 @@ async fn test_oauth_refresh_token_handled_success() {
     client.whoami().await.unwrap();
 
     // We receive the new tokens on the stream.
-    assert_next_eq_with_timeout!(tokens_stream, mock_session_tokens());
+    assert_next_eq_with_timeout!(
+        tokens_stream,
+        mock_session_tokens(),
+        "The session tokens stream should receive the updated tokens"
+    );
 
     // We get notified once that the tokens were refreshed.
-    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
-    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+    assert_eq!(
+        session_changes.try_recv(),
+        Ok(SessionChange::TokensRefreshed),
+        "The session changes should be notified of the tokens refresh"
+    );
+    assert_eq!(
+        session_changes.try_recv(),
+        Err(TryRecvError::Empty),
+        "There should be no more session changes"
+    );
 }
 
 #[cfg(feature = "experimental-oidc")]
@@ -657,12 +669,27 @@ async fn test_oauth_refresh_token_handled_failure() {
 
     // The request fails with a refresh token error.
     let res = client.whoami().await;
-    assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::Oidc(oidc_err))) = res);
-    assert_matches!(*oidc_err, OidcError::RefreshToken(_));
+    assert_let!(
+        Err(HttpError::RefreshToken(RefreshTokenError::Oidc(oidc_err))) = res,
+        "The request should fail with a refresh token error from the OIDC API"
+    );
+    assert_matches!(
+        *oidc_err,
+        OidcError::RefreshToken(_),
+        "The OIDC error should be a refresh token error"
+    );
 
     // We get notified once that the token is invalid.
-    assert_eq!(session_changes.try_recv(), Ok(SessionChange::UnknownToken { soft_logout: false }));
-    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+    assert_eq!(
+        session_changes.try_recv(),
+        Ok(SessionChange::UnknownToken { soft_logout: false }),
+        "The session changes should be notified that the token is invalid"
+    );
+    assert_eq!(
+        session_changes.try_recv(),
+        Err(TryRecvError::Empty),
+        "There should be no more session changes"
+    );
 }
 
 #[cfg(feature = "experimental-oidc")]
@@ -706,12 +733,28 @@ async fn test_oauth_handle_refresh_tokens() {
     oidc.refresh_access_token().await.unwrap();
 
     // The tokens were updated.
-    assert_eq!(oidc.session_tokens(), Some(mock_session_tokens()));
+    assert_eq!(
+        oidc.session_tokens(),
+        Some(mock_session_tokens()),
+        "The session tokens should have been updated with the new values"
+    );
 
     // The save session callback was called once.
-    assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 1);
+    assert_eq!(
+        *num_save_session_callback_calls.lock().unwrap(),
+        1,
+        "The save session callback should have been called once"
+    );
 
     // We get notified once that the tokens were refreshed.
-    assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
-    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+    assert_eq!(
+        session_changes.try_recv(),
+        Ok(SessionChange::TokensRefreshed),
+        "The session changes should be notified of the tokens refresh"
+    );
+    assert_eq!(
+        session_changes.try_recv(),
+        Err(TryRecvError::Empty),
+        "There should be no more session changes"
+    );
 }
