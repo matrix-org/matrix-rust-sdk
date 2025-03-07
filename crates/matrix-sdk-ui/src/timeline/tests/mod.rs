@@ -284,7 +284,7 @@ impl TestRoomDataProvider {
         self
     }
 
-    pub(crate) fn with_encryption_info(
+    fn with_encryption_info(
         mut self,
         session_id: &str,
         encryption_info: EncryptionInfo,
