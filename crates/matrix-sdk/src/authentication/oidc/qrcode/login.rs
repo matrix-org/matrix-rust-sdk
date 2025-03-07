@@ -285,7 +285,7 @@ impl<'a> LoginWithQrCode<'a> {
     /// Register the client with the OAuth 2.0 authorization server.
     async fn register_client(&self) -> Result<(), DeviceAuthorizationOauthError> {
         let oidc = self.client.oidc();
-        oidc.register_client(self.client_metadata.clone()).await?;
+        oidc.register_client(&self.client_metadata).await?;
         Ok(())
     }
 

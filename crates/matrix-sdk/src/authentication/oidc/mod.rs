@@ -155,14 +155,10 @@ use std::{
 
 use as_variant::as_variant;
 use error::{
-    CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthDiscoveryError,
-    OauthTokenRevocationError, RedirectUriQueryParseError,
+    CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthClientRegistrationError,
+    OauthDiscoveryError, OauthTokenRevocationError, RedirectUriQueryParseError,
 };
-use mas_oidc_client::{
-    http_service::HttpService,
-    requests::registration::register_client,
-    types::registration::{ClientRegistrationResponse, VerifiedClientMetadata},
-};
+use mas_oidc_client::types::registration::VerifiedClientMetadata;
 pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
@@ -197,6 +193,7 @@ mod http_client;
 mod oidc_discovery;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
+pub mod registration;
 pub mod registrations;
 #[cfg(test)]
 mod tests;
@@ -207,6 +204,7 @@ use self::{
     http_client::OauthHttpClient,
     oidc_discovery::discover,
     qrcode::LoginWithQrCode,
+    registration::{register_client, ClientRegistrationResponse},
     registrations::{ClientId, OidcRegistrations},
 };
 pub use self::{
@@ -292,10 +290,6 @@ impl Oidc {
 
     fn http_client(&self) -> &OauthHttpClient {
         &self.http_client
-    }
-
-    fn http_service(&self) -> HttpService {
-        HttpService::new(self.client.inner.http_client.clone())
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
@@ -531,7 +525,7 @@ impl Oidc {
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(registrations.verified_metadata.clone()).await?;
+        self.register_client(&registrations.verified_metadata).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -815,16 +809,16 @@ impl Oidc {
     /// }
     ///
     /// let response = oidc
-    ///     .register_client(client_metadata.clone())
+    ///     .register_client(&client_metadata)
     ///     .await?;
     ///
     /// println!(
     ///     "Registered with client_id: {}",
-    ///     response.client_id
+    ///     response.client_id.as_str()
     /// );
     ///
     /// // The API only supports clients without secrets.
-    /// let client_id = ClientId::new(response.client_id);
+    /// let client_id = response.client_id;
     /// let issuer = oidc.issuer().expect("issuer should be set after registration");
     ///
     /// persist_client_registration(issuer, &client_metadata, &client_id);
@@ -832,24 +826,23 @@ impl Oidc {
     /// ```
     pub async fn register_client(
         &self,
-        client_metadata: VerifiedClientMetadata,
+        client_metadata: &VerifiedClientMetadata,
     ) -> Result<ClientRegistrationResponse, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
 
         let registration_endpoint = provider_metadata
             .registration_endpoint
             .as_ref()
-            .ok_or(OidcError::NoRegistrationSupport)?;
+            .ok_or(OauthClientRegistrationError::NotSupported)?;
 
         let registration_response =
-            register_client(&self.http_service(), registration_endpoint, client_metadata, None)
-                .await?;
+            register_client(self.http_client(), registration_endpoint, client_metadata).await?;
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
             provider_metadata.issuer,
-            ClientId::new(registration_response.client_id.clone()),
+            registration_response.client_id.clone(),
         );
 
         Ok(registration_response)

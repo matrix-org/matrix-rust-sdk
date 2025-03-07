@@ -61,11 +61,10 @@ pub enum OidcError {
     #[error("authorization server discovery failed: {0}")]
     Discovery(#[from] OauthDiscoveryError),
 
-    /// The OpenID Connect Provider doesn't support dynamic client registration.
-    ///
-    /// The provider probably offers another way to register clients.
-    #[error("no dynamic registration support")]
-    NoRegistrationSupport,
+    /// An error occurred when registering the client with the authorization
+    /// server.
+    #[error("client registration failed: {0}")]
+    ClientRegistration(#[from] OauthClientRegistrationError),
 
     /// The client has not registered while the operation requires it.
     #[error("client not registered")]
@@ -249,3 +248,56 @@ pub enum OauthTokenRevocationError {
     #[error("failed to revoke token: {0}")]
     Revoke(OauthRequestError<RevocationErrorResponseType>),
 }
+
+/// All errors that can occur when registering a client with an OAuth 2.0
+/// authorization server.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OauthClientRegistrationError {
+    /// The authorization server doesn't support dynamic client registration.
+    ///
+    /// The server probably offers another way to register clients.
+    #[error("dynamic client registration is not supported")]
+    NotSupported,
+
+    /// Serialization of the client metadata failed.
+    #[error("failed to serialize client metadata: {0}")]
+    IntoJson(serde_json::Error),
+
+    /// An error occurred when making a request to the OpenID Connect provider.
+    #[error(transparent)]
+    Oauth(#[from] OauthRequestError<ClientRegistrationErrorResponseType>),
+
+    /// Deserialization of the registration response failed.
+    #[error("failed to deserialize registration response: {0}")]
+    FromJson(serde_json::Error),
+}
+
+/// Error response returned by server after requesting an authorization code.
+///
+/// The variant of this enum are defined in [Section 3.2.2 of RFC 7591].
+///
+/// [Section 3.2.2 of RFC 7591]: https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.2
+#[derive(Clone, StringEnum, PartialEqAsRefStr, Eq)]
+#[ruma_enum(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ClientRegistrationErrorResponseType {
+    /// The value of one or more redirection URIs is invalid.
+    InvalidRedirectUri,
+
+    /// The value of one of the client metadata fields is invalid and the server
+    /// has rejected this request.
+    InvalidClientMetadata,
+
+    /// The software statement presented is invalid.
+    InvalidSoftwareStatement,
+
+    /// The software statement presented is not approved for use by this
+    /// authorization server.
+    UnapprovedSoftwareStatement,
+
+    #[doc(hidden)]
+    _Custom(PrivOwnedStr),
+}
+
+impl ErrorResponseType for ClientRegistrationErrorResponseType {}
