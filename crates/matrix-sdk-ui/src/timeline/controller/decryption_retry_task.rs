@@ -121,7 +121,9 @@ async fn decryption_task<D: Decryptor>(
             }
         };
 
-        // Find which events need retrying
+        // Find the indices of events that are in the supplied sessions, distinguishing
+        // between UTDs which we need to decrypt, and already-decrypted events where we
+        // only need to re-fetch encryption info.
         let (retry_decryption_indices, retry_info_indices) =
             event_indices_to_retry_decryption(state.read().await.items.iter(), should_retry);
 
