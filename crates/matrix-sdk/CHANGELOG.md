@@ -136,6 +136,11 @@ simpler methods:
   `(MatrixAuth/Oidc)::session_tokens_stream()`, can be replaced by
   `Client::subscribe_to_session_changes()` and then calling
   `Client::session_tokens()` on a `SessionChange::TokenRefreshed`.
+- [**breaking**] `Oidc::url_for_oidc()` doesn't take the `VerifiedClientMetadata`
+  to register as an argument, the one in `OidcRegistrations` is used instead.
+  However it now takes the redirect URI to use, instead of always using the
+  first one in the client metadata.
+  ([#4771](https://github.com/matrix-org/matrix-rust-sdk/pull/4771))
 
 ## [0.10.0] - 2025-02-04
 
