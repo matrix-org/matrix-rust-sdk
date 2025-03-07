@@ -87,10 +87,15 @@ impl RoomList {
         }
     }
 
-    /// Returns the currently selected room id, if any.
-    pub fn get_selected_room_id(&self, selected: Option<usize>) -> Option<OwnedRoomId> {
-        let selected = selected.or_else(|| self.state.selected())?;
-        self.rooms.lock().unwrap().get(selected).cloned().map(|room| room.room_id().to_owned())
+    /// Returns the [`OwnedRoomId`] of the `nth` room within the [`RoomList`].
+    pub fn get_room_id_of_entry(&self, nth: usize) -> Option<OwnedRoomId> {
+        self.rooms.lock().unwrap().get(nth).cloned().map(|room| room.room_id().to_owned())
+    }
+
+    /// Returns the [`OwnedRoomId`] of the currently selected room, if any.
+    pub fn get_selected_room_id(&self) -> Option<OwnedRoomId> {
+        let selected = self.state.selected()?;
+        self.get_room_id_of_entry(selected)
     }
 }
 

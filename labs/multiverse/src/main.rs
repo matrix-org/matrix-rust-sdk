@@ -303,7 +303,7 @@ impl App {
     async fn mark_as_read(&mut self) {
         let Some(room) = self
             .room_list
-            .get_selected_room_id(None)
+            .get_selected_room_id()
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         else {
             self.set_status_message("missing room or nothing to show".to_owned());
@@ -325,7 +325,7 @@ impl App {
     }
 
     async fn toggle_reaction_to_latest_msg(&mut self) {
-        let selected = self.room_list.get_selected_room_id(None);
+        let selected = self.room_list.get_selected_room_id();
 
         if let Some((sdk_timeline, items)) = selected.and_then(|room_id| {
             self.timelines
@@ -362,7 +362,7 @@ impl App {
     /// Run a small back-pagination (expect a batch of 20 events, continue until
     /// we get 10 timeline items or hit the timeline start).
     fn back_paginate(&mut self) {
-        let Some(sdk_timeline) = self.room_list.get_selected_room_id(None).and_then(|room_id| {
+        let Some(sdk_timeline) = self.room_list.get_selected_room_id().and_then(|room_id| {
             self.timelines.lock().unwrap().get(&room_id).map(|timeline| timeline.timeline.clone())
         }) else {
             self.set_status_message("missing timeline for room".to_owned());
@@ -397,7 +397,7 @@ impl App {
         // Subscribe to the new room.
         if let Some(room) = self
             .room_list
-            .get_selected_room_id(Some(selected))
+            .get_room_id_of_entry(selected)
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         {
             self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
@@ -438,7 +438,7 @@ impl App {
                             }
 
                             Char('M') => {
-                                let selected = self.room_list.get_selected_room_id(None);
+                                let selected = self.room_list.get_selected_room_id();
 
                                 if let Some(sdk_timeline) = selected.and_then(|room_id| {
                                     self.timelines
@@ -579,7 +579,7 @@ impl App {
                 .render(inner_area, buf);
         };
 
-        if let Some(room_id) = self.room_list.get_selected_room_id(None) {
+        if let Some(room_id) = self.room_list.get_selected_room_id() {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
                     // In read receipts mode, show the read receipts object as computed
