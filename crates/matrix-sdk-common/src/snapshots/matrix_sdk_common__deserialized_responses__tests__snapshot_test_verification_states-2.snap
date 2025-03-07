@@ -1,7 +1,0 @@
----
-source: crates/matrix-sdk-common/src/deserialized_responses.rs
-expression: "serde_json::to_value(&state).unwrap()"
----
-{
-  "Unverified": "VerificationViolation"
-}

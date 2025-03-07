@@ -408,6 +408,7 @@ impl Serialize for ToDeviceEvents {
 mod tests {
     use assert_matches::assert_matches;
     use serde_json::{json, Value};
+    use similar_asserts::assert_eq;
 
     use super::ToDeviceEvents;
 

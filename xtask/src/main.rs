@@ -17,7 +17,7 @@ use release::ReleaseArgs;
 use swift::SwiftArgs;
 use xshell::{cmd, Shell};
 
-const NIGHTLY: &str = "nightly-2024-11-26";
+const NIGHTLY: &str = "nightly-2025-02-20";
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 

@@ -38,7 +38,8 @@ use matrix_sdk::{
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::GrantType,
         },
-        AuthorizationCode, AuthorizationResponse, OidcAuthorizationData, OidcSession, UserSession,
+        AuthorizationCode, AuthorizationResponse, CsrfToken, OidcAuthorizationData, OidcSession,
+        UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -118,7 +119,7 @@ struct ClientSession {
 #[derive(Debug, Serialize, Deserialize)]
 struct Credentials {
     /// The client ID obtained after registration.
-    client_id: String,
+    client_id: ClientId,
 }
 
 /// The full session to persist.
@@ -152,10 +153,10 @@ impl OidcCli {
     async fn new(data_dir: &Path, session_file: PathBuf) -> anyhow::Result<Self> {
         println!("No previous session found, logging in…");
 
-        let (client, client_session, issuer) = build_client(data_dir).await?;
+        let (client, client_session) = build_client(data_dir).await?;
         let cli = Self { client, restored: false, session_file };
 
-        let client_id = cli.register_client(issuer).await?;
+        let client_id = cli.register_client().await?;
         cli.login().await?;
 
         // Persist the session to reuse it later.
@@ -189,10 +190,10 @@ impl OidcCli {
     /// Register the OIDC client with the provider.
     ///
     /// Returns the ID of the client returned by the provider.
-    async fn register_client(&self, issuer: String) -> anyhow::Result<String> {
+    async fn register_client(&self) -> anyhow::Result<ClientId> {
         let oidc = self.client.oidc();
 
-        let provider_metadata = oidc.given_provider_metadata(&issuer).await?;
+        let provider_metadata = oidc.provider_metadata().await?;
 
         if provider_metadata.registration_endpoint.is_none() {
             // This would require to register with the provider manually, which
@@ -210,11 +211,11 @@ impl OidcCli {
         // to update the metadata later without changing the client ID, but requires to
         // have a way to serve public keys online to validate the signature of
         // the JWT.
-        let res = oidc.register_client(&issuer, metadata.clone(), None).await?;
+        let res = oidc.register_client(metadata.clone(), None).await?;
 
         println!("\nRegistered successfully");
 
-        Ok(res.client_id)
+        Ok(ClientId::new(res.client_id))
     }
 
     /// Login via the OIDC Authorization Code flow.
@@ -283,11 +284,7 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
-        let session = OidcSession {
-            client_id: ClientId(client_credentials.client_id),
-            metadata: client_metadata(),
-            user: user_session,
-        };
+        let session = OidcSession { client_id: client_credentials.client_id, user: user_session };
         // Restore the Matrix user session.
         client.restore_session(session).await?;
 
@@ -610,22 +607,13 @@ impl OidcCli {
     /// Log out from this session.
     async fn logout(&self) -> anyhow::Result<()> {
         // Log out via OIDC.
-        let url_builder = self.client.oidc().logout().await?;
+        self.client.oidc().logout().await?;
 
         // Delete the stored session and database.
         let data_dir = self.session_file.parent().expect("The file has a parent directory");
         fs::remove_dir_all(data_dir).await?;
 
         println!("\nLogged out successfully");
-
-        if let Some(url_builder) = url_builder {
-            let data = url_builder.build()?;
-            println!(
-                "\nTo log out from your account in the provider's interface, visit: {}",
-                data.url
-            );
-        }
-
         println!("\nExiting…");
 
         Ok(())
@@ -636,7 +624,7 @@ impl OidcCli {
 ///
 /// Returns the client, the data required to restore the client, and the OIDC
 /// issuer advertised by the homeserver.
-async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession, String)> {
+async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)> {
     let db_path = data_dir.join("db");
 
     // Generate a random passphrase.
@@ -669,28 +657,24 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession,
             .await
         {
             Ok(client) => {
-                // Check if the homeserver advertises an OIDC Provider.
-                // This can be bypassed by providing the issuer manually, but it should be the
-                // most common case for public homeservers.
-                match client.oidc().fetch_authentication_issuer().await {
-                    Ok(issuer) => {
-                        println!("Found issuer: {issuer}");
+                // Check if the homeserver advertises OAuth 2.0 server metadata.
+                match client.oidc().provider_metadata().await {
+                    Ok(server_metadata) => {
+                        println!(
+                            "Found OAuth 2.0 server metadata with issuer: {}",
+                            server_metadata.issuer()
+                        );
 
                         let homeserver = client.homeserver().to_string();
-                        return Ok((
-                            client,
-                            ClientSession { homeserver, db_path, passphrase },
-                            issuer,
-                        ));
+                        return Ok((client, ClientSession { homeserver, db_path, passphrase }));
                     }
                     Err(error) => {
-                        if error
-                            .as_client_api_error()
-                            .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
-                        {
-                            println!("This homeserver doesn't advertise an authentication issuer.");
+                        if error.is_not_supported() {
+                            println!(
+                                "This homeserver doesn't advertise OAuth 2.0 server metadata."
+                            );
                         } else {
-                            println!("Error fetching the authentication issuer: {error:?}");
+                            println!("Error fetching the OAuth 2.0 server metadata: {error:?}");
                         }
                         // The client already initialized the store so we need to remove it.
                         fs::remove_dir_all(data_dir).await?;
@@ -763,7 +747,7 @@ fn client_metadata() -> VerifiedClientMetadata {
 /// Returns the code to obtain the access token.
 async fn use_auth_url(
     url: &Url,
-    state: &str,
+    state: &CsrfToken,
     data_rx: oneshot::Receiver<String>,
     signal_tx: oneshot::Sender<()>,
 ) -> anyhow::Result<AuthorizationCode> {
@@ -776,8 +760,7 @@ async fn use_auth_url(
     let code = match AuthorizationResponse::parse_query(&response_query)? {
         AuthorizationResponse::Success(code) => code,
         AuthorizationResponse::Error(err) => {
-            let err = err.error;
-            return Err(anyhow!("{}: {:?}", err.error, err.error_description));
+            return Err(anyhow!(err.error));
         }
     };
 
@@ -785,7 +768,7 @@ async fn use_auth_url(
     // wrong, it is an error. Some clients might want to allow several
     // authorizations at once, in which case the state string can be used to
     // identify the session that was authorized.
-    if code.state != state {
+    if code.state != *state {
         bail!("State strings don't match")
     }
 

@@ -12,22 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, num::NonZeroU32};
+use std::borrow::Cow;
 
-use language_tags::LanguageTag;
-use mas_oidc_client::{
-    requests::authorization_code::{build_authorization_url, AuthorizationRequestData},
-    types::{
-        requests::{Display, Prompt},
-        scope::Scope,
-    },
+use oauth2::{
+    basic::BasicClient as OauthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
 };
-use ruma::UserId;
-use tracing::{error, info, instrument};
+use ruma::{api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, UserId};
+use tracing::{info, instrument};
 use url::Url;
 
 use super::{Oidc, OidcError};
-use crate::Result;
+use crate::{authentication::oidc::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
 /// OpenID Connect Provider via the Authorization Code flow.
@@ -36,91 +31,35 @@ use crate::Result;
 #[allow(missing_debug_implementations)]
 pub struct OidcAuthCodeUrlBuilder {
     oidc: Oidc,
-    scope: Scope,
+    scopes: Vec<Scope>,
     redirect_uri: Url,
-    display: Option<Display>,
     prompt: Option<Vec<Prompt>>,
-    max_age: Option<NonZeroU32>,
-    ui_locales: Option<Vec<LanguageTag>>,
     login_hint: Option<String>,
-    acr_values: Option<HashSet<String>>,
 }
 
 impl OidcAuthCodeUrlBuilder {
-    pub(super) fn new(oidc: Oidc, scope: Scope, redirect_uri: Url) -> Self {
-        Self {
-            oidc,
-            scope,
-            redirect_uri,
-            display: None,
-            prompt: None,
-            max_age: None,
-            ui_locales: None,
-            login_hint: None,
-            acr_values: None,
-        }
-    }
-
-    /// Set how the Authorization Server should display the authentication and
-    /// consent user interface pages to the End-User.
-    pub fn display(mut self, display: Display) -> Self {
-        self.display = Some(display);
-        self
+    pub(super) fn new(oidc: Oidc, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
+        Self { oidc, scopes, redirect_uri, prompt: None, login_hint: None }
     }
 
     /// Set the [`Prompt`] of the authorization URL.
     ///
+    /// If this is not set, it is assumed that the user wants to log into an
+    /// existing account.
+    ///
     /// [`Prompt::Create`] can be used to signify that the user wants to
-    /// register a new account. If [`Prompt::None`] is used, it must be the only
-    /// value.
+    /// register a new account.
     pub fn prompt(mut self, prompt: Vec<Prompt>) -> Self {
         self.prompt = Some(prompt);
         self
     }
 
-    /// Set the allowable elapsed time in seconds since the last time the
-    /// End-User was actively authenticated by the OpenID Provider.
-    pub fn max_age(mut self, max_age: NonZeroU32) -> Self {
-        self.max_age = Some(max_age);
-        self
-    }
-
-    /// Set the preferred locales of the user.
-    ///
-    /// Must be ordered from the preferred locale to the least preferred locale.
-    pub fn ui_locales(mut self, ui_locales: Vec<LanguageTag>) -> Self {
-        self.ui_locales = Some(ui_locales);
-        self
-    }
-
-    /// Set the hint to the Authorization Server about the login identifier the
-    /// End-User might use to log in.
-    ///
-    /// To set a Matrix user ID as a login hint, use [`Self::user_id_hint()`].
-    ///
-    /// Erases any value set with [`Self::user_id_hint()`].
-    pub fn login_hint(mut self, login_hint: String) -> Self {
-        self.login_hint = Some(login_hint);
-        self
-    }
-
     /// Set the hint to the Authorization Server about the Matrix user ID the
-    /// End-User might use to log in.
+    /// End-User might use to log in, as defined in [MSC4198].
     ///
-    /// To set another type of identifier as a login hint, use
-    /// [`Self::login_hint()`].
-    ///
-    /// Erases any value set with [`Self::login_hint()`].
+    /// [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     pub fn user_id_hint(mut self, user_id: &UserId) -> Self {
         self.login_hint = Some(format!("mxid:{user_id}"));
-        self
-    }
-
-    /// Set the requested Authentication Context Class Reference values.
-    ///
-    /// This is only necessary with specific providers.
-    pub fn acr_values(mut self, acr_values: HashSet<String>) -> Self {
-        self.acr_values = Some(acr_values);
         self
     }
 
@@ -135,95 +74,44 @@ impl OidcAuthCodeUrlBuilder {
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OidcAuthorizationData, OidcError> {
-        let Self {
-            oidc,
-            scope,
-            redirect_uri,
-            display,
-            prompt,
-            max_age,
-            ui_locales,
-            login_hint,
-            acr_values,
-        } = self;
+        let Self { oidc, scopes, redirect_uri, prompt, login_hint } = self;
 
         let data = oidc.data().ok_or(OidcError::NotAuthenticated)?;
         info!(
             issuer = data.issuer,
-            %scope, "Authorizing scope via the OpenID Connect Authorization Code flow"
+            ?scopes,
+            "Authorizing scope via the OpenID Connect Authorization Code flow"
         );
 
         let provider_metadata = oidc.provider_metadata().await?;
+        let auth_url = AuthUrl::from_url(provider_metadata.authorization_endpoint().clone());
 
-        let mut authorization_data =
-            AuthorizationRequestData::new(data.client_id.0.clone(), scope, redirect_uri);
-        authorization_data.code_challenge_methods_supported =
-            provider_metadata.code_challenge_methods_supported.clone();
-        authorization_data.display = display;
-        authorization_data.prompt = prompt;
-        authorization_data.max_age = max_age;
-        authorization_data.ui_locales = ui_locales;
-        authorization_data.login_hint = login_hint;
-        authorization_data.acr_values = acr_values;
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+        let redirect_uri = RedirectUrl::from_url(redirect_uri);
 
-        if let Some(id_token) = oidc.latest_id_token() {
-            authorization_data.id_token_hint = Some(id_token.into_string());
+        let client = OauthClient::new(data.client_id.clone()).set_auth_uri(auth_url);
+        let mut request = client
+            .authorize_url(CsrfToken::new_random)
+            .add_scopes(scopes)
+            .set_pkce_challenge(pkce_challenge)
+            .set_redirect_uri(Cow::Borrowed(&redirect_uri));
+
+        if let Some(prompt) = prompt {
+            // This should be a list of space separated values.
+            let prompt_str = prompt.iter().map(Prompt::as_str).collect::<Vec<_>>().join(" ");
+            request = request.add_extra_param("prompt", prompt_str);
         }
 
-        let authorization_endpoint = provider_metadata.authorization_endpoint();
-        let mut rng = super::rng()?;
+        if let Some(login_hint) = login_hint {
+            request = request.add_extra_param("login_hint", login_hint);
+        }
 
-        // Try a pushed authorization request if the provider supports it.
-        let (url, validation_data) = if let Some(par_endpoint) =
-            &provider_metadata.pushed_authorization_request_endpoint
-        {
-            let client_credentials = oidc.data().ok_or(OidcError::NotAuthenticated)?.credentials();
+        let (url, state) = request.url();
 
-            let res = oidc
-                .backend
-                .build_par_authorization_url(
-                    client_credentials.clone(),
-                    par_endpoint,
-                    authorization_endpoint.clone(),
-                    authorization_data.clone(),
-                )
-                .await;
-
-            match res {
-                Ok(res) => res,
-                Err(error) => {
-                    // Keycloak doesn't allow public clients to use the PAR endpoint, so we
-                    // should try a regular authorization URL instead.
-                    // See: <https://github.com/keycloak/keycloak/issues/8939>
-                    let client_metadata =
-                        oidc.client_metadata().ok_or(OidcError::NotAuthenticated)?;
-
-                    // If the client said that PAR should be enforced, we should not try without
-                    // it, so just return the error.
-                    if client_metadata.require_pushed_authorization_requests.unwrap_or(false) {
-                        return Err(error);
-                    }
-
-                    error!(
-                        ?error,
-                        "Error making a request to the Pushed Authorization Request endpoint. \
-                        Falling back to a regular authorization URL"
-                    );
-
-                    build_authorization_url(
-                        authorization_endpoint.clone(),
-                        authorization_data,
-                        &mut rng,
-                    )?
-                }
-            }
-        } else {
-            build_authorization_url(authorization_endpoint.clone(), authorization_data, &mut rng)?
-        };
-
-        let state = validation_data.state.clone();
-
-        data.authorization_data.lock().await.insert(state.clone(), validation_data);
+        data.authorization_data
+            .lock()
+            .await
+            .insert(state.clone(), AuthorizationValidationData { redirect_uri, pkce_verifier });
 
         Ok(OidcAuthorizationData { url, state })
     }
@@ -237,7 +125,7 @@ pub struct OidcAuthorizationData {
     pub url: Url,
     /// A unique identifier for the request, used to ensure the response
     /// originated from the authentication issuer.
-    pub state: String,
+    pub state: CsrfToken,
 }
 
 #[cfg(feature = "uniffi")]

@@ -32,7 +32,7 @@ use ruma::{
             upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
         },
     },
-    events::AnyToDeviceEvent,
+    events::{room::history_visibility::HistoryVisibility, AnyToDeviceEvent},
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
     OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId, OwnedUserId, RoomId,
@@ -220,6 +220,7 @@ impl StaticAccountData {
 
         let sender_key = identity_keys.curve25519;
         let signing_key = identity_keys.ed25519;
+        let shared_history = shared_history_from_history_visibility(&visibility);
 
         let inbound = InboundGroupSession::new(
             sender_key,
@@ -229,6 +230,7 @@ impl StaticAccountData {
             own_sender_data,
             algorithm,
             Some(visibility),
+            shared_history,
         )?;
 
         Ok((outbound, inbound))
@@ -1511,6 +1513,34 @@ impl PartialEq for Account {
     }
 }
 
+/// Calculate the shared history flag from the history visibility as defined in
+/// [MSC3061]
+///
+/// The MSC defines that the shared history flag should be set to true when the
+/// history visibility setting is set to `shared` or `world_readable`:
+///
+/// > A room key is flagged as having been used for shared history when it was
+/// > used to encrypt a message while the room's history visibility setting
+/// > was set to world_readable or shared.
+///
+/// In all other cases, even if we encounter a custom history visibility, we
+/// should return false:
+///
+/// > If the client does not have an m.room.history_visibility state event for
+/// > the room, or its value is not understood, the client should treat it as if
+/// > its value is joined for the purposes of determining whether the key is
+/// > used for shared history.
+///
+/// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+pub(crate) fn shared_history_from_history_visibility(
+    history_visibility: &HistoryVisibility,
+) -> bool {
+    match history_visibility {
+        HistoryVisibility::Shared | HistoryVisibility::WorldReadable => true,
+        HistoryVisibility::Invited | HistoryVisibility::Joined | _ => false,
+    }
+}
+
 /// Expand the pickle key for an older version of dehydrated devices
 ///
 /// The `org.matrix.msc3814.v1.olm` variant of dehydrated devices used the
@@ -1550,16 +1580,16 @@ mod tests {
     use anyhow::Result;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, user_id, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
-        OneTimeKeyId, UserId,
+        device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
+        MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, UserId,
     };
     use serde_json::json;
 
     use super::Account;
     use crate::{
-        olm::SignedJsonObject,
+        olm::{account::shared_history_from_history_visibility, SignedJsonObject},
         types::{DeviceKeys, SignedKey},
-        DeviceData,
+        DeviceData, EncryptionSettings,
     };
 
     fn user_id() -> &'static UserId {
@@ -1754,5 +1784,54 @@ mod tests {
             .expect("The fallback key should pass the signature verification");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_shared_history_flag_from_history_visibility() {
+        assert!(
+            shared_history_from_history_visibility(&HistoryVisibility::WorldReadable),
+            "The world readable visibility should set the shared history flag to true"
+        );
+
+        assert!(
+            shared_history_from_history_visibility(&HistoryVisibility::Shared),
+            "The shared visibility should set the shared history flag to true"
+        );
+
+        assert!(
+            !shared_history_from_history_visibility(&HistoryVisibility::Joined),
+            "The joined visibility should set the shared history flag to false"
+        );
+
+        assert!(
+            !shared_history_from_history_visibility(&HistoryVisibility::Invited),
+            "The invited visibility should set the shared history flag to false"
+        );
+
+        let visibility = HistoryVisibility::from("custom_visibility");
+        assert!(
+            !shared_history_from_history_visibility(&visibility),
+            "A custom visibility should set the shared history flag to false"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_set_when_creating_group_sessions() {
+        let account = Account::new(user_id());
+        let room_id = room_id!("!room:id");
+        let settings = EncryptionSettings {
+            history_visibility: HistoryVisibility::Shared,
+            ..Default::default()
+        };
+
+        let (_, session) = account
+            .create_group_session_pair(room_id, settings, Default::default())
+            .await
+            .expect("We should be able to create a group session pair");
+
+        assert!(
+            session.shared_history(),
+            "The shared history flag should have been set when we created the new session"
+        );
     }
 }

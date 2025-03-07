@@ -51,12 +51,13 @@ use crate::{
             },
             olm_v1::DecryptedForwardedRoomKeyEvent,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
+            room_key,
         },
         serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
     },
 };
 
-// TODO add creation times to the inbound group sessions so we can export
+// TODO: add creation times to the inbound group sessions so we can export
 // sessions that were created between some time period, this should only be set
 // for non-imported sessions.
 
@@ -153,6 +154,13 @@ pub struct InboundGroupSession {
 
     /// Was this room key backed up to the server.
     backed_up: Arc<AtomicBool>,
+
+    /// Whether this [`InboundGroupSession`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    shared_history: bool,
 }
 
 impl InboundGroupSession {
@@ -175,6 +183,24 @@ impl InboundGroupSession {
     ///
     /// * `sender_data` - Information about the sender of the to-device message
     ///   that established this session.
+    ///
+    /// * `encryption_algorithm` - The [`EventEncryptionAlgorithm`] that should
+    ///   be used when messages are being decrypted. The method will return an
+    ///   [`SessionCreationError::Algorithm`] error if an algorithm we do not
+    ///   support is given,
+    ///
+    /// * `history_visibility` - The history visibility of the room at the time
+    ///   the matching [`OutboundGroupSession`] was created. This is only set if
+    ///   we are the crator of this  [`InboundGroupSession`]. Sessinons that are
+    ///   received from other devices use the  `shared_history` flag instead.
+    ///
+    /// * `shared_history` - Whether this [`InboundGroupSession`] can be shared
+    ///   with users who are invited to the room in the future, allowing access
+    ///   to history, as defined in [MSC3061]. This flag is a surjection of the
+    ///   history visibility of the room.
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sender_key: Curve25519PublicKey,
         signing_key: Ed25519PublicKey,
@@ -183,6 +209,7 @@ impl InboundGroupSession {
         sender_data: SenderData,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
+        shared_history: bool,
     ) -> Result<Self, SessionCreationError> {
         let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
 
@@ -207,26 +234,58 @@ impl InboundGroupSession {
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
+            shared_history,
         })
     }
 
-    /// Create a InboundGroupSession from an exported version of the group
-    /// session.
+    /// Create a new [`InboundGroupSession`] from a `m.room_key` event with an
+    /// `m.megolm.v1.aes-sha2` content.
     ///
-    /// Most notably this can be called with an `ExportedRoomKey` from a
-    /// previous [`export()`] call.
+    /// The `m.room_key` event **must** have been encrypted using the
+    /// `m.olm.v1.curve25519-aes-sha2` algorithm and the `sender_key` **must**
+    /// be the long-term [`Curve25519PublicKey`] that was used to establish
+    /// the 1-to-1 Olm session.
     ///
-    /// [`export()`]: #method.export
+    /// The `signing_key` **must** be the [`Ed25519PublicKey`] contained in the
+    /// `keys` field of the [decrypted payload].
+    ///
+    /// [decrypted payload]: https://spec.matrix.org/unstable/client-server-api/#molmv1curve25519-aes-sha2
+    pub fn from_room_key_content(
+        sender_key: Curve25519PublicKey,
+        signing_key: Ed25519PublicKey,
+        content: &room_key::MegolmV1AesSha2Content,
+    ) -> Result<Self, SessionCreationError> {
+        let room_key::MegolmV1AesSha2Content {
+            room_id,
+            session_id: _,
+            session_key,
+            shared_history,
+            ..
+        } = content;
+
+        Self::new(
+            sender_key,
+            signing_key,
+            room_id,
+            session_key,
+            SenderData::unknown(),
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            None,
+            *shared_history,
+        )
+    }
+
+    /// Create a new [`InboundGroupSession`] from an exported version of the
+    /// group session.
+    ///
+    /// Most notably this can be called with an [`ExportedRoomKey`] from a
+    /// previous [`InboundGroupSession::export()`] call.
     pub fn from_export(exported_session: &ExportedRoomKey) -> Result<Self, SessionCreationError> {
         Self::try_from(exported_session)
     }
 
-    /// Store the group session as a base64 encoded string.
-    ///
-    /// # Arguments
-    ///
-    /// * `pickle_mode` - The mode that was used to pickle the group session,
-    ///   either an unencrypted mode or an encrypted using passphrase.
+    /// Convert the [`InboundGroupSession`] into a
+    /// [`PickledInboundGroupSession`] which can be serialized.
     pub async fn pickle(&self) -> PickledInboundGroupSession {
         let pickle = self.inner.lock().await.pickle();
 
@@ -240,13 +299,14 @@ impl InboundGroupSession {
             backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
             algorithm: (*self.algorithm).to_owned(),
+            shared_history: self.shared_history,
         }
     }
 
     /// Export this session at the first known message index.
     ///
     /// If only a limited part of this session should be exported use
-    /// [`export_at_index()`](#method.export_at_index).
+    /// [`InboundGroupSession::export_at_index()`].
     pub async fn export(&self) -> ExportedRoomKey {
         self.export_at_index(self.first_known_index()).await
     }
@@ -292,6 +352,7 @@ impl InboundGroupSession {
             forwarding_curve25519_key_chain: vec![],
             sender_claimed_keys: (*self.creator_info.signing_keys).clone(),
             session_key,
+            shared_history: self.shared_history,
         }
     }
 
@@ -307,7 +368,20 @@ impl InboundGroupSession {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(pickle: PickledInboundGroupSession) -> Result<Self, PickleError> {
-        let session: InnerSession = pickle.pickle.into();
+        let PickledInboundGroupSession {
+            pickle,
+            sender_key,
+            signing_key,
+            sender_data,
+            room_id,
+            imported,
+            backed_up,
+            history_visibility,
+            algorithm,
+            shared_history,
+        } = pickle;
+
+        let session: InnerSession = pickle.into();
         let first_known_index = session.first_known_index();
         let session_id = session.session_id();
 
@@ -315,16 +389,17 @@ impl InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: session_id.into(),
             creator_info: SessionCreatorInfo {
-                curve25519_key: pickle.sender_key,
-                signing_keys: pickle.signing_key.into(),
+                curve25519_key: sender_key,
+                signing_keys: signing_key.into(),
             },
-            sender_data: pickle.sender_data,
-            history_visibility: pickle.history_visibility.into(),
+            sender_data,
+            history_visibility: history_visibility.into(),
             first_known_index,
-            room_id: (*pickle.room_id).into(),
-            backed_up: AtomicBool::from(pickle.backed_up).into(),
-            algorithm: pickle.algorithm.into(),
-            imported: pickle.imported,
+            room_id,
+            backed_up: AtomicBool::from(backed_up).into(),
+            algorithm: algorithm.into(),
+            imported,
+            shared_history,
         })
     }
 
@@ -474,6 +549,15 @@ impl InboundGroupSession {
     pub fn sender_data_type(&self) -> SenderDataType {
         self.sender_data.to_type()
     }
+
+    /// Whether this [`InboundGroupSession`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    pub fn shared_history(&self) -> bool {
+        self.shared_history
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -519,6 +603,13 @@ pub struct PickledInboundGroupSession {
     /// The algorithm of this inbound group session.
     #[serde(default = "default_algorithm")]
     pub algorithm: EventEncryptionAlgorithm,
+    /// Whether this [`InboundGroupSession`] can be shared with users who are
+    /// invited to the room in the future, allowing access to history, as
+    /// defined in [MSC3061].
+    ///
+    /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
+    #[serde(default)]
+    pub shared_history: bool,
 }
 
 fn default_algorithm() -> EventEncryptionAlgorithm {
@@ -529,26 +620,38 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
     type Error = SessionCreationError;
 
     fn try_from(key: &ExportedRoomKey) -> Result<Self, Self::Error> {
-        let config = OutboundGroupSession::session_config(&key.algorithm)?;
-        let session = InnerSession::import(&key.session_key, config);
+        let ExportedRoomKey {
+            algorithm,
+            room_id,
+            sender_key,
+            session_id,
+            session_key,
+            sender_claimed_keys,
+            forwarding_curve25519_key_chain: _,
+            shared_history,
+        } = key;
+
+        let config = OutboundGroupSession::session_config(algorithm)?;
+        let session = InnerSession::import(session_key, config);
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
-            session_id: key.session_id.to_owned().into(),
+            session_id: session_id.to_owned().into(),
             creator_info: SessionCreatorInfo {
-                curve25519_key: key.sender_key,
-                signing_keys: key.sender_claimed_keys.to_owned().into(),
+                curve25519_key: *sender_key,
+                signing_keys: sender_claimed_keys.to_owned().into(),
             },
             // TODO: In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
             history_visibility: None.into(),
             first_known_index,
-            room_id: key.room_id.to_owned(),
+            room_id: room_id.to_owned(),
             imported: true,
-            algorithm: key.algorithm.to_owned().into(),
+            algorithm: algorithm.to_owned().into(),
             backed_up: AtomicBool::from(false).into(),
+            shared_history: *shared_history,
         })
     }
 }
@@ -579,6 +682,7 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            shared_history: false,
         }
     }
 }
@@ -605,6 +709,7 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
             imported: true,
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2.into(),
             backed_up: AtomicBool::from(false).into(),
+            shared_history: false,
         }
     }
 }
@@ -627,19 +732,22 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
+    use insta::assert_json_snapshot;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
-        UserId,
+        device_id, events::room::history_visibility::HistoryVisibility, owned_room_id, room_id,
+        user_id, DeviceId, UserId,
     };
+    use serde_json::json;
+    use similar_asserts::assert_eq;
     use vodozemac::{
         megolm::{SessionKey, SessionOrdering},
         Curve25519PublicKey, Ed25519PublicKey,
     };
 
     use crate::{
-        olm::{InboundGroupSession, KnownSenderData, SenderData},
-        types::EventEncryptionAlgorithm,
+        olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, KnownSenderData, SenderData},
+        types::{events::room_key, EventEncryptionAlgorithm},
         Account,
     };
 
@@ -649,6 +757,22 @@ mod tests {
 
     fn alice_device_id() -> &'static DeviceId {
         device_id!("ALICEDEVICE")
+    }
+
+    #[async_test]
+    async fn test_pickle_snapshot() {
+        let account = Account::new(alice_id());
+        let room_id = room_id!("!test:localhost");
+        let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
+
+        let pickle = session.pickle().await;
+
+        assert_json_snapshot!(pickle, {
+            ".pickle.initial_ratchet.inner" => "[ratchet]",
+            ".pickle.signing_key" => "[signing_key]",
+            ".sender_key" => "[sender_key]",
+            ".signing_key.ed25519" => "[ed25519_key]",
+        });
     }
 
     #[async_test]
@@ -721,6 +845,7 @@ mod tests {
             SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(HistoryVisibility::Shared),
+            false,
         )
         .unwrap();
 
@@ -767,6 +892,7 @@ mod tests {
                 "room_id":"!test:localhost",
                 "imported":false,
                 "backed_up":false,
+                "shared_history":false,
                 "history_visibility":"shared",
                 "algorithm":"m.megolm.v1.aes-sha2"
             })
@@ -892,5 +1018,163 @@ mod tests {
             ",
         )
         .unwrap()
+    }
+
+    #[async_test]
+    async fn test_shared_history_from_m_room_key_content() {
+        let content = json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "room_id": "!Cuyf34gef24t:localhost",
+            "org.matrix.msc3061.shared_history": true,
+            "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
+            "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
+                            SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
+                            jVv80fMPHfGc49hPdu8A+xnwD4SQiYdFmSWJOIqsxeo/fiH\
+                            tino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31\
+                            QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaY\
+                            U5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80\
+                            gdHUwHSgMk77vCc2a5KHKLDA",
+        });
+
+        let sender_key = Curve25519PublicKey::from_bytes([0; 32]);
+        let signing_key = Ed25519PublicKey::from_slice(&[0; 32]).expect("");
+        let mut content: room_key::MegolmV1AesSha2Content = serde_json::from_value(content)
+            .expect("We should be able to deserialize the m.room_key content");
+
+        let session = InboundGroupSession::from_room_key_content(sender_key, signing_key, &content)
+            .expect(
+                "We should be able to create an inbound group session from the room key content",
+            );
+
+        assert!(
+            session.shared_history,
+            "The shared history flag should be set as it was set in the m.room_key content"
+        );
+
+        content.shared_history = false;
+        let session = InboundGroupSession::from_room_key_content(sender_key, signing_key, &content)
+            .expect(
+                "We should be able to create an inbound group session from the room key content",
+            );
+
+        assert!(
+            !session.shared_history,
+            "The shared history flag should not be set as it was not set in the m.room_key content"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_from_exported_room_key() {
+        let content = json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!room:id",
+                "sender_key": "FOvlmz18LLI3k/llCpqRoKT90+gFF8YhuL+v1YBXHlw",
+                "session_id": "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0",
+                "session_key": "AQAAAAAclzWVMeWBKH+B/WMowa3rb4ma3jEl6n5W4GCs9ue65CruzD3ihX+85pZ9hsV9Bf6fvhjp76WNRajoJYX0UIt7aosjmu0i+H+07hEQ0zqTKpVoSH0ykJ6stAMhdr6Q4uW5crBmdTTBIsqmoWsNJZKKoE2+ldYrZ1lrFeaJbjBIY/9ivle++74qQsT2dIKWPanKc9Q2Gl8LjESLtFBD9Fmt",
+                "sender_claimed_keys": {
+                    "ed25519": "F4P7f1Z0RjbiZMgHk1xBCG3KC4/Ng9PmxLJ4hQ13sHA"
+                },
+                "forwarding_curve25519_key_chain": [],
+                "org.matrix.msc3061.shared_history": true
+
+        });
+
+        let mut content: ExportedRoomKey = serde_json::from_value(content)
+            .expect("We should be able to deserialize the m.room_key content");
+
+        let session = InboundGroupSession::from_export(&content).expect(
+            "We should be able to create an inbound group session from the room key export",
+        );
+        assert!(
+            session.shared_history,
+            "The shared history flag should be set as it was set in the exported room key"
+        );
+
+        content.shared_history = false;
+
+        let session = InboundGroupSession::from_export(&content).expect(
+            "We should be able to create an inbound group session from the room key export",
+        );
+        assert!(
+            !session.shared_history,
+            "The shared history flag should not be set as it was not set in the exported room key"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_from_backed_up_room_key() {
+        let content = json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "sender_key": "FOvlmz18LLI3k/llCpqRoKT90+gFF8YhuL+v1YBXHlw",
+                "session_key": "AQAAAAAclzWVMeWBKH+B/WMowa3rb4ma3jEl6n5W4GCs9ue65CruzD3ihX+85pZ9hsV9Bf6fvhjp76WNRajoJYX0UIt7aosjmu0i+H+07hEQ0zqTKpVoSH0ykJ6stAMhdr6Q4uW5crBmdTTBIsqmoWsNJZKKoE2+ldYrZ1lrFeaJbjBIY/9ivle++74qQsT2dIKWPanKc9Q2Gl8LjESLtFBD9Fmt",
+                "sender_claimed_keys": {
+                    "ed25519": "F4P7f1Z0RjbiZMgHk1xBCG3KC4/Ng9PmxLJ4hQ13sHA"
+                },
+                "forwarding_curve25519_key_chain": [],
+                "org.matrix.msc3061.shared_history": true
+
+        });
+
+        let session_id = "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0";
+        let room_id = owned_room_id!("!room:id");
+        let room_key: BackedUpRoomKey = serde_json::from_value(content)
+            .expect("We should be able to deserialize the backed up room key");
+
+        let room_key =
+            ExportedRoomKey::from_backed_up_room_key(room_id, session_id.to_owned(), room_key);
+
+        let session = InboundGroupSession::from_export(&room_key).expect(
+            "We should be able to create an inbound group session from the room key export",
+        );
+        assert!(
+            session.shared_history,
+            "The shared history flag should be set as it was set in the backed up room key"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_in_pickle() {
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, mut inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        inbound.shared_history = true;
+        let pickle = inbound.pickle().await;
+
+        assert!(
+            pickle.shared_history,
+            "The set shared history flag should have been copied to the pickle"
+        );
+
+        inbound.shared_history = false;
+        let pickle = inbound.pickle().await;
+
+        assert!(
+            !pickle.shared_history,
+            "The unset shared history flag should have been copied to the pickle"
+        );
+    }
+
+    #[async_test]
+    async fn test_shared_history_in_export() {
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, mut inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        inbound.shared_history = true;
+        let export = inbound.export().await;
+        assert!(
+            export.shared_history,
+            "The set shared history flag should have been copied to the room key export"
+        );
+
+        inbound.shared_history = false;
+        let export = inbound.export().await;
+        assert!(
+            !export.shared_history,
+            "The unset shared history flag should have been copied to the room key export"
+        );
     }
 }

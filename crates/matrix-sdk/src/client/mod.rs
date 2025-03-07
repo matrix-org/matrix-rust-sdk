@@ -2422,7 +2422,7 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner
                     .base_client
-                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name)
+                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name, false)
                     .await?,
                 self.inner.caches.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,

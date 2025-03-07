@@ -403,7 +403,7 @@ impl Client {
     /// # Panics
     ///
     /// Panics if no key query needs to be done.
-    #[instrument(skip(self))]
+    #[instrument(skip(self, device_keys))]
     pub(crate) async fn keys_query(
         &self,
         request_id: &TransactionId,

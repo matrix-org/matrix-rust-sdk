@@ -6,6 +6,7 @@ use std::{
 
 use matrix_sdk::{
     authentication::oidc::{
+        error::OauthAuthorizationCodeError,
         registrations::OidcRegistrationsError,
         types::{
             iana::oauth::OAuthClientAuthenticationMethod,
@@ -196,11 +197,15 @@ pub enum OidcError {
 impl From<SdkOidcError> for OidcError {
     fn from(e: SdkOidcError) -> OidcError {
         match e {
-            SdkOidcError::MissingAuthenticationIssuer => OidcError::NotSupported,
+            SdkOidcError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
             SdkOidcError::MissingRedirectUri => OidcError::MetadataInvalid,
-            SdkOidcError::InvalidCallbackUrl => OidcError::CallbackUrlInvalid,
-            SdkOidcError::InvalidState => OidcError::CallbackUrlInvalid,
-            SdkOidcError::CancelledAuthorization => OidcError::Cancelled,
+            SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::RedirectUri(_))
+            | SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState) => {
+                OidcError::CallbackUrlInvalid
+            }
+            SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled) => {
+                OidcError::Cancelled
+            }
             _ => OidcError::Generic { message: e.to_string() },
         }
     }

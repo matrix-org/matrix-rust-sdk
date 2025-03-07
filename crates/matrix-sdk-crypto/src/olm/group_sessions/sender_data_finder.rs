@@ -861,6 +861,7 @@ mod tests {
                 SenderData::unknown(),
                 EventEncryptionAlgorithm::MegolmV1AesSha2,
                 None,
+                false,
             )
             .unwrap();
             if options.session_is_imported {
@@ -1083,6 +1084,7 @@ mod tests {
                 room_id.to_owned(),
                 "mysession".to_owned(),
                 clone_session_key(session_key),
+                false,
             ))),
         )
     }

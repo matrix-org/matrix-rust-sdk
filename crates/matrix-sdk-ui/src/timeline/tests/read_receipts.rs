@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
+use matrix_sdk::assert_next_matches_with_timeout;
 use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB, CAROL};
 use ruma::{
     event_id,
@@ -485,10 +486,9 @@ async fn test_read_receipts_updates_on_message_decryption() {
         )
         .await;
 
-    assert_eq!(timeline.controller.items().await.len(), 2);
-
     // The first event now has both receipts.
-    let clear_item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    let clear_item =
+        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
     let clear_event = clear_item.as_event().unwrap();
     assert_matches!(clear_event.content(), TimelineItemContent::Message(_));
     assert_eq!(clear_event.read_receipts().len(), 2);
@@ -496,7 +496,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
     assert!(clear_event.read_receipts().get(*BOB).is_some());
 
     // The second event is removed.
-    assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
+    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 2 });
 
     assert_pending!(stream);
 }

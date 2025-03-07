@@ -1586,6 +1586,7 @@ async fn inbound_session_from_outbound_session(
         SenderData::unknown(),
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
+        false,
     )
 }
 

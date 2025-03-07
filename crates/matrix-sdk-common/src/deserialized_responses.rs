@@ -1283,49 +1283,57 @@ mod tests {
 
     #[test]
     fn snapshot_test_verification_level() {
-        assert_json_snapshot!(VerificationLevel::VerificationViolation);
-        assert_json_snapshot!(VerificationLevel::UnsignedDevice);
-        assert_json_snapshot!(VerificationLevel::None(DeviceLinkProblem::InsecureSource));
-        assert_json_snapshot!(VerificationLevel::None(DeviceLinkProblem::MissingDevice));
-        assert_json_snapshot!(VerificationLevel::UnverifiedIdentity);
+        with_settings!({ prepend_module_to_snapshot => false }, {
+            assert_json_snapshot!(VerificationLevel::VerificationViolation);
+            assert_json_snapshot!(VerificationLevel::UnsignedDevice);
+            assert_json_snapshot!(VerificationLevel::None(DeviceLinkProblem::InsecureSource));
+            assert_json_snapshot!(VerificationLevel::None(DeviceLinkProblem::MissingDevice));
+            assert_json_snapshot!(VerificationLevel::UnverifiedIdentity);
+        });
     }
 
     #[test]
     fn snapshot_test_verification_states() {
-        assert_json_snapshot!(VerificationState::Unverified(VerificationLevel::UnsignedDevice));
-        assert_json_snapshot!(VerificationState::Unverified(
-            VerificationLevel::VerificationViolation
-        ));
-        assert_json_snapshot!(VerificationState::Unverified(VerificationLevel::None(
-            DeviceLinkProblem::InsecureSource,
-        )));
-        assert_json_snapshot!(VerificationState::Unverified(VerificationLevel::None(
-            DeviceLinkProblem::MissingDevice,
-        )));
-        assert_json_snapshot!(VerificationState::Verified);
+        with_settings!({ prepend_module_to_snapshot => false }, {
+            assert_json_snapshot!(VerificationState::Unverified(VerificationLevel::UnsignedDevice));
+            assert_json_snapshot!(VerificationState::Unverified(
+                VerificationLevel::VerificationViolation
+            ));
+            assert_json_snapshot!(VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::InsecureSource,
+            )));
+            assert_json_snapshot!(VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice,
+            )));
+            assert_json_snapshot!(VerificationState::Verified);
+        });
     }
 
     #[test]
     fn snapshot_test_shield_states() {
-        assert_json_snapshot!(ShieldState::None);
-        assert_json_snapshot!(ShieldState::Red {
-            code: ShieldStateCode::UnverifiedIdentity,
-            message: "a message"
-        });
-        assert_json_snapshot!(ShieldState::Grey {
-            code: ShieldStateCode::AuthenticityNotGuaranteed,
-            message: "authenticity of this message cannot be guaranteed",
+        with_settings!({ prepend_module_to_snapshot => false }, {
+            assert_json_snapshot!(ShieldState::None);
+            assert_json_snapshot!(ShieldState::Red {
+                code: ShieldStateCode::UnverifiedIdentity,
+                message: "a message"
+            });
+            assert_json_snapshot!(ShieldState::Grey {
+                code: ShieldStateCode::AuthenticityNotGuaranteed,
+                message: "authenticity of this message cannot be guaranteed",
+            });
         });
     }
 
     #[test]
     fn snapshot_test_shield_codes() {
-        assert_json_snapshot!(ShieldStateCode::AuthenticityNotGuaranteed);
-        assert_json_snapshot!(ShieldStateCode::UnknownDevice);
-        assert_json_snapshot!(ShieldStateCode::UnsignedDevice);
-        assert_json_snapshot!(ShieldStateCode::UnverifiedIdentity);
-        assert_json_snapshot!(ShieldStateCode::SentInClear);
-        assert_json_snapshot!(ShieldStateCode::VerificationViolation);
+        with_settings!({ prepend_module_to_snapshot => false }, {
+            assert_json_snapshot!(ShieldStateCode::AuthenticityNotGuaranteed);
+            assert_json_snapshot!(ShieldStateCode::UnknownDevice);
+            assert_json_snapshot!(ShieldStateCode::UnsignedDevice);
+            assert_json_snapshot!(ShieldStateCode::UnverifiedIdentity);
+            assert_json_snapshot!(ShieldStateCode::SentInClear);
+            assert_json_snapshot!(ShieldStateCode::VerificationViolation);
+        });
     }
 
     #[test]
@@ -1341,7 +1349,9 @@ mod tests {
             ]),
         };
 
-        assert_json_snapshot!(info)
+        with_settings!({ prepend_module_to_snapshot => false }, {
+            assert_json_snapshot!(info)
+        });
     }
 
     #[test]
@@ -1356,7 +1366,7 @@ mod tests {
             verification_state: VerificationState::Verified,
         };
 
-        with_settings!({sort_maps =>true}, {
+        with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
             assert_json_snapshot!(info)
         })
     }
@@ -1397,7 +1407,7 @@ mod tests {
             push_actions: Default::default(),
         };
 
-        with_settings!({sort_maps =>true}, {
+        with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
             // We use directly the serde_json formatter here, because of a bug in insta
             // not serializing custom BTreeMap key enum https://github.com/mitsuhiko/insta/issues/689
             assert_json_snapshot! {

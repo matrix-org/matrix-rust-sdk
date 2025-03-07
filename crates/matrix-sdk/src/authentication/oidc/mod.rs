@@ -36,11 +36,7 @@
 //! # Homeserver support
 //!
 //! After building the client, you can check that the homeserver supports
-//! logging in via OIDC when [`Oidc::fetch_authentication_issuer()`] succeeds.
-//!
-//! If the homeserver doesn't advertise its support for OIDC, but the issuer URL
-//! is known by some other method, it can be provided manually during
-//! registration.
+//! logging in via OAuth 2.0 when [`Oidc::provider_metadata()`] succeeds.
 //!
 //! # Registration
 //!
@@ -150,64 +146,79 @@
 //! [`AuthenticateError::InsufficientScope`]: ruma::api::client::error::AuthenticateError
 //! [`examples/oidc_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oidc_cli
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, fmt, future::Future, pin::Pin, sync::Arc};
 
 use as_variant::as_variant;
+use chrono::Utc;
+use error::{
+    CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthDiscoveryError,
+    RedirectUriQueryParseError,
+};
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use http::StatusCode;
-pub use mas_oidc_client::{error, requests, types};
 use mas_oidc_client::{
+    http_service::HttpService,
     requests::{
         account_management::{build_account_management_url, AccountManagementActionFull},
-        authorization_code::AuthorizationValidationData,
+        discovery::{discover, insecure_discover},
+        registration::register_client,
+        revocation::revoke_token,
     },
     types::{
         client_credentials::ClientCredentials,
-        errors::{ClientError, ClientErrorCode::AccessDenied},
         iana::oauth::OAuthTokenTypeHint,
-        oidc::{AccountManagementAction, VerifiedProviderMetadata},
+        oidc::{
+            AccountManagementAction, ProviderMetadata, ProviderMetadataVerificationError,
+            VerifiedProviderMetadata,
+        },
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
-        requests::Prompt,
-        scope::{MatrixApiScopeToken, ScopeToken},
-        IdToken,
     },
 };
+pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
-use rand::{rngs::StdRng, Rng, SeedableRng};
-use ruma::api::client::discovery::get_authentication_issuer;
+pub use oauth2::CsrfToken;
+use oauth2::{
+    basic::BasicClient as OauthClient, AsyncHttpClient, HttpRequest, HttpResponse,
+    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, StandardErrorResponse, TokenResponse,
+    TokenUrl,
+};
+use rand::{rngs::StdRng, SeedableRng};
+use ruma::{
+    api::client::discovery::{
+        get_authentication_issuer,
+        get_authorization_server_metadata::{self, msc2965::Prompt},
+    },
+    DeviceId, OwnedDeviceId,
+};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
-use thiserror::Error;
 use tokio::{spawn, sync::Mutex};
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
 mod auth_code_builder;
-mod backend;
 mod cross_process;
-mod data_serde;
-mod end_session_builder;
+pub mod error;
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+pub mod qrcode;
 pub mod registrations;
 #[cfg(test)]
 mod tests;
 
 pub use self::{
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
-    cross_process::CrossProcessRefreshLockError,
-    end_session_builder::{OidcEndSessionData, OidcEndSessionUrlBuilder},
+    error::OidcError,
 };
 use self::{
-    backend::{server::OidcServer, OidcBackend},
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
+    qrcode::LoginWithQrCode,
     registrations::{ClientId, OidcRegistrations},
 };
+use super::AuthData;
 use crate::{
-    authentication::{qrcode::LoginWithQrCode, AuthData},
-    client::SessionChange,
-    Client, HttpError, RefreshTokenError, Result,
+    client::SessionChange, http_client::HttpClient, Client, HttpError, RefreshTokenError, Result,
 };
 
 pub(crate) struct OidcCtx {
@@ -237,16 +248,15 @@ impl OidcCtx {
 pub(crate) struct OidcAuthData {
     pub(crate) issuer: String,
     pub(crate) client_id: ClientId,
-    pub(crate) metadata: VerifiedClientMetadata,
     pub(crate) tokens: OnceCell<SharedObservable<OidcSessionTokens>>,
     /// The data necessary to validate authorization responses.
-    pub(crate) authorization_data: Mutex<HashMap<String, AuthorizationValidationData>>,
+    authorization_data: Mutex<HashMap<CsrfToken, AuthorizationValidationData>>,
 }
 
 impl OidcAuthData {
     /// Get the credentials of client.
     fn credentials(&self) -> ClientCredentials {
-        ClientCredentials::None { client_id: self.client_id.0.clone() }
+        ClientCredentials::None { client_id: self.client_id.as_str().to_owned() }
     }
 }
 
@@ -262,18 +272,23 @@ impl fmt::Debug for OidcAuthData {
 pub struct Oidc {
     /// The underlying Matrix API client.
     client: Client,
-
-    /// The implementation of the OIDC backend.
-    backend: Arc<dyn OidcBackend>,
 }
 
 impl Oidc {
     pub(crate) fn new(client: Client) -> Self {
-        Self { client: client.clone(), backend: Arc::new(OidcServer::new(client)) }
+        Self { client }
     }
 
     fn ctx(&self) -> &OidcCtx {
         &self.client.inner.auth_ctx.oidc
+    }
+
+    fn http_client(&self) -> &HttpClient {
+        &self.client.inner.http_client
+    }
+
+    fn http_service(&self) -> HttpService {
+        HttpService::new(self.http_client().clone())
     }
 
     /// Enable a cross-process store lock on the state store, to coordinate
@@ -333,19 +348,6 @@ impl Oidc {
         as_variant!(data, AuthData::Oidc)
     }
 
-    /// Get the authentication issuer advertised by the homeserver.
-    ///
-    /// Returns an error if the request fails. An error with a
-    /// `StatusCode::NOT_FOUND` should mean that the homeserver does not support
-    /// authenticating via OpenID Connect ([MSC3861]).
-    ///
-    /// [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
-    pub async fn fetch_authentication_issuer(&self) -> Result<String, HttpError> {
-        let response = self.client.send(get_authentication_issuer::msc2965::Request::new()).await?;
-
-        Ok(response.issuer)
-    }
-
     /// Log in using a QR code.
     ///
     /// This method allows you to log in with a QR code, the existing device
@@ -363,8 +365,8 @@ impl Oidc {
     /// use anyhow::bail;
     /// use futures_util::StreamExt;
     /// use matrix_sdk::{
-    ///     authentication::{
-    ///         oidc::types::registration::VerifiedClientMetadata,
+    ///     authentication::oidc::{
+    ///         types::registration::VerifiedClientMetadata,
     ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
     ///     },
     ///     Client,
@@ -436,35 +438,41 @@ impl Oidc {
     /// webview for a user to login to their account. Call
     /// [`Oidc::login_with_oidc_callback`] to finish the process when the
     /// webview is complete.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_metadata` - The [`VerifiedClientMetadata`] to register, if
+    ///   needed.
+    ///
+    /// * `registrations` - The storage where the registered client ID will be
+    ///   loaded from, if the client is already registered, or stored into, if
+    ///   the client is not registered yet.
+    ///
+    /// * `prompt` - The desired user experience in the web UI. `None` means
+    ///   that the user wishes to login into an existing account, and
+    ///   `Some(Prompt::Create)` means that the user wishes to register a new
+    ///   account.
     pub async fn url_for_oidc(
         &self,
         client_metadata: VerifiedClientMetadata,
         registrations: OidcRegistrations,
-        prompt: Prompt,
+        prompt: Option<Prompt>,
     ) -> Result<OidcAuthorizationData, OidcError> {
-        let issuer = match self.fetch_authentication_issuer().await {
-            Ok(issuer) => issuer,
-            Err(error) => {
-                if error
-                    .as_client_api_error()
-                    .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
-                {
-                    return Err(OidcError::MissingAuthenticationIssuer);
-                } else {
-                    return Err(OidcError::UnknownError(Box::new(error)));
-                }
-            }
-        };
+        let metadata = self.provider_metadata().await?;
 
         let redirect_uris =
             client_metadata.redirect_uris.clone().ok_or(OidcError::MissingRedirectUri)?;
 
         let redirect_url = redirect_uris.first().ok_or(OidcError::MissingRedirectUri)?;
 
-        self.configure(issuer, client_metadata, registrations).await?;
+        self.configure(metadata.issuer().to_owned(), client_metadata, registrations).await?;
 
         let mut data_builder = self.login(redirect_url.clone(), None)?;
-        data_builder = data_builder.prompt(vec![prompt]);
+
+        if let Some(prompt) = prompt {
+            data_builder = data_builder.prompt(vec![prompt]);
+        }
+
         let data = data_builder.build().await?;
 
         Ok(data)
@@ -479,16 +487,13 @@ impl Oidc {
         callback_url: Url,
     ) -> Result<()> {
         let response = AuthorizationResponse::parse_uri(&callback_url)
-            .or(Err(OidcError::InvalidCallbackUrl))?;
+            .map_err(OauthAuthorizationCodeError::from)
+            .map_err(OidcError::from)?;
 
         let code = match response {
             AuthorizationResponse::Success(code) => code,
             AuthorizationResponse::Error(err) => {
-                if err.error.error == AccessDenied {
-                    // The user cancelled the login in the web view.
-                    return Err(OidcError::CancelledAuthorization.into());
-                }
-                return Err(OidcError::Authorization(err).into());
+                return Err(OidcError::from(OauthAuthorizationCodeError::from(err.error)).into());
             }
         };
 
@@ -496,7 +501,7 @@ impl Oidc {
         // the client to have called `abort_authorization` which we can't guarantee so
         // lets double check with their supplied authorization data to be safe.
         if code.state != authorization_data.state {
-            return Err(OidcError::InvalidState.into());
+            return Err(OidcError::from(OauthAuthorizationCodeError::InvalidState).into());
         };
 
         self.finish_authorization(code).await?;
@@ -518,13 +523,13 @@ impl Oidc {
             return Ok(());
         };
 
-        if self.load_client_registration(issuer.clone(), client_metadata.clone(), &registrations) {
+        if self.load_client_registration(issuer.clone(), &registrations) {
             tracing::info!("OIDC configuration loaded from disk.");
             return Ok(());
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(&issuer, client_metadata.clone(), None).await?;
+        self.register_client(client_metadata, None).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -539,7 +544,7 @@ impl Oidc {
         &self,
         registrations: &OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
-        let issuer = Url::parse(self.issuer().ok_or(OidcError::MissingAuthenticationIssuer)?)
+        let issuer = Url::parse(self.issuer().expect("issuer should be set after registration"))
             .map_err(OidcError::Url)?;
         let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.to_owned();
 
@@ -554,12 +559,7 @@ impl Oidc {
     /// given issuer.
     ///
     /// Returns `true` if an existing registration was found and `false` if not.
-    fn load_client_registration(
-        &self,
-        issuer: String,
-        oidc_metadata: VerifiedClientMetadata,
-        registrations: &OidcRegistrations,
-    ) -> bool {
+    fn load_client_registration(&self, issuer: String, registrations: &OidcRegistrations) -> bool {
         let Ok(issuer_url) = Url::parse(&issuer) else {
             error!("Failed to parse {issuer:?}");
             return false;
@@ -568,7 +568,7 @@ impl Oidc {
             return false;
         };
 
-        self.restore_registered_client(issuer, oidc_metadata, client_id);
+        self.restore_registered_client(issuer, client_id);
 
         true
     }
@@ -624,10 +624,7 @@ impl Oidc {
             return Ok(None);
         };
 
-        let id_token_hint =
-            self.session_tokens().and_then(|t| t.latest_id_token).map(|t| t.to_string());
-
-        let url = build_account_management_url(base_url, action, id_token_hint)?;
+        let url = build_account_management_url(base_url, action, None)?;
 
         Ok(Some(url))
     }
@@ -669,33 +666,76 @@ impl Oidc {
         self.management_url_from_provider_metadata(metadata, action)
     }
 
-    /// Fetch the OpenID Connect metadata of the given issuer.
+    /// Discover the authentication issuer and retrieve the
+    /// [`VerifiedProviderMetadata`] using the GET `/auth_metadata` endpoint
+    /// defined in [MSC2965].
     ///
-    /// Returns an error if fetching the metadata failed.
-    pub async fn given_provider_metadata(
+    /// **Note**: This endpoint is deprecated.
+    ///
+    /// MSC2956: https://github.com/matrix-org/matrix-spec-proposals/pull/2965
+    async fn fallback_discover(
         &self,
-        issuer: &str,
-    ) -> Result<VerifiedProviderMetadata, OidcError> {
-        self.backend.discover(issuer, self.ctx().insecure_discover).await
+        insecure: bool,
+    ) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+        #[allow(deprecated)]
+        let issuer =
+            match self.client.send(get_authentication_issuer::msc2965::Request::new()).await {
+                Ok(response) => response.issuer,
+                Err(error)
+                    if error
+                        .as_client_api_error()
+                        .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND) =>
+                {
+                    return Err(OauthDiscoveryError::NotSupported);
+                }
+                Err(error) => return Err(error.into()),
+            };
+
+        if insecure {
+            insecure_discover(&self.http_service(), &issuer).await.map_err(Into::into)
+        } else {
+            discover(&self.http_service(), &issuer).await.map_err(Into::into)
+        }
     }
 
-    /// Fetch the OpenID Connect metadata of the issuer.
+    /// Fetch the OAuth 2.0 server metadata of the homeserver.
     ///
-    /// Returns an error if the client registration was not restored, or if an
-    /// error occurred when fetching the metadata.
-    pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OidcError> {
-        let issuer = self.issuer().ok_or(OidcError::MissingAuthenticationIssuer)?;
+    /// Returns an error if a problem occurred when fetching or validating the
+    /// metadata.
+    pub async fn provider_metadata(&self) -> Result<VerifiedProviderMetadata, OauthDiscoveryError> {
+        let is_endpoint_unsupported = |error: &HttpError| {
+            error
+                .as_client_api_error()
+                .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND)
+        };
 
-        self.given_provider_metadata(issuer).await
-    }
+        match self.client.send(get_authorization_server_metadata::msc2965::Request::new()).await {
+            Ok(response) => {
+                let metadata = response.metadata.deserialize_as::<ProviderMetadata>()?;
 
-    /// The OpenID Connect metadata of this client used during registration.
-    ///
-    /// Returns `None` if the client was not registered or if the registration
-    /// was not restored with [`Oidc::restore_registered_client()`] or
-    /// [`Oidc::restore_session()`].
-    pub fn client_metadata(&self) -> Option<&VerifiedClientMetadata> {
-        self.data().map(|data| &data.metadata)
+                let result = if self.ctx().insecure_discover {
+                    metadata.insecure_verify_metadata()
+                } else {
+                    // The mas-oidc-client method needs to compare the issuer for validation. It's a
+                    // bit unnecessary because we take it from the metadata, oh well.
+                    let issuer =
+                        metadata.issuer.clone().ok_or(error::DiscoveryError::Validation(
+                            ProviderMetadataVerificationError::MissingIssuer,
+                        ))?;
+                    metadata.validate(&issuer)
+                };
+
+                Ok(result.map_err(error::DiscoveryError::Validation)?)
+            }
+            // If the endpoint returns a 404, i.e. the server doesn't support the endpoint, attempt
+            // to use the equivalent, but deprecated, endpoint.
+            Err(error) if is_endpoint_unsupported(&error) => {
+                // TODO: remove this fallback behavior when the metadata endpoint has wider
+                // support.
+                self.fallback_discover(self.ctx().insecure_discover).await
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// The OpenID Connect unique identifier of this client obtained after
@@ -791,15 +831,6 @@ impl Oidc {
         self.session_tokens().and_then(|tokens| tokens.refresh_token)
     }
 
-    /// The ID Token received after the latest authorization of this client, if
-    /// any.
-    ///
-    /// Returns `None` if the client was not logged in with the OpenID Connect
-    /// API, or if the issuer did not provide one.
-    pub fn latest_id_token(&self) -> Option<IdToken<'static>> {
-        self.session_tokens()?.latest_id_token
-    }
-
     /// The OpenID Connect user session of this client.
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
@@ -818,17 +849,13 @@ impl Oidc {
     pub fn full_session(&self) -> Option<OidcSession> {
         let user = self.user_session()?;
         let data = self.data()?;
-        Some(OidcSession {
-            client_id: data.client_id.clone(),
-            metadata: data.metadata.clone(),
-            user,
-        })
+        Some(OidcSession { client_id: data.client_id.clone(), user })
     }
 
-    /// Register a client with an OpenID Connect Provider.
+    /// Register a client with the OAuth 2.0 server.
     ///
     /// This should be called before any authorization request with an unknown
-    /// authentication issuer. If the client is already registered with the
+    /// authorization server. If the client is already registered with the
     /// given issuer, it should use [`Oidc::restore_registered_client()`].
     ///
     /// Note that this method only supports public clients, i.e. clients with
@@ -837,12 +864,9 @@ impl Oidc {
     ///
     /// The client should adapt the security measures enabled in its metadata
     /// according to the capabilities advertised in
-    /// [`Oidc::given_provider_metadata()`].
+    /// [`Oidc::provider_metadata()`].
     ///
     /// # Arguments
-    ///
-    /// * `issuer` - The OpenID Connect Provider to register with. Can be
-    ///   obtained with [`Oidc::fetch_authentication_issuer()`].
     ///
     /// * `client_metadata` - The [`VerifiedClientMetadata`] to register.
     ///
@@ -854,12 +878,13 @@ impl Oidc {
     ///   allowing to update the registered client metadata.
     ///
     /// The client ID in the response should be persisted for future use and
-    /// reused for the same issuer, along with the client metadata sent to the
-    /// provider, even for different sessions or user accounts.
+    /// reused for the same authorization server, identified by the
+    /// [`Oidc::issuer()`], along with the client metadata sent to the provider,
+    /// even for different sessions or user accounts.
     ///
     /// # Panic
     ///
-    /// Panics if authentication data was already set.
+    /// Panics if the authentication data was already set.
     ///
     /// # Example
     ///
@@ -870,53 +895,61 @@ impl Oidc {
     /// # let client_metadata = ClientMetadata::default().validate().unwrap();
     /// # fn persist_client_registration (_: &str, _: &ClientMetadata, _: &ClientId) {}
     /// # _ = async {
-    /// let server_name = ServerName::parse("myhomeserver.org").unwrap();
+    /// let server_name = ServerName::parse("myhomeserver.org")?;
     /// let client = Client::builder().server_name(&server_name).build().await?;
     /// let oidc = client.oidc();
     ///
-    /// if let Ok(issuer) = oidc.fetch_authentication_issuer().await {
-    ///     let response = oidc
-    ///         .register_client(&issuer, client_metadata.clone(), None)
-    ///         .await?;
+    /// if let Err(error) = oidc.provider_metadata().await {
+    ///     if error.is_not_supported() {
+    ///         println!("OAuth 2.0 is not supported");
+    ///     }
     ///
-    ///     println!(
-    ///         "Registered with client_id: {}",
-    ///         response.client_id
-    ///     );
-    ///
-    ///     // The API only supports clients without secrets.
-    ///     let client_id = ClientId(response.client_id);
-    ///
-    ///     persist_client_registration(&issuer, &client_metadata, &client_id);
+    ///     return Err(error.into());
     /// }
+    ///
+    /// let response = oidc
+    ///     .register_client(client_metadata.clone(), None)
+    ///     .await?;
+    ///
+    /// println!(
+    ///     "Registered with client_id: {}",
+    ///     response.client_id
+    /// );
+    ///
+    /// // The API only supports clients without secrets.
+    /// let client_id = ClientId::new(response.client_id);
+    /// let issuer = oidc.issuer().expect("issuer should be set after registration");
+    ///
+    /// persist_client_registration(issuer, &client_metadata, &client_id);
     /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [software statement]: https://datatracker.ietf.org/doc/html/rfc7591#autoid-8
     pub async fn register_client(
         &self,
-        issuer: &str,
         client_metadata: VerifiedClientMetadata,
         software_statement: Option<String>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
-        let provider_metadata = self.given_provider_metadata(issuer).await?;
+        let provider_metadata = self.provider_metadata().await?;
 
         let registration_endpoint = provider_metadata
             .registration_endpoint
             .as_ref()
             .ok_or(OidcError::NoRegistrationSupport)?;
 
-        let registration_response = self
-            .backend
-            .register_client(registration_endpoint, client_metadata.clone(), software_statement)
-            .await?;
+        let registration_response = register_client(
+            &self.http_service(),
+            registration_endpoint,
+            client_metadata,
+            software_statement,
+        )
+        .await?;
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
-            issuer.to_owned(),
-            client_metadata,
-            ClientId(registration_response.client_id.clone()),
+            provider_metadata.issuer().to_owned(),
+            ClientId::new(registration_response.client_id.clone()),
         );
 
         Ok(registration_response)
@@ -933,10 +966,8 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `issuer` - The OpenID Connect Provider we're interacting with.
-    ///
-    /// * `client_metadata` - The [`VerifiedClientMetadata`] that was
-    ///   registered.
+    /// * `issuer` - The authorization server that was used to register the
+    ///   client.
     ///
     /// * `client_id` - The unique identifier to authenticate the client with
     ///   the provider, obtained after registration.
@@ -944,16 +975,10 @@ impl Oidc {
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub fn restore_registered_client(
-        &self,
-        issuer: String,
-        client_metadata: VerifiedClientMetadata,
-        client_id: ClientId,
-    ) {
+    pub fn restore_registered_client(&self, issuer: String, client_id: ClientId) {
         let data = OidcAuthData {
             issuer,
             client_id,
-            metadata: client_metadata,
             tokens: Default::default(),
             authorization_data: Default::default(),
         };
@@ -980,13 +1005,11 @@ impl Oidc {
     ///
     /// Panics if authentication data was already set.
     pub async fn restore_session(&self, session: OidcSession) -> Result<()> {
-        let OidcSession { client_id, metadata, user: UserSession { meta, tokens, issuer } } =
-            session;
+        let OidcSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
 
         let data = OidcAuthData {
             issuer,
             client_id,
-            metadata,
             tokens: SharedObservable::new(tokens.clone()).into(),
             authorization_data: Default::default(),
         };
@@ -1081,6 +1104,23 @@ impl Oidc {
         Ok(())
     }
 
+    /// The scopes to request for logging in.
+    fn login_scopes(device_id: Option<OwnedDeviceId>) -> [Scope; 2] {
+        /// Scope to grand full access to the client-server API.
+        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
+            "urn:matrix:org.matrix.msc2967.client:api:*";
+        /// Prefix of the scope to bind a device ID to an access token.
+        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:org.matrix.msc2967.client:device:";
+
+        // Generate the device ID if it is not provided.
+        let device_id = device_id.unwrap_or_else(DeviceId::new);
+
+        [
+            Scope::new(SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS.to_owned()),
+            Scope::new(format!("{SCOPE_MATRIX_DEVICE_ID_PREFIX}{device_id}")),
+        ]
+    }
+
     /// Login via OpenID Connect with the Authorization Code flow.
     ///
     /// This should be called after [`Oidc::register_client()`] or
@@ -1116,7 +1156,6 @@ impl Oidc {
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let redirected_to_uri = Url::parse("http://127.0.0.1/oidc").unwrap();
     /// # let issuer_info = unimplemented!();
-    /// # let client_metadata = unimplemented!();
     /// # let client_id = unimplemented!();
     /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
@@ -1124,7 +1163,6 @@ impl Oidc {
     ///
     /// oidc.restore_registered_client(
     ///     issuer_info,
-    ///     client_metadata,
     ///     client_id,
     /// );
     ///
@@ -1157,28 +1195,11 @@ impl Oidc {
     pub fn login(
         &self,
         redirect_uri: Url,
-        device_id: Option<String>,
+        device_id: Option<OwnedDeviceId>,
     ) -> Result<OidcAuthCodeUrlBuilder, OidcError> {
-        // Generate the device ID if it is not provided.
-        let device_id = if let Some(device_id) = device_id {
-            device_id
-        } else {
-            rand::thread_rng()
-                .sample_iter(&rand::distributions::Alphanumeric)
-                .map(char::from)
-                .take(10)
-                .collect::<String>()
-        };
+        let scopes = Self::login_scopes(device_id).to_vec();
 
-        let scope = [
-            ScopeToken::Openid,
-            ScopeToken::MatrixApi(MatrixApiScopeToken::Full),
-            ScopeToken::try_with_matrix_device(device_id).or(Err(OidcError::InvalidDeviceId))?,
-        ]
-        .into_iter()
-        .collect();
-
-        Ok(OidcAuthCodeUrlBuilder::new(self.clone(), scope, redirect_uri))
+        Ok(OidcAuthCodeUrlBuilder::new(self.clone(), scopes, redirect_uri))
     }
 
     /// Finish the login process.
@@ -1265,27 +1286,31 @@ impl Oidc {
         auth_code: AuthorizationCode,
     ) -> Result<(), OidcError> {
         let data = self.data().ok_or(OidcError::NotAuthenticated)?;
+        let client_id = data.client_id.clone();
+
         let validation_data = data
             .authorization_data
             .lock()
             .await
             .remove(&auth_code.state)
-            .ok_or(OidcError::InvalidState)?;
+            .ok_or(OauthAuthorizationCodeError::InvalidState)?;
 
         let provider_metadata = self.provider_metadata().await?;
+        let token_uri = TokenUrl::from_url(provider_metadata.token_endpoint().clone());
 
-        let session_tokens = self
-            .backend
-            .trade_authorization_code_for_tokens(
-                provider_metadata,
-                data.credentials(),
-                data.metadata.clone(),
-                auth_code,
-                validation_data,
-            )
-            .await?;
+        let response = OauthClient::new(client_id)
+            .set_token_uri(token_uri)
+            .exchange_code(oauth2::AuthorizationCode::new(auth_code.code))
+            .set_pkce_verifier(validation_data.pkce_verifier)
+            .set_redirect_uri(Cow::Owned(validation_data.redirect_uri))
+            .request_async(self.http_client())
+            .await
+            .map_err(OauthAuthorizationCodeError::RequestToken)?;
 
-        self.set_session_tokens(session_tokens);
+        self.set_session_tokens(OidcSessionTokens {
+            access_token: response.access_token().secret().clone(),
+            refresh_token: response.refresh_token().map(RefreshToken::secret).cloned(),
+        });
 
         Ok(())
     }
@@ -1305,19 +1330,73 @@ impl Oidc {
     /// * `state` - The state received as part of the redirect URI when the
     ///   authorization failed, or the one provided in [`OidcAuthorizationData`]
     ///   after building the authorization URL.
-    pub async fn abort_authorization(&self, state: &str) {
+    pub async fn abort_authorization(&self, state: &CsrfToken) {
         if let Some(data) = self.data() {
             data.authorization_data.lock().await.remove(state);
         }
     }
 
+    /// Request codes from the authorization server for logging in with another
+    /// device.
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    async fn request_device_authorization(
+        &self,
+        device_id: Option<OwnedDeviceId>,
+    ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOauthError>
+    {
+        let scopes = Self::login_scopes(device_id);
+
+        let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
+
+        let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
+        let device_authorization_url = server_metadata
+            .device_authorization_endpoint
+            .clone()
+            .map(oauth2::DeviceAuthorizationUrl::from_url)
+            .ok_or(qrcode::DeviceAuthorizationOauthError::NoDeviceAuthorizationEndpoint)?;
+
+        let response = OauthClient::new(client_id)
+            .set_device_authorization_url(device_authorization_url)
+            .exchange_device_code()
+            .add_scopes(scopes)
+            .request_async(self.http_client())
+            .await?;
+
+        Ok(response)
+    }
+
+    /// Exchange the device code against an access token.
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    async fn exchange_device_code(
+        &self,
+        device_authorization_response: &oauth2::StandardDeviceAuthorizationResponse,
+    ) -> Result<(), qrcode::DeviceAuthorizationOauthError> {
+        use oauth2::TokenResponse;
+
+        let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
+
+        let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
+        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint().clone());
+
+        let response = OauthClient::new(client_id)
+            .set_token_uri(token_uri)
+            .exchange_device_access_token(device_authorization_response)
+            .request_async(self.http_client(), tokio::time::sleep, None)
+            .await?;
+
+        self.set_session_tokens(OidcSessionTokens {
+            access_token: response.access_token().secret().to_owned(),
+            refresh_token: response.refresh_token().map(|t| t.secret().to_owned()),
+        });
+
+        Ok(())
+    }
+
     async fn refresh_access_token_inner(
         self,
         refresh_token: String,
-        provider_metadata: VerifiedProviderMetadata,
-        credentials: ClientCredentials,
-        client_metadata: VerifiedClientMetadata,
-        latest_id_token: Option<IdToken<'static>>,
+        token_endpoint: Url,
+        client_id: ClientId,
         cross_process_lock: Option<CrossProcessRefreshLockGuard>,
     ) -> Result<(), OidcError> {
         trace!(
@@ -1325,31 +1404,31 @@ impl Oidc {
             hash_str(&refresh_token)
         );
 
-        let new_tokens = self
-            .backend
-            .refresh_access_token(
-                provider_metadata,
-                credentials,
-                &client_metadata,
-                refresh_token.clone(),
-                latest_id_token.clone(),
-            )
-            .await?;
+        let token = RefreshToken::new(refresh_token.clone());
+        let token_uri = TokenUrl::from_url(token_endpoint);
+
+        let response = OauthClient::new(client_id)
+            .set_token_uri(token_uri)
+            .exchange_refresh_token(&token)
+            .request_async(self.http_client())
+            .await
+            .map_err(OidcError::RefreshToken)?;
+
+        let new_access_token = response.access_token().secret().clone();
+        let new_refresh_token = response.refresh_token().map(RefreshToken::secret).cloned();
 
         trace!(
             "Token refresh: new refresh_token: {} / access_token: {:x}",
-            new_tokens
-                .refresh_token
+            new_refresh_token
                 .as_deref()
                 .map(|token| format!("{:x}", hash_str(token)))
                 .unwrap_or_else(|| "<none>".to_owned()),
-            hash_str(&new_tokens.access_token)
+            hash_str(&new_access_token)
         );
 
         let tokens = OidcSessionTokens {
-            access_token: new_tokens.access_token,
-            refresh_token: new_tokens.refresh_token.clone().or(Some(refresh_token)),
-            latest_id_token,
+            access_token: new_access_token,
+            refresh_token: new_refresh_token.or(Some(refresh_token)),
         };
 
         self.set_session_tokens(tokens.clone());
@@ -1455,22 +1534,18 @@ impl Oidc {
         let provider_metadata = match self.provider_metadata().await {
             Ok(metadata) => metadata,
             Err(err) => {
-                let err = Arc::new(err);
-                warn!("couldn't get provider metadata: {err}");
-                fail!(refresh_status_guard, RefreshTokenError::Oidc(err));
+                warn!("couldn't get authorization server metadata: {err:?}");
+                fail!(refresh_status_guard, RefreshTokenError::Oidc(Arc::new(err.into())));
             }
         };
 
-        let Some(auth_data) = self.data() else {
-            warn!("invalid state: missing auth data");
+        let Some(client_id) = self.client_id().cloned() else {
+            warn!("invalid state: missing client ID");
             fail!(
                 refresh_status_guard,
                 RefreshTokenError::Oidc(Arc::new(OidcError::NotAuthenticated))
             );
         };
-
-        let credentials = auth_data.credentials();
-        let client_metadata = auth_data.metadata.clone();
 
         // Do not interrupt refresh access token requests and processing, by detaching
         // the request sending and response processing.
@@ -1482,10 +1557,8 @@ impl Oidc {
             match this
                 .refresh_access_token_inner(
                     refresh_token,
-                    provider_metadata,
-                    credentials,
-                    client_metadata,
-                    session_tokens.latest_id_token,
+                    provider_metadata.token_endpoint().clone(),
+                    client_id,
                     cross_process_guard,
                 )
                 .await
@@ -1508,13 +1581,7 @@ impl Oidc {
     }
 
     /// Log out from the currently authenticated session.
-    ///
-    /// On success, if the provider supports [RP-Initiated Logout], an
-    /// [`OidcEndSessionUrlBuilder`] will be provided to build the URL allowing
-    /// the user to log out from their account in the provider's interface.
-    ///
-    /// [RP-Initiated Logout]: https://openid.net/specs/openid-connect-rpinitiated-1_0.html
-    pub async fn logout(&self) -> Result<Option<OidcEndSessionUrlBuilder>, OidcError> {
+    pub async fn logout(&self) -> Result<(), OidcError> {
         let provider_metadata = self.provider_metadata().await?;
         let client_credentials = self.data().ok_or(OidcError::NotAuthenticated)?.credentials();
 
@@ -1523,42 +1590,23 @@ impl Oidc {
 
         let tokens = self.session_tokens().ok_or(OidcError::NotAuthenticated)?;
 
-        // Revoke the access token.
-        self.backend
-            .revoke_token(
-                client_credentials.clone(),
-                revocation_endpoint,
-                tokens.access_token,
-                Some(OAuthTokenTypeHint::AccessToken),
-            )
-            .await?;
-
-        // Revoke the refresh token, if any.
-        if let Some(refresh_token) = tokens.refresh_token {
-            self.backend
-                .revoke_token(
-                    client_credentials.clone(),
-                    revocation_endpoint,
-                    refresh_token,
-                    Some(OAuthTokenTypeHint::RefreshToken),
-                )
-                .await?;
-        }
-
-        let end_session_builder =
-            provider_metadata.end_session_endpoint.clone().map(|end_session_endpoint| {
-                OidcEndSessionUrlBuilder::new(
-                    self.clone(),
-                    end_session_endpoint,
-                    client_credentials.client_id().to_owned(),
-                )
-            });
+        // Revoke the access token, it should revoke both tokens.
+        revoke_token(
+            &self.http_service(),
+            client_credentials,
+            revocation_endpoint,
+            tokens.access_token,
+            Some(OAuthTokenTypeHint::AccessToken),
+            Utc::now(),
+            &mut rng()?,
+        )
+        .await?;
 
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager.on_logout().await?;
         }
 
-        Ok(end_session_builder)
+        Ok(())
     }
 }
 
@@ -1568,15 +1616,12 @@ pub struct OidcSession {
     /// The client ID obtained after registration.
     pub client_id: ClientId,
 
-    /// The client metadata sent for registration.
-    pub metadata: VerifiedClientMetadata,
-
     /// The user session.
     pub user: UserSession,
 }
 
 /// A user session for the OpenID Connect API.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSession {
     /// The Matrix user session info.
     #[serde(flatten)]
@@ -1591,17 +1636,15 @@ pub struct UserSession {
 }
 
 /// The tokens for a user session obtained with the OpenID Connect API.
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[allow(missing_debug_implementations)]
 pub struct OidcSessionTokens {
     /// The access token used for this session.
     pub access_token: String,
 
     /// The token used for refreshing the access token, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
-
-    /// The ID token returned by the provider during the latest authorization.
-    pub latest_id_token: Option<IdToken<'static>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -1609,6 +1652,17 @@ impl fmt::Debug for OidcSessionTokens {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OidcSessionTokens").finish_non_exhaustive()
     }
+}
+
+/// The data necessary to validate a response from the Token endpoint in the
+/// Authorization Code flow.
+#[derive(Debug)]
+struct AuthorizationValidationData {
+    /// The URI where the end-user will be redirected after authorization.
+    redirect_uri: RedirectUrl,
+
+    /// A string to correlate the authorization request to the token request.
+    pkce_verifier: PkceCodeVerifier,
 }
 
 /// The data returned by the provider in the redirect URI after a successful
@@ -1656,7 +1710,7 @@ pub struct AuthorizationCode {
     /// The code to use to retrieve the access token.
     pub code: String,
     /// The unique identifier for this transaction.
-    pub state: String,
+    pub state: CsrfToken,
 }
 
 /// The data returned by the provider in the redirect URI after an authorization
@@ -1665,106 +1719,9 @@ pub struct AuthorizationCode {
 pub struct AuthorizationError {
     /// The error.
     #[serde(flatten)]
-    pub error: ClientError,
+    pub error: StandardErrorResponse<error::AuthorizationCodeErrorResponseType>,
     /// The unique identifier for this transaction.
-    pub state: String,
-}
-
-/// An error when trying to parse the query of a redirect URI.
-#[derive(Debug, Clone, Error)]
-pub enum RedirectUriQueryParseError {
-    /// There is no query part in the URI.
-    #[error("No query in URI")]
-    MissingQuery,
-
-    /// Deserialization failed.
-    #[error("Query is not using one of the defined formats")]
-    UnknownFormat,
-}
-
-/// All errors that can occur when using the OpenID Connect API.
-#[derive(Debug, Error)]
-pub enum OidcError {
-    /// An error occurred when interacting with the provider.
-    #[error(transparent)]
-    Oidc(error::Error),
-
-    /// No authentication issuer was provided by the homeserver or by the user.
-    #[error("client missing authentication issuer")]
-    MissingAuthenticationIssuer,
-
-    /// The OpenID Connect Provider doesn't support dynamic client registration.
-    ///
-    /// The provider probably offers another way to register clients.
-    #[error("no dynamic registration support")]
-    NoRegistrationSupport,
-
-    /// The client has not registered while the operation requires it.
-    #[error("client not registered")]
-    NotRegistered,
-
-    /// The supplied redirect URIs are missing or empty.
-    #[error("missing or empty redirect URIs")]
-    MissingRedirectUri,
-
-    /// The device ID was not returned by the homeserver after login.
-    #[error("missing device ID in response")]
-    MissingDeviceId,
-
-    /// The client is not authenticated while the request requires it.
-    #[error("client not authenticated")]
-    NotAuthenticated,
-
-    /// The state used to complete authorization doesn't match an original
-    /// value.
-    #[error("the supplied state is unexpected")]
-    InvalidState,
-
-    /// The user cancelled authorization in the web view.
-    #[error("authorization cancelled")]
-    CancelledAuthorization,
-
-    /// The login was completed with an invalid callback.
-    #[error("the supplied callback URL is invalid")]
-    InvalidCallbackUrl,
-
-    /// An error occurred during authorization.
-    #[error("authorization failed")]
-    Authorization(AuthorizationError),
-
-    /// The device ID is invalid.
-    #[error("invalid device ID")]
-    InvalidDeviceId,
-
-    /// The OpenID Connect Provider doesn't support token revocation, aka
-    /// logging out.
-    #[error("no token revocation support")]
-    NoRevocationSupport,
-
-    /// An error occurred generating a random value.
-    #[error(transparent)]
-    Rand(rand::Error),
-
-    /// An error occurred parsing a URL.
-    #[error(transparent)]
-    Url(url::ParseError),
-
-    /// An error occurred caused by the cross-process locks.
-    #[error(transparent)]
-    LockError(#[from] CrossProcessRefreshLockError),
-
-    /// An unknown error occurred.
-    #[error("unknown error")]
-    UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
-}
-
-impl<E> From<E> for OidcError
-where
-    E: Into<error::Error>,
-{
-    fn from(value: E) -> Self {
-        Self::Oidc(value.into())
-    }
+    pub state: CsrfToken,
 }
 
 fn rng() -> Result<StdRng, OidcError> {
@@ -1773,4 +1730,19 @@ fn rng() -> Result<StdRng, OidcError> {
 
 fn hash_str(x: &str) -> impl fmt::LowerHex {
     sha2::Sha256::new().chain_update(x).finalize()
+}
+
+impl<'c> AsyncHttpClient<'c> for HttpClient {
+    type Error = error::HttpClientError<reqwest::Error>;
+
+    type Future =
+        Pin<Box<dyn Future<Output = Result<HttpResponse, Self::Error>> + Send + Sync + 'c>>;
+
+    fn call(&'c self, request: HttpRequest) -> Self::Future {
+        Box::pin(async move {
+            let response = self.inner.call(request).await?;
+
+            Ok(response)
+        })
+    }
 }

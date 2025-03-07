@@ -195,7 +195,7 @@ pub(super) async fn send_request(
 
     use futures_util::stream;
 
-    let request = clone_request(request);
+    let request = request.clone();
     let request = {
         let mut request = if send_progress.subscriber_count() != 0 {
             let content_length = request.body().len();
@@ -232,17 +232,6 @@ pub(super) async fn send_request(
 
     let response = client.execute(request).await?;
     Ok(response_to_http_response(response).await?)
-}
-
-// Clones all request parts except the extensions which can't be cloned.
-// See also https://github.com/hyperium/http/issues/395
-fn clone_request(request: &http::Request<Bytes>) -> http::Request<Bytes> {
-    let mut builder = http::Request::builder()
-        .version(request.version())
-        .method(request.method())
-        .uri(request.uri());
-    *builder.headers_mut().unwrap() = request.headers().clone();
-    builder.body(request.body().clone()).unwrap()
 }
 
 struct BytesChunks {

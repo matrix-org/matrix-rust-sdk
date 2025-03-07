@@ -33,11 +33,12 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use eyeball::Subscriber;
+use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    linked_chunk::lazy_loader::LazyLoaderError,
     store_locks::LockStoreError,
     sync::RoomUpdates,
 };
@@ -56,9 +57,9 @@ use ruma::{
 };
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
-    Mutex, RwLock,
+    mpsc, Mutex, RwLock,
 };
-use tracing::{error, info, info_span, instrument, trace, warn, Instrument as _, Span};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::paginator::PaginatorError;
 use crate::{client::WeakClient, Client};
@@ -68,7 +69,7 @@ mod pagination;
 mod room;
 
 pub mod paginator;
-pub use pagination::{PaginationToken, RoomPagination, TimelineHasBeenResetWhilePaginating};
+pub use pagination::{PaginationToken, RoomPagination, RoomPaginationStatus};
 pub use room::RoomEventCache;
 
 /// An error observed in the [`EventCache`].
@@ -81,20 +82,14 @@ pub enum EventCacheError {
     )]
     NotSubscribedYet,
 
-    /// The room hasn't been found in the client.
-    ///
-    /// Technically, it's possible to request a [`RoomEventCache`] for a room
-    /// that is not known to the client, leading to this error.
-    #[error("Room {0} hasn't been found in the Client.")]
-    RoomNotFound(OwnedRoomId),
-
-    /// The given back-pagination token is unknown to the event cache.
-    #[error("The given back-pagination token is unknown to the event cache.")]
-    UnknownBackpaginationToken,
-
     /// An error has been observed while back-paginating.
-    #[error("Error observed while back-paginating: {0}")]
+    #[error(transparent)]
     BackpaginationError(#[from] PaginatorError),
+
+    /// Back-pagination was already happening in a given room, where we tried to
+    /// back-paginate again.
+    #[error("We were already back-paginating.")]
+    AlreadyBackpaginating,
 
     /// An error happening when interacting with storage.
     #[error(transparent)]
@@ -109,6 +104,13 @@ pub enum EventCacheError {
     /// times where we try to use the client.
     #[error("The owning client of the event cache has been dropped.")]
     ClientDropped,
+
+    /// An error happening when interacting with the [`LinkedChunk`]'s lazy
+    /// loader.
+    ///
+    /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
+    #[error(transparent)]
+    LinkedChunkLoader(#[from] LazyLoaderError),
 }
 
 /// A result using the [`EventCacheError`].
@@ -121,6 +123,9 @@ pub struct EventCacheDropHandles {
 
     /// Task that listens to updates to the user's ignored list.
     ignore_user_list_update_task: JoinHandle<()>,
+
+    /// The task used to automatically shrink the linked chunks.
+    auto_shrink_linked_chunk_task: JoinHandle<()>,
 }
 
 impl Debug for EventCacheDropHandles {
@@ -133,6 +138,7 @@ impl Drop for EventCacheDropHandles {
     fn drop(&mut self) {
         self.listen_updates_task.abort();
         self.ignore_user_list_update_task.abort();
+        self.auto_shrink_linked_chunk_task.abort();
     }
 }
 
@@ -164,6 +170,7 @@ impl EventCache {
                 by_room: Default::default(),
                 drop_handles: Default::default(),
                 all_events: Default::default(),
+                auto_shrink_sender: Default::default(),
             }),
         }
     }
@@ -205,7 +212,19 @@ impl EventCache {
                 client.subscribe_to_ignore_user_list_changes(),
             ));
 
-            Arc::new(EventCacheDropHandles { listen_updates_task, ignore_user_list_update_task })
+            let (tx, rx) = mpsc::channel(32);
+
+            // Force-initialize the sender in the [`RoomEventCacheInner`].
+            self.inner.auto_shrink_sender.get_or_init(|| tx);
+
+            let auto_shrink_linked_chunk_tasks =
+                spawn(Self::auto_shrink_linked_chunk_task(self.inner.clone(), rx));
+
+            Arc::new(EventCacheDropHandles {
+                listen_updates_task,
+                ignore_user_list_update_task,
+                auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_tasks,
+            })
         });
 
         Ok(())
@@ -296,6 +315,68 @@ impl EventCache {
                     // The sender has shut down, exit.
                     info!("Closing the event cache global listen task because receiver closed");
                     break;
+                }
+            }
+        }
+    }
+
+    /// Spawns the task that will listen to auto-shrink notifications.
+    ///
+    /// The auto-shrink mechanism works this way:
+    ///
+    /// - Each time there's a new subscriber to a [`RoomEventCache`], it will
+    ///   increment the active number of listeners to that room, aka
+    ///   [`RoomEventCacheState::listener_count`].
+    /// - When that subscriber is dropped, it will decrement that count; and
+    ///   notify the task below if it reached 0.
+    /// - The task spawned here, owned by the [`EventCacheInner`], will listen
+    ///   to such notifications that a room may be shrunk. It will attempt an
+    ///   auto-shrink, by letting the inner state decide whether this is a good
+    ///   time to do so (new listeners might have spawned in the meanwhile).
+    #[instrument(skip_all)]
+    async fn auto_shrink_linked_chunk_task(
+        inner: Arc<EventCacheInner>,
+        mut rx: mpsc::Receiver<AutoShrinkChannelPayload>,
+    ) {
+        while let Some(room_id) = rx.recv().await {
+            trace!(for_room = %room_id, "received notification to shrink");
+
+            let room = match inner.for_room(&room_id).await {
+                Ok(room) => room,
+                Err(err) => {
+                    warn!(for_room = %room_id, "error when getting a RoomEventCache: {err}");
+                    continue;
+                }
+            };
+
+            trace!("waiting for state lock…");
+            let mut state = room.inner.state.write().await;
+
+            match state.auto_shrink_if_no_listeners().await {
+                Ok(diffs) => {
+                    if let Some(diffs) = diffs {
+                        // Hey, fun stuff: we shrunk the linked chunk, so there shouldn't be any
+                        // listeners, right? RIGHT? Especially because the state is guarded behind
+                        // a lock.
+                        //
+                        // However, better safe than sorry, and it's cheap to send an update here,
+                        // so let's do it!
+                        if !diffs.is_empty() {
+                            let _ = room.inner.sender.send(
+                                RoomEventCacheUpdate::UpdateTimelineEvents {
+                                    diffs,
+                                    origin: EventsOrigin::Cache,
+                                },
+                            );
+                        }
+                    } else {
+                        debug!("auto-shrinking didn't happen");
+                    }
+                }
+
+                Err(err) => {
+                    // There's not much we can do here, unfortunately.
+                    warn!(for_room = %room_id, "error when attempting to shrink linked chunk: {err}");
                 }
             }
         }
@@ -526,7 +607,17 @@ struct EventCacheInner {
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
+
+    /// A sender for notifications that a room *may* need to be auto-shrunk.
+    ///
+    /// Needs to live here, so it may be passed to each [`RoomEventCache`]
+    /// instance.
+    ///
+    /// See doc comment of [`EventCache::auto_shrink_linked_chunk_task`].
+    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkChannelPayload>>,
 }
+
+type AutoShrinkChannelPayload = OwnedRoomId;
 
 impl EventCacheInner {
     fn client(&self) -> Result<Client> {
@@ -623,25 +714,42 @@ impl EventCacheInner {
                     return Ok(room.clone());
                 }
 
-                let room_state =
-                    RoomEventCacheState::new(room_id.to_owned(), self.store.clone()).await?;
+                let pagination_status =
+                    SharedObservable::new(RoomPaginationStatus::Idle { hit_timeline_start: false });
 
                 let room_version = self
                     .client
                     .get()
                     .and_then(|client| client.get_room(room_id))
+                    .as_ref()
                     .map(|room| room.clone_info().room_version_or_default())
                     .unwrap_or_else(|| {
                         warn!("unknown room version for {room_id}, using default V1");
                         RoomVersionId::V1
                     });
 
+                let room_state = RoomEventCacheState::new(
+                    room_id.to_owned(),
+                    room_version,
+                    self.store.clone(),
+                    pagination_status.clone(),
+                )
+                .await?;
+
+                // SAFETY: we must have subscribed before reaching this coed, otherwise
+                // something is very wrong.
+                let auto_shrink_sender =
+                    self.auto_shrink_sender.get().cloned().expect(
+                        "we must have called `EventCache::subscribe()` before calling here.",
+                    );
+
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
                     room_state,
+                    pagination_status,
                     room_id.to_owned(),
-                    room_version,
                     self.all_events.clone(),
+                    auto_shrink_sender,
                 );
 
                 by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
@@ -664,8 +772,6 @@ pub struct BackPaginationOutcome {
     /// Events are presented in reverse order: the first element of the vec,
     /// if present, is the most "recent" event from the chunk (or
     /// technically, the last one in the topological ordering).
-    ///
-    /// Note: they're not deduplicated (TODO: smart reconciliation).
     pub events: Vec<TimelineEvent>,
 }
 
@@ -712,6 +818,9 @@ pub enum EventsOrigin {
 
     /// Events are coming from pagination.
     Pagination,
+
+    /// The cause of the change is purely internal to the cache.
+    Cache,
 }
 
 #[cfg(test)]

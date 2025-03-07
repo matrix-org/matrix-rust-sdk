@@ -105,7 +105,7 @@ pub(in crate::timeline) struct TimelineMetadata {
 
 /// Maximum number of stash pending edits.
 /// SAFETY: 32 is not 0.
-const MAX_NUM_STASHED_PENDING_EDITS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(32) };
+const MAX_NUM_STASHED_PENDING_EDITS: NonZeroUsize = NonZeroUsize::new(32).unwrap();
 
 impl TimelineMetadata {
     pub(in crate::timeline) fn new(

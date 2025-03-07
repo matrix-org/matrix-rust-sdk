@@ -1,7 +1,65 @@
-use ruma::EventId;
+use std::sync::Arc;
+
+use matrix_sdk_ui::timeline::event_type_filter::TimelineEventTypeFilter as InnerTimelineEventTypeFilter;
+use ruma::{
+    events::{AnySyncTimelineEvent, TimelineEventType},
+    EventId,
+};
 
 use super::FocusEventError;
-use crate::{error::ClientError, event::RoomMessageEventMessageType};
+use crate::{
+    error::ClientError,
+    event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
+};
+
+#[derive(uniffi::Object)]
+pub struct TimelineEventTypeFilter {
+    inner: InnerTimelineEventTypeFilter,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl TimelineEventTypeFilter {
+    #[uniffi::constructor]
+    pub fn include(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
+        let event_types: Vec<TimelineEventType> =
+            event_types.iter().map(|t| t.clone().into()).collect();
+        Arc::new(Self { inner: InnerTimelineEventTypeFilter::Include(event_types) })
+    }
+
+    #[uniffi::constructor]
+    pub fn exclude(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
+        let event_types: Vec<TimelineEventType> =
+            event_types.iter().map(|t| t.clone().into()).collect();
+        Arc::new(Self { inner: InnerTimelineEventTypeFilter::Exclude(event_types) })
+    }
+}
+
+impl TimelineEventTypeFilter {
+    /// Filters an [`event`] to decide whether it should be part of the timeline
+    /// based on [`AnySyncTimelineEvent::event_type()`].
+    pub(crate) fn filter(&self, event: &AnySyncTimelineEvent) -> bool {
+        self.inner.filter(event)
+    }
+}
+
+#[derive(uniffi::Enum, Clone)]
+pub enum FilterTimelineEventType {
+    MessageLike { event_type: MessageLikeEventType },
+    State { event_type: StateEventType },
+}
+
+impl From<FilterTimelineEventType> for TimelineEventType {
+    fn from(value: FilterTimelineEventType) -> TimelineEventType {
+        match value {
+            FilterTimelineEventType::MessageLike { event_type } => {
+                ruma::events::MessageLikeEventType::from(event_type).into()
+            }
+            FilterTimelineEventType::State { event_type } => {
+                ruma::events::StateEventType::from(event_type).into()
+            }
+        }
+    }
+}
 
 #[derive(uniffi::Enum)]
 pub enum TimelineFocus {
@@ -52,28 +110,27 @@ impl From<DateDividerMode> for matrix_sdk_ui::timeline::DateDividerMode {
 }
 
 #[derive(uniffi::Enum)]
-pub enum AllowedMessageTypes {
+pub enum TimelineFilter {
+    /// Show all the events in the timeline, independent of their type.
     All,
-    Only { types: Vec<RoomMessageEventMessageType> },
+    /// Show only `m.room.messages` of the given room message types.
+    OnlyMessage {
+        /// A list of [`RoomMessageEventMessageType`] that will be allowed to
+        /// appear in the timeline.
+        types: Vec<RoomMessageEventMessageType>,
+    },
+    /// Show only events which match this filter.
+    EventTypeFilter { filter: Arc<TimelineEventTypeFilter> },
 }
 
 /// Various options used to configure the timeline's behavior.
-///
-/// # Arguments
-///
-/// * `internal_id_prefix` -
-///
-/// * `allowed_message_types` -
-///
-/// * `date_divider_mode` -
 #[derive(uniffi::Record)]
 pub struct TimelineConfiguration {
     /// What should the timeline focus on?
     pub focus: TimelineFocus,
 
-    /// A list of [`RoomMessageEventMessageType`] that will be allowed to appear
-    /// in the timeline
-    pub allowed_message_types: AllowedMessageTypes,
+    /// How should we filter out events from the timeline?
+    pub filter: TimelineFilter,
 
     /// An optional String that will be prepended to
     /// all the timeline item's internal IDs, making it possible to
@@ -82,4 +139,11 @@ pub struct TimelineConfiguration {
 
     /// How often to insert date dividers
     pub date_divider_mode: DateDividerMode,
+
+    /// Should the read receipts and read markers be tracked for the timeline
+    /// items in this instance?
+    ///
+    /// As this has a non negligible performance impact, make sure to enable it
+    /// only when you need it.
+    pub track_read_receipts: bool,
 }

@@ -877,15 +877,8 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
-        let session = InboundGroupSession::new(
-            sender_key,
-            event.keys.ed25519,
-            &content.room_id,
-            &content.session_key,
-            SenderData::unknown(),
-            event.content.algorithm(),
-            None,
-        );
+        let session =
+            InboundGroupSession::from_room_key_content(sender_key, event.keys.ed25519, content);
 
         match session {
             Ok(mut session) => {

@@ -15,6 +15,7 @@
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
+use decryption_retry_task::DecryptionRetryTask;
 use eyeball_im::VectorDiff;
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
@@ -22,7 +23,7 @@ use imbl::Vector;
 #[cfg(test)]
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
-    deserialized_responses::{TimelineEvent, TimelineEventKind as SdkTimelineEventKind},
+    deserialized_responses::TimelineEvent,
     event_cache::{
         paginator::{PaginationResult, Paginator},
         RoomEventCache,
@@ -48,11 +49,9 @@ use ruma::{
     TransactionId, UserId,
 };
 #[cfg(test)]
-use ruma::{events::receipt::ReceiptEventContent, RoomId};
+use ruma::{events::receipt::ReceiptEventContent, OwnedRoomId, RoomId};
 use tokio::sync::{RwLock, RwLockWriteGuard};
-use tracing::{
-    debug, error, field, field::debug, info, info_span, instrument, trace, warn, Instrument as _,
-};
+use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 pub(super) use self::{
     metadata::{RelativePosition, TimelineMetadata},
@@ -86,6 +85,7 @@ use crate::{
 };
 
 mod aggregations;
+mod decryption_retry_task;
 mod metadata;
 mod observable_items;
 mod read_receipts;
@@ -117,7 +117,7 @@ enum TimelineFocusData<P: RoomDataProvider> {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct TimelineController<P: RoomDataProvider = Room> {
+pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = Room> {
     /// Inner mutable state.
     state: Arc<RwLock<TimelineState>>,
 
@@ -131,6 +131,10 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
 
     /// Settings applied to this timeline.
     pub(super) settings: TimelineSettings,
+
+    /// Long-running task used to retry decryption of timeline items without
+    /// blocking main processing.
+    decryption_retry_task: DecryptionRetryTask<D>,
 }
 
 #[derive(Clone)]
@@ -256,7 +260,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
     }
 }
 
-impl<P: RoomDataProvider> TimelineController<P> {
+impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(super) fn new(
         room_data_provider: P,
         focus: TimelineFocus,
@@ -287,20 +291,26 @@ impl<P: RoomDataProvider> TimelineController<P> {
             ),
         };
 
-        let state = TimelineState::new(
+        let state = Arc::new(RwLock::new(TimelineState::new(
             focus_kind,
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version(),
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,
-        );
+        )));
+
+        let settings = TimelineSettings::default();
+
+        let decryption_retry_task =
+            DecryptionRetryTask::new(state.clone(), room_data_provider.clone());
 
         Self {
-            state: Arc::new(RwLock::new(state)),
+            state,
             focus: Arc::new(RwLock::new(focus_data)),
             room_data_provider,
-            settings: Default::default(),
+            settings,
+            decryption_retry_task,
         }
     }
 
@@ -1038,144 +1048,12 @@ impl<P: RoomDataProvider> TimelineController<P> {
         true
     }
 
-    #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
-    pub(super) async fn retry_event_decryption(
-        &self,
-        room: &Room,
-        session_ids: Option<BTreeSet<String>>,
-    ) {
-        self.retry_event_decryption_inner(room.to_owned(), session_ids).await
-    }
-
-    #[cfg(test)]
-    pub(super) async fn retry_event_decryption_test(
-        &self,
-        room_id: &RoomId,
-        olm_machine: OlmMachine,
-        session_ids: Option<BTreeSet<String>>,
-    ) {
-        self.retry_event_decryption_inner((olm_machine, room_id.to_owned()), session_ids).await
-    }
-
     async fn retry_event_decryption_inner(
         &self,
-        decryptor: impl Decryptor,
+        decryptor: D,
         session_ids: Option<BTreeSet<String>>,
     ) {
-        use super::EncryptedMessage;
-
-        let mut state = self.state.clone().write_owned().await;
-
-        let should_retry = move |session_id: &str| {
-            if let Some(session_ids) = &session_ids {
-                session_ids.contains(session_id)
-            } else {
-                true
-            }
-        };
-
-        let retry_indices: Vec<_> = state
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| match item.as_event()?.content().as_unable_to_decrypt()? {
-                EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                    if should_retry(session_id) =>
-                {
-                    Some(idx)
-                }
-                EncryptedMessage::MegolmV1AesSha2 { .. }
-                | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                | EncryptedMessage::Unknown => None,
-            })
-            .collect();
-
-        if retry_indices.is_empty() {
-            return;
-        }
-
-        debug!("Retrying decryption");
-
-        let settings = self.settings.clone();
-        let room_data_provider = self.room_data_provider.clone();
-        let push_rules_context = room_data_provider.push_rules_and_context().await;
-        let unable_to_decrypt_hook = state.meta.unable_to_decrypt_hook.clone();
-
-        matrix_sdk::executor::spawn(async move {
-            let retry_one = |item: Arc<TimelineItem>| {
-                let decryptor = decryptor.clone();
-                let should_retry = &should_retry;
-                let unable_to_decrypt_hook = unable_to_decrypt_hook.clone();
-                async move {
-                    let event_item = item.as_event()?;
-
-                    let session_id = match event_item.content().as_unable_to_decrypt()? {
-                        EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
-                            if should_retry(session_id) =>
-                        {
-                            session_id
-                        }
-                        EncryptedMessage::MegolmV1AesSha2 { .. }
-                        | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                        | EncryptedMessage::Unknown => return None,
-                    };
-
-                    tracing::Span::current().record("session_id", session_id);
-
-                    let Some(remote_event) = event_item.as_remote() else {
-                        error!("Key for unable-to-decrypt timeline item is not an event ID");
-                        return None;
-                    };
-
-                    tracing::Span::current().record("event_id", debug(&remote_event.event_id));
-
-                    let Some(original_json) = &remote_event.original_json else {
-                        error!("UTD item must contain original JSON");
-                        return None;
-                    };
-
-                    match decryptor.decrypt_event_impl(original_json).await {
-                        Ok(event) => {
-                            if let SdkTimelineEventKind::UnableToDecrypt { utd_info, .. } =
-                                event.kind
-                            {
-                                info!(
-                                    "Failed to decrypt event after receiving room key: {:?}",
-                                    utd_info.reason
-                                );
-                                None
-                            } else {
-                                // Notify observers that we managed to eventually decrypt an event.
-                                if let Some(hook) = unable_to_decrypt_hook {
-                                    hook.on_late_decrypt(&remote_event.event_id).await;
-                                }
-
-                                Some(event)
-                            }
-                        }
-                        Err(e) => {
-                            info!("Failed to decrypt event after receiving room key: {e}");
-                            None
-                        }
-                    }
-                }
-                .instrument(info_span!(
-                    "retry_one",
-                    session_id = field::Empty,
-                    event_id = field::Empty
-                ))
-            };
-
-            state
-                .retry_event_decryption(
-                    retry_one,
-                    retry_indices,
-                    push_rules_context,
-                    &room_data_provider,
-                    &settings,
-                )
-                .await;
-        });
+        self.decryption_retry_task.decrypt(decryptor, session_ids, self.settings.clone()).await;
     }
 
     pub(super) async fn set_sender_profiles_pending(&self) {
@@ -1595,6 +1473,27 @@ impl TimelineController {
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
         state.items.all_remote_events().last().map(|event_meta| &event_meta.event_id).cloned()
+    }
+
+    #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
+    pub(super) async fn retry_event_decryption(
+        &self,
+        room: &Room,
+        session_ids: Option<BTreeSet<String>>,
+    ) {
+        self.retry_event_decryption_inner(room.to_owned(), session_ids).await
+    }
+}
+
+#[cfg(test)]
+impl<P: RoomDataProvider> TimelineController<P, (OlmMachine, OwnedRoomId)> {
+    pub(super) async fn retry_event_decryption_test(
+        &self,
+        room_id: &RoomId,
+        olm_machine: OlmMachine,
+        session_ids: Option<BTreeSet<String>>,
+    ) {
+        self.retry_event_decryption_inner((olm_machine, room_id.to_owned()), session_ids).await
     }
 }
 

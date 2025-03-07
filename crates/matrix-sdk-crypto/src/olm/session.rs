@@ -16,7 +16,7 @@ use std::{fmt, sync::Arc};
 
 use ruma::{serde::Raw, SecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{debug, Span};
 use vodozemac::{
@@ -29,7 +29,11 @@ use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult, SessionUnpickleError},
     types::{
-        events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
+        events::{
+            olm_v1::DecryptedOlmV1Event,
+            room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
+            EventType,
+        },
         DeviceKeys, EventEncryptionAlgorithm,
     },
     DeviceData,
@@ -146,26 +150,62 @@ impl Session {
         content: impl Serialize,
         message_id: Option<String>,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
+        #[derive(Debug)]
+        struct Content<'a> {
+            event_type: &'a str,
+            content: Raw<Value>,
+        }
+
+        impl EventType for Content<'_> {
+            // This is a bit of a hack: usually we just define the `EVENT_TYPE` and use the
+            // default implementation of `event_type()`. We can't do this here
+            // because the event type isn't static.
+            //
+            // We have to provide `EVENT_TYPE` to conform to the `EventType` trait, but
+            // don't actually use it, so we just leave it empty.
+            //
+            // This works because the serialization uses `event_type()` and this type is
+            // contained to this function.
+            const EVENT_TYPE: &'static str = "";
+
+            fn event_type(&self) -> &str {
+                self.event_type
+            }
+        }
+
+        impl Serialize for Content<'_> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.content.serialize(serializer)
+            }
+        }
+
         let plaintext = {
+            let content = serde_json::to_value(content)?;
+            let content = Content { event_type, content: Raw::new(&content)? };
+
             let recipient_signing_key =
                 recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
-            let payload = json!({
-                "sender": &self.our_device_keys.user_id,
-                "sender_device": &self.our_device_keys.device_id,
-                "keys": {
-                    "ed25519": self.our_device_keys.ed25519_key().expect("Device doesn't have ed25519 key").to_base64(),
+            let content = DecryptedOlmV1Event {
+                sender: self.our_device_keys.user_id.clone(),
+                recipient: recipient_device.user_id().into(),
+                keys: crate::types::events::olm_v1::OlmV1Keys {
+                    ed25519: self
+                        .our_device_keys
+                        .ed25519_key()
+                        .expect("Our own device should have an Ed25519 public key"),
                 },
-                "org.matrix.msc4147.device_keys": self.our_device_keys,
-                "recipient": recipient_device.user_id(),
-                "recipient_keys": {
-                    "ed25519": recipient_signing_key.to_base64(),
+                recipient_keys: crate::types::events::olm_v1::OlmV1Keys {
+                    ed25519: recipient_signing_key,
                 },
-                "type": event_type,
-                "content": content,
-            });
+                sender_device_keys: Some(self.our_device_keys.clone()),
+                content,
+            };
 
-            serde_json::to_string(&payload)?
+            serde_json::to_string(&content)?
         };
 
         let ciphertext = self.encrypt_helper(&plaintext).await;

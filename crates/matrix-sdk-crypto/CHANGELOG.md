@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] Add support for the shared history flag defined in [MSC3061](https://github.com/matrix-org/matrix-spec-proposals/pull/3061).
+  The shared history flag is now respected when room keys are received as an
+  `m.room_key` event as well as when they are imported from a backup or a file
+  export. We also ensure to set the flag when we send out room keys. Due to
+  this, a new argument to the constructor for `room_key::MegolmV1AesSha2Content`
+  has been added and `PickledInboundGroupSession` has received a new
+  `shared_history` field that defaults to `false.`
+  ([#4700](https://github.com/matrix-org/matrix-rust-sdk/pull/4700))
+
 ## [0.10.0] - 2025-02-04
 
 ### Features

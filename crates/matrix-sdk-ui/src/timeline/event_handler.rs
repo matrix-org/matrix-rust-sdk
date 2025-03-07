@@ -984,7 +984,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// # Safety
     ///
     /// This method is not marked as unsafe **but** it manipulates
-    /// [`TimelineMetadata::all_remote_events`]. 2 rules **must** be respected:
+    /// [`ObservableItemsTransaction::all_remote_events`]. 2 rules **must** be
+    /// respected:
     ///
     /// 1. the remote event of the item being added **must** be present in
     ///    `all_remote_events`,

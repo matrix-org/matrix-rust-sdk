@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**]: The `RoomPagination::run_backwards` method has been removed, and replaced by two
+simpler methods:
+  - `RoomPagination::run_backwards_until()`, which will retrigger back-paginations until a certain
+  number of events have been received (and retry if the timeline has been reset in the background).
+  - `RoomPagination::run_backwards_once()`, which will run a single back-pagination (and retry if
+  the timeline has been reset in the background).
+  ([#4689](https://github.com/matrix-org/matrix-rust-sdk/pull/4689))
 - [**breaking**]: The `Oidc::account_management_url` method now caches the
   result of a call, subsequent calls to the method will not contact the OIDC
   provider for a while, instead the cached URI will be returned. If caching of
@@ -21,6 +28,10 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The HTTP client only allows TLS 1.2 or newer, as recommended by
   [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
   ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
+- Add `Room::report_room` api. ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
+- `Client::notification_client` will create a copy of the existing `Client`, but now it'll make sure 
+  it doesn't handle any verification events to avoid an issue with these events being received and 
+  processed twice if `NotificationProcessSetup` was `SingleSetup`.
 
 ### Bug Fixes
 
@@ -32,6 +43,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] We now require Rust 1.85 as the minimum supported Rust version to compile.
+  Yay for async closures!
+  ([#4745](https://github.com/matrix-org/matrix-rust-sdk/pull/4745)
 - [**breaking**]: The `Oidc` API only supports public clients, i.e. clients
   without a secret.
   ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
@@ -46,6 +60,59 @@ All notable changes to this project will be documented in this file.
   case anymore, according to the latest version of
   [MSC2967](https://github.com/matrix-org/matrix-spec-proposals/pull/2967).
   ([#4664](https://github.com/matrix-org/matrix-rust-sdk/pull/4664))
+- The `UserSession` type cannot be deserialized from its old format anymore. The
+  old format used an `issuer_info` field instead of an `issuer` field.
+- [**breaking**]: The `Oidc` API uses the `GET /auth_metadata` endpoint from the
+  latest version of [MSC2965](https://github.com/matrix-org/matrix-spec-proposals/pull/2965)
+  by default. The previous `GET /auth_issuer` endpoint is still supported as a
+  fallback for now.
+  ([#4673](https://github.com/matrix-org/matrix-rust-sdk/pull/4673))
+  - It is not possible to provide a custom issuer anymore:
+    `Oidc::given_provider_metadata()` was removed, and the parameter was removed
+    from `Oidc::register_client()`.
+  - `Oidc::fetch_authentication_issuer()` was removed. To check if the
+    homeserver supports OAuth 2.0, use `Oidc::provider_metadata()`. To get the
+    issuer, use `VerifiedProviderMetadata::issuer()`.
+  - `Oidc::provider_metadata()` returns an `OauthDiscoveryError`. It has a
+    `NotSupported` variant and an `is_not_supported()` method to check if the
+    error is due to the server not supporting OAuth 2.0.
+  - `OidcError::MissingAuthenticationIssuer` was removed.
+- [**breaking**]: The `authentication::qrcode` module was moved inside
+  `authentication::oidc`, because it is only available through the `Oidc` API.
+- [**breaking**]: The behavior of `Oidc::logout()` is now aligned with
+  [MSC4254](https://github.com/matrix-org/matrix-spec-proposals/pull/4254)
+  ([#4674](https://github.com/matrix-org/matrix-rust-sdk/pull/4674))
+  - Support for [RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
+    was removed, so it doesn't return an `OidcEndSessionUrlBuilder` anymore.
+  - Only one request is made to revoke the access token, since the server is
+    supposed to revoke both the access token and the associated refresh token
+    when the request is made.
+- [**breaking**]: Remove most of the parameter methods of
+  `OidcAuthCodeUrlBuilder`, since they were parameters defined in OpenID
+  Connect. Only the `prompt` and `user_id_hint` parameters are still supported.
+  ([#4699](https://github.com/matrix-org/matrix-rust-sdk/pull/4699))
+- [**breaking**]: Remove support for ID tokens in the `Oidc` API.
+  ([#4726](https://github.com/matrix-org/matrix-rust-sdk/pull/4726))
+  - The `latest_id_token` field of `OidcSessionTokens` was removed. (De)
+    serialization of the type should be backwards-compatible.
+  - `Oidc::restore_registered_client()` doesn't take a `VerifiedClientMetadata`
+    anymore.
+  - `Oidc::latest_id_token()` and `Oidc::client_metadata()` were removed.
+- [**breaking**]: The `Oidc` API makes use of the oauth2 crate rather than
+  mas-oidc-client.
+  ([#4761](https://github.com/matrix-org/matrix-rust-sdk/pull/4761))
+  - `ClientId` is a different type reexported from the oauth2 crate.
+  - The error types that were in the `oidc` module have been moved to the
+    `oidc::error` module.
+  - The `prompt` parameter of `Oidc::url_for_oidc()` is now optional, and
+    `Prompt` is a different type reexported from Ruma, that only supports the
+    `create` value.
+  - The `device_id` parameter of `Oidc::login` is now an `Option<OwnedDeviceId>`.
+  - The `state` field of `OidcAuthorizationData` and `AuthorizationCode`, and
+    the parameter of the same name in `Oidc::abort_authorization()` now use
+    `CsrfToken`.
+  - The `error` field of `AuthorizationError` uses an error type from the oauth2
+    crate rather than one from mas-oidc-client.
 
 ## [0.10.0] - 2025-02-04
 

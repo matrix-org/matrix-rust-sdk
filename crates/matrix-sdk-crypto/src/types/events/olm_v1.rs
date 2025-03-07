@@ -162,7 +162,10 @@ impl AnyDecryptedOlmEvent {
 }
 
 /// An `m.olm.v1.curve25519-aes-sha2` decrypted to-device event.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+///
+/// **Note**: This event will reserialize events lossily; unknown fields will be
+/// lost during deserialization.
+#[derive(Clone, Debug, Deserialize)]
 pub struct DecryptedOlmV1Event<C>
 where
     C: EventType + Debug + Sized + Serialize,
@@ -180,6 +183,59 @@ where
     pub sender_device_keys: Option<DeviceKeys>,
     /// The type of the event.
     pub content: C,
+}
+
+impl<C: EventType + Debug + Sized + Serialize> Serialize for DecryptedOlmV1Event<C> {
+    /// A customized [`Serialize`] implementation that ensures that the
+    /// `event_type` field is present in the serialized JSON.
+    ///
+    /// The `event_type` in the [`DecryptedOlmV1Event`] is omitted because the
+    /// event type is expressed in the generic type `C`. To properly serialize
+    /// the [`DecryptedOlmV1Event`] we'll must extract the event type from `C`
+    /// and reintroduce it into the JSON field.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct DecryptedEventSerializationHelper<'a, C: EventType + Debug + Sized + Serialize> {
+            sender: &'a UserId,
+            recipient: &'a UserId,
+            keys: &'a OlmV1Keys,
+            recipient_keys: &'a OlmV1Keys,
+            #[serde(
+                rename = "org.matrix.msc4147.device_keys",
+                skip_serializing_if = "Option::is_none"
+            )]
+            sender_device_keys: Option<&'a DeviceKeys>,
+            content: &'a C,
+            #[serde(rename = "type")]
+            event_type: &'a str,
+        }
+
+        let event_type = self.content.event_type();
+
+        let DecryptedOlmV1Event {
+            sender,
+            recipient,
+            keys,
+            recipient_keys,
+            sender_device_keys,
+            content,
+        } = &self;
+
+        let event = DecryptedEventSerializationHelper {
+            sender,
+            recipient,
+            keys,
+            recipient_keys,
+            sender_device_keys: sender_device_keys.as_ref(),
+            content,
+            event_type,
+        };
+
+        event.serialize(serializer)
+    }
 }
 
 impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
@@ -269,6 +325,7 @@ mod tests {
     use assert_matches::assert_matches;
     use ruma::{device_id, owned_user_id, KeyId};
     use serde_json::{json, Value};
+    use similar_asserts::assert_eq;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature};
 
     use super::AnyDecryptedOlmEvent;
@@ -298,7 +355,6 @@ mod tests {
     fn room_key_event() -> Value {
         json!({
             "sender": "@alice:example.org",
-            "sender_device": "DEVICEID",
             "keys": {
                 "ed25519": ED25519_KEY,
             },
@@ -512,5 +568,44 @@ mod tests {
 
         // Then it contains the sender_device_keys
         assert_eq!(event.sender_device_keys, Some(sender_device_keys));
+    }
+
+    #[test]
+    fn test_serialization_cycle() {
+        let event_json = json!({
+            "sender": "@alice:example.org",
+            "keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "recipient": "@bob:example.org",
+            "recipient_keys": {
+                "ed25519": ED25519_KEY,
+            },
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!Cuyf34gef24t:localhost",
+                "org.matrix.msc3061.shared_history": true,
+                "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
+                "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
+                            SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
+                            jVv80fMPHfGc49hPdu8A+xnwD4SQiYdFmSWJOIqsxeo/fiH\
+                            tino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31\
+                            QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaY\
+                            U5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80\
+                            gdHUwHSgMk77vCc2a5KHKLDA"
+            },
+            "type": "m.room_key"
+        });
+
+        let event: DecryptedRoomKeyEvent = serde_json::from_value(event_json.clone())
+            .expect("JSON should deserialize to the right event type");
+
+        let reserialized =
+            serde_json::to_value(event).expect("We should be able to serialize the event");
+
+        assert_eq!(
+            event_json, reserialized,
+            "The reserialized JSON should match the original value"
+        );
     }
 }

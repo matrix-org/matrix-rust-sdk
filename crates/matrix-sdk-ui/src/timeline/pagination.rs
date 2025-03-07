@@ -12,18 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::ControlFlow;
-
 use async_rx::StreamExt as _;
 use async_stream::stream;
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::event_cache::{
-    self,
-    paginator::{PaginatorError, PaginatorState},
-    BackPaginationOutcome, EventCacheError, RoomPagination,
-};
-use tracing::{instrument, trace, warn};
+use matrix_sdk::event_cache::{self, EventCacheError, RoomPaginationStatus};
+use tracing::{instrument, warn};
 
 use super::Error;
 
@@ -41,8 +35,11 @@ impl super::Timeline {
                     );
                 }
                 None => {
-                    // TODO: returning `false` is not true everytime, we need a way to know if
-                    // lazy-loading has reached the end of the timeline.
+                    // We could adjust the skip count to a lower value, while passing the requested
+                    // number of events. We *may* have reached the start of the timeline, but since
+                    // we're fulfilling the caller's request, assume it's not the case and return
+                    // false here. A subsequent call will go to the `Some()` arm of this match, and
+                    // cause a call to the event cache's pagination.
                     return Ok(false);
                 }
             }
@@ -72,38 +69,26 @@ impl super::Timeline {
     ///
     /// Returns whether we hit the start of the timeline.
     async fn live_paginate_backwards(&self, batch_size: u16) -> event_cache::Result<bool> {
-        let pagination = self.event_cache.pagination();
-
-        let result = pagination
-            .run_backwards(
-                batch_size,
-                |BackPaginationOutcome { events, reached_start },
-                 _timeline_has_been_reset| async move {
-                    let num_events = events.len();
-                    trace!("Back-pagination succeeded with {num_events} events");
-
-                    if num_events == 0 && !reached_start {
-                        // As an exceptional contract: if there were no events in the response,
-                        // and we've not hit the start of the timeline, retry until we get
-                        // some events or reach the start of the timeline.
-                        return ControlFlow::Continue(());
+        loop {
+            match self.event_cache.pagination().run_backwards_once(batch_size).await {
+                Ok(outcome) => {
+                    // As an exceptional contract, restart the back-pagination if we received an
+                    // empty chunk.
+                    if outcome.reached_start || !outcome.events.is_empty() {
+                        return Ok(outcome.reached_start);
                     }
+                }
 
-                    ControlFlow::Break(reached_start)
-                },
-            )
-            .await;
+                Err(EventCacheError::AlreadyBackpaginating) => {
+                    // Treat an already running pagination exceptionally, returning false so that
+                    // the caller retries later.
+                    warn!("Another pagination request is already happening, returning early");
+                    return Ok(false);
+                }
 
-        match result {
-            Err(EventCacheError::BackpaginationError(PaginatorError::InvalidPreviousState {
-                actual: PaginatorState::Paginating,
-                ..
-            })) => {
-                warn!("Another pagination request is already happening, returning early");
-                Ok(false)
+                // Propagate other errors as such.
+                Err(err) => return Err(err),
             }
-
-            result => result,
         }
     }
 
@@ -115,7 +100,7 @@ impl super::Timeline {
     /// call to [`Self::paginate_backwards()`].
     pub async fn live_back_pagination_status(
         &self,
-    ) -> Option<(LiveBackPaginationStatus, impl Stream<Item = LiveBackPaginationStatus>)> {
+    ) -> Option<(RoomPaginationStatus, impl Stream<Item = RoomPaginationStatus>)> {
         if !self.controller.is_live().await {
             return None;
         }
@@ -124,53 +109,16 @@ impl super::Timeline {
 
         let mut status = pagination.status();
 
-        let current_value =
-            LiveBackPaginationStatus::from_paginator_status(&pagination, status.next_now());
+        let current_value = status.next_now();
 
         let stream = Box::pin(stream! {
             let status_stream = status.dedup();
-
             pin_mut!(status_stream);
-
             while let Some(state) = status_stream.next().await {
-                yield LiveBackPaginationStatus::from_paginator_status(&pagination, state);
+                yield state;
             }
         });
 
         Some((current_value, stream))
-    }
-}
-
-/// Status for the back-pagination on a live timeline.
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum LiveBackPaginationStatus {
-    /// No back-pagination is happening right now.
-    Idle {
-        /// Have we hit the start of the timeline, i.e. back-paginating wouldn't
-        /// have any effect?
-        hit_start_of_timeline: bool,
-    },
-
-    /// Back-pagination is already running in the background.
-    Paginating,
-}
-
-impl LiveBackPaginationStatus {
-    /// Converts from a [`PaginatorState`] into the live back-pagination status.
-    ///
-    /// Private method instead of `From`/`Into` impl, to avoid making it public
-    /// API.
-    fn from_paginator_status(pagination: &RoomPagination, state: PaginatorState) -> Self {
-        match state {
-            PaginatorState::Initial => Self::Idle { hit_start_of_timeline: false },
-            PaginatorState::FetchingTargetEvent => {
-                panic!("unexpected paginator state for a live backpagination")
-            }
-            PaginatorState::Idle => {
-                Self::Idle { hit_start_of_timeline: pagination.hit_timeline_start() }
-            }
-            PaginatorState::Paginating => Self::Paginating,
-        }
     }
 }

@@ -39,3 +39,4 @@ Additions:
 - Add `Room::send_raw`
 - Add `NotificationSettings::set_custom_push_rule`
 - Expose `withdraw_verification` to `UserIdentity`
+- Expose `report_room` to `Room`

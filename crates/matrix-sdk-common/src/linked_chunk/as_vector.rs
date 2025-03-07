@@ -14,6 +14,7 @@
 
 use std::{
     collections::VecDeque,
+    iter::repeat_n,
     ops::{ControlFlow, Not},
     sync::{Arc, RwLock},
 };
@@ -133,7 +134,8 @@ impl UpdateToVectorDiff {
     ///
     /// * [`Update::NewItemsChunk`] and [`Update::NewGapChunk`] are inserting a
     ///   new pair with a chunk length of 0 at the appropriate index,
-    /// * [`Update::RemoveChunk`] is removing a pair,
+    /// * [`Update::RemoveChunk`] is removing a pair, and is potentially
+    ///   emitting [`VectorDiff`],
     /// * [`Update::PushItems`] is increasing the length of the appropriate pair
     ///   by the number of new items, and is potentially emitting
     ///   [`VectorDiff`],
@@ -264,11 +266,10 @@ impl UpdateToVectorDiff {
                 | Update::NewGapChunk { previous, new, next, .. } => {
                     match (previous, next) {
                         // New chunk at the end.
-                        (Some(previous), None) => {
-                            debug_assert!(
-                                matches!(self.chunks.back(), Some((p, _)) if p == previous),
-                                "Inserting new chunk at the end: The previous chunk is invalid"
-                            );
+                        (Some(_previous), None) => {
+                            // No need to check `previous`. It's possible that the linked chunk is
+                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // `previous` might not exist in-memory yet.
 
                             self.chunks.push_back((*new, 0));
                         }
@@ -284,7 +285,7 @@ impl UpdateToVectorDiff {
                         }
 
                         // New chunk is inserted between 2 chunks.
-                        (Some(previous), Some(next)) => {
+                        (Some(_previous), Some(next)) => {
                             let next_chunk_index = self
                                 .chunks
                                 .iter()
@@ -296,10 +297,9 @@ impl UpdateToVectorDiff {
                                 // or `ObservableUpdates` contain a bug.
                                 .expect("Inserting new chunk: The chunk is not found");
 
-                            debug_assert!(
-                                matches!(self.chunks.get(next_chunk_index - 1), Some((p, _)) if p == previous),
-                                "Inserting new chunk: The previous chunk is invalid"
-                            );
+                            // No need to check `previous`. It's possible that the linked chunk is
+                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // `previous` might not exist in-memory yet.
 
                             self.chunks.insert(next_chunk_index, (*new, 0));
                         }
@@ -319,22 +319,17 @@ impl UpdateToVectorDiff {
                     }
                 }
 
-                Update::RemoveChunk(expected_chunk_identifier) => {
-                    let chunk_index = self
-                        .chunks
-                        .iter()
-                        .position(|(chunk_identifier, _)| {
-                            chunk_identifier == expected_chunk_identifier
-                        })
-                        // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
-                        // assuming `Self::chunks` is correctly initialized, it is not possible to
-                        // remove a chunk that does not exist. If this predicate fails, it means
-                        // `LinkedChunk` or `ObservableUpdates` contain a bug.
-                        .expect("Removing a chunk: The chunk is not found");
+                Update::RemoveChunk(chunk_identifier) => {
+                    let (offset, (chunk_index, _)) =
+                        self.map_to_offset(&Position(*chunk_identifier, 0));
 
-                    // It's OK to ignore the result. The `chunk_index` exists because it's been
-                    // found, and we don't care about its associated value.
-                    let _ = self.chunks.remove(chunk_index);
+                    let (_, number_of_items) = self
+                        .chunks
+                        .remove(chunk_index)
+                        .expect("Removing an index out of the bounds");
+
+                    // Removing at the same index because each `Remove` shifts items to the left.
+                    diffs.extend(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
                 }
 
                 Update::PushItems { at: position, items } => {
@@ -478,7 +473,7 @@ mod tests {
     use imbl::{vector, Vector};
 
     use super::{
-        super::{ChunkIdentifierGenerator, EmptyChunk, LinkedChunk},
+        super::{Chunk, ChunkIdentifierGenerator, LinkedChunk, Update},
         VectorDiff,
     };
 
@@ -635,10 +630,7 @@ mod tests {
         );
 
         let removed_item = linked_chunk
-            .remove_item_at(
-                linked_chunk.item_position(|item| *item == 'c').unwrap(),
-                EmptyChunk::Remove,
-            )
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'c').unwrap())
             .unwrap();
         assert_eq!(removed_item, 'c');
         assert_items_eq!(
@@ -658,10 +650,7 @@ mod tests {
         apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 7 }]);
 
         let removed_item = linked_chunk
-            .remove_item_at(
-                linked_chunk.item_position(|item| *item == 'z').unwrap(),
-                EmptyChunk::Remove,
-            )
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'z').unwrap())
             .unwrap();
         assert_eq!(removed_item, 'z');
         assert_items_eq!(
@@ -852,6 +841,99 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_as_vector_remove_chunk() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+        let mut as_vector = linked_chunk.as_vector().unwrap();
+
+        let mut accumulator = Vector::new();
+
+        assert!(as_vector.take().is_empty());
+
+        linked_chunk.push_items_back(['a', 'b']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['c']);
+        linked_chunk.push_gap_back(());
+        linked_chunk.push_items_back(['d', 'e', 'f', 'g']);
+
+        assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['c'] [-] ['d', 'e', 'f'] ['g']);
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7
+        // +---+---+---+---+---+---+---+
+        // | a | b | c | d | e | f | g |
+        // +---+---+---+---+---+---+---+
+        // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        // |
+        // new
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[
+                VectorDiff::Append { values: vector!['a', 'b'] },
+                VectorDiff::Append { values: vector!['c'] },
+                VectorDiff::Append { values: vector!['d', 'e', 'f'] },
+                VectorDiff::Append { values: vector!['g'] },
+            ],
+        );
+
+        // Empty a chunk, and remove it once it is empty.
+        linked_chunk
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'c').unwrap())
+            .unwrap();
+
+        assert_items_eq!(linked_chunk, ['a', 'b'] [-] [-] ['d', 'e', 'f'] ['g']);
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6
+        // +---+---+---+---+---+---+
+        // | a | b | d | e | f | g |
+        // +---+---+---+---+---+---+
+        //         ^
+        //         |
+        //         `c` has been removed
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 2 }]);
+
+        // Remove a gap.
+        linked_chunk
+            .remove_empty_chunk_at(linked_chunk.chunk_identifier(Chunk::is_gap).unwrap())
+            .unwrap();
+
+        assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['d', 'e', 'f'] ['g']);
+
+        // From an `ObservableVector` point of view, nothing changes.
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[]);
+
+        // Remove a non-empty chunk. This is not possible with the public
+        // `LinkedChunk` API yet, but let's try.
+        let d_e_and_f = linked_chunk.item_position(|item| *item == 'f').unwrap().chunk_identifier();
+        let updates = linked_chunk.updates().unwrap();
+        updates.push(Update::RemoveChunk(d_e_and_f));
+        // Note that `linked_chunk` is getting out of sync with `AsVector`
+        // but it's just a test. Better, it's the end of the test.
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3
+        // +---+---+---+
+        // | a | b | g |
+        // +---+---+---+
+        //         ^
+        //         |
+        //         `d`, `e` and `f` have been removed
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[
+                VectorDiff::Remove { index: 2 },
+                VectorDiff::Remove { index: 2 },
+                VectorDiff::Remove { index: 2 },
+            ],
+        );
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     mod proptests {
         use proptest::prelude::*;
@@ -917,7 +999,7 @@ mod tests {
                                 continue;
                             };
 
-                            linked_chunk.remove_item_at(position, EmptyChunk::Remove).expect("Failed to remove an item");
+                            linked_chunk.remove_item_at(position).expect("Failed to remove an item");
                         }
                     }
                 }
