@@ -22,7 +22,7 @@ use ruma::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
     },
     events::push_rules::PushRulesEvent,
-    push::{Action, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
+    push::{Action, NewPushRule, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
     RoomId,
 };
 use tokio::sync::{
@@ -256,6 +256,44 @@ impl NotificationSettings {
         if !rules.is_enabled(rule_kind.clone(), rule_id.as_str())? {
             rule_commands.set_rule_enabled(rule_kind, rule_id.as_str(), true)?
         }
+
+        self.run_server_commands(&rule_commands).await?;
+
+        let rules = &mut *self.rules.write().await;
+        rules.apply(rule_commands);
+
+        Ok(())
+    }
+
+    /// Create a custom conditional push rule.
+    ///
+    /// # Arguments
+    ///
+    /// * `rule_id` - The identifier of the push rule.
+    /// * `rule_kind` - The kind of the push rule.
+    /// * `actions` - The actions to set for the push rule.
+    /// * `conditions` - The conditions for the push rule.
+    ///
+    /// See more in the matrix spec: <https://spec.matrix.org/latest/client-server-api/#push-rules>
+    pub async fn create_custom_conditional_push_rule(
+        &self,
+        rule_id: String,
+        rule_kind: RuleKind,
+        actions: Vec<Action>,
+        conditions: Vec<ruma::push::PushCondition>,
+    ) -> Result<(), NotificationSettingsError> {
+        let new_conditional_rule =
+            ruma::push::NewConditionalPushRule::new(rule_id, conditions, actions);
+
+        let new_push_rule = match rule_kind {
+            RuleKind::Override => NewPushRule::Override(new_conditional_rule),
+            RuleKind::Underride => NewPushRule::Underride(new_conditional_rule),
+            _ => return Err(NotificationSettingsError::InvalidParameter("rule_kind".to_owned())),
+        };
+
+        let rules = self.rules.read().await.clone();
+        let mut rule_commands = RuleCommands::new(rules.clone().ruleset);
+        rule_commands.insert_custom_rule(new_push_rule)?;
 
         self.run_server_commands(&rule_commands).await?;
 
@@ -512,6 +550,16 @@ impl NotificationSettings {
                         |error| {
                             error!("Unable to set {kind} push rule `{rule_id}` actions: {error}");
                             NotificationSettingsError::UnableToUpdatePushRule
+                        },
+                    )?;
+                }
+                Command::SetCustomPushRule { rule } => {
+                    let request = set_pushrule::v3::Request::new(rule.clone());
+
+                    self.client.send(request).with_request_config(request_config).await.map_err(
+                        |error| {
+                            error!("Unable to set custom push rule `{rule:#?}`: {error}");
+                            NotificationSettingsError::UnableToAddPushRule
                         },
                     )?;
                 }
@@ -1573,5 +1621,65 @@ mod tests {
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
+    }
+
+    #[async_test]
+    async fn test_create_custom_conditional_push_rule() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        Mock::given(method("PUT"))
+            .and(path("/_matrix/client/r0/pushrules/global/override/custom_rule"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let actions = vec![Action::Notify];
+        let conditions = vec![ruma::push::PushCondition::EventMatch {
+            key: "content.body".to_owned(),
+            pattern: "hello".to_owned(),
+        }];
+
+        settings
+            .create_custom_conditional_push_rule(
+                "custom_rule".to_owned(),
+                RuleKind::Override,
+                actions.clone(),
+                conditions.clone(),
+            )
+            .await
+            .unwrap();
+
+        let rules = settings.rules.read().await;
+        let rule = rules.ruleset.get(RuleKind::Override, "custom_rule").unwrap();
+
+        assert_eq!(rule.rule_id(), "custom_rule");
+        assert!(rule.enabled());
+    }
+
+    #[async_test]
+    async fn test_create_custom_conditional_push_rule_invalid_kind() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        let actions = vec![Action::Notify];
+        let conditions = vec![ruma::push::PushCondition::EventMatch {
+            key: "content.body".to_owned(),
+            pattern: "hello".to_owned(),
+        }];
+
+        let result = settings
+            .create_custom_conditional_push_rule(
+                "custom_rule".to_owned(),
+                RuleKind::Room,
+                actions,
+                conditions,
+            )
+            .await;
+
+        assert_matches!(result, Err(NotificationSettingsError::InvalidParameter(_)));
     }
 }
