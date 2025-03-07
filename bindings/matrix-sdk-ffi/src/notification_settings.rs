@@ -320,13 +320,15 @@ pub enum Action {
     SetTweak(Tweak),
 }
 
-impl From<SdkAction> for Action {
-    fn from(value: SdkAction) -> Self {
-        match value {
+impl TryFrom<SdkAction> for Action {
+        type Error = ();
+
+    fn try_from(value: SdkAction) -> Result<Self, Self::Error> {
+        Ok(match value {
             SdkAction::Notify => Self::Notify,
-            SdkAction::SetTweak(tweak) => Self::SetTweak(tweak.try_into().unwrap_or_default()),
-            _ => Self::from(value),
-        }
+            SdkAction::SetTweak(tweak) => Self::SetTweak(tweak.try_into().unwrap()),
+            _ => return Err(()),
+        })
     }
 }
 
