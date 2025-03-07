@@ -445,6 +445,10 @@ impl Oidc {
     ///   loaded from, if the client is already registered, or stored into, if
     ///   the client is not registered yet.
     ///
+    /// * `redirect_uri` - The URI where the end user will be redirected after
+    ///   authorizing the login. It must be one of the redirect URIs in the
+    ///   client metadata used for registration.
+    ///
     /// * `prompt` - The desired user experience in the web UI. `None` means
     ///   that the user wishes to login into an existing account, and
     ///   `Some(Prompt::Create)` means that the user wishes to register a new
@@ -452,21 +456,14 @@ impl Oidc {
     pub async fn url_for_oidc(
         &self,
         registrations: OidcRegistrations,
+        redirect_uri: Url,
         prompt: Option<Prompt>,
     ) -> Result<OidcAuthorizationData, OidcError> {
         let metadata = self.provider_metadata().await?;
 
-        let redirect_uris = registrations
-            .verified_metadata
-            .redirect_uris
-            .clone()
-            .ok_or(OidcError::MissingRedirectUri)?;
-
-        let redirect_url = redirect_uris.first().ok_or(OidcError::MissingRedirectUri)?;
-
         self.configure(metadata.issuer().to_owned(), registrations).await?;
 
-        let mut data_builder = self.login(redirect_url.clone(), None)?;
+        let mut data_builder = self.login(redirect_uri, None)?;
 
         if let Some(prompt) = prompt {
             data_builder = data_builder.prompt(vec![prompt]);

@@ -137,12 +137,17 @@ pub struct OidcConfiguration {
     pub dynamic_registrations_file: String,
 }
 
+impl OidcConfiguration {
+    pub(crate) fn redirect_uri(&self) -> Result<Url, OidcError> {
+        Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)
+    }
+}
+
 impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
     type Error = OidcError;
 
     fn try_into(self) -> Result<VerifiedClientMetadata, Self::Error> {
-        let redirect_uri =
-            Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)?;
+        let redirect_uri = self.redirect_uri()?;
         let client_name = self.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
         let client_uri = self.client_uri.localized_url()?;
         let logo_uri = self.logo_uri.localized_url()?;
@@ -198,7 +203,6 @@ impl From<SdkOidcError> for OidcError {
     fn from(e: SdkOidcError) -> OidcError {
         match e {
             SdkOidcError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
-            SdkOidcError::MissingRedirectUri => OidcError::MetadataInvalid,
             SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::RedirectUri(_))
             | SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState) => {
                 OidcError::CallbackUrlInvalid
