@@ -5,10 +5,10 @@ use std::{
 
 use imbl::Vector;
 use matrix_sdk::ruma::OwnedRoomId;
-use matrix_sdk_ui::room_list_service;
+use matrix_sdk_ui::{room_list_service, sync_service::SyncService};
 use ratatui::{prelude::*, widgets::*};
 
-use crate::{ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG, TEXT_COLOR};
+use crate::{UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG, TEXT_COLOR};
 
 /// Extra room information, like its display name, etc.
 #[derive(Clone)]
@@ -26,29 +26,51 @@ pub struct ExtraRoomInfo {
 pub type Rooms = Arc<Mutex<Vector<room_list_service::Room>>>;
 pub type RoomInfos = Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>;
 
-#[derive(Default)]
 pub struct RoomList {
     pub state: ListState,
+
     pub rooms: Rooms,
+
+    /// Room list service rooms known to the app.
+    ui_rooms: UiRooms,
+
     /// Extra information about rooms.
     room_infos: RoomInfos,
+
+    /// The current room that's subscribed to in the room list's sliding sync.
+    current_room_subscription: Option<room_list_service::Room>,
+
+    /// The sync service used for synchronizing events.
+    sync_service: Arc<SyncService>,
 }
 
 impl RoomList {
-    pub fn new(rooms: Rooms, room_infos: RoomInfos) -> Self {
-        Self { state: Default::default(), rooms, room_infos }
+    pub fn new(
+        rooms: Rooms,
+        ui_rooms: UiRooms,
+        room_infos: RoomInfos,
+        sync_service: Arc<SyncService>,
+    ) -> Self {
+        Self {
+            state: Default::default(),
+            rooms,
+            room_infos,
+            current_room_subscription: None,
+            ui_rooms,
+            sync_service,
+        }
     }
 
     /// Focus the list on the next item, wraps around if needs be.
     ///
     /// Returns the index only if there was a meaningful change.
-    pub fn next(&mut self) -> Option<usize> {
+    pub fn next_room(&mut self) {
         let num_items = self.rooms.lock().unwrap().len();
 
         // If there's no item to select, leave early.
         if num_items == 0 {
             self.state.select(None);
-            return None;
+            return;
         }
 
         // Otherwise, select the next one or wrap around.
@@ -57,22 +79,20 @@ impl RoomList {
 
         if prev != Some(new) {
             self.state.select(Some(new));
-            Some(new)
-        } else {
-            None
+            self.subscribe_to_room(new);
         }
     }
 
     /// Focus the list on the previous item, wraps around if needs be.
     ///
     /// Returns the index only if there was a meaningful change.
-    pub fn previous(&mut self) -> Option<usize> {
+    pub fn previous_room(&mut self) {
         let num_items = self.rooms.lock().unwrap().len();
 
         // If there's no item to select, leave early.
         if num_items == 0 {
             self.state.select(None);
-            return None;
+            return;
         }
 
         // Otherwise, select the previous one or wrap around.
@@ -81,9 +101,7 @@ impl RoomList {
 
         if prev != Some(new) {
             self.state.select(Some(new));
-            Some(new)
-        } else {
-            None
+            self.subscribe_to_room(new);
         }
     }
 
@@ -96,6 +114,21 @@ impl RoomList {
     pub fn get_selected_room_id(&self) -> Option<OwnedRoomId> {
         let selected = self.state.selected()?;
         self.get_room_id_of_entry(selected)
+    }
+
+    /// Subscribe to room that is shown at the given `index`.
+    fn subscribe_to_room(&mut self, index: usize) {
+        // Cancel the subscription to the previous room, if any.
+        self.current_room_subscription.take();
+
+        // Subscribe to the new room.
+        if let Some(room) = self
+            .get_room_id_of_entry(index)
+            .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
+        {
+            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
+            self.current_room_subscription = Some(room);
+        }
     }
 }
 
