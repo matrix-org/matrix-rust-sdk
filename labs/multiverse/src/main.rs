@@ -86,7 +86,9 @@ async fn main() -> Result<()> {
 #[derive(Default)]
 struct RoomList {
     state: ListState,
-    items: Arc<Mutex<Vector<room_list_service::Room>>>,
+    rooms: Arc<Mutex<Vector<room_list_service::Room>>>,
+    /// Extra information about rooms.
+    room_infos: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>,
 }
 
 impl RoomList {
@@ -94,7 +96,7 @@ impl RoomList {
     ///
     /// Returns the index only if there was a meaningful change.
     fn next(&mut self) -> Option<usize> {
-        let num_items = self.items.lock().unwrap().len();
+        let num_items = self.rooms.lock().unwrap().len();
 
         // If there's no item to select, leave early.
         if num_items == 0 {
@@ -118,7 +120,7 @@ impl RoomList {
     ///
     /// Returns the index only if there was a meaningful change.
     fn previous(&mut self) -> Option<usize> {
-        let num_items = self.items.lock().unwrap().len();
+        let num_items = self.rooms.lock().unwrap().len();
 
         // If there's no item to select, leave early.
         if num_items == 0 {
@@ -136,6 +138,91 @@ impl RoomList {
         } else {
             None
         }
+    }
+}
+
+impl Widget for &mut RoomList {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        // We create two blocks, one is for the header (outer) and the other is for list
+        // (inner).
+        let outer_block = Block::default()
+            .borders(Borders::NONE)
+            .fg(TEXT_COLOR)
+            .bg(HEADER_BG)
+            .title("Room list")
+            .title_alignment(Alignment::Center);
+        let inner_block =
+            Block::default().borders(Borders::NONE).fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR);
+
+        // We get the inner area from outer_block. We'll use this area later to render
+        // the table.
+        let outer_area = area;
+        let inner_area = outer_block.inner(outer_area);
+
+        // We can render the header in outer_area.
+        outer_block.render(outer_area, buf);
+
+        // Don't keep this lock too long by cloning the content. RAM's free these days,
+        // right?
+        let mut room_info = self.room_infos.lock().unwrap().clone();
+
+        // Iterate through all elements in the `items` and stylize them.
+        let items: Vec<ListItem<'_>> = self
+            .rooms
+            .lock()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, room)| {
+                let bg_color = match i % 2 {
+                    0 => NORMAL_ROW_COLOR,
+                    _ => ALT_ROW_COLOR,
+                };
+
+                let line = {
+                    let room_id = room.room_id();
+                    let room_info = room_info.remove(room_id);
+
+                    let (raw, display, is_dm) = if let Some(info) = room_info {
+                        (info.raw_name, info.display_name, info.is_dm)
+                    } else {
+                        (None, None, None)
+                    };
+
+                    let dm_marker = if is_dm.unwrap_or(false) { "🤫" } else { "" };
+
+                    let room_name = if let Some(n) = display {
+                        format!("{n} ({room_id})")
+                    } else if let Some(n) = raw {
+                        format!("m.room.name:{n} ({room_id})")
+                    } else {
+                        room_id.to_string()
+                    };
+
+                    format!("#{i}{dm_marker} {}", room_name)
+                };
+
+                let line = Line::styled(line, TEXT_COLOR);
+                ListItem::new(line).bg(bg_color)
+            })
+            .collect();
+
+        // Create a List from all list items and highlight the currently selected one.
+        let items = List::new(items)
+            .block(inner_block)
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED)
+                    .fg(SELECTED_STYLE_FG),
+            )
+            .highlight_symbol(">")
+            .highlight_spacing(HighlightSpacing::Always);
+
+        StatefulWidget::render(items, inner_area, buf, &mut self.state);
     }
 }
 
@@ -180,11 +267,8 @@ struct App {
     /// Timelines data structures for each room.
     timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
 
-    /// Ratatui's list of room list rooms.
-    room_list_rooms: RoomList,
-
-    /// Extra information about rooms.
-    room_info: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>,
+    /// The room list widget on the left-hand side of the screen.
+    room_list: RoomList,
 
     /// Task listening to room list service changes, and spawning timelines.
     listen_task: JoinHandle<()>,
@@ -331,8 +415,7 @@ impl App {
 
         Ok(Self {
             sync_service,
-            room_list_rooms: RoomList { state: Default::default(), items: rooms },
-            room_info: room_infos,
+            room_list: RoomList { state: Default::default(), rooms, room_infos },
             client,
             listen_task,
             last_status_message: Default::default(),
@@ -458,10 +541,10 @@ impl App {
 
     /// Returns the currently selected room id, if any.
     fn get_selected_room_id(&self, selected: Option<usize>) -> Option<OwnedRoomId> {
-        let selected = selected.or_else(|| self.room_list_rooms.state.selected())?;
+        let selected = selected.or_else(|| self.room_list.state.selected())?;
 
-        self.room_list_rooms
-            .items
+        self.room_list
+            .rooms
             .lock()
             .unwrap()
             .get(selected)
@@ -495,13 +578,13 @@ impl App {
                             Char('q') | Esc => return Ok(()),
 
                             Char('j') | Down => {
-                                if let Some(i) = self.room_list_rooms.next() {
+                                if let Some(i) = self.room_list.next() {
                                     self.subscribe_to_selected_room(i);
                                 }
                             }
 
                             Char('k') | Up => {
-                                if let Some(i) = self.room_list_rooms.previous() {
+                                if let Some(i) = self.room_list.previous() {
                                     self.subscribe_to_selected_room(i);
                                 }
                             }
@@ -608,10 +691,10 @@ impl Widget for &mut App {
         // the other for the info block.
         let horizontal =
             Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]);
-        let [room_list, rhs] = horizontal.areas(rest_area);
+        let [room_list_area, rhs] = horizontal.areas(rest_area);
 
         self.render_title(header_area, buf);
-        self.render_room_list(room_list, buf);
+        self.room_list.render(room_list_area, buf);
         self.render_right(rhs, buf);
         self.render_footer(footer_area, buf);
     }
@@ -621,88 +704,6 @@ impl App {
     /// Render the top square (title of the program).
     fn render_title(&self, area: Rect, buf: &mut Buffer) {
         Paragraph::new("Multiverse").bold().centered().render(area, buf);
-    }
-
-    /// Renders the left part of the screen, that is, the list of rooms.
-    fn render_room_list(&mut self, area: Rect, buf: &mut Buffer) {
-        // We create two blocks, one is for the header (outer) and the other is for list
-        // (inner).
-        let outer_block = Block::default()
-            .borders(Borders::NONE)
-            .fg(TEXT_COLOR)
-            .bg(HEADER_BG)
-            .title("Room list")
-            .title_alignment(Alignment::Center);
-        let inner_block =
-            Block::default().borders(Borders::NONE).fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR);
-
-        // We get the inner area from outer_block. We'll use this area later to render
-        // the table.
-        let outer_area = area;
-        let inner_area = outer_block.inner(outer_area);
-
-        // We can render the header in outer_area.
-        outer_block.render(outer_area, buf);
-
-        // Don't keep this lock too long by cloning the content. RAM's free these days,
-        // right?
-        let mut room_info = self.room_info.lock().unwrap().clone();
-
-        // Iterate through all elements in the `items` and stylize them.
-        let items: Vec<ListItem<'_>> = self
-            .room_list_rooms
-            .items
-            .lock()
-            .unwrap()
-            .iter()
-            .enumerate()
-            .map(|(i, room)| {
-                let bg_color = match i % 2 {
-                    0 => NORMAL_ROW_COLOR,
-                    _ => ALT_ROW_COLOR,
-                };
-
-                let line = {
-                    let room_id = room.room_id();
-                    let room_info = room_info.remove(room_id);
-
-                    let (raw, display, is_dm) = if let Some(info) = room_info {
-                        (info.raw_name, info.display_name, info.is_dm)
-                    } else {
-                        (None, None, None)
-                    };
-
-                    let dm_marker = if is_dm.unwrap_or(false) { "🤫" } else { "" };
-
-                    let room_name = if let Some(n) = display {
-                        format!("{n} ({room_id})")
-                    } else if let Some(n) = raw {
-                        format!("m.room.name:{n} ({room_id})")
-                    } else {
-                        room_id.to_string()
-                    };
-
-                    format!("#{i}{dm_marker} {}", room_name)
-                };
-
-                let line = Line::styled(line, TEXT_COLOR);
-                ListItem::new(line).bg(bg_color)
-            })
-            .collect();
-
-        // Create a List from all list items and highlight the currently selected one.
-        let items = List::new(items)
-            .block(inner_block)
-            .highlight_style(
-                Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
-                    .fg(SELECTED_STYLE_FG),
-            )
-            .highlight_symbol(">")
-            .highlight_spacing(HighlightSpacing::Always);
-
-        StatefulWidget::render(items, inner_area, buf, &mut self.room_list_rooms.state);
     }
 
     /// Render the right part of the screen, showing the details of the current
