@@ -30,7 +30,10 @@ Breaking changes:
           or fails to present).
         - The rest of `AuthenticationError` is now found in the OidcError type.
 - `OidcAuthenticationData` is now called `OidcAuthorizationData`.
+
 - The `get_element_call_required_permissions` function now requires the device_id.
+
+- `Room::is_encrypted` is now async.
 
 Additions:
 
