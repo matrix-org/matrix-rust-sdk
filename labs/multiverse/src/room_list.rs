@@ -23,8 +23,8 @@ pub struct ExtraRoomInfo {
     pub is_dm: Option<bool>,
 }
 
-type Rooms = Arc<Mutex<Vector<room_list_service::Room>>>;
-type RoomInfos = Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>;
+pub type Rooms = Arc<Mutex<Vector<room_list_service::Room>>>;
+pub type RoomInfos = Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>;
 
 #[derive(Default)]
 pub struct RoomList {
