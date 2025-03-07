@@ -84,9 +84,9 @@ async fn main() -> Result<()> {
 }
 
 #[derive(Default)]
-struct StatefulList<T> {
+struct StatefulList {
     state: ListState,
-    items: Arc<Mutex<Vector<T>>>,
+    items: Arc<Mutex<Vector<room_list_service::Room>>>,
 }
 
 #[derive(Default, PartialEq)]
@@ -131,7 +131,7 @@ struct App {
     timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
 
     /// Ratatui's list of room list rooms.
-    room_list_rooms: StatefulList<room_list_service::Room>,
+    room_list_rooms: StatefulList,
 
     /// Extra information about rooms.
     room_info: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>,
@@ -914,7 +914,7 @@ impl App {
     }
 }
 
-impl<T> StatefulList<T> {
+impl StatefulList {
     /// Focus the list on the next item, wraps around if needs be.
     ///
     /// Returns the index only if there was a meaningful change.
