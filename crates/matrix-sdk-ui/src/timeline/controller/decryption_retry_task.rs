@@ -213,19 +213,11 @@ pub(super) async fn retry_fetch_encryption_info<P: RoomDataProvider>(
     retry_indices: Vec<usize>,
     room_data_provider: &P,
 ) {
-    // Create TimelineItems to replace the specified ones
-    let mut to_update = Vec::new();
     for idx in retry_indices {
         let old_item = state.items.get(idx);
         if let Some(new_item) = replacement_for(room_data_provider, old_item).await {
-            to_update.push((idx, new_item));
+            state.items.replace(idx, new_item);
         }
-    }
-
-    // Actually replace them (separately, to avoid our references to state
-    // overlapping)
-    for (idx, item) in to_update {
-        state.items.replace(idx, item);
     }
 }
 
