@@ -161,100 +161,7 @@ impl App {
             let ui_rooms = ur;
             let timelines = t;
 
-            let (stream, entries_controller) = all_rooms.entries_with_dynamic_adapters(50_000);
-            entries_controller.set_filter(Box::new(new_filter_non_left()));
-
-            pin_mut!(stream);
-
-            while let Some(diffs) = stream.next().await {
-                let all_rooms = {
-                    // Apply the diffs to the list of room entries.
-                    let mut rooms = rooms.lock().unwrap();
-
-                    for diff in diffs {
-                        diff.apply(&mut rooms);
-                    }
-
-                    // Collect rooms early to release the room entries list lock.
-                    (*rooms).clone()
-                };
-
-                // Clone the previous set of ui rooms to avoid keeping the ui_rooms lock (which
-                // we couldn't do below, because it's a sync lock, and has to be
-                // sync b/o rendering; and we'd have to cross await points
-                // below).
-                let previous_ui_rooms = ui_rooms.lock().unwrap().clone();
-
-                let mut new_ui_rooms = HashMap::new();
-                let mut new_timelines = Vec::new();
-
-                // Update all the room info for all rooms.
-                for room in all_rooms.iter() {
-                    let raw_name = room.name();
-                    let display_name = room.cached_display_name();
-                    let is_dm = room
-                        .is_direct()
-                        .await
-                        .map_err(|err| {
-                            warn!("couldn't figure whether a room is a DM or not: {err}");
-                        })
-                        .ok();
-                    room_infos.lock().unwrap().insert(
-                        room.room_id().to_owned(),
-                        ExtraRoomInfo { raw_name, display_name, is_dm },
-                    );
-                }
-
-                // Initialize all the new rooms.
-                for ui_room in all_rooms
-                    .into_iter()
-                    .filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
-                {
-                    // Initialize the timeline.
-                    let builder = match ui_room.default_room_timeline_builder().await {
-                        Ok(builder) => builder,
-                        Err(err) => {
-                            error!("error when getting default timeline builder: {err}");
-                            continue;
-                        }
-                    };
-
-                    if let Err(err) = ui_room.init_timeline_with_builder(builder).await {
-                        error!("error when creating default timeline: {err}");
-                        continue;
-                    }
-
-                    // Save the timeline in the cache.
-                    let sdk_timeline = ui_room.timeline().unwrap();
-                    let (items, stream) = sdk_timeline.subscribe().await;
-                    let items = Arc::new(Mutex::new(items));
-
-                    // Spawn a timeline task that will listen to all the timeline item changes.
-                    let i = items.clone();
-                    let timeline_task = spawn(async move {
-                        pin_mut!(stream);
-                        let items = i;
-                        while let Some(diffs) = stream.next().await {
-                            let mut items = items.lock().unwrap();
-
-                            for diff in diffs {
-                                diff.apply(&mut items);
-                            }
-                        }
-                    });
-
-                    new_timelines.push((
-                        ui_room.room_id().to_owned(),
-                        Timeline { timeline: sdk_timeline, items, task: timeline_task },
-                    ));
-
-                    // Save the room list service room in the cache.
-                    new_ui_rooms.insert(ui_room.room_id().to_owned(), ui_room);
-                }
-
-                ui_rooms.lock().unwrap().extend(new_ui_rooms);
-                timelines.lock().unwrap().extend(new_timelines);
-            }
+            Self::listen_task(rooms, room_infos, ui_rooms, timelines, all_rooms).await
         });
 
         // This will sync (with encryption) until an error happens or the program is
@@ -274,6 +181,108 @@ impl App {
             current_room_subscription: None,
             current_pagination: Default::default(),
         })
+    }
+
+    async fn listen_task(
+        rooms: Rooms,
+        room_infos: RoomInfos,
+        ui_rooms: Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>>,
+        timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
+        all_rooms: room_list_service::RoomList,
+    ) {
+        let (stream, entries_controller) = all_rooms.entries_with_dynamic_adapters(50_000);
+        entries_controller.set_filter(Box::new(new_filter_non_left()));
+
+        pin_mut!(stream);
+
+        while let Some(diffs) = stream.next().await {
+            let all_rooms = {
+                // Apply the diffs to the list of room entries.
+                let mut rooms = rooms.lock().unwrap();
+
+                for diff in diffs {
+                    diff.apply(&mut rooms);
+                }
+
+                // Collect rooms early to release the room entries list lock.
+                (*rooms).clone()
+            };
+
+            // Clone the previous set of ui rooms to avoid keeping the ui_rooms lock (which
+            // we couldn't do below, because it's a sync lock, and has to be
+            // sync b/o rendering; and we'd have to cross await points
+            // below).
+            let previous_ui_rooms = ui_rooms.lock().unwrap().clone();
+
+            let mut new_ui_rooms = HashMap::new();
+            let mut new_timelines = Vec::new();
+
+            // Update all the room info for all rooms.
+            for room in all_rooms.iter() {
+                let raw_name = room.name();
+                let display_name = room.cached_display_name();
+                let is_dm = room
+                    .is_direct()
+                    .await
+                    .map_err(|err| {
+                        warn!("couldn't figure whether a room is a DM or not: {err}");
+                    })
+                    .ok();
+                room_infos.lock().unwrap().insert(
+                    room.room_id().to_owned(),
+                    ExtraRoomInfo { raw_name, display_name, is_dm },
+                );
+            }
+
+            // Initialize all the new rooms.
+            for ui_room in
+                all_rooms.into_iter().filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
+            {
+                // Initialize the timeline.
+                let builder = match ui_room.default_room_timeline_builder().await {
+                    Ok(builder) => builder,
+                    Err(err) => {
+                        error!("error when getting default timeline builder: {err}");
+                        continue;
+                    }
+                };
+
+                if let Err(err) = ui_room.init_timeline_with_builder(builder).await {
+                    error!("error when creating default timeline: {err}");
+                    continue;
+                }
+
+                // Save the timeline in the cache.
+                let sdk_timeline = ui_room.timeline().unwrap();
+                let (items, stream) = sdk_timeline.subscribe().await;
+                let items = Arc::new(Mutex::new(items));
+
+                // Spawn a timeline task that will listen to all the timeline item changes.
+                let i = items.clone();
+                let timeline_task = spawn(async move {
+                    pin_mut!(stream);
+                    let items = i;
+                    while let Some(diffs) = stream.next().await {
+                        let mut items = items.lock().unwrap();
+
+                        for diff in diffs {
+                            diff.apply(&mut items);
+                        }
+                    }
+                });
+
+                new_timelines.push((
+                    ui_room.room_id().to_owned(),
+                    Timeline { timeline: sdk_timeline, items, task: timeline_task },
+                ));
+
+                // Save the room list service room in the cache.
+                new_ui_rooms.insert(ui_room.room_id().to_owned(), ui_room);
+            }
+
+            ui_rooms.lock().unwrap().extend(new_ui_rooms);
+            timelines.lock().unwrap().extend(new_timelines);
+        }
     }
 }
 
