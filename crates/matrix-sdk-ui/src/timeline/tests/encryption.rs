@@ -669,6 +669,7 @@ async fn test_retry_fetching_encryption_info() {
 
     let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
     assert_matches!(fetched_encryption_info.verification_state, VerificationState::Verified);
+
     assert_eq!(timeline.controller.items().await.len(), 3);
 
     // But the other one is unchanged because it was for a different session - no
