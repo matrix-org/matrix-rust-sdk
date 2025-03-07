@@ -277,9 +277,7 @@ impl App {
             timelines.lock().unwrap().extend(new_timelines);
         }
     }
-}
 
-impl App {
     /// Set the current status message (displayed at the bottom), for a few
     /// seconds.
     fn set_status_message(&mut self, status: String) {
