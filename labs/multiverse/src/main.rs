@@ -40,13 +40,16 @@ use tracing_subscriber::EnvFilter;
 
 mod room_list;
 
-use room_list::{ExtraRoomInfo, RoomList};
+use room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms};
 
 const HEADER_BG: Color = tailwind::BLUE.c950;
 const NORMAL_ROW_COLOR: Color = tailwind::SLATE.c950;
 const ALT_ROW_COLOR: Color = tailwind::SLATE.c900;
 const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
 const TEXT_COLOR: Color = tailwind::SLATE.c200;
+
+type UiRooms = Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>>;
+type Timelines = Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>;
 
 #[derive(Debug, Parser)]
 struct Cli {
@@ -110,10 +113,10 @@ struct App {
     sync_service: Arc<SyncService>,
 
     /// Room list service rooms known to the app.
-    ui_rooms: Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>>,
+    ui_rooms: UiRooms,
 
     /// Timelines data structures for each room.
-    timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
+    timelines: Timelines,
 
     /// The room list widget on the left-hand side of the screen.
     room_list: RoomList,
@@ -140,29 +143,21 @@ impl App {
     async fn new(client: Client) -> Result<Self> {
         let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
 
-        let rooms = Arc::new(Mutex::new(Vector::<room_list_service::Room>::new()));
-        let room_infos: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>> =
-            Arc::new(Mutex::new(Default::default()));
-        let ui_rooms: Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>> =
-            Default::default();
-        let timelines = Arc::new(Mutex::new(HashMap::new()));
-
-        let r = rooms.clone();
-        let ri = room_infos.clone();
-        let ur = ui_rooms.clone();
-        let t = timelines.clone();
+        let rooms = Rooms::default();
+        let room_infos = RoomInfos::default();
+        let ui_rooms = UiRooms::default();
+        let timelines = Timelines::default();
 
         let room_list_service = sync_service.room_list_service();
         let all_rooms = room_list_service.all_rooms().await?;
 
-        let listen_task = spawn(async move {
-            let rooms = r;
-            let room_infos = ri;
-            let ui_rooms = ur;
-            let timelines = t;
-
-            Self::listen_task(rooms, room_infos, ui_rooms, timelines, all_rooms).await
-        });
+        let listen_task = spawn(Self::listen_task(
+            rooms.clone(),
+            room_infos.clone(),
+            ui_rooms.clone(),
+            timelines.clone(),
+            all_rooms,
+        ));
 
         // This will sync (with encryption) until an error happens or the program is
         // stopped.
@@ -186,8 +181,8 @@ impl App {
     async fn listen_task(
         rooms: Rooms,
         room_infos: RoomInfos,
-        ui_rooms: Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>>,
-        timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
+        ui_rooms: UiRooms,
+        timelines: Timelines,
         all_rooms: room_list_service::RoomList,
     ) {
         let (stream, entries_controller) = all_rooms.entries_with_dynamic_adapters(50_000);
