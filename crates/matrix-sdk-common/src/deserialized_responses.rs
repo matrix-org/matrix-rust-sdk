@@ -546,14 +546,15 @@ impl TimelineEventKind {
 
     /// The Megolm session ID that was used to send this event, if it was
     /// encrypted.
-    pub fn session_id(&self) -> Option<String> {
+    pub fn session_id(&self) -> Option<&str> {
         match self {
             TimelineEventKind::Decrypted(decrypted_room_event) => {
-                decrypted_room_event.encryption_info.session_id.clone()
+                decrypted_room_event.encryption_info.session_id.as_ref()
             }
-            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.clone(),
+            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.as_ref(),
             TimelineEventKind::PlainText { .. } => None,
         }
+        .map(String::as_str)
     }
 }
 
