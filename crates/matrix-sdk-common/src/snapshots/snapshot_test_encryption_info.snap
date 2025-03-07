@@ -12,5 +12,6 @@ expression: info
       "sender_claimed_keys": {}
     }
   },
-  "verification_state": "Verified"
+  "verification_state": "Verified",
+  "session_id": "mysessionid76"
 }
