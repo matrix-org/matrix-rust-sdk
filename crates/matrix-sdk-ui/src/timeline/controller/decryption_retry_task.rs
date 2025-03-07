@@ -180,8 +180,7 @@ fn event_indices_to_retry_decryption<'a>(
                 // EncryptionInfo
                 event
                     .as_remote()
-                    .and_then(|remote| remote.encryption_info.as_ref())
-                    .and_then(|encryption_info| encryption_info.session_id.as_ref())
+                    .and_then(|remote| remote.encryption_info.as_ref()?.session_id.as_ref())
                     .map(String::as_str)
             };
 
