@@ -24,8 +24,8 @@ use super::{
 };
 use crate::{
     authentication::oidc::{
-        error::AuthorizationCodeErrorResponseType, AccountManagementActionFull,
-        AuthorizationValidationData, OauthAuthorizationCodeError,
+        error::{AuthorizationCodeErrorResponseType, OauthClientRegistrationError},
+        AccountManagementActionFull, AuthorizationValidationData, OauthAuthorizationCodeError,
     },
     test_utils::{
         client::{
@@ -481,8 +481,11 @@ async fn test_register_client() {
         .mount()
         .await;
 
-    let result = oidc.register_client(client_metadata.clone()).await;
-    assert_matches!(result, Err(OidcError::NoRegistrationSupport));
+    let result = oidc.register_client(&client_metadata).await;
+    assert_matches!(
+        result,
+        Err(OidcError::ClientRegistration(OauthClientRegistrationError::NotSupported))
+    );
 
     server.verify_and_reset().await;
 
@@ -496,14 +499,14 @@ async fn test_register_client() {
         .await;
     oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
 
-    let response = oidc.register_client(client_metadata).await.unwrap();
-    assert_eq!(response.client_id, "test_client_id");
+    let response = oidc.register_client(&client_metadata).await.unwrap();
+    assert_eq!(response.client_id.as_str(), "test_client_id");
 
     let auth_data = oidc.data().unwrap();
     // There is a difference of ending slash between the strings so we parse them
     // with `Url` which will normalize that.
     assert_eq!(auth_data.issuer, Url::parse(&server.server().uri()).unwrap());
-    assert_eq!(auth_data.client_id.as_str(), response.client_id);
+    assert_eq!(auth_data.client_id, response.client_id);
 }
 
 #[async_test]

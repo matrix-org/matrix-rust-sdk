@@ -210,11 +210,11 @@ impl OidcCli {
         // to update the metadata later without changing the client ID, but requires to
         // have a way to serve public keys online to validate the signature of
         // the JWT.
-        let res = oidc.register_client(metadata.clone()).await?;
+        let res = oidc.register_client(&metadata).await?;
 
         println!("\nRegistered successfully");
 
-        Ok(ClientId::new(res.client_id))
+        Ok(res.client_id)
     }
 
     /// Login via the OIDC Authorization Code flow.
