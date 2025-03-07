@@ -160,9 +160,9 @@ async fn decryption_task<D: Decryptor>(
 /// are already decrypted, for re-checking their encryption info.
 ///
 /// Returns a tuple `(retry_decryption_indices, retry_info_indices)` where
-/// `retry_decryption_indices` is a list of UTDs to try decrypting, and
-/// retry_info_indices is a list of already-decrypted events whose encryption
-/// info we can re-fetch.
+/// `retry_decryption_indices` is a list of the indices of UTDs to try
+/// decrypting, and retry_info_indices is a list of the indices of
+/// already-decrypted events whose encryption info we can re-fetch.
 fn event_indices_to_retry_decryption<'a>(
     items: impl Iterator<Item = &'a Arc<TimelineItem>>,
     should_retry: impl Fn(&str) -> bool,
