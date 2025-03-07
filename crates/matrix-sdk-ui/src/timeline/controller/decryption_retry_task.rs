@@ -193,17 +193,13 @@ fn event_indices_to_retry_decryption<'a>(
         }
     };
 
-    fn is_utd(event: &EventTimelineItem) -> bool {
-        matches!(event.content(), TimelineItemContent::UnableToDecrypt(_))
-    }
-
     items
         .enumerate()
         .filter_map(|(idx, item)| {
             item.as_event().filter(|e| should_retry_event(e)).map(|event| (idx, event))
         })
         // Break the result into 2 lists: (utds, decrypted)
-        .partition_map(|(idx, event)| if is_utd(event) { Left(idx) } else { Right(idx) })
+        .partition_map(|(idx, event)| if event.is_utd() { Left(idx) } else { Right(idx) })
 }
 
 /// Try to fetch [`EncryptionInfo`] for the events with the supplied
