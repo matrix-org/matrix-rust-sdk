@@ -200,13 +200,7 @@ fn event_indices_to_retry_decryption<'a>(
     items
         .enumerate()
         .filter_map(|(idx, item)| {
-            item.as_event().and_then(|event| {
-                if should_retry_event(event) {
-                    Some((idx, event))
-                } else {
-                    None
-                }
-            })
+            item.as_event().filter(|e| should_retry_event(e)).map(|event| (idx, event))
         })
         // Break the result into 2 lists: (utds, decrypted)
         .partition_map(|(idx, event)| if is_utd(event) { Left(idx) } else { Right(idx) })
