@@ -413,6 +413,8 @@ impl Client {
         prompt: Option<OidcPrompt>,
     ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
         let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
+        let redirect_uri = oidc_configuration.redirect_uri()?;
+
         let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
         let static_registrations = oidc_configuration
             .static_registrations
@@ -428,7 +430,11 @@ impl Client {
         let registrations =
             OidcRegistrations::new(registrations_file, oidc_metadata, static_registrations)?;
 
-        let data = self.inner.oidc().url_for_oidc(registrations, prompt.map(Into::into)).await?;
+        let data = self
+            .inner
+            .oidc()
+            .url_for_oidc(registrations, redirect_uri, prompt.map(Into::into))
+            .await?;
 
         Ok(Arc::new(data))
     }

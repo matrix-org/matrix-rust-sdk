@@ -3,10 +3,7 @@ use std::collections::HashMap;
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
-use mas_oidc_client::{
-    requests::account_management::AccountManagementActionFull,
-    types::registration::VerifiedClientMetadata,
-};
+use mas_oidc_client::requests::account_management::AccountManagementActionFull;
 use matrix_sdk_test::async_test;
 use oauth2::{CsrfToken, PkceCodeChallenge, RedirectUrl};
 use ruma::{
@@ -34,7 +31,8 @@ use crate::{
     test_utils::{
         client::{
             oauth::{
-                mock_client_metadata, mock_prev_session_tokens, mock_session, mock_session_tokens,
+                mock_client_metadata, mock_prev_session_tokens, mock_redirect_uri, mock_session,
+                mock_session_tokens,
             },
             MockClientBuilder,
         },
@@ -45,8 +43,7 @@ use crate::{
 
 const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oidc/callback";
 
-async fn mock_environment(
-) -> anyhow::Result<(Oidc, MatrixMockServer, VerifiedClientMetadata, OidcRegistrations)> {
+async fn mock_environment() -> anyhow::Result<(Oidc, MatrixMockServer, Url, OidcRegistrations)> {
     let server = MatrixMockServer::new().await;
     server.mock_who_am_i().ok().named("whoami").mount().await;
 
@@ -60,10 +57,9 @@ async fn mock_environment(
 
     let registrations_path = tempdir().unwrap().path().join("oidc").join("registrations.json");
     let registrations =
-        OidcRegistrations::new(&registrations_path, client_metadata.clone(), HashMap::new())
-            .unwrap();
+        OidcRegistrations::new(&registrations_path, client_metadata, HashMap::new()).unwrap();
 
-    Ok((client.oidc(), server, client_metadata, registrations))
+    Ok((client.oidc(), server, mock_redirect_uri(), registrations))
 }
 
 /// Check the URL in the given authorization data.
@@ -158,12 +154,13 @@ async fn check_authorization_url(
 #[async_test]
 async fn test_high_level_login() -> anyhow::Result<()> {
     // Given a fresh environment.
-    let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
+    let (oidc, _server, mut redirect_uri, registrations) = mock_environment().await.unwrap();
     assert!(oidc.issuer().is_none());
     assert!(oidc.client_id().is_none());
 
     // When getting the OIDC login URL.
-    let authorization_data = oidc.url_for_oidc(registrations, Some(Prompt::Create)).await.unwrap();
+    let authorization_data =
+        oidc.url_for_oidc(registrations, redirect_uri.clone(), Some(Prompt::Create)).await.unwrap();
 
     // Then the client should be configured correctly.
     assert_let!(Some(issuer) = oidc.issuer());
@@ -172,11 +169,10 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     check_authorization_url(&authorization_data, &oidc, issuer, None, Some("create"), None).await;
 
     // When completing the login with a valid callback.
-    let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
-    callback_uri.set_query(Some(&format!("code=42&state={}", authorization_data.state.secret())));
+    redirect_uri.set_query(Some(&format!("code=42&state={}", authorization_data.state.secret())));
 
     // Then the login should succeed.
-    oidc.login_with_oidc_callback(&authorization_data, callback_uri).await?;
+    oidc.login_with_oidc_callback(&authorization_data, redirect_uri).await?;
 
     Ok(())
 }
@@ -184,8 +180,9 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 #[async_test]
 async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Given a client ready to complete login.
-    let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
-    let authorization_data = oidc.url_for_oidc(registrations, None).await.unwrap();
+    let (oidc, _server, mut redirect_uri, registrations) = mock_environment().await.unwrap();
+    let authorization_data =
+        oidc.url_for_oidc(registrations, redirect_uri.clone(), None).await.unwrap();
 
     assert_let!(Some(issuer) = oidc.issuer());
     assert!(oidc.client_id().is_some());
@@ -193,13 +190,12 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     check_authorization_url(&authorization_data, &oidc, issuer, None, None, None).await;
 
     // When completing login with a cancellation callback.
-    let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
-    callback_uri.set_query(Some(&format!(
+    redirect_uri.set_query(Some(&format!(
         "error=access_denied&state={}",
         authorization_data.state.secret()
     )));
 
-    let error = oidc.login_with_oidc_callback(&authorization_data, callback_uri).await.unwrap_err();
+    let error = oidc.login_with_oidc_callback(&authorization_data, redirect_uri).await.unwrap_err();
 
     // Then a cancellation error should be thrown.
     assert_matches!(
@@ -213,8 +209,9 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 #[async_test]
 async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Given a client ready to complete login.
-    let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
-    let authorization_data = oidc.url_for_oidc(registrations, None).await.unwrap();
+    let (oidc, _server, mut redirect_uri, registrations) = mock_environment().await.unwrap();
+    let authorization_data =
+        oidc.url_for_oidc(registrations, redirect_uri.clone(), None).await.unwrap();
 
     assert_let!(Some(issuer) = oidc.issuer());
     assert!(oidc.client_id().is_some());
@@ -222,10 +219,9 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     check_authorization_url(&authorization_data, &oidc, issuer, None, None, None).await;
 
     // When completing login with an old/tampered state.
-    let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
-    callback_uri.set_query(Some("code=42&state=imposter_alert"));
+    redirect_uri.set_query(Some("code=42&state=imposter_alert"));
 
-    let error = oidc.login_with_oidc_callback(&authorization_data, callback_uri).await.unwrap_err();
+    let error = oidc.login_with_oidc_callback(&authorization_data, redirect_uri).await.unwrap_err();
 
     // Then the login should fail by flagging the invalid state.
     assert_matches!(
