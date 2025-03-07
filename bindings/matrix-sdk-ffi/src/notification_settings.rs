@@ -160,9 +160,11 @@ pub enum PushCondition {
     },
 }
 
-impl From<SdkPushCondition> for PushCondition {
-    fn from(value: SdkPushCondition) -> Self {
-        match value {
+impl TryFrom<SdkPushCondition> for PushCondition {
+    type Error = ();
+
+    fn try_from(value: SdkPushCondition) -> Result<Self, Self::Error> {
+        Ok(match value {
             SdkPushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
             SdkPushCondition::ContainsDisplayName => Self::ContainsDisplayName,
             SdkPushCondition::RoomMemberCount { is } => {
@@ -177,8 +179,8 @@ impl From<SdkPushCondition> for PushCondition {
             SdkPushCondition::EventPropertyContains { key, value } => {
                 Self::EventPropertyContains { key, value: value.into() }
             }
-            _ => Self::from(value),
-        }
+            _ => return Err(()),
+        })
     }
 }
 
@@ -277,9 +279,11 @@ pub enum Tweak {
     },
 }
 
-impl From<SdkTweak> for Tweak {
-    fn from(value: SdkTweak) -> Self {
-        match value {
+impl TryFrom<SdkTweak> for Tweak {
+    type Error = ();
+
+    fn try_from(value: SdkTweak) -> Result<Self, Self::Error> {
+        Ok(match value {
             SdkTweak::Sound(sound) => Self::Sound(sound),
             SdkTweak::Highlight(highlight) => Self::Highlight(highlight),
             SdkTweak::Custom { name, value } => {
@@ -287,8 +291,8 @@ impl From<SdkTweak> for Tweak {
 
                 Self::Custom { name, value: json_string }
             }
-            _ => Tweak::from(value),
-        }
+            _ => return Err(()),
+        })
     }
 }
 
@@ -320,7 +324,7 @@ impl From<SdkAction> for Action {
     fn from(value: SdkAction) -> Self {
         match value {
             SdkAction::Notify => Self::Notify,
-            SdkAction::SetTweak(tweak) => Self::SetTweak(tweak.into()),
+            SdkAction::SetTweak(tweak) => Self::SetTweak(tweak.try_into().unwrap_or_default()),
             _ => Self::from(value),
         }
     }
