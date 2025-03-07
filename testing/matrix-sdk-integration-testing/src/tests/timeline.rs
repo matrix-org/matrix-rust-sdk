@@ -41,11 +41,7 @@ use matrix_sdk_ui::{
     notification_client::NotificationClient,
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
-    timeline::{
-        EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent,
-        TimelineItemKind,
-    },
-    Timeline,
+    timeline::{EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent},
 };
 use similar_asserts::assert_eq;
 use stream_assert::assert_pending;
@@ -735,85 +731,49 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     }
     assert_next_with_timeout!(timeline_stream);
 
-    // Then the message is decrypted but it's not from a verified device
-    assert_eq!(summarize_timeline(&timeline).await, "secret message (UnsignedDevice)");
+    {
+        // Then the message is decrypted but it's not from a verified device
+        let items = timeline.items().await;
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0].as_event().unwrap().content().as_message().unwrap().body(),
+            "secret message"
+        );
+        assert_eq!(
+            items[0].as_event().unwrap().encryption_info().unwrap().verification_state,
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+        );
+    }
 
     // But when alice becomes cross-signed and bob finds out about it
     cross_sign(&alice).await;
     fetch_user_identity(&bob, alice.user_id()).await;
     let update2 = assert_next_with_timeout!(timeline_stream);
 
-    // Then we updated the timeline to reflect the fact that the message is from a
-    // verified device.
-    assert_eq!(summarize_timeline(&timeline).await, "secret message (UnverifiedIdentity)");
-    // (Note: the device is verified, but the _identity_ is not. We're not worried
-    // about that - it's "pinned".)
-
-    // Sanity: the final update just changed the one item
-    assert_eq!(timeline.items().await.len(), 11);
-    assert_eq!(summarize_vector_diffs(&update2), "Set at 10");
-}
-
-fn summarize_vector_diffs(v: &[VectorDiff<Arc<TimelineItem>>]) -> String {
-    v.iter().map(summarize_vector_diff).collect::<Vec<_>>().join("\n")
-}
-
-fn summarize_vector_diff(v: &VectorDiff<Arc<TimelineItem>>) -> String {
-    match v {
-        VectorDiff::Append { values } => format!("Append {} items", values.len()),
-        VectorDiff::Clear => "Clear".to_owned(),
-        VectorDiff::PushFront { .. } => "PushFront".to_owned(),
-        VectorDiff::PushBack { .. } => "PushBack".to_owned(),
-        VectorDiff::PopFront => "PushBack".to_owned(),
-        VectorDiff::PopBack => "PushBack".to_owned(),
-        VectorDiff::Insert { index, .. } => format!("Insert at {index}"),
-        VectorDiff::Set { index, .. } => format!("Set at {index}"),
-        VectorDiff::Remove { index } => format!("Remove at {index}"),
-        VectorDiff::Truncate { length } => format!("Truncate to {length}"),
-        VectorDiff::Reset { values } => format!("Reset to only {} items", values.len()),
+    {
+        // Then we updated the timeline to reflect the fact that the message is from a
+        // verified device.
+        let items = timeline.items().await;
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0].as_event().unwrap().content().as_message().unwrap().body(),
+            "secret message"
+        );
+        assert_eq!(
+            items[0].as_event().unwrap().encryption_info().unwrap().verification_state,
+            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+        );
+        // (Note: the device is verified, but the _identity_ is not. We're not
+        // worried about that - it's "pinned".)
     }
-}
 
-/// Provide a simple text description of the message-like events in a timeline.
-async fn summarize_timeline(timeline: &Timeline) -> String {
-    timeline.items().await.iter().filter_map(summarize_timeline_item).collect::<Vec<_>>().join("|")
-}
-
-fn summarize_timeline_item(item: &Arc<TimelineItem>) -> Option<String> {
-    match item.kind() {
-        TimelineItemKind::Event(event) => match event.content() {
-            TimelineItemContent::Message(message) => Some(format!(
-                "{} ({})",
-                message.body(),
-                match event.encryption_info().unwrap().verification_state {
-                    VerificationState::Verified => "Verified",
-                    VerificationState::Unverified(VerificationLevel::UnverifiedIdentity) =>
-                        "UnverifiedIdentity",
-                    VerificationState::Unverified(VerificationLevel::VerificationViolation) =>
-                        "VerificationViolation",
-                    VerificationState::Unverified(VerificationLevel::UnsignedDevice) =>
-                        "UnsignedDevice",
-                    VerificationState::Unverified(VerificationLevel::None(_)) => "None",
-                }
-            )),
-            TimelineItemContent::UnableToDecrypt(_) => Some("UTD".to_owned()),
-            TimelineItemContent::RedactedMessage => Some("(redacted)".to_owned()),
-            TimelineItemContent::Sticker(_) => Some("(sticker)".to_owned()),
-            TimelineItemContent::MembershipChange(_) => None,
-            TimelineItemContent::ProfileChange(_) => Some("(profile)".to_owned()),
-            TimelineItemContent::OtherState(_) => None,
-            TimelineItemContent::FailedToParseMessageLike { .. } => {
-                Some("(parse failure, message)".to_owned())
-            }
-            TimelineItemContent::FailedToParseState { .. } => {
-                Some("(parse failure, state)".to_owned())
-            }
-            TimelineItemContent::Poll(_) => Some("(poll)".to_owned()),
-            TimelineItemContent::CallInvite => Some("(call invite)".to_owned()),
-            TimelineItemContent::CallNotify => Some("(call notify)".to_owned()),
-        },
-        //_ => "(non-message event)"
-        TimelineItemKind::Virtual(_) => None,
+    {
+        // Sanity: the final update just changed the one item
+        let items = timeline.items().await;
+        assert_eq!(items.len(), 11);
+        assert_eq!(update2.len(), 1);
+        assert_let!(VectorDiff::Set { index, .. } = &update2[0]);
+        assert_eq!(*index, 10);
     }
 }
 
