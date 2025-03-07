@@ -481,7 +481,7 @@ async fn test_register_client() {
         .mount()
         .await;
 
-    let result = oidc.register_client(client_metadata.clone(), None).await;
+    let result = oidc.register_client(client_metadata.clone()).await;
     assert_matches!(result, Err(OidcError::NoRegistrationSupport));
 
     server.verify_and_reset().await;
@@ -496,7 +496,7 @@ async fn test_register_client() {
         .await;
     oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
 
-    let response = oidc.register_client(client_metadata, None).await.unwrap();
+    let response = oidc.register_client(client_metadata).await.unwrap();
     assert_eq!(response.client_id, "test_client_id");
 
     let auth_data = oidc.data().unwrap();
