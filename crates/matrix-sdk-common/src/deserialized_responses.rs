@@ -304,7 +304,6 @@ pub struct EncryptionInfo {
     pub verification_state: VerificationState,
     /// The Megolm session ID that was used to encrypt this event, or None if
     /// this info was stored before we collected this data.
-    #[serde(default)]
     pub session_id: Option<String>,
 }
 
