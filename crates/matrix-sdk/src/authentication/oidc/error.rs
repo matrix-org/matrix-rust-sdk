@@ -29,6 +29,10 @@ use ruma::serde::{PartialEqAsRefStr, StringEnum};
 
 pub use super::cross_process::CrossProcessRefreshLockError;
 
+/// An error when interacting with the OAuth 2.0 authorization server.
+pub type OauthRequestError<T> =
+    RequestTokenError<HttpClientError<reqwest::Error>, StandardErrorResponse<T>>;
+
 /// An error when trying to parse the query of a redirect URI.
 #[derive(Debug, Clone, thiserror::Error)]
 #[non_exhaustive]
@@ -79,7 +83,7 @@ pub enum OidcError {
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while refreshing the access token.
     #[error("failed to refresh token: {0}")]
-    RefreshToken(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
+    RefreshToken(OauthRequestError<BasicErrorResponseType>),
 
     /// An error occurred revoking an OAuth 2.0 access token.
     #[error("failed to log out: {0}")]
@@ -162,7 +166,7 @@ pub enum OauthAuthorizationCodeError {
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while exchanging the authorization code for an access token.
     #[error("failed to request token: {0}")]
-    RequestToken(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
+    RequestToken(OauthRequestError<BasicErrorResponseType>),
 }
 
 impl From<StandardErrorResponse<AuthorizationCodeErrorResponseType>>
@@ -235,5 +239,5 @@ pub enum OauthTokenRevocationError {
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while revoking the token.
     #[error("failed to revoke token: {0}")]
-    Revoke(RequestTokenError<HttpClientError<reqwest::Error>, BasicRevocationErrorResponse>),
+    Revoke(OauthRequestError<RevocationErrorResponseType>),
 }
