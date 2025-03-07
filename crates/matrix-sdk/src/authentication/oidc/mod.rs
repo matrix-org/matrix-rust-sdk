@@ -441,9 +441,6 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `client_metadata` - The [`VerifiedClientMetadata`] to register, if
-    ///   needed.
-    ///
     /// * `registrations` - The storage where the registered client ID will be
     ///   loaded from, if the client is already registered, or stored into, if
     ///   the client is not registered yet.
@@ -454,18 +451,20 @@ impl Oidc {
     ///   account.
     pub async fn url_for_oidc(
         &self,
-        client_metadata: VerifiedClientMetadata,
         registrations: OidcRegistrations,
         prompt: Option<Prompt>,
     ) -> Result<OidcAuthorizationData, OidcError> {
         let metadata = self.provider_metadata().await?;
 
-        let redirect_uris =
-            client_metadata.redirect_uris.clone().ok_or(OidcError::MissingRedirectUri)?;
+        let redirect_uris = registrations
+            .verified_metadata
+            .redirect_uris
+            .clone()
+            .ok_or(OidcError::MissingRedirectUri)?;
 
         let redirect_url = redirect_uris.first().ok_or(OidcError::MissingRedirectUri)?;
 
-        self.configure(metadata.issuer().to_owned(), client_metadata, registrations).await?;
+        self.configure(metadata.issuer().to_owned(), registrations).await?;
 
         let mut data_builder = self.login(redirect_url.clone(), None)?;
 
@@ -515,7 +514,6 @@ impl Oidc {
     async fn configure(
         &self,
         issuer: String,
-        client_metadata: VerifiedClientMetadata,
         registrations: OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
         if self.client_id().is_some() {
@@ -529,7 +527,7 @@ impl Oidc {
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(client_metadata, None).await?;
+        self.register_client(registrations.verified_metadata.clone(), None).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)

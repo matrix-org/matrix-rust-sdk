@@ -53,7 +53,7 @@ pub struct OidcRegistrations {
     file_path: PathBuf,
     /// The hash for the metadata used to register the client.
     /// This is used to check if the client needs to be re-registered.
-    verified_metadata: VerifiedClientMetadata,
+    pub(super) verified_metadata: VerifiedClientMetadata,
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
     static_registrations: HashMap<Url, ClientId>,

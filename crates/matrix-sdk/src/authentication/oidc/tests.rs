@@ -162,8 +162,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     assert!(oidc.client_id().is_none());
 
     // When getting the OIDC login URL.
-    let authorization_data =
-        oidc.url_for_oidc(metadata.clone(), registrations, Some(Prompt::Create)).await.unwrap();
+    let authorization_data = oidc.url_for_oidc(registrations, Some(Prompt::Create)).await.unwrap();
 
     // Then the client should be configured correctly.
     assert_let!(Some(issuer) = oidc.issuer());
@@ -185,8 +184,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Given a client ready to complete login.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
-    let authorization_data =
-        oidc.url_for_oidc(metadata.clone(), registrations, None).await.unwrap();
+    let authorization_data = oidc.url_for_oidc(registrations, None).await.unwrap();
 
     assert_let!(Some(issuer) = oidc.issuer());
     assert!(oidc.client_id().is_some());
@@ -215,8 +213,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Given a client ready to complete login.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
-    let authorization_data =
-        oidc.url_for_oidc(metadata.clone(), registrations, None).await.unwrap();
+    let authorization_data = oidc.url_for_oidc(registrations, None).await.unwrap();
 
     assert_let!(Some(issuer) = oidc.issuer());
     assert!(oidc.client_id().is_some());
