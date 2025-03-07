@@ -225,7 +225,9 @@ pub enum RuleKind {
     /// Content-specific rules.
     Content,
 
-    Custom(String),
+    Custom {
+        value: String,
+    },
 }
 
 impl From<SdkRuleKind> for RuleKind {
@@ -236,8 +238,8 @@ impl From<SdkRuleKind> for RuleKind {
             SdkRuleKind::Sender => Self::Sender,
             SdkRuleKind::Room => Self::Room,
             SdkRuleKind::Content => Self::Content,
-            SdkRuleKind::_Custom(_) => Self::Custom(value.as_str().to_owned()),
-            _ => Self::Custom(value.to_string()),
+            SdkRuleKind::_Custom(_) => Self::Custom { value: value.as_str().to_owned() },
+            _ => Self::Custom { value: value.to_string() },
         }
     }
 }
@@ -250,7 +252,7 @@ impl From<RuleKind> for SdkRuleKind {
             RuleKind::Sender => Self::Sender,
             RuleKind::Room => Self::Room,
             RuleKind::Content => Self::Content,
-            RuleKind::Custom(kind) => SdkRuleKind::from(kind),
+            RuleKind::Custom { value } => SdkRuleKind::from(value),
         }
     }
 }
@@ -263,11 +265,11 @@ pub enum Tweak {
     ///
     /// A value of "default" means to play a default sound. A device may choose
     /// to alert the user by some other means if appropriate, eg. vibration.
-    Sound(String),
+    Sound { value: String },
 
     /// A boolean representing whether or not this message should be highlighted
     /// in the UI.
-    Highlight(bool),
+    Highlight { value: bool },
 
     /// A custom tweak
     Custom {
@@ -284,8 +286,8 @@ impl TryFrom<SdkTweak> for Tweak {
 
     fn try_from(value: SdkTweak) -> Result<Self, Self::Error> {
         Ok(match value {
-            SdkTweak::Sound(sound) => Self::Sound(sound),
-            SdkTweak::Highlight(highlight) => Self::Highlight(highlight),
+            SdkTweak::Sound(sound) => Self::Sound { value: sound },
+            SdkTweak::Highlight(highlight) => Self::Highlight { value: highlight },
             SdkTweak::Custom { name, value } => {
                 let json_string = serde_json::to_string(&value).unwrap();
 
@@ -299,8 +301,8 @@ impl TryFrom<SdkTweak> for Tweak {
 impl From<Tweak> for SdkTweak {
     fn from(value: Tweak) -> Self {
         match value {
-            Tweak::Sound(sound) => Self::Sound(sound),
-            Tweak::Highlight(highlight) => Self::Highlight(highlight),
+            Tweak::Sound { value } => Self::Sound(value),
+            Tweak::Highlight { value } => Self::Highlight(value),
             Tweak::Custom { name, value } => {
                 let json_value: serde_json::Value = serde_json::from_str(&value).unwrap();
                 let value = serde_json::from_value(json_value).unwrap();
@@ -317,7 +319,7 @@ pub enum Action {
     /// Causes matching events to generate a notification.
     Notify,
     /// Sets an entry in the 'tweaks' dictionary sent to the push gateway.
-    SetTweak(Tweak),
+    SetTweak { value: Tweak },
 }
 
 impl TryFrom<SdkAction> for Action {
@@ -326,7 +328,7 @@ impl TryFrom<SdkAction> for Action {
     fn try_from(value: SdkAction) -> Result<Self, Self::Error> {
         Ok(match value {
             SdkAction::Notify => Self::Notify,
-            SdkAction::SetTweak(tweak) => Self::SetTweak(tweak.try_into().unwrap()),
+            SdkAction::SetTweak(tweak) => Self::SetTweak { value: tweak.try_into().unwrap() },
             _ => return Err(()),
         })
     }
@@ -336,7 +338,7 @@ impl From<Action> for SdkAction {
     fn from(value: Action) -> Self {
         match value {
             Action::Notify => Self::Notify,
-            Action::SetTweak(tweak) => Self::SetTweak(tweak.into()),
+            Action::SetTweak { value } => Self::SetTweak(value.into()),
         }
     }
 }
