@@ -14,8 +14,8 @@ use ruma::{
     user_id, DeviceId, ServerName,
 };
 use serde_json::json;
-use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::tempdir;
+use tokio::sync::broadcast::error::TryRecvError;
 use url::Url;
 use wiremock::{
     matchers::{method, path},
@@ -39,7 +39,7 @@ use crate::{
         },
         mocks::{oauth::MockServerMetadataBuilder, MatrixMockServer},
     },
-    Client, Error,
+    Client, Error, SessionChange,
 };
 
 const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oidc/callback";
@@ -348,7 +348,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
         res,
         Err(OidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
     );
-    assert!(oidc.session_tokens().is_none());
+    assert!(client.session_tokens().is_none());
 
     // Assuming a non-empty state "123"...
     let state = CsrfToken::new("state".to_owned());
@@ -377,14 +377,14 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
         res,
         Err(OidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
     );
-    assert!(oidc.session_tokens().is_none());
+    assert!(client.session_tokens().is_none());
     assert!(oidc.data().unwrap().authorization_data.lock().await.get(&state).is_some());
 
     // Finishing the authorization for the expected state will work.
     oidc.finish_authorization(AuthorizationCode { code: "1337".to_owned(), state: state.clone() })
         .await?;
 
-    assert!(oidc.session_tokens().is_some());
+    assert!(client.session_tokens().is_some());
     assert!(oidc.data().unwrap().authorization_data.lock().await.get(&state).is_none());
 
     Ok(())
@@ -401,8 +401,7 @@ async fn test_oidc_session() -> anyhow::Result<()> {
     oidc.restore_session(session.clone()).await?;
 
     // Test a few extra getters.
-    assert_eq!(oidc.access_token().unwrap(), tokens.access_token);
-    assert_eq!(oidc.refresh_token(), tokens.refresh_token);
+    assert_eq!(client.session_tokens().unwrap(), tokens);
 
     let user_session = oidc.user_session().unwrap();
     assert_eq!(user_session.meta, session.user.meta);
@@ -450,18 +449,24 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
         // Restore the previous session so we have an existing set of refresh tokens.
         oidc.restore_session(mock_session(prev_tokens.clone(), server_url.clone())).await?;
 
-        let mut session_token_stream = oidc.session_tokens_stream().expect("stream available");
-
-        assert_pending!(session_token_stream);
+        let mut session_changes = client.subscribe_to_session_changes();
 
         // A refresh in insecure mode should work Just Fine.
         oidc.refresh_access_token().await?;
 
-        assert_next_matches!(session_token_stream, new_tokens => {
-            assert_eq!(new_tokens, next_tokens);
-        });
+        assert_eq!(client.session_tokens().unwrap(), next_tokens);
 
-        assert_pending!(session_token_stream);
+        // We get notified once that the tokens were refreshed.
+        assert_eq!(
+            session_changes.try_recv(),
+            Ok(SessionChange::TokensRefreshed),
+            "The session changes should be notified of the tokens refresh"
+        );
+        assert_eq!(
+            session_changes.try_recv(),
+            Err(TryRecvError::Empty),
+            "There should be no more session changes"
+        );
     }
 
     Ok(())

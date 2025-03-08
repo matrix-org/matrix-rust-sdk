@@ -299,7 +299,7 @@ mod tests {
             ))
             .await?;
 
-        assert_eq!(client.oidc().session_tokens().unwrap(), tokens);
+        assert_eq!(client.session_tokens().unwrap(), tokens);
 
         let oidc = client.oidc();
         let xp_manager = oidc.ctx().cross_process_token_refresh_manager.get().unwrap();
@@ -337,7 +337,7 @@ mod tests {
 
         // Simulate we've done finalize_authorization / restore_session before.
         let session_tokens = mock_session_tokens_with_refresh();
-        oidc.set_session_tokens(session_tokens.clone());
+        client.auth_ctx().set_session_tokens(session_tokens.clone());
 
         // Now, finishing logging will get the user and device ids.
         oidc.finish_login().await?;
@@ -454,7 +454,7 @@ mod tests {
             // first token.
             oidc3.refresh_access_token().await?;
 
-            assert_eq!(oidc3.session_tokens(), Some(next_tokens.clone()));
+            assert_eq!(client3.session_tokens(), Some(next_tokens.clone()));
 
             // Reading from the cross-process lock for the second client only shows the new
             // tokens.

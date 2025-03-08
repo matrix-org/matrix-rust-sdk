@@ -16,16 +16,15 @@
 
 use std::{fmt, sync::Arc};
 
-use as_variant::as_variant;
-use matrix_sdk_base::SessionMeta;
+use matrix_sdk_base::{locks::Mutex, SessionMeta};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex, OnceCell};
+use tokio::sync::{broadcast, Mutex as AsyncMutex, OnceCell};
 
 pub mod matrix;
 #[cfg(feature = "experimental-oidc")]
 pub mod oidc;
 
-use self::matrix::{MatrixAuth, MatrixAuthData};
+use self::matrix::MatrixAuth;
 #[cfg(feature = "experimental-oidc")]
 use self::oidc::{Oidc, OidcAuthData, OidcCtx};
 use crate::{Client, RefreshTokenError, SessionChange};
@@ -66,7 +65,7 @@ pub(crate) struct AuthCtx {
     pub(crate) handle_refresh_tokens: bool,
 
     /// Lock making sure we're only doing one token refresh at a time.
-    pub(crate) refresh_token_lock: Arc<Mutex<Result<(), RefreshTokenError>>>,
+    pub(crate) refresh_token_lock: Arc<AsyncMutex<Result<(), RefreshTokenError>>>,
 
     /// Session change publisher. Allows the subscriber to handle changes to the
     /// session such as logging out when the access token is invalid or
@@ -75,6 +74,9 @@ pub(crate) struct AuthCtx {
 
     /// Authentication data to keep in memory.
     pub(crate) auth_data: OnceCell<AuthData>,
+
+    /// The current session tokens.
+    pub(crate) tokens: OnceCell<Mutex<SessionTokens>>,
 
     /// A callback called whenever we need an absolute source of truth for the
     /// current session tokens.
@@ -90,6 +92,27 @@ pub(crate) struct AuthCtx {
     /// Internal invariant: this must be called only after `set_session_tokens`
     /// has been called, not before.
     pub(crate) save_session_callback: OnceCell<Box<SaveSessionCallback>>,
+}
+
+impl AuthCtx {
+    /// The current session tokens.
+    pub(crate) fn session_tokens(&self) -> Option<SessionTokens> {
+        Some(self.tokens.get()?.lock().clone())
+    }
+
+    /// The current access token.
+    pub(crate) fn access_token(&self) -> Option<String> {
+        Some(self.tokens.get()?.lock().access_token.clone())
+    }
+
+    /// Set the current session tokens.
+    pub(crate) fn set_session_tokens(&self, session_tokens: SessionTokens) {
+        if let Some(tokens) = self.tokens.get() {
+            *tokens.lock() = session_tokens;
+        } else {
+            let _ = self.tokens.set(Mutex::new(session_tokens));
+        }
+    }
 }
 
 /// An enum over all the possible authentication APIs.
@@ -171,24 +194,8 @@ impl From<oidc::OidcSession> for AuthSession {
 #[derive(Debug)]
 pub(crate) enum AuthData {
     /// Data for the native Matrix authentication API.
-    Matrix(MatrixAuthData),
+    Matrix,
     /// Data for the OpenID Connect API.
     #[cfg(feature = "experimental-oidc")]
     Oidc(OidcAuthData),
-}
-
-impl AuthData {
-    pub(crate) fn as_matrix(&self) -> Option<&MatrixAuthData> {
-        as_variant!(self, Self::Matrix)
-    }
-
-    pub(crate) fn access_token(&self) -> Option<String> {
-        let token = match self {
-            Self::Matrix(d) => d.tokens.get().access_token,
-            #[cfg(feature = "experimental-oidc")]
-            Self::Oidc(d) => d.tokens.get()?.get().access_token,
-        };
-
-        Some(token)
-    }
 }
