@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    authentication::matrix::MatrixSession,
     encryption::secret_storage::SecretStore,
     ruma::{events::secret::request::SecretName, OwnedDeviceId, OwnedUserId},
-    AuthSession, Client, SessionMeta,
+    AuthSession, Client, SessionMeta, SessionTokens,
 };
 use url::Url;
 
@@ -115,10 +115,7 @@ async fn restore_client(cli: &Cli) -> Result<Client> {
     // TODO: We should be able to get the device id from `/whoami`.
     let session = AuthSession::Matrix(MatrixSession {
         meta: SessionMeta { user_id: cli.user_id.to_owned(), device_id: cli.device_id.to_owned() },
-        tokens: MatrixSessionTokens {
-            access_token: cli.access_token.to_owned(),
-            refresh_token: None,
-        },
+        tokens: SessionTokens { access_token: cli.access_token.to_owned(), refresh_token: None },
     });
 
     client.restore_session(session).await?;

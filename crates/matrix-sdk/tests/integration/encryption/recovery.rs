@@ -17,14 +17,17 @@ use std::sync::{Arc, Mutex};
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    authentication::matrix::MatrixSession,
     config::RequestConfig,
     encryption::{
         backups::BackupState,
         recovery::{EnableProgress, RecoveryState},
         BackupDownloadStrategy, CrossSigningResetAuthType,
     },
-    test_utils::{no_retry_test_client_with_server, test_client_builder_with_server},
+    test_utils::{
+        client::mock_session_tokens, no_retry_test_client_with_server,
+        test_client_builder_with_server,
+    },
     Client,
 };
 use matrix_sdk_base::SessionMeta;
@@ -43,7 +46,7 @@ use crate::{encryption::mock_secret_store_with_backup_key, logged_in_client_with
 async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
     let session = MatrixSession {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: mock_session_tokens(),
     };
 
     let (builder, server) = test_client_builder_with_server().await;
@@ -168,7 +171,7 @@ async fn test_recovery_status_secret_storage_set_up() {
 
     let session = MatrixSession {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: mock_session_tokens(),
     };
 
     let (client, server) = no_retry_test_client_with_server().await;
@@ -189,7 +192,7 @@ async fn test_recovery_status_secret_storage_not_set_up() {
 
     let session = MatrixSession {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: mock_session_tokens(),
     };
 
     let (client, server) = no_retry_test_client_with_server().await;
@@ -717,7 +720,7 @@ async fn test_recover_and_reset() {
 
     let session = MatrixSession {
         meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: mock_session_tokens(),
     };
 
     let (client, server) = no_retry_test_client_with_server().await;

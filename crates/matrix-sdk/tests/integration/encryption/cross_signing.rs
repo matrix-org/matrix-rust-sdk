@@ -14,13 +14,11 @@
 
 use assert_matches2::assert_let;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     encryption::CrossSigningResetAuthType,
-    test_utils::no_retry_test_client_with_server,
-    SessionMeta,
+    test_utils::{client::mock_matrix_session, no_retry_test_client_with_server},
 };
 use matrix_sdk_test::async_test;
-use ruma::{api::client::uiaa, device_id, user_id};
+use ruma::{api::client::uiaa, user_id};
 use serde_json::json;
 use wiremock::{
     matchers::{method, path},
@@ -31,10 +29,7 @@ use wiremock::{
 async fn test_reset_legacy_auth() {
     let user_id = user_id!("@example:morpheus.localhost");
 
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = mock_matrix_session();
 
     let (client, server) = no_retry_test_client_with_server().await;
 

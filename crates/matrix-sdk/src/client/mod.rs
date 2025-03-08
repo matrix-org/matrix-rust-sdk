@@ -97,7 +97,7 @@ use crate::{
     sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
-    Room, TransmissionProgress,
+    Room, SessionTokens, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
@@ -443,6 +443,10 @@ impl Client {
         &self.inner.locks
     }
 
+    pub(crate) fn auth_ctx(&self) -> &AuthCtx {
+        &self.inner.auth_ctx
+    }
+
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
@@ -578,20 +582,30 @@ impl Client {
         self.session_meta().map(|s| s.device_id.as_ref())
     }
 
-    /// Get the current access token for this session, regardless of the
-    /// authentication API used to log in.
+    /// Get the current access token for this session.
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn access_token(&self) -> Option<String> {
-        self.inner.auth_ctx.auth_data.get()?.access_token()
+        self.auth_ctx().access_token()
+    }
+
+    /// Get the current tokens for this session.
+    ///
+    /// To be notified of changes in the session tokens, use
+    /// [`Client::subscribe_to_session_changes()`] or
+    /// [`Client::set_session_callbacks()`].
+    ///
+    /// Returns `None` if the client has not been logged in.
+    pub fn session_tokens(&self) -> Option<SessionTokens> {
+        self.auth_ctx().session_tokens()
     }
 
     /// Access the authentication API used to log in this client.
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn auth_api(&self) -> Option<AuthApi> {
-        match self.inner.auth_ctx.auth_data.get()? {
-            AuthData::Matrix(_) => Some(AuthApi::Matrix(self.matrix_auth())),
+        match self.auth_ctx().auth_data.get()? {
+            AuthData::Matrix => Some(AuthApi::Matrix(self.matrix_auth())),
             #[cfg(feature = "experimental-oidc")]
             AuthData::Oidc(_) => Some(AuthApi::Oidc(self.oidc())),
         }
@@ -2369,7 +2383,7 @@ impl Client {
 
     /// Subscribes a new receiver to client SessionChange broadcasts.
     pub fn subscribe_to_session_changes(&self) -> broadcast::Receiver<SessionChange> {
-        let broadcast = &self.inner.auth_ctx.session_change_sender;
+        let broadcast = &self.auth_ctx().session_change_sender;
         broadcast.subscribe()
     }
 

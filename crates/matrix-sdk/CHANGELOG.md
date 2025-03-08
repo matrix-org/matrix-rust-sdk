@@ -113,6 +113,12 @@ simpler methods:
     `CsrfToken`.
   - The `error` field of `AuthorizationError` uses an error type from the oauth2
     crate rather than one from mas-oidc-client.
+- [**breaking**]: `OidcSessionTokens` and `MatrixSessionTokens` have been merged
+  into `SessionTokens`. Methods to get and watch session tokens are now
+  available directly on `Client`.
+  `(MatrixAuth/Oidc)::session_tokens_stream()`, can be replaced by
+  `Client::subscribe_to_session_changes()` and then calling
+  `Client::session_tokens()` on a `SessionChange::TokenRefreshed`.
 
 ## [0.10.0] - 2025-02-04
 

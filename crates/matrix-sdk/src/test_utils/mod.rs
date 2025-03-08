@@ -3,12 +3,10 @@
 #![allow(dead_code)]
 
 use assert_matches2::assert_let;
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, SessionMeta};
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::{
     api::MatrixVersion,
-    device_id,
     events::{room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
-    user_id,
 };
 use url::Url;
 
@@ -16,11 +14,8 @@ pub mod client;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mocks;
 
-use crate::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
-    config::RequestConfig,
-    Client, ClientBuilder,
-};
+use self::client::mock_matrix_session;
+use crate::{config::RequestConfig, Client, ClientBuilder};
 
 /// Checks that an event is a message-like text event with the given text.
 #[track_caller]
@@ -56,17 +51,7 @@ pub async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
 
 /// Restore the common (Matrix-auth) user session for a client.
 pub async fn set_client_session(client: &Client) {
-    client
-        .matrix_auth()
-        .restore_session(MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        })
-        .await
-        .unwrap();
+    client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
 }
 
 /// A [`Client`] using the given `homeserver_url` (or localhost:1234), that will

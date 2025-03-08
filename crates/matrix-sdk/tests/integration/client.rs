@@ -4,11 +4,10 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::{RequestConfig, StoreConfig, SyncSettings},
     sync::RoomUpdate,
-    test_utils::no_retry_test_client_with_server,
-    Client, MemoryStore, SessionMeta, StateChanges, StateStore,
+    test_utils::{client::mock_matrix_session, no_retry_test_client_with_server},
+    Client, MemoryStore, StateChanges, StateStore,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
@@ -1380,17 +1379,7 @@ async fn test_restore_room() {
         .build()
         .await
         .unwrap();
-    client
-        .matrix_auth()
-        .restore_session(MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        })
-        .await
-        .unwrap();
+    client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     assert!(room.is_favourite());
