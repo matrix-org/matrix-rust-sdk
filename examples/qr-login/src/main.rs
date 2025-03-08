@@ -6,13 +6,9 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oidc::{
         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
-        types::{
-            iana::oauth::OAuthClientAuthenticationMethod,
-            oidc::ApplicationType,
-            registration::{ClientMetadata, Localized, VerifiedClientMetadata},
-            requests::GrantType,
-        },
+        registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
     },
+    ruma::serde::Raw,
     Client,
 };
 use url::Url;
@@ -38,36 +34,32 @@ struct Cli {
 /// should be adapted to the provider metadata to make interactions as secure as
 /// possible, for example by using the most secure signing algorithms supported
 /// by the provider.
-fn client_metadata() -> VerifiedClientMetadata {
-    let client_uri = Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
-        .expect("Couldn't parse client URI");
+fn client_metadata() -> Raw<ClientMetadata> {
+    let client_uri = Localized::new(
+        Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
+            .expect("Couldn't parse client URI"),
+        None,
+    );
 
-    ClientMetadata {
-        // This is a native application (in contrast to a web application, that runs in a browser).
-        application_type: Some(ApplicationType::Native),
-        // Native clients should be able to register the loopback interface and then point to any
-        // port when needing a redirect URI. An alternative is to use a custom URI scheme registered
-        // with the OS.
-        redirect_uris: None,
-        // We are going to use the Authorization Code flow, and of course we want to be able to
-        // refresh our access token.
-        grant_types: Some(vec![GrantType::RefreshToken, GrantType::DeviceCode]),
-        // A native client shouldn't use authentication as the credentials could be intercepted.
-        // Other protections are in place for the different requests.
-        token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+    let metadata = ClientMetadata {
         // The following fields should be displayed in the OIDC provider interface as part of the
         // process to get the user's consent. It means that these should contain real data so the
         // user can make sure that they allow the proper application.
         // We are cheating here because this is an example.
         client_name: Some(Localized::new("matrix-rust-sdk-qrlogin".to_owned(), [])),
-        contacts: Some(vec!["root@127.0.0.1".to_owned()]),
-        client_uri: Some(Localized::new(client_uri.clone(), [])),
-        policy_uri: Some(Localized::new(client_uri.clone(), [])),
-        tos_uri: Some(Localized::new(client_uri, [])),
-        ..Default::default()
-    }
-    .validate()
-    .unwrap()
+        policy_uri: Some(client_uri.clone()),
+        tos_uri: Some(client_uri.clone()),
+        ..ClientMetadata::new(
+            // This is a native application (in contrast to a web application, that runs in a
+            // browser).
+            ApplicationType::Native,
+            // We are going to use the Device Authorization flow.
+            vec![OauthGrantType::DeviceCode],
+            client_uri,
+        )
+    };
+
+    Raw::new(&metadata).expect("Couldn't serialize client metadata")
 }
 
 async fn print_devices(client: &Client) -> Result<()> {

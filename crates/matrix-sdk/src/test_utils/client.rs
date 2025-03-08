@@ -174,16 +174,15 @@ pub fn mock_matrix_session() -> MatrixSession {
 /// Mock client data for the OAuth 2.0 API.
 #[cfg(feature = "experimental-oidc")]
 pub mod oauth {
-    use mas_oidc_client::types::{
-        iana::oauth::OAuthClientAuthenticationMethod,
-        oidc::ApplicationType,
-        registration::{ClientMetadata, Localized, VerifiedClientMetadata},
-        requests::GrantType,
-    };
+    use ruma::serde::Raw;
     use url::Url;
 
     use crate::{
-        authentication::oidc::{registrations::ClientId, OidcSession, UserSession},
+        authentication::oidc::{
+            registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+            registrations::ClientId,
+            OidcSession, UserSession,
+        },
         SessionTokens,
     };
 
@@ -199,25 +198,21 @@ pub mod oauth {
 
     /// `VerifiedClientMetadata` that should be valid in most cases, for unit or
     /// integration tests.
-    pub fn mock_client_metadata() -> VerifiedClientMetadata {
+    pub fn mock_client_metadata() -> Raw<ClientMetadata> {
         let client_uri = Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
             .expect("client URI should be valid");
 
-        ClientMetadata {
-            application_type: Some(ApplicationType::Native),
-            redirect_uris: Some(vec![mock_redirect_uri()]),
-            grant_types: Some(vec![
-                GrantType::AuthorizationCode,
-                GrantType::RefreshToken,
-                GrantType::DeviceCode,
-            ]),
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-            client_name: Some(Localized::new("matrix-rust-sdk-test".to_owned(), [])),
-            client_uri: Some(Localized::new(client_uri, [])),
-            ..Default::default()
-        }
-        .validate()
-        .expect("client metadata should pass validation")
+        let mut metadata = ClientMetadata::new(
+            ApplicationType::Native,
+            vec![
+                OauthGrantType::AuthorizationCode { redirect_uris: vec![mock_redirect_uri()] },
+                OauthGrantType::DeviceCode,
+            ],
+            Localized::new(client_uri, None),
+        );
+        metadata.client_name = Some(Localized::new("matrix-rust-sdk-test".to_owned(), None));
+
+        Raw::new(&metadata).expect("client metadata should serialize successfully")
     }
 
     /// An [`OidcSession`] to restore, for unit or integration tests.
