@@ -54,10 +54,11 @@ mod login_builder;
 pub use self::login_builder::LoginBuilder;
 #[cfg(feature = "sso-login")]
 pub use self::login_builder::SsoLoginBuilder;
+use super::SessionTokens;
 
 #[derive(Clone)]
 pub(crate) struct MatrixAuthData {
-    pub(crate) tokens: SharedObservable<MatrixSessionTokens>,
+    pub(crate) tokens: SharedObservable<SessionTokens>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -645,12 +646,12 @@ impl MatrixAuth {
     /// access tokens] has been enabled.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens(&self) -> Option<MatrixSessionTokens> {
+    pub fn session_tokens(&self) -> Option<SessionTokens> {
         Some(self.data()?.tokens.get())
     }
 
     /// Set the current session tokens
-    pub(crate) fn set_session_tokens(&self, tokens: MatrixSessionTokens) {
+    pub(crate) fn set_session_tokens(&self, tokens: SessionTokens) {
         if let Some(auth_data) = self.client.inner.auth_ctx.auth_data.get() {
             let Some(data) = auth_data.as_matrix() else {
                 panic!("Cannot call native Matrix authentication API after logging in with another API");
@@ -797,7 +798,7 @@ impl MatrixAuth {
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = MatrixSessionTokens>> {
+    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = SessionTokens>> {
         Some(self.data()?.tokens.subscribe())
     }
 
@@ -835,9 +836,9 @@ impl MatrixAuth {
     ///
     /// ```no_run
     /// use matrix_sdk::{
-    ///     authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    ///     authentication::matrix::MatrixSession,
     ///     ruma::{device_id, user_id},
-    ///     Client, SessionMeta,
+    ///     Client, SessionMeta, SessionTokens,
     /// };
     /// # use url::Url;
     /// # async {
@@ -850,7 +851,7 @@ impl MatrixAuth {
     ///         user_id: user_id!("@example:localhost").to_owned(),
     ///         device_id: device_id!("MYDEVICEID").to_owned(),
     ///     },
-    ///     tokens: MatrixSessionTokens {
+    ///     tokens: SessionTokens {
     ///         access_token: "My-Token".to_owned(),
     ///         refresh_token: None,
     ///     },
@@ -959,8 +960,7 @@ impl MatrixAuth {
 ///
 /// ```
 /// use matrix_sdk::{
-///     authentication::matrix::{MatrixSession, MatrixSessionTokens},
-///     SessionMeta,
+///     authentication::matrix::MatrixSession, SessionMeta, SessionTokens,
 /// };
 /// use ruma::{device_id, user_id};
 ///
@@ -969,7 +969,7 @@ impl MatrixAuth {
 ///         user_id: user_id!("@example:localhost").to_owned(),
 ///         device_id: device_id!("MYDEVICEID").to_owned(),
 ///     },
-///     tokens: MatrixSessionTokens {
+///     tokens: SessionTokens {
 ///         access_token: "My-Token".to_owned(),
 ///         refresh_token: None,
 ///     },
@@ -985,7 +985,7 @@ pub struct MatrixSession {
 
     /// The tokens used for authentication.
     #[serde(flatten)]
-    pub tokens: MatrixSessionTokens,
+    pub tokens: SessionTokens,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -1000,7 +1000,7 @@ impl From<&login::v3::Response> for MatrixSession {
         let login::v3::Response { user_id, access_token, device_id, refresh_token, .. } = response;
         Self {
             meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
-            tokens: MatrixSessionTokens {
+            tokens: SessionTokens {
                 access_token: access_token.clone(),
                 refresh_token: refresh_token.clone(),
             },
@@ -1015,25 +1015,10 @@ impl MatrixSession {
             response;
         Some(Self {
             meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone()? },
-            tokens: MatrixSessionTokens {
+            tokens: SessionTokens {
                 access_token: access_token.clone()?,
                 refresh_token: refresh_token.clone(),
             },
         })
     }
-}
-
-/// The tokens for a user session obtained with the native Matrix authentication
-/// API.
-#[derive(Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[allow(missing_debug_implementations)]
-pub struct MatrixSessionTokens {
-    /// The access token used for this session.
-    pub access_token: String,
-
-    /// The token used for [refreshing the access token], if any.
-    ///
-    /// [refreshing the access token]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
 }

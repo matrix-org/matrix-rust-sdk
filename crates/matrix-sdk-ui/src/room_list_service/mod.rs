@@ -470,26 +470,17 @@ mod tests {
 
     use futures_util::{pin_mut, StreamExt};
     use matrix_sdk::{
-        authentication::matrix::{MatrixSession, MatrixSessionTokens},
-        config::RequestConfig,
-        Client, SlidingSyncMode,
+        config::RequestConfig, test_utils::client::mock_matrix_session, Client, SlidingSyncMode,
     };
-    use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::async_test;
-    use ruma::{api::MatrixVersion, device_id, user_id};
+    use ruma::api::MatrixVersion;
     use serde_json::json;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
     use super::{Error, RoomListService, State, ALL_ROOMS_LIST_NAME};
 
     async fn new_client() -> (Client, MockServer) {
-        let session = MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        };
+        let session = mock_matrix_session();
 
         let server = MockServer::start().await;
         let client = Client::builder()

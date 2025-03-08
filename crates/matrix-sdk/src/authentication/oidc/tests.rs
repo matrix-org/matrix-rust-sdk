@@ -33,9 +33,8 @@ use crate::{
     },
     test_utils::{
         client::{
-            oauth::{
-                mock_client_metadata, mock_prev_session_tokens, mock_session, mock_session_tokens,
-            },
+            mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
+            oauth::{mock_client_metadata, mock_session},
             MockClientBuilder,
         },
         mocks::{oauth::MockServerMetadataBuilder, MatrixMockServer},
@@ -396,7 +395,7 @@ async fn test_oidc_session() -> anyhow::Result<()> {
     let client = MockClientBuilder::new("https://example.org".to_owned()).unlogged().build().await;
     let oidc = client.oidc();
 
-    let tokens = mock_session_tokens();
+    let tokens = mock_session_tokens_with_refresh();
     let issuer = "https://oidc.example.com/issuer";
     let session = mock_session(tokens.clone(), issuer.to_owned());
     oidc.restore_session(session.clone()).await?;
@@ -432,8 +431,8 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     oauth_server.mock_server_metadata().ok().expect(2..).named("server_metadata").mount().await;
     oauth_server.mock_token().ok().expect(2).named("token").mount().await;
 
-    let prev_tokens = mock_prev_session_tokens();
-    let next_tokens = mock_session_tokens();
+    let prev_tokens = mock_prev_session_tokens_with_refresh();
+    let next_tokens = mock_session_tokens_with_refresh();
 
     for client in [
         // Create an insecure client with the homeserver_url method.

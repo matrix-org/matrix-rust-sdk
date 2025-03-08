@@ -1303,13 +1303,7 @@ impl Client {
         session_delegate: Arc<dyn ClientSessionDelegate>,
         user_id: &UserId,
     ) -> anyhow::Result<SessionTokens> {
-        let session = session_delegate.retrieve_session_from_keychain(user_id.to_string())?;
-        let auth_session = TryInto::<AuthSession>::try_into(session)?;
-        match auth_session {
-            AuthSession::Oidc(session) => Ok(SessionTokens::Oidc(session.user.tokens)),
-            AuthSession::Matrix(session) => Ok(SessionTokens::Matrix(session.tokens)),
-            _ => anyhow::bail!("Unexpected session kind."),
-        }
+        Ok(session_delegate.retrieve_session_from_keychain(user_id.to_string())?.into_tokens())
     }
 
     fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
@@ -1597,11 +1591,7 @@ impl Session {
             AuthApi::Matrix(a) => {
                 let matrix_sdk::authentication::matrix::MatrixSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
-                    tokens:
-                        matrix_sdk::authentication::matrix::MatrixSessionTokens {
-                            access_token,
-                            refresh_token,
-                        },
+                    tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                 } = a.session().context("Missing session")?;
 
                 Ok(Session {
@@ -1618,11 +1608,7 @@ impl Session {
             AuthApi::Oidc(api) => {
                 let matrix_sdk::authentication::oidc::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
-                    tokens:
-                        matrix_sdk::authentication::oidc::OidcSessionTokens {
-                            access_token,
-                            refresh_token,
-                        },
+                    tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                     issuer,
                 } = api.user_session().context("Missing session")?;
                 let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
@@ -1641,6 +1627,10 @@ impl Session {
             }
             _ => Err(anyhow!("Unknown authentication API").into()),
         }
+    }
+
+    fn into_tokens(self) -> matrix_sdk::SessionTokens {
+        SessionTokens { access_token: self.access_token, refresh_token: self.refresh_token }
     }
 }
 
@@ -1666,10 +1656,7 @@ impl TryFrom<Session> for AuthSession {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::authentication::oidc::OidcSessionTokens {
-                    access_token,
-                    refresh_token,
-                },
+                tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                 issuer: oidc_data.issuer,
             };
 
@@ -1683,10 +1670,7 @@ impl TryFrom<Session> for AuthSession {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::authentication::matrix::MatrixSessionTokens {
-                    access_token,
-                    refresh_token,
-                },
+                tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
             };
 
             Ok(AuthSession::Matrix(session))

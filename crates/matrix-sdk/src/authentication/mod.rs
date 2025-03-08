@@ -14,10 +14,11 @@
 
 //! Types and functions related to authentication in Matrix.
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use as_variant::as_variant;
 use matrix_sdk_base::SessionMeta;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex, OnceCell};
 
 pub mod matrix;
@@ -29,14 +30,23 @@ use self::matrix::{MatrixAuth, MatrixAuthData};
 use self::oidc::{Oidc, OidcAuthData, OidcCtx};
 use crate::{Client, RefreshTokenError, SessionChange};
 
-/// Session tokens, for any kind of authentication.
-#[allow(missing_debug_implementations, clippy::large_enum_variant)]
-pub enum SessionTokens {
-    /// Tokens for a [`matrix`] session.
-    Matrix(matrix::MatrixSessionTokens),
-    #[cfg(feature = "experimental-oidc")]
-    /// Tokens for an [`oidc`] session.
-    Oidc(oidc::OidcSessionTokens),
+/// The tokens for a user session.
+#[derive(Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[allow(missing_debug_implementations)]
+pub struct SessionTokens {
+    /// The access token used for this session.
+    pub access_token: String,
+
+    /// The token used for refreshing the access token, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for SessionTokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionTokens").finish_non_exhaustive()
+    }
 }
 
 pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
