@@ -113,6 +113,11 @@ simpler methods:
     `CsrfToken`.
   - The `error` field of `AuthorizationError` uses an error type from the oauth2
     crate rather than one from mas-oidc-client.
+- [**breaking**] `Oidc::url_for_oidc()` doesn't take the `VerifiedClientMetadata`
+  to register as an argument, the one in `OidcRegistrations` is used instead.
+  However it now takes the redirect URI to use, instead of always using the
+  first one in the client metadata.
+  ([#4771](https://github.com/matrix-org/matrix-rust-sdk/pull/4771))
 
 ## [0.10.0] - 2025-02-04
 
