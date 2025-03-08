@@ -100,8 +100,8 @@
 //! refreshing tokens automatically.
 //!
 //! Applications should then listen to session tokens changes after logging in
-//! with [`Oidc::session_tokens_stream()`] to be able to restore the session at
-//! a later time, otherwise the end-user will need to login again.
+//! with [`Client::subscribe_to_session_changes()`] to be able to restore the
+//! session at a later time, otherwise the end-user will need to login again.
 //!
 //! # Unknown token error
 //!
@@ -153,8 +153,6 @@ use error::{
     CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthDiscoveryError,
     OauthTokenRevocationError, RedirectUriQueryParseError,
 };
-use eyeball::SharedObservable;
-use futures_core::Stream;
 use mas_oidc_client::{
     http_service::HttpService,
     requests::{
@@ -241,7 +239,6 @@ impl OidcCtx {
 pub(crate) struct OidcAuthData {
     pub(crate) issuer: String,
     pub(crate) client_id: ClientId,
-    pub(crate) tokens: OnceCell<SharedObservable<SessionTokens>>,
     /// The data necessary to validate authorization responses.
     authorization_data: Mutex<HashMap<CsrfToken, AuthorizationValidationData>>,
 }
@@ -283,7 +280,7 @@ impl Oidc {
     }
 
     fn ctx(&self) -> &OidcCtx {
-        &self.client.inner.auth_ctx.oidc
+        &self.client.auth_ctx().oidc
     }
 
     fn http_client(&self) -> &OauthHttpClient {
@@ -347,7 +344,7 @@ impl Oidc {
     /// was not restored with [`Oidc::restore_registered_client()`] or
     /// [`Oidc::restore_session()`].
     fn data(&self) -> Option<&OidcAuthData> {
-        let data = self.client.inner.auth_ctx.auth_data.get()?;
+        let data = self.client.auth_ctx().auth_data.get()?;
         as_variant!(data, AuthData::Oidc)
     }
 
@@ -751,96 +748,13 @@ impl Oidc {
         self.data().map(|data| &data.client_id)
     }
 
-    /// Set the current session tokens.
-    ///
-    /// # Panics
-    ///
-    /// Will panic if no OIDC client has been configured yet.
-    pub(crate) fn set_session_tokens(&self, session_tokens: SessionTokens) {
-        let data =
-            self.data().expect("Cannot call OpenID Connect API after logging in with another API");
-        if let Some(tokens) = data.tokens.get() {
-            tokens.set_if_not_eq(session_tokens);
-        } else {
-            let _ = data.tokens.set(SharedObservable::new(session_tokens));
-        }
-    }
-
-    /// The tokens received after authorization of this client.
-    ///
-    /// Returns `None` if the client was not logged in with the OpenID Connect
-    /// API.
-    pub fn session_tokens(&self) -> Option<SessionTokens> {
-        Some(self.data()?.tokens.get()?.get())
-    }
-
-    /// Get changes to the session tokens as a [`Stream`].
-    ///
-    /// Returns `None` if the client was not logged in with the OpenID Connect
-    /// API.
-    ///
-    /// After login, the tokens should only change when refreshing the access
-    /// token or authorizing new scopes.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use futures_util::StreamExt;
-    /// use matrix_sdk::Client;
-    /// # fn persist_session(_: &matrix_sdk::authentication::oidc::OidcSession) {}
-    /// # _ = async {
-    /// let homeserver = "http://example.com";
-    /// let client = Client::builder()
-    ///     .homeserver_url(homeserver)
-    ///     .handle_refresh_tokens()
-    ///     .build()
-    ///     .await?;
-    ///
-    /// // Login with the OpenID Connect API…
-    ///
-    /// let oidc = client.oidc();
-    /// let session = oidc.full_session().expect("Client should be logged in");
-    /// persist_session(&session);
-    ///
-    /// // Handle when at least one of the tokens changed.
-    /// let mut tokens_stream =
-    ///     oidc.session_tokens_stream().expect("Client should be logged in");
-    /// loop {
-    ///     if tokens_stream.next().await.is_some() {
-    ///         let session =
-    ///             oidc.full_session().expect("Client should be logged in");
-    ///         persist_session(&session);
-    ///     }
-    /// }
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = SessionTokens>> {
-        Some(self.data()?.tokens.get()?.subscribe())
-    }
-
-    /// Get the current access token for this session.
-    ///
-    /// Returns `None` if the client was not logged in with the OpenID Connect
-    /// API.
-    pub fn access_token(&self) -> Option<String> {
-        self.session_tokens().map(|tokens| tokens.access_token)
-    }
-
-    /// Get the current refresh token for this session.
-    ///
-    /// Returns `None` if the client was not logged in with the OpenID Connect
-    /// API, or if the access token cannot be refreshed.
-    pub fn refresh_token(&self) -> Option<String> {
-        self.session_tokens().and_then(|tokens| tokens.refresh_token)
-    }
-
     /// The OpenID Connect user session of this client.
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
     /// API.
     pub fn user_session(&self) -> Option<UserSession> {
         let meta = self.client.session_meta()?.to_owned();
-        let tokens = self.session_tokens()?;
+        let tokens = self.client.session_tokens()?;
         let issuer = self.data()?.issuer.clone();
         Some(UserSession { meta, tokens, issuer })
     }
@@ -979,16 +893,10 @@ impl Oidc {
     ///
     /// Panics if authentication data was already set.
     pub fn restore_registered_client(&self, issuer: String, client_id: ClientId) {
-        let data = OidcAuthData {
-            issuer,
-            client_id,
-            tokens: Default::default(),
-            authorization_data: Default::default(),
-        };
+        let data = OidcAuthData { issuer, client_id, authorization_data: Default::default() };
 
         self.client
-            .inner
-            .auth_ctx
+            .auth_ctx()
             .auth_data
             .set(AuthData::Oidc(data))
             .expect("Client authentication data was already set");
@@ -1010,13 +918,9 @@ impl Oidc {
     pub async fn restore_session(&self, session: OidcSession) -> Result<()> {
         let OidcSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
 
-        let data = OidcAuthData {
-            issuer,
-            client_id,
-            tokens: SharedObservable::new(tokens.clone()).into(),
-            authorization_data: Default::default(),
-        };
+        let data = OidcAuthData { issuer, client_id, authorization_data: Default::default() };
 
+        self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
             .set_session_meta(
                 meta,
@@ -1080,8 +984,7 @@ impl Oidc {
 
         let callback = self
             .client
-            .inner
-            .auth_ctx
+            .auth_ctx()
             .reload_session_callback
             .get()
             .ok_or(CrossProcessRefreshLockError::MissingReloadSession)?;
@@ -1090,7 +993,7 @@ impl Oidc {
             Ok(tokens) => {
                 guard.handle_mismatch(&tokens).await?;
 
-                self.set_session_tokens(tokens.clone());
+                self.client.auth_ctx().set_session_tokens(tokens.clone());
                 // The app's callback acted as authoritative here, so we're not
                 // saving the data back into the app, as that would have no
                 // effect.
@@ -1185,7 +1088,7 @@ impl Oidc {
     /// oidc.finish_login().await?;
     ///
     /// // The session tokens can be persisted either from the response, or from
-    /// // one of the `Oidc::session_tokens()` method.
+    /// // the `Client::session_tokens()` method.
     ///
     /// // You can now make any request compatible with the requested scope.
     /// let _me = client.whoami().await?;
@@ -1244,7 +1147,7 @@ impl Oidc {
         self.deferred_enable_cross_process_refresh_lock().await;
 
         if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
-            if let Some(tokens) = self.session_tokens() {
+            if let Some(tokens) = self.client.session_tokens() {
                 let mut cross_process_guard = cross_process_manager.spin_lock().await?;
 
                 if cross_process_guard.hash_mismatch {
@@ -1306,7 +1209,7 @@ impl Oidc {
             .await
             .map_err(OauthAuthorizationCodeError::RequestToken)?;
 
-        self.set_session_tokens(SessionTokens {
+        self.client.auth_ctx().set_session_tokens(SessionTokens {
             access_token: response.access_token().secret().clone(),
             refresh_token: response.refresh_token().map(RefreshToken::secret).cloned(),
         });
@@ -1383,7 +1286,7 @@ impl Oidc {
             .request_async(self.http_client(), tokio::time::sleep, None)
             .await?;
 
-        self.set_session_tokens(SessionTokens {
+        self.client.auth_ctx().set_session_tokens(SessionTokens {
             access_token: response.access_token().secret().to_owned(),
             refresh_token: response.refresh_token().map(|t| t.secret().to_owned()),
         });
@@ -1430,11 +1333,10 @@ impl Oidc {
             refresh_token: new_refresh_token.or(Some(refresh_token)),
         };
 
-        self.set_session_tokens(tokens.clone());
+        self.client.auth_ctx().set_session_tokens(tokens.clone());
 
         // Call the save_session_callback if set, while the optional lock is being held.
-        if let Some(save_session_callback) = self.client.inner.auth_ctx.save_session_callback.get()
-        {
+        if let Some(save_session_callback) = self.client.auth_ctx().save_session_callback.get() {
             // Satisfies the save_session_callback invariant: set_session_tokens has
             // been called just above.
             if let Err(err) = save_session_callback(self.client.clone()) {
@@ -1446,7 +1348,7 @@ impl Oidc {
             lock.save_in_memory_and_db(&tokens).await?;
         }
 
-        _ = self.client.inner.auth_ctx.session_change_sender.send(SessionChange::TokensRefreshed);
+        _ = self.client.auth_ctx().session_change_sender.send(SessionChange::TokensRefreshed);
 
         Ok(())
     }
@@ -1477,13 +1379,13 @@ impl Oidc {
 
         let client = &self.client;
 
-        let refresh_status_lock = client.inner.auth_ctx.refresh_token_lock.clone().try_lock_owned();
+        let refresh_status_lock = client.auth_ctx().refresh_token_lock.clone().try_lock_owned();
 
         let Ok(mut refresh_status_guard) = refresh_status_lock else {
             debug!("another refresh is happening, waiting for result.");
             // There's already a request to refresh happening in the same process. Wait for
             // it to finish.
-            let res = client.inner.auth_ctx.refresh_token_lock.lock().await.clone();
+            let res = client.auth_ctx().refresh_token_lock.lock().await.clone();
             debug!("other refresh is a {}", if res.is_ok() { "success" } else { "failure " });
             return res;
         };
@@ -1520,7 +1422,7 @@ impl Oidc {
                 None
             };
 
-        let Some(session_tokens) = self.session_tokens() else {
+        let Some(session_tokens) = self.client.session_tokens() else {
             warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
         };
@@ -1590,7 +1492,7 @@ impl Oidc {
             .ok_or(OauthTokenRevocationError::NotSupported)?;
         let revocation_url = RevocationUrl::from_url(revocation_endpoint);
 
-        let tokens = self.session_tokens().ok_or(OidcError::NotAuthenticated)?;
+        let tokens = self.client.session_tokens().ok_or(OidcError::NotAuthenticated)?;
 
         // Revoke the access token, it should revoke both tokens.
         OauthClient::new(client_id)
