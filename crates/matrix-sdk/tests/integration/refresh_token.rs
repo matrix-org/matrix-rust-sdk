@@ -7,23 +7,22 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    authentication::matrix::MatrixSession,
     config::RequestConfig,
     executor::spawn,
     test_utils::{
-        logged_in_client_with_server, no_retry_test_client_with_server,
+        client::mock_session_meta, logged_in_client_with_server, no_retry_test_client_with_server,
         test_client_builder_with_server,
     },
-    HttpError, RefreshTokenError, SessionChange,
+    HttpError, RefreshTokenError, SessionChange, SessionTokens,
 };
-use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
         client::{account::register, error::ErrorKind},
         MatrixVersion,
     },
-    assign, device_id, user_id,
+    assign,
 };
 use serde_json::json;
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
@@ -34,11 +33,8 @@ use wiremock::{
 
 fn session() -> MatrixSession {
     MatrixSession {
-        meta: SessionMeta {
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
-        },
-        tokens: MatrixSessionTokens {
+        meta: mock_session_meta(),
+        tokens: SessionTokens {
             access_token: "1234".to_owned(),
             refresh_token: Some("abcd".to_owned()),
         },
@@ -580,7 +576,10 @@ async fn test_oauth_refresh_token_handled_success() {
     use matrix_sdk::{
         assert_next_eq_with_timeout,
         test_utils::{
-            client::oauth::{mock_prev_session_tokens, mock_session, mock_session_tokens},
+            client::{
+                mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
+                oauth::mock_session,
+            },
             mocks::MatrixMockServer,
         },
     };
@@ -605,7 +604,9 @@ async fn test_oauth_refresh_token_handled_success() {
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
     let oidc = client.oidc();
 
-    oidc.restore_session(mock_session(mock_prev_session_tokens(), issuer)).await.unwrap();
+    oidc.restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+        .await
+        .unwrap();
 
     let mut tokens_stream = oidc.session_tokens_stream().unwrap();
     let mut session_changes = client.subscribe_to_session_changes();
@@ -615,7 +616,7 @@ async fn test_oauth_refresh_token_handled_success() {
     // We receive the new tokens on the stream.
     assert_next_eq_with_timeout!(
         tokens_stream,
-        mock_session_tokens(),
+        mock_session_tokens_with_refresh(),
         "The session tokens stream should receive the updated tokens"
     );
 
@@ -638,7 +639,7 @@ async fn test_oauth_refresh_token_handled_failure() {
     use matrix_sdk::{
         authentication::oidc::OidcError,
         test_utils::{
-            client::oauth::{mock_prev_session_tokens, mock_session},
+            client::{mock_prev_session_tokens_with_refresh, oauth::mock_session},
             mocks::MatrixMockServer,
         },
     };
@@ -663,7 +664,9 @@ async fn test_oauth_refresh_token_handled_failure() {
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
     let oidc = client.oidc();
 
-    oidc.restore_session(mock_session(mock_prev_session_tokens(), issuer)).await.unwrap();
+    oidc.restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+        .await
+        .unwrap();
 
     let mut session_changes = client.subscribe_to_session_changes();
 
@@ -696,7 +699,10 @@ async fn test_oauth_refresh_token_handled_failure() {
 #[async_test]
 async fn test_oauth_handle_refresh_tokens() {
     use matrix_sdk::test_utils::{
-        client::oauth::{mock_prev_session_tokens, mock_session, mock_session_tokens},
+        client::{
+            mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
+            oauth::mock_session,
+        },
         mocks::MatrixMockServer,
     };
 
@@ -709,7 +715,9 @@ async fn test_oauth_handle_refresh_tokens() {
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
 
     let oidc = client.oidc();
-    oidc.restore_session(mock_session(mock_prev_session_tokens(), issuer)).await.unwrap();
+    oidc.restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+        .await
+        .unwrap();
 
     let num_save_session_callback_calls = Arc::new(Mutex::new(0));
     client
@@ -725,7 +733,7 @@ async fn test_oauth_handle_refresh_tokens() {
     let mut session_changes = client.subscribe_to_session_changes();
     assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 
-    assert_eq!(oidc.session_tokens(), Some(mock_prev_session_tokens()));
+    assert_eq!(oidc.session_tokens(), Some(mock_prev_session_tokens_with_refresh()));
 
     // Refresh token successfully.
     oauth_server.mock_token().ok().mock_once().named("refresh_token").mount().await;
@@ -735,7 +743,7 @@ async fn test_oauth_handle_refresh_tokens() {
     // The tokens were updated.
     assert_eq!(
         oidc.session_tokens(),
-        Some(mock_session_tokens()),
+        Some(mock_session_tokens_with_refresh()),
         "The session tokens should have been updated with the new values"
     );
 

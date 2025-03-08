@@ -211,7 +211,7 @@ use self::{
     qrcode::LoginWithQrCode,
     registrations::{ClientId, OidcRegistrations},
 };
-use super::AuthData;
+use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
 
 pub(crate) struct OidcCtx {
@@ -241,7 +241,7 @@ impl OidcCtx {
 pub(crate) struct OidcAuthData {
     pub(crate) issuer: String,
     pub(crate) client_id: ClientId,
-    pub(crate) tokens: OnceCell<SharedObservable<OidcSessionTokens>>,
+    pub(crate) tokens: OnceCell<SharedObservable<SessionTokens>>,
     /// The data necessary to validate authorization responses.
     authorization_data: Mutex<HashMap<CsrfToken, AuthorizationValidationData>>,
 }
@@ -756,7 +756,7 @@ impl Oidc {
     /// # Panics
     ///
     /// Will panic if no OIDC client has been configured yet.
-    pub(crate) fn set_session_tokens(&self, session_tokens: OidcSessionTokens) {
+    pub(crate) fn set_session_tokens(&self, session_tokens: SessionTokens) {
         let data =
             self.data().expect("Cannot call OpenID Connect API after logging in with another API");
         if let Some(tokens) = data.tokens.get() {
@@ -770,7 +770,7 @@ impl Oidc {
     ///
     /// Returns `None` if the client was not logged in with the OpenID Connect
     /// API.
-    pub fn session_tokens(&self) -> Option<OidcSessionTokens> {
+    pub fn session_tokens(&self) -> Option<SessionTokens> {
         Some(self.data()?.tokens.get()?.get())
     }
 
@@ -814,7 +814,7 @@ impl Oidc {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = OidcSessionTokens>> {
+    pub fn session_tokens_stream(&self) -> Option<impl Stream<Item = SessionTokens>> {
         Some(self.data()?.tokens.get()?.subscribe())
     }
 
@@ -1088,10 +1088,6 @@ impl Oidc {
 
         match callback(self.client.clone()) {
             Ok(tokens) => {
-                let crate::authentication::SessionTokens::Oidc(tokens) = tokens else {
-                    return Err(CrossProcessRefreshLockError::InvalidSessionTokens);
-                };
-
                 guard.handle_mismatch(&tokens).await?;
 
                 self.set_session_tokens(tokens.clone());
@@ -1310,7 +1306,7 @@ impl Oidc {
             .await
             .map_err(OauthAuthorizationCodeError::RequestToken)?;
 
-        self.set_session_tokens(OidcSessionTokens {
+        self.set_session_tokens(SessionTokens {
             access_token: response.access_token().secret().clone(),
             refresh_token: response.refresh_token().map(RefreshToken::secret).cloned(),
         });
@@ -1387,7 +1383,7 @@ impl Oidc {
             .request_async(self.http_client(), tokio::time::sleep, None)
             .await?;
 
-        self.set_session_tokens(OidcSessionTokens {
+        self.set_session_tokens(SessionTokens {
             access_token: response.access_token().secret().to_owned(),
             refresh_token: response.refresh_token().map(|t| t.secret().to_owned()),
         });
@@ -1429,7 +1425,7 @@ impl Oidc {
             hash_str(&new_access_token)
         );
 
-        let tokens = OidcSessionTokens {
+        let tokens = SessionTokens {
             access_token: new_access_token,
             refresh_token: new_refresh_token.or(Some(refresh_token)),
         };
@@ -1634,29 +1630,10 @@ pub struct UserSession {
 
     /// The tokens used for authentication.
     #[serde(flatten)]
-    pub tokens: OidcSessionTokens,
+    pub tokens: SessionTokens,
 
     /// The OpenID Connect provider used for this session.
     pub issuer: String,
-}
-
-/// The tokens for a user session obtained with the OpenID Connect API.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[allow(missing_debug_implementations)]
-pub struct OidcSessionTokens {
-    /// The access token used for this session.
-    pub access_token: String,
-
-    /// The token used for refreshing the access token, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for OidcSessionTokens {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OidcSessionTokens").finish_non_exhaustive()
-    }
 }
 
 /// The data necessary to validate a response from the Token endpoint in the

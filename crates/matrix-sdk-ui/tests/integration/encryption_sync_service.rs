@@ -8,17 +8,16 @@ use std::{
 
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::RequestConfig,
-    test_utils::{logged_in_client_with_server, test_client_builder_with_server},
-    SessionMeta,
+    test_utils::{
+        client::mock_matrix_session, logged_in_client_with_server, test_client_builder_with_server,
+    },
 };
 use matrix_sdk_base::crypto::store::Changes;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::encryption_sync_service::{
     EncryptionSyncPermit, EncryptionSyncService, WithLocking,
 };
-use ruma::{device_id, user_id};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex as AsyncMutex;
@@ -340,7 +339,6 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
     use tempfile::tempdir;
 
     let dir = tempdir().unwrap();
-    let user_id = user_id!("@example:morpheus.localhost");
 
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
@@ -350,10 +348,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
         .await
         .unwrap();
 
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = mock_matrix_session();
 
     client.restore_session(session.to_owned()).await.unwrap();
 
