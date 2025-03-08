@@ -1,17 +1,14 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    path::Path,
     sync::{Arc, RwLock},
 };
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     authentication::oidc::{
-        registrations::{ClientId, OidcRegistrations},
-        requests::account_management::AccountManagementActionFull,
-        types::{registration::VerifiedClientMetadata, requests::Prompt as SdkOidcPrompt},
-        OidcAuthorizationData, OidcSession,
+        registrations::ClientId, requests::account_management::AccountManagementActionFull,
+        types::requests::Prompt as SdkOidcPrompt, OidcAuthorizationData, OidcSession,
     },
     event_cache::EventCacheError,
     media::{
@@ -412,23 +409,8 @@ impl Client {
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
     ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
-        let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
+        let registrations = oidc_configuration.registrations()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
-
-        let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
-        let static_registrations = oidc_configuration
-            .static_registrations
-            .iter()
-            .filter_map(|(issuer, client_id)| {
-                let Ok(issuer) = Url::parse(issuer) else {
-                    tracing::error!("Failed to parse {:?}", issuer);
-                    return None;
-                };
-                Some((issuer, ClientId::new(client_id.clone())))
-            })
-            .collect::<HashMap<_, _>>();
-        let registrations =
-            OidcRegistrations::new(registrations_file, oidc_metadata, static_registrations)?;
 
         let data = self
             .inner

@@ -687,8 +687,9 @@ impl ClientBuilder {
             }
         })?;
 
-        let client_metadata =
-            oidc_configuration.try_into().map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+        let client_metadata = oidc_configuration
+            .client_metadata()
+            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
         let oidc = client.inner.oidc();
         let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
