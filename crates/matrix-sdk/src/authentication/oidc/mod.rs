@@ -158,7 +158,6 @@ use error::{
     CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthClientRegistrationError,
     OauthDiscoveryError, OauthTokenRevocationError, RedirectUriQueryParseError,
 };
-use mas_oidc_client::types::registration::VerifiedClientMetadata;
 pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
@@ -204,7 +203,7 @@ use self::{
     http_client::OauthHttpClient,
     oidc_discovery::discover,
     qrcode::LoginWithQrCode,
-    registration::{register_client, ClientRegistrationResponse},
+    registration::{register_client, ClientMetadata, ClientRegistrationResponse},
     registrations::{ClientId, OidcRegistrations},
 };
 pub use self::{
@@ -367,12 +366,13 @@ impl Oidc {
     /// use futures_util::StreamExt;
     /// use matrix_sdk::{
     ///     authentication::oidc::{
-    ///         types::registration::VerifiedClientMetadata,
+    ///         registration::ClientMetadata,
     ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
     ///     },
+    ///     ruma::serde::Raw,
     ///     Client,
     /// };
-    /// # fn client_metadata() -> VerifiedClientMetadata { unimplemented!() }
+    /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() }
     /// # _ = async {
     /// # let bytes = unimplemented!();
     /// // You'll need to use a different library to scan and extract the raw bytes from the QR
@@ -392,7 +392,7 @@ impl Oidc {
     ///     .await?;
     ///
     /// let oidc = client.oidc();
-    /// let metadata: VerifiedClientMetadata = client_metadata();
+    /// let metadata: Raw<ClientMetadata> = client_metadata();
     ///
     /// // Subscribing to the progress is necessary since we need to input the check
     /// // code on the existing device.
@@ -428,7 +428,7 @@ impl Oidc {
     pub fn login_with_qr_code<'a>(
         &'a self,
         data: &'a QrCodeData,
-        client_metadata: VerifiedClientMetadata,
+        client_metadata: Raw<ClientMetadata>,
     ) -> LoginWithQrCode<'a> {
         LoginWithQrCode::new(&self.client, client_metadata, data)
     }
@@ -525,7 +525,7 @@ impl Oidc {
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(&registrations.verified_metadata).await?;
+        self.register_client(&registrations.metadata).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
@@ -766,9 +766,8 @@ impl Oidc {
     /// authorization server. If the client is already registered with the
     /// given issuer, it should use [`Oidc::restore_registered_client()`].
     ///
-    /// Note that this method only supports public clients, i.e. clients with
-    /// the `token_endpoint_auth_method` field in [`VerifiedClientMetadata`] set
-    /// to `none`.
+    /// Note that this method only supports public clients, i.e. clients without
+    /// a secret.
     ///
     /// The client should adapt the security measures enabled in its metadata
     /// according to the capabilities advertised in
@@ -776,7 +775,7 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `client_metadata` - The [`VerifiedClientMetadata`] to register.
+    /// * `client_metadata` - The serialized client metadata to register.
     ///
     /// The client ID in the response should be persisted for future use and
     /// reused for the same authorization server, identified by the
@@ -792,9 +791,10 @@ impl Oidc {
     /// ```no_run
     /// use matrix_sdk::{Client, ServerName};
     /// use matrix_sdk::authentication::oidc::registrations::ClientId;
-    /// use matrix_sdk::authentication::oidc::types::registration::ClientMetadata;
-    /// # let client_metadata = ClientMetadata::default().validate().unwrap();
-    /// # fn persist_client_registration (_: &url::Url, _: &ClientMetadata, _: &ClientId) {}
+    /// # use matrix_sdk::authentication::oidc::registration::ClientMetadata;
+    /// # use ruma::serde::Raw;
+    /// # let client_metadata = unimplemented!();
+    /// # fn persist_client_registration (_: &url::Url, _: &Raw<ClientMetadata>, _: &ClientId) {}
     /// # _ = async {
     /// let server_name = ServerName::parse("myhomeserver.org")?;
     /// let client = Client::builder().server_name(&server_name).build().await?;
@@ -826,7 +826,7 @@ impl Oidc {
     /// ```
     pub async fn register_client(
         &self,
-        client_metadata: &VerifiedClientMetadata,
+        client_metadata: &Raw<ClientMetadata>,
     ) -> Result<ClientRegistrationResponse, OidcError> {
         let provider_metadata = self.provider_metadata().await?;
 

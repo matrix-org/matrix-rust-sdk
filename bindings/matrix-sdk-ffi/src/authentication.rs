@@ -8,17 +8,13 @@ use std::{
 use matrix_sdk::{
     authentication::oidc::{
         error::OauthAuthorizationCodeError,
+        registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
         registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
-        types::{
-            iana::oauth::OAuthClientAuthenticationMethod,
-            oidc::ApplicationType,
-            registration::{ClientMetadata, Localized, VerifiedClientMetadata},
-            requests::GrantType,
-        },
         OidcError as SdkOidcError,
     },
     Error,
 };
+use ruma::serde::Raw;
 use url::Url;
 
 use crate::client::{Client, OidcPrompt, SlidingSyncVersion};
@@ -118,7 +114,7 @@ pub struct OidcConfiguration {
     /// successful.
     pub redirect_uri: String,
     /// A URI that contains information about the client.
-    pub client_uri: Option<String>,
+    pub client_uri: String,
     /// A URI that contains the client's logo.
     pub logo_uri: Option<String>,
     /// A URI that contains the client's terms of service.
@@ -143,36 +139,31 @@ impl OidcConfiguration {
         Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)
     }
 
-    pub(crate) fn client_metadata(&self) -> Result<VerifiedClientMetadata, OidcError> {
+    pub(crate) fn client_metadata(&self) -> Result<Raw<ClientMetadata>, OidcError> {
         let redirect_uri = self.redirect_uri()?;
         let client_name = self.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
         let client_uri = self.client_uri.localized_url()?;
         let logo_uri = self.logo_uri.localized_url()?;
         let policy_uri = self.policy_uri.localized_url()?;
         let tos_uri = self.tos_uri.localized_url()?;
-        let contacts = self.contacts.clone();
 
-        ClientMetadata {
-            application_type: Some(ApplicationType::Native),
-            redirect_uris: Some(vec![redirect_uri]),
-            grant_types: Some(vec![
-                GrantType::RefreshToken,
-                GrantType::AuthorizationCode,
-                GrantType::DeviceCode,
-            ]),
-            // A native client shouldn't use authentication as the credentials could be intercepted.
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
+        let metadata = ClientMetadata {
             // The server should display the following fields when getting the user's consent.
             client_name,
-            contacts,
-            client_uri,
             logo_uri,
             policy_uri,
             tos_uri,
-            ..Default::default()
-        }
-        .validate()
-        .map_err(|_| OidcError::MetadataInvalid)
+            ..ClientMetadata::new(
+                ApplicationType::Native,
+                vec![
+                    OauthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] },
+                    OauthGrantType::DeviceCode,
+                ],
+                client_uri,
+            )
+        };
+
+        Raw::new(&metadata).map_err(|_| OidcError::MetadataInvalid)
     }
 
     pub fn registrations(&self) -> Result<OidcRegistrations, OidcError> {
@@ -252,17 +243,25 @@ impl From<Error> for OidcError {
 /* Helpers */
 
 trait OptionExt {
-    /// Convenience method to convert a string to a URL and returns it as a
-    /// Localized URL. No localization is actually performed.
+    /// Convenience method to convert an `Option<String>` to a URL and returns
+    /// it as a Localized URL. No localization is actually performed.
     fn localized_url(&self) -> Result<Option<Localized<Url>>, OidcError>;
 }
 
 impl OptionExt for Option<String> {
     fn localized_url(&self) -> Result<Option<Localized<Url>>, OidcError> {
-        self.as_deref()
-            .map(|uri| -> Result<Localized<Url>, OidcError> {
-                Ok(Localized::new(Url::parse(uri).map_err(|_| OidcError::MetadataInvalid)?, []))
-            })
-            .transpose()
+        self.as_deref().map(StrExt::localized_url).transpose()
+    }
+}
+
+trait StrExt {
+    /// Convenience method to convert a string to a URL and returns it as a
+    /// Localized URL. No localization is actually performed.
+    fn localized_url(&self) -> Result<Localized<Url>, OidcError>;
+}
+
+impl StrExt for str {
+    fn localized_url(&self) -> Result<Localized<Url>, OidcError> {
+        Ok(Localized::new(Url::parse(self).map_err(|_| OidcError::MetadataInvalid)?, []))
     }
 }
