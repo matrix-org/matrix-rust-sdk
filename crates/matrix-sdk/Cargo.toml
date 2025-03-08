@@ -48,9 +48,7 @@ experimental-oidc = [
     "ruma/unstable-msc2967",
     "ruma/unstable-msc4108",
     "dep:language-tags",
-    "dep:mas-oidc-client",
     "dep:sha2",
-    "dep:tower",
     "dep:oauth2",
 ]
 experimental-widgets = ["dep:language-tags", "dep:uuid"]
@@ -81,7 +79,6 @@ imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { version = "0.11.0", default-features = false, optional = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-ffi-macros = { workspace = true, optional = true }

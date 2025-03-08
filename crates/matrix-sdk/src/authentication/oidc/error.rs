@@ -14,7 +14,6 @@
 
 //! Error types used in the [`Oidc`](super::Oidc) API.
 
-pub use mas_oidc_client::error::*;
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;
 pub use oauth2::{
@@ -53,10 +52,6 @@ pub enum RedirectUriQueryParseError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum OidcError {
-    /// An error occurred when interacting with the provider.
-    #[error(transparent)]
-    Oidc(Error),
-
     /// An error occurred when discovering the authorization server's issuer.
     #[error("authorization server discovery failed: {0}")]
     Discovery(#[from] OauthDiscoveryError),
@@ -102,15 +97,6 @@ pub enum OidcError {
     /// An unknown error occurred.
     #[error("unknown error")]
     UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
-}
-
-impl<E> From<E> for OidcError
-where
-    E: Into<Error>,
-{
-    fn from(value: E) -> Self {
-        Self::Oidc(value.into())
-    }
 }
 
 /// All errors that can occur when discovering the OAuth 2.0 server metadata.
