@@ -158,7 +158,6 @@ use error::{
     CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthClientRegistrationError,
     OauthDiscoveryError, OauthTokenRevocationError, RedirectUriQueryParseError,
 };
-pub use mas_oidc_client::{requests, types};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
