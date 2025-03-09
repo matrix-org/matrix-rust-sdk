@@ -1245,16 +1245,13 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn error500(self) -> MatrixMock<'a> {
-        MatrixMock { mock: self.mock.respond_with(ResponseTemplate::new(500)), server: self.server }
+        self.respond_with(ResponseTemplate::new(500))
     }
 
     /// Internal helper to return an `{ event_id }` JSON struct along with a 200
     /// ok response.
     fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })),
-        );
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
     }
 
     /// Returns an endpoint that emulates a permanent failure error (e.g. event
@@ -1288,13 +1285,10 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn error_too_large(self) -> MatrixMock<'a> {
-        MatrixMock {
-            mock: self.mock.respond_with(ResponseTemplate::new(413).set_body_json(json!({
-                // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
-                "errcode": "M_TOO_LARGE",
-            }))),
-            server: self.server,
-        }
+        self.respond_with(ResponseTemplate::new(413).set_body_json(json!({
+            // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
+            "errcode": "M_TOO_LARGE",
+        })))
     }
 }
 
@@ -1880,10 +1874,9 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn encrypted(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(
+        self.respond_with(
             ResponseTemplate::new(200).set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
-        );
-        MatrixMock { mock, server: self.server }
+        )
     }
 
     /// Marks the room as not encrypted.
@@ -1910,10 +1903,7 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn plain(self) -> MatrixMock<'a> {
-        let mock = self
-            .mock
-            .respond_with(ResponseTemplate::new(404).set_body_json(&*test_json::NOT_FOUND));
-        MatrixMock { mock, server: self.server }
+        self.respond_with(ResponseTemplate::new(404).set_body_json(&*test_json::NOT_FOUND))
     }
 }
 
@@ -2012,8 +2002,7 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
             template = template.set_delay(delay);
         }
 
-        let mock = self.mock.respond_with(template);
-        MatrixMock { server: self.server, mock }
+        self.respond_with(template)
     }
 }
 
@@ -2076,10 +2065,9 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
     /// Returns a redact endpoint that emulates success, i.e. the redaction
     /// event has been sent with the given event id.
     pub fn ok(self, mxc_id: &MxcUri) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "content_uri": mxc_id
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2102,20 +2090,18 @@ impl<'a> MockEndpoint<'a, ResolveRoomAliasEndpoint> {
 
     /// Returns a data endpoint with a resolved room alias.
     pub fn ok(self, room_id: &str, servers: Vec<String>) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "room_id": room_id,
             "servers": servers,
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 
     /// Returns a data endpoint for a room alias that does not exit.
     pub fn not_found(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
           "errcode": "M_NOT_FOUND",
           "error": "Room alias not found."
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2125,8 +2111,7 @@ pub struct CreateRoomAliasEndpoint;
 impl<'a> MockEndpoint<'a, CreateRoomAliasEndpoint> {
     /// Returns a data endpoint for creating a room alias.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
@@ -2136,8 +2121,7 @@ pub struct RemoveRoomAliasEndpoint;
 impl<'a> MockEndpoint<'a, RemoveRoomAliasEndpoint> {
     /// Returns a data endpoint for removing a room alias.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
@@ -2153,13 +2137,12 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
         prev_batch: Option<String>,
         total_room_count_estimate: Option<u64>,
     ) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": chunk,
             "next_batch": next_batch,
             "prev_batch": prev_batch,
             "total_room_count_estimate": total_room_count_estimate,
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 
     /// Returns a data endpoint for paginating the public room list with several
@@ -2171,7 +2154,7 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
         self,
         server_map: BTreeMap<OwnedServerName, Vec<PublicRoomsChunk>>,
     ) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(move |req: &Request| {
+        self.respond_with(move |req: &Request| {
             #[derive(Deserialize)]
             struct PartialRequest {
                 server: Option<OwnedServerName>,
@@ -2189,8 +2172,7 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
                 "chunk": chunk,
                 "total_room_count_estimate": chunk.len(),
             }))
-        });
-        MatrixMock { server: self.server, mock }
+        })
     }
 }
 
@@ -2200,10 +2182,9 @@ pub struct GetRoomVisibilityEndpoint;
 impl<'a> MockEndpoint<'a, GetRoomVisibilityEndpoint> {
     /// Returns an endpoint that get the room's public visibility.
     pub fn ok(self, visibility: Visibility) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "visibility": visibility,
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2213,8 +2194,7 @@ pub struct SetRoomVisibilityEndpoint;
 impl<'a> MockEndpoint<'a, SetRoomVisibilityEndpoint> {
     /// Returns an endpoint that updates the room's visibility.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
@@ -2225,7 +2205,7 @@ pub struct RoomKeysVersionEndpoint;
 impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
     /// Returns an endpoint that says there is a single room keys backup
     pub fn exists(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
             "auth_data": {
                 "public_key": "abcdefg",
@@ -2234,33 +2214,29 @@ impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
             "count": 42,
             "etag": "anopaquestring",
             "version": "1",
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 
     /// Returns an endpoint that says there is no room keys backup
     pub fn none(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_NOT_FOUND",
             "error": "No current backup version"
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 
     /// Returns an endpoint that 429 errors when we get it
     pub fn error429(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(429).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(429).set_body_json(json!({
             "errcode": "M_LIMIT_EXCEEDED",
             "error": "Too many requests",
             "retry_after_ms": 2000
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 
     /// Returns an endpoint that 404 errors when we get it
     pub fn error404(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(404));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(404))
     }
 }
 
@@ -2270,13 +2246,10 @@ pub struct AddRoomKeysVersionEndpoint;
 impl<'a> MockEndpoint<'a, AddRoomKeysVersionEndpoint> {
     /// Returns an endpoint that may be used to add room key backups
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self
-            .mock
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-              "version": "1"
-            })))
-            .named("POST for the backup creation");
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "version": "1"
+        })))
+        .named("POST for the backup creation")
     }
 }
 
@@ -2287,11 +2260,8 @@ pub struct DeleteRoomKeysVersionEndpoint;
 impl<'a> MockEndpoint<'a, DeleteRoomKeysVersionEndpoint> {
     /// Returns an endpoint that allows deleting room key backups
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self
-            .mock
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-            .named("DELETE for the backup deletion");
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .named("DELETE for the backup deletion")
     }
 }
 
@@ -2301,10 +2271,9 @@ pub struct GetRoomMembersEndpoint;
 impl<'a> MockEndpoint<'a, GetRoomMembersEndpoint> {
     /// Returns a successful get members request with a list of members.
     pub fn ok(self, members: Vec<Raw<RoomMemberEvent>>) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": members,
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2314,8 +2283,7 @@ pub struct InviteUserByIdEndpoint;
 impl<'a> MockEndpoint<'a, InviteUserByIdEndpoint> {
     /// Returns a successful invite user by id request.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
@@ -2325,8 +2293,7 @@ pub struct KickUserEndpoint;
 impl<'a> MockEndpoint<'a, KickUserEndpoint> {
     /// Returns a successful kick user request.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
@@ -2336,8 +2303,7 @@ pub struct BanUserEndpoint;
 impl<'a> MockEndpoint<'a, BanUserEndpoint> {
     /// Returns a successful ban user request.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
@@ -2349,7 +2315,7 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
     ///
     /// The response will return some commonly supported versions.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "unstable_features": {
             },
             "versions": [
@@ -2372,9 +2338,7 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
                 "v1.10",
                 "v1.11"
             ]
-        })));
-
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2385,14 +2349,13 @@ impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
     /// Returns a successful response with some default data for the given room
     /// id.
     pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "room_id": room_id,
             "guest_can_join": true,
             "num_joined_members": 1,
             "world_readable": true,
             "join_rule": "public",
-        })));
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2409,8 +2372,7 @@ impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
     /// Returns an error response with a generic error code indicating the
     /// client is not authorized to set pinned events.
     pub fn unauthorized(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(400));
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(400))
     }
 }
 
@@ -2433,27 +2395,21 @@ impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
     }
 
     /// Returns a successful response with a user ID and device ID.
-    pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.endpoint.add_access_token_matcher(self.mock).respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({
-                "user_id": "@joe:example.org",
-                "device_id": "D3V1C31D",
-            })),
-        );
-
-        MatrixMock { server: self.server, mock }
+    pub fn ok(mut self) -> MatrixMock<'a> {
+        self.mock = self.endpoint.add_access_token_matcher(self.mock);
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "user_id": "@joe:example.org",
+            "device_id": "D3V1C31D",
+        })))
     }
 
     /// Returns an error response with an `M_UNKNOWN_TOKEN`.
-    pub fn err_unknown_token(self) -> MatrixMock<'a> {
-        let mock = self.endpoint.add_access_token_matcher(self.mock).respond_with(
-            ResponseTemplate::new(401).set_body_json(json!({
-                "errcode": "M_UNKNOWN_TOKEN",
-                "error": "Invalid token"
-            })),
-        );
-
-        MatrixMock { server: self.server, mock }
+    pub fn err_unknown_token(mut self) -> MatrixMock<'a> {
+        self.mock = self.endpoint.add_access_token_matcher(self.mock);
+        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "errcode": "M_UNKNOWN_TOKEN",
+            "error": "Invalid token"
+        })))
     }
 }
 
@@ -2464,14 +2420,12 @@ impl<'a> MockEndpoint<'a, UploadKeysEndpoint> {
     /// Returns a successful response with counts of 10 curve25519 keys and 20
     /// signed curve25519 keys.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "one_time_key_counts": {
                 "curve25519": 10,
                 "signed_curve25519": 20,
             },
-        })));
-
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2481,9 +2435,7 @@ pub struct QueryKeysEndpoint;
 impl<'a> MockEndpoint<'a, QueryKeysEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
@@ -2493,13 +2445,12 @@ pub struct WellKnownEndpoint;
 impl<'a> MockEndpoint<'a, WellKnownEndpoint> {
     /// Returns a successful response.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        let server_uri = self.server.uri();
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "m.homeserver": {
-                "base_url": self.server.uri(),
+                "base_url": server_uri,
             },
-        })));
-
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2509,28 +2460,25 @@ pub struct UploadCrossSigningKeysEndpoint;
 impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 
     /// Returns an error response with an OAuth 2.0 UIAA stage.
     #[cfg(feature = "experimental-oidc")]
     pub fn uiaa_oauth(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+        let server_uri = self.server.uri();
+        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "session": "dummy",
             "flows": [{
                 "stages": [ "org.matrix.cross_signing_reset" ]
             }],
             "params": {
                 "org.matrix.cross_signing_reset": {
-                    "url": format!("{}/account/?action=org.matrix.cross_signing_reset", self.server.uri())
+                    "url": format!("{server_uri}/account/?action=org.matrix.cross_signing_reset"),
                 }
             },
             "msg": "To reset your end-to-end encryption cross-signing identity, you first need to approve it and then try again."
-        })));
-
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -2540,8 +2488,6 @@ pub struct UploadCrossSigningSignaturesEndpoint;
 impl<'a> MockEndpoint<'a, UploadCrossSigningSignaturesEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
