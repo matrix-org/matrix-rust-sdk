@@ -22,10 +22,10 @@ use serde_json::json;
 use url::Url;
 use wiremock::{
     matchers::{method, path_regex},
-    Mock, MockServer, ResponseTemplate,
+    Mock, MockBuilder, ResponseTemplate,
 };
 
-use super::{MatrixMock, MockEndpoint};
+use super::{MatrixMock, MatrixMockServer, MockEndpoint};
 
 /// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
 /// OAuth 2.0 API endpoints easily.
@@ -51,13 +51,20 @@ use super::{MatrixMock, MockEndpoint};
 ///   curried, so one doesn't have to pass it around when calling
 ///   [`MatrixMock::mount()`] or [`MatrixMock::mount_as_scoped()`]. As such, it
 ///   mostly defers its implementations to [`wiremock::Mock`] under the hood.
+///
+/// [`MockServer`]: wiremock::MockServer
 pub struct OauthMockServer<'a> {
-    server: &'a MockServer,
+    server: &'a MatrixMockServer,
 }
 
 impl<'a> OauthMockServer<'a> {
-    pub(super) fn new(server: &'a MockServer) -> Self {
+    pub(super) fn new(server: &'a MatrixMockServer) -> Self {
         Self { server }
+    }
+
+    /// Mock the given endpoint.
+    fn mock_endpoint<T>(&self, mock: MockBuilder, endpoint: T) -> MockEndpoint<'a, T> {
+        self.server.mock_endpoint(mock, endpoint)
     }
 }
 
@@ -75,35 +82,35 @@ impl OauthMockServer<'_> {
     pub fn mock_server_metadata(&self) -> MockEndpoint<'_, ServerMetadataEndpoint> {
         let mock = Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"));
-        MockEndpoint { mock, server: self.server, endpoint: ServerMetadataEndpoint }
+        self.mock_endpoint(mock, ServerMetadataEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to register a
     /// new client.
     pub fn mock_registration(&self) -> MockEndpoint<'_, RegistrationEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/registration"));
-        MockEndpoint { mock, server: self.server, endpoint: RegistrationEndpoint }
+        self.mock_endpoint(mock, RegistrationEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to authorize a
     /// device.
     pub fn mock_device_authorization(&self) -> MockEndpoint<'_, DeviceAuthorizationEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/device"));
-        MockEndpoint { mock, server: self.server, endpoint: DeviceAuthorizationEndpoint }
+        self.mock_endpoint(mock, DeviceAuthorizationEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to request an
     /// access token.
     pub fn mock_token(&self) -> MockEndpoint<'_, TokenEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/token"));
-        MockEndpoint { mock, server: self.server, endpoint: TokenEndpoint }
+        self.mock_endpoint(mock, TokenEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to revoke a
     /// token.
     pub fn mock_revocation(&self) -> MockEndpoint<'_, RevocationEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/revoke"));
-        MockEndpoint { mock, server: self.server, endpoint: RevocationEndpoint }
+        self.mock_endpoint(mock, RevocationEndpoint)
     }
 }
 
