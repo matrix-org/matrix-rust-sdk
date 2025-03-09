@@ -589,7 +589,7 @@ async fn test_oauth_refresh_token_handled_success() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expected_access_token("prev-access-token")
+        .expect_access_token("prev-access-token")
         .err_unknown_token()
         .expect(1)
         .named("whoami_unknown_token")
@@ -647,7 +647,7 @@ async fn test_oauth_refresh_token_handled_failure() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expected_access_token("prev-access-token")
+        .expect_access_token("prev-access-token")
         .err_unknown_token()
         .expect(1)
         .named("whoami_unknown_token")
