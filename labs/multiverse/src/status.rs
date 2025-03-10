@@ -23,6 +23,21 @@ pub struct Status {
     _receiver_task: JoinHandle<()>,
 }
 
+pub struct StatusHandle {
+    message_sender: mpsc::Sender<String>,
+}
+
+impl StatusHandle {
+    /// Set the current status message (displayed at the bottom), for a few
+    /// seconds.
+    pub fn set_message(&self, status: String) {
+        self.message_sender.send(status).expect(
+            "We should be able to send the status message since the receiver is alive \
+                  as long as we are alive",
+        );
+    }
+}
+
 impl Status {
     /// Create a new empty [`Status`] widget.
     pub fn new() -> Self {
@@ -69,5 +84,9 @@ impl Status {
             "We should be able to send the status message since the receiver is alive \
                   as long as we are alive",
         );
+    }
+
+    pub fn handle(&self) -> StatusHandle {
+        StatusHandle { message_sender: self.message_sender.clone() }
     }
 }
