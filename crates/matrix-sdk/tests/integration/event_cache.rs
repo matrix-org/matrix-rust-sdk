@@ -2507,3 +2507,36 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
     // That's all, folks!
     assert!(subscriber.is_empty());
 }
+
+#[async_test]
+async fn test_dont_remove_only_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+    client.event_cache().enable_storage().unwrap();
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("brillat-savarin"),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    server
+        .mock_room_messages()
+        .match_from("brillat-savarin")
+        .ok(RoomMessagesResponseTemplate::default())
+        .named("room/messages")
+        .mount()
+        .await;
+
+    // Back-paginate with the given token.
+    let outcome = room_event_cache.pagination().run_backwards_once(16).await.unwrap();
+    assert!(outcome.reached_start);
+}

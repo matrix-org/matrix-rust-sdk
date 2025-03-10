@@ -367,17 +367,15 @@ impl RoomPagination {
             let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
                 // There is a prior gap, let's replace it by new events!
                 if all_duplicates {
-                    // All the events were duplicated; don't act upon them, and only remove the
-                    // prior gap that we just filled.
-                    trace!("removing previous gap, as all events have been deduplicated");
-                    room_events.remove_empty_chunk_at(gap_id).expect("gap identifier is a valid gap chunk id we read previously")
-                } else {
-                    trace!("replacing previous gap with the back-paginated events");
-
-                    // Replace the gap with the events we just deduplicated.
-                    room_events.replace_gap_at(reversed_events.clone(), gap_id)
-                        .expect("gap_identifier is a valid chunk id we read previously")
+                    assert!(reversed_events.is_empty());
                 }
+
+                trace!("replacing previous gap with the back-paginated events");
+
+                // Replace the gap with the events we just deduplicated. This might get rid of the
+                // underlying gap, if the conditions are favorable to us.
+                room_events.replace_gap_at(reversed_events.clone(), gap_id)
+                    .expect("gap_identifier is a valid chunk id we read previously")
             } else if let Some(pos) = first_event_pos {
                 // No prior gap, but we had some events: assume we need to prepend events
                 // before those.
