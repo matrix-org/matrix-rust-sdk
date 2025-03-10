@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use ratatui::prelude::*;
 use tokio::task::JoinHandle;
 
 pub struct Status {
