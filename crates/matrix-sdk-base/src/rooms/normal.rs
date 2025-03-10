@@ -3591,7 +3591,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encryption_is_set_when_encryption_event_is_received() {
+    fn test_encryption_is_set_when_encryption_event_is_received_encrypted() {
         let (_store, room) = make_room_test_helper(RoomState::Joined);
 
         assert_matches!(room.encryption_state(), EncryptionState::Unknown);
@@ -3613,6 +3613,20 @@ mod tests {
         receive_state_events(&room, vec![&encryption_event]);
 
         assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
+    }
+
+    #[test]
+    fn test_encryption_is_set_when_encryption_event_is_received_not_encrypted() {
+        let (_store, room) = make_room_test_helper(RoomState::Joined);
+
+        assert_matches!(room.encryption_state(), EncryptionState::Unknown);
+        room.inner.update_if(|info| {
+            info.mark_encryption_state_synced();
+
+            false
+        });
+
+        assert_matches!(room.encryption_state(), EncryptionState::NotEncrypted);
     }
 
     #[async_test]

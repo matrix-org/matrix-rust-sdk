@@ -408,7 +408,7 @@ impl MatrixMockServer {
     ///     .await;
     ///
     /// assert!(
-    ///     room.is_encrypted().await?,
+    ///     room.latest_encryption_state().await?.is_encrypted(),
     ///     "The room should be marked as encrypted."
     /// );
     /// # anyhow::Ok(()) });
@@ -1891,7 +1891,7 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     ///     .await;
     ///
     /// assert!(
-    ///     room.is_encrypted().await?,
+    ///     room.latest_encryption_state().await?.is_encrypted(),
     ///     "The room should be marked as encrypted."
     /// );
     /// # anyhow::Ok(()) });
@@ -1920,7 +1920,7 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     ///     .await;
     ///
     /// assert!(
-    ///     !room.is_encrypted().await?,
+    ///     !room.latest_encryption_state().await?.is_encrypted(),
     ///     "The room should not be marked as encrypted."
     /// );
     /// # anyhow::Ok(()) });
