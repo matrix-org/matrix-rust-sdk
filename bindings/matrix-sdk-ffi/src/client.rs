@@ -886,6 +886,24 @@ impl Client {
         self.inner.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
 
+    /// Get a room by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room to get.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an optional room, or a `ClientError`.
+    /// This method will not initialize the room's timeline or populate it with
+    /// events.
+    pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        let sdk_room = self.inner.get_room(&room_id);
+        let room = sdk_room.map(|room| Arc::new(Room::new(room)));
+        Ok(room)
+    }
+
     pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
         let sdk_room = self.inner.get_dm_room(&user_id);

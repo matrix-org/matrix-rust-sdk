@@ -51,6 +51,28 @@ async fn test_room_preview_leave_invited() {
 }
 
 #[async_test]
+async fn test_room_preview_invite_leave_room_summary_disabled() {
+    let (client, server) = logged_in_client_with_server().await;
+    let room_id = room_id!("!room:localhost");
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_invited_room(InvitedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    mock_leave(room_id, &server).await;
+
+    let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
+    assert_eq!(room_preview.state.unwrap(), RoomState::Invited);
+
+    client.get_room(room_id).unwrap().leave().await.unwrap();
+
+    assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+}
+
+#[async_test]
 async fn test_room_preview_leave_knocked() {
     let (client, server) = logged_in_client_with_server().await;
     let room_id = room_id!("!room:localhost");

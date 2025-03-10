@@ -573,24 +573,6 @@ impl RoomListItem {
         self.inner.inner_room().state().into()
     }
 
-    /// Builds a `Room` FFI from an invited room without initializing its
-    /// internal timeline.
-    ///
-    /// An error will be returned if the room is a state different than invited.
-    ///
-    /// ⚠️ Holding on to this room instance after it has been joined is not
-    /// safe. Use `full_room` instead.
-    #[deprecated(note = "Please use `preview_room` instead.")]
-    fn invited_room(&self) -> Result<Arc<Room>, RoomListError> {
-        if !matches!(self.membership(), Membership::Invited) {
-            return Err(RoomListError::IncorrectRoomMembership {
-                expected: vec![Membership::Invited],
-                actual: self.membership(),
-            });
-        }
-        Ok(Arc::new(Room::new(self.inner.inner_room().clone())))
-    }
-
     /// Builds a `RoomPreview` from a room list item. This is intended for
     /// invited, knocked or banned rooms.
     async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
