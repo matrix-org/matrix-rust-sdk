@@ -1822,7 +1822,11 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
-        assert!(room.is_encrypted().await.expect("Getting encryption state"));
+        assert!(room
+            .latest_encryption_state()
+            .await
+            .expect("Getting encryption state")
+            .is_encrypted());
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));

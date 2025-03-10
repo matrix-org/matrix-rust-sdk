@@ -1081,9 +1081,9 @@ impl BaseClient {
             let mut room_info = changes.room_infos.get(&room_id).unwrap().clone();
 
             #[cfg(feature = "e2e-encryption")]
-            if room_info.is_encrypted() {
+            if room_info.encryption_state().is_encrypted() {
                 if let Some(o) = self.olm_machine().await.as_ref() {
-                    if !room.is_encrypted() {
+                    if !room.encryption_state().is_encrypted() {
                         // The room turned on encryption in this sync, we need
                         // to also get all the existing users and mark them for
                         // tracking.
@@ -1406,7 +1406,7 @@ impl BaseClient {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        if room.is_encrypted() {
+        if room.encryption_state().is_encrypted() {
             if let Some(o) = self.olm_machine().await.as_ref() {
                 o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
             }

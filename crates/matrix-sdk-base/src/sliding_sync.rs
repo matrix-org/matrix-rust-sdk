@@ -457,9 +457,9 @@ impl BaseClient {
             .await;
 
         #[cfg(feature = "e2e-encryption")]
-        if room_info.is_encrypted() {
+        if room_info.encryption_state().is_encrypted() {
             if let Some(o) = self.olm_machine().await.as_ref() {
-                if !room.is_encrypted() {
+                if !room.encryption_state().is_encrypted() {
                     // The room turned on encryption in this sync, we need
                     // to also get all the existing users and mark them for
                     // tracking.

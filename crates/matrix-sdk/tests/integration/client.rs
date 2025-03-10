@@ -436,10 +436,12 @@ async fn test_request_encryption_event_before_sending() {
 
     let first_handle = tokio::spawn({
         let room = room.to_owned();
-        async move { room.to_owned().is_encrypted().await }
+        async move { room.to_owned().latest_encryption_state().await.map(|state| state.is_encrypted()) }
     });
 
-    let second_handle = tokio::spawn(async move { room.is_encrypted().await });
+    let second_handle = tokio::spawn(async move {
+        room.latest_encryption_state().await.map(|state| state.is_encrypted())
+    });
 
     let first_encrypted =
         first_handle.await.unwrap().expect("We should be able to test if the room is encrypted.");
@@ -690,7 +692,10 @@ async fn test_encrypt_room_event() {
         .await;
 
     assert!(
-        room.is_encrypted().await.expect("We should be able to check if the room is encrypted"),
+        room.latest_encryption_state()
+            .await
+            .expect("We should be able to check if the room is encrypted")
+            .is_encrypted(),
         "The room should be encrypted"
     );
 

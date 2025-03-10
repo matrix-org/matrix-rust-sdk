@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
@@ -12,7 +13,7 @@ use matrix_sdk::{
     room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_base::{RoomMembersUpdate, RoomState};
+use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_test::{
     async_test,
     event_factory::EventFactory,
@@ -810,24 +811,29 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
 }
 
 #[async_test]
-async fn test_enable_encryption_doesnt_stay_unencrypted() {
+async fn test_enable_encryption_doesnt_stay_unknown() {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
-
-    mock.mock_room_state_encryption().plain().mount().await;
-    mock.mock_set_room_state_encryption().ok(event_id!("$1")).mount().await;
 
     let room_id = room_id!("!a:b.c");
     let room = mock.sync_joined_room(&client, room_id).await;
 
-    assert!(!room.is_encrypted().await.unwrap());
+    assert_matches!(room.encryption_state(), EncryptionState::Unknown);
+
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_set_room_state_encryption().ok(event_id!("$1")).mount().await;
+
+    assert_matches!(room.latest_encryption_state().await.unwrap(), EncryptionState::NotEncrypted);
 
     room.enable_encryption().await.expect("enabling encryption should work");
 
     mock.verify_and_reset().await;
     mock.mock_room_state_encryption().encrypted().mount().await;
 
-    assert!(room.is_encrypted().await.unwrap());
+    assert_matches!(room.encryption_state(), EncryptionState::Unknown);
+
+    assert!(room.latest_encryption_state().await.unwrap().is_encrypted());
+    assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
 }
 
 #[async_test]
