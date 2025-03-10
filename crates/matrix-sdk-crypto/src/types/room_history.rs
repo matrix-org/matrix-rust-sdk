@@ -1,0 +1,114 @@
+/*
+Copyright 2025 The Matrix.org Foundation C.I.C.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+//! Types for sharing encrypted room history, per [MSC4268].
+//!
+//! [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+
+use std::fmt::Debug;
+
+use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
+use serde::{Deserialize, Serialize};
+use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey};
+
+use crate::{
+    olm::ExportedRoomKey,
+    types::{
+        deserialize_curve_key, events::room_key_withheld::RoomKeyWithheldContent,
+        serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
+    },
+};
+#[cfg(doc)]
+use crate::{olm::InboundGroupSession, types::events::room_key::RoomKeyContent};
+
+/// A bundle of historic room keys, for sharing encrypted room history, per
+/// [MSC4268].
+///
+/// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+#[derive(Deserialize, Serialize, Debug, Default)]
+pub struct RoomKeyBundle {
+    /// Keys that we are sharing with the recipient.
+    pub room_keys: Vec<HistoricRoomKey>,
+
+    /// Keys that we are *not* sharing with the recipient.
+    pub withheld: Vec<RoomKeyWithheldContent>,
+}
+
+/// An [`InboundGroupSession`] for sharing as part of a [`RoomKeyBundle`].
+///
+/// Note: unlike a room key received via an `m.room_key` message (i.e., a
+/// [`RoomKeyContent`]), we have no direct proof that the original sender
+/// actually created this session; rather, we have to take the word of
+/// whoever sent us this key bundle.
+#[derive(Deserialize, Serialize)]
+pub struct HistoricRoomKey {
+    /// The encryption algorithm that the session uses.
+    pub algorithm: EventEncryptionAlgorithm,
+
+    /// The room where the session is used.
+    pub room_id: OwnedRoomId,
+
+    /// The Curve25519 key of the device which initiated the session originally,
+    /// according to the device that sent us this key.
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    pub sender_key: Curve25519PublicKey,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+
+    /// The key for the session.
+    pub session_key: ExportedSessionKey,
+
+    /// The Ed25519 key of the device which initiated the session originally,
+    /// according to the device that sent us this key.
+    #[serde(default)]
+    pub sender_claimed_keys: SigningKeys<DeviceKeyAlgorithm>,
+}
+
+impl Debug for HistoricRoomKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedRoomKey")
+            .field("algorithm", &self.algorithm)
+            .field("room_id", &self.room_id)
+            .field("sender_key", &self.sender_key)
+            .field("session_id", &self.session_id)
+            .field("sender_claimed_keys", &self.sender_claimed_keys)
+            .finish_non_exhaustive()
+    }
+}
+
+impl From<ExportedRoomKey> for HistoricRoomKey {
+    fn from(exported_room_key: ExportedRoomKey) -> Self {
+        let ExportedRoomKey {
+            algorithm,
+            room_id,
+            sender_key,
+            session_id,
+            session_key,
+            sender_claimed_keys,
+            shared_history: _,
+            forwarding_curve25519_key_chain: _,
+        } = exported_room_key;
+        HistoricRoomKey {
+            algorithm,
+            room_id,
+            sender_key,
+            session_id,
+            session_key,
+            sender_claimed_keys,
+        }
+    }
+}
