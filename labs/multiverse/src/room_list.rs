@@ -124,7 +124,7 @@ impl RoomList {
         // Subscribe to the new room.
         if let Some(room) = self
             .get_room_id_of_entry(index)
-            .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
+            .and_then(|room_id| self.ui_rooms.lock().get(&room_id).cloned())
         {
             self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
             self.current_room_subscription = Some(room);

@@ -3390,6 +3390,7 @@ dependencies = [
  "futures-util",
  "imbl",
  "matrix-sdk",
+ "matrix-sdk-common",
  "matrix-sdk-ui",
  "ratatui",
  "rpassword",
