@@ -441,12 +441,13 @@ impl Oidc {
     ///
     /// # Arguments
     ///
-    /// * `client_metadata` - The [`VerifiedClientMetadata`] to register, if
-    ///   needed.
-    ///
     /// * `registrations` - The storage where the registered client ID will be
     ///   loaded from, if the client is already registered, or stored into, if
     ///   the client is not registered yet.
+    ///
+    /// * `redirect_uri` - The URI where the end user will be redirected after
+    ///   authorizing the login. It must be one of the redirect URIs in the
+    ///   client metadata used for registration.
     ///
     /// * `prompt` - The desired user experience in the web UI. `None` means
     ///   that the user wishes to login into an existing account, and
@@ -454,20 +455,15 @@ impl Oidc {
     ///   account.
     pub async fn url_for_oidc(
         &self,
-        client_metadata: VerifiedClientMetadata,
         registrations: OidcRegistrations,
+        redirect_uri: Url,
         prompt: Option<Prompt>,
     ) -> Result<OidcAuthorizationData, OidcError> {
         let metadata = self.provider_metadata().await?;
 
-        let redirect_uris =
-            client_metadata.redirect_uris.clone().ok_or(OidcError::MissingRedirectUri)?;
+        self.configure(metadata.issuer().to_owned(), registrations).await?;
 
-        let redirect_url = redirect_uris.first().ok_or(OidcError::MissingRedirectUri)?;
-
-        self.configure(metadata.issuer().to_owned(), client_metadata, registrations).await?;
-
-        let mut data_builder = self.login(redirect_url.clone(), None)?;
+        let mut data_builder = self.login(redirect_uri, None)?;
 
         if let Some(prompt) = prompt {
             data_builder = data_builder.prompt(vec![prompt]);
@@ -515,7 +511,6 @@ impl Oidc {
     async fn configure(
         &self,
         issuer: String,
-        client_metadata: VerifiedClientMetadata,
         registrations: OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
         if self.client_id().is_some() {
@@ -529,7 +524,7 @@ impl Oidc {
         }
 
         tracing::info!("Registering this client for OIDC.");
-        self.register_client(client_metadata, None).await?;
+        self.register_client(registrations.verified_metadata.clone(), None).await?;
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)

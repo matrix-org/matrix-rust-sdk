@@ -1,13 +1,14 @@
 use std::{
     collections::HashMap,
     fmt::{self, Debug},
+    path::Path,
     sync::Arc,
 };
 
 use matrix_sdk::{
     authentication::oidc::{
         error::OauthAuthorizationCodeError,
-        registrations::OidcRegistrationsError,
+        registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
         types::{
             iana::oauth::OAuthClientAuthenticationMethod,
             oidc::ApplicationType,
@@ -137,12 +138,13 @@ pub struct OidcConfiguration {
     pub dynamic_registrations_file: String,
 }
 
-impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
-    type Error = OidcError;
+impl OidcConfiguration {
+    pub(crate) fn redirect_uri(&self) -> Result<Url, OidcError> {
+        Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)
+    }
 
-    fn try_into(self) -> Result<VerifiedClientMetadata, Self::Error> {
-        let redirect_uri =
-            Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)?;
+    pub(crate) fn client_metadata(&self) -> Result<VerifiedClientMetadata, OidcError> {
+        let redirect_uri = self.redirect_uri()?;
         let client_name = self.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
         let client_uri = self.client_uri.localized_url()?;
         let logo_uri = self.logo_uri.localized_url()?;
@@ -172,6 +174,25 @@ impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
         .validate()
         .map_err(|_| OidcError::MetadataInvalid)
     }
+
+    pub fn registrations(&self) -> Result<OidcRegistrations, OidcError> {
+        let client_metadata = self.client_metadata()?;
+
+        let registrations_file = Path::new(&self.dynamic_registrations_file);
+        let static_registrations = self
+            .static_registrations
+            .iter()
+            .filter_map(|(issuer, client_id)| {
+                let Ok(issuer) = Url::parse(issuer) else {
+                    tracing::error!("Failed to parse {:?}", issuer);
+                    return None;
+                };
+                Some((issuer, ClientId::new(client_id.clone())))
+            })
+            .collect();
+
+        Ok(OidcRegistrations::new(registrations_file, client_metadata, static_registrations)?)
+    }
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -198,7 +219,6 @@ impl From<SdkOidcError> for OidcError {
     fn from(e: SdkOidcError) -> OidcError {
         match e {
             SdkOidcError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
-            SdkOidcError::MissingRedirectUri => OidcError::MetadataInvalid,
             SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::RedirectUri(_))
             | SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState) => {
                 OidcError::CallbackUrlInvalid

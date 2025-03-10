@@ -64,10 +64,6 @@ pub enum OidcError {
     #[error("client not registered")]
     NotRegistered,
 
-    /// The supplied redirect URIs are missing or empty.
-    #[error("missing or empty redirect URIs")]
-    MissingRedirectUri,
-
     /// The device ID was not returned by the homeserver after login.
     #[error("missing device ID in response")]
     MissingDeviceId,
