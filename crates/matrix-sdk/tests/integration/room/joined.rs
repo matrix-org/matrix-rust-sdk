@@ -820,14 +820,14 @@ async fn test_enable_encryption_doesnt_stay_unencrypted() {
     let room_id = room_id!("!a:b.c");
     let room = mock.sync_joined_room(&client, room_id).await;
 
-    assert!(!room.is_encrypted().await.unwrap());
+    assert!(!room.latest_encryption_state().await.unwrap().is_encrypted());
 
     room.enable_encryption().await.expect("enabling encryption should work");
 
     mock.verify_and_reset().await;
     mock.mock_room_state_encryption().encrypted().mount().await;
 
-    assert!(room.is_encrypted().await.unwrap());
+    assert!(room.latest_encryption_state().await.unwrap().is_encrypted());
 }
 
 #[async_test]

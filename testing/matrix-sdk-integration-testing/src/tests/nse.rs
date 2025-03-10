@@ -217,7 +217,8 @@ impl ClientWrapper {
     /// encrypted.
     async fn enable_encryption(&self, room: &Room, rotation_period_msgs: usize) {
         // Adapted from crates/matrix-sdk/src/room/mod.rs enable_encryption
-        if !room.is_encrypted().await.expect("Failed to check encrypted") {
+        if !room.latest_encryption_state().await.expect("Failed to check encrypted").is_encrypted()
+        {
             let content: RoomEncryptionEventContent = serde_json::from_value(json!({
                 "algorithm": EventEncryptionAlgorithm::MegolmV1AesSha2,
                 "rotation_period_msgs": rotation_period_msgs,
@@ -256,9 +257,10 @@ impl ClientWrapper {
     async fn room_is_encrypted(&self, room_id: &RoomId) -> bool {
         self.wait_until_room_exists(room_id)
             .await
-            .is_encrypted()
+            .latest_encryption_state()
             .await
             .expect("Failed to check encrypted")
+            .is_encrypted()
     }
 
     /// Wait (syncing if needed) until the room with supplied ID exists, or time

@@ -770,10 +770,10 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     bob_room.join().await.unwrap();
 
     assert_eq!(alice_room.state(), RoomState::Joined);
-    assert!(alice_room.is_encrypted().await.unwrap());
+    assert!(alice_room.latest_encryption_state().await.unwrap().is_encrypted());
 
     assert_eq!(bob_room.state(), RoomState::Joined);
-    assert!(bob_room.is_encrypted().await.unwrap());
+    assert!(bob_room.latest_encryption_state().await.unwrap().is_encrypted());
 
     // Get the room list of Alice.
     let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
@@ -899,9 +899,9 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
     bob_room.join().await.unwrap();
 
     assert_eq!(alice_room.state(), RoomState::Joined);
-    assert!(alice_room.is_encrypted().await.unwrap());
+    assert!(alice_room.latest_encryption_state().await.unwrap().is_encrypted());
     assert_eq!(bob_room.state(), RoomState::Joined);
-    assert!(bob_room.is_encrypted().await.unwrap());
+    assert!(bob_room.latest_encryption_state().await.unwrap().is_encrypted());
 
     // Get previous events, including the sent messages.
     bob_timeline.paginate_backwards(3).await.unwrap();
@@ -987,7 +987,7 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
     let alice_room = wait_for_room(&alice, alice_room.room_id()).await;
     assert_eq!(alice_room.state(), RoomState::Joined);
 
-    assert!(alice_room.is_encrypted().await.unwrap());
+    assert!(alice_room.latest_encryption_state().await.unwrap().is_encrypted());
 
     // Bob sees and joins the room.
     let bob_room = wait_for_room(&bob, alice_room.room_id()).await;
