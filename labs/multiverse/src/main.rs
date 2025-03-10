@@ -353,16 +353,13 @@ impl App {
             prev.abort();
         }
 
+        let status_handle = self.status.handle();
+
         // Start a new one, request batches of 20 events, stop after 10 timeline items
         // have been added.
         *pagination = Some(spawn(async move {
             if let Err(err) = sdk_timeline.paginate_backwards(20).await {
-                // TODO: would be nice to be able to set the status
-                // message remotely?
-                //self.set_status_message(format!(
-                //"Error during backpagination: {err}"
-                //));
-                error!("Error during backpagination: {err}")
+                status_handle.set_message(format!("Error during backpagination: {err}"));
             }
         }));
     }
@@ -740,26 +737,32 @@ impl App {
     /// Render the bottom part of the screen, with a status message if one is
     /// set, or a default help message otherwise.
     fn render_footer(&self, area: Rect, buf: &mut Buffer) {
-        let content = if let Some(status_message) =
-            self.status.last_status_message.lock().unwrap().clone()
-        {
+        let status_message = self.status.last_status_message.lock().unwrap();
+
+        let content = if let Some(status_message) = status_message.as_deref() {
             status_message
         } else {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline, e to show events.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, \
+                     m to mark as read, t to show the timeline, e to show events."
                 }
                 DetailsMode::TimelineItems => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, e to show events, Q to enable/disable the send queue, M to send a message, L to like the last message.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, \
+                     r to show read receipts, e to show events, Q to enable/disable \
+                     the send queue, M to send a message, L to like the last message."
                 }
                 DetailsMode::Events => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, t to show the timeline".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
+                     read receipts, t to show the timeline"
                 }
                 DetailsMode::LinkedChunk => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, t to show the timeline, e to show events".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
+                     read receipts, t to show the timeline, e to show events"
                 }
             }
         };
+
         Paragraph::new(content).centered().render(area, buf);
     }
 }
