@@ -143,7 +143,7 @@ impl RoomEvents {
     /// returns a `Result`.
     ///
     /// This method returns the position of the (first if many) newly created
-    /// `Chunk` that   contains the `items`.
+    /// `Chunk` that contains the `items`.
     pub fn replace_gap_at(
         &mut self,
         events: Vec<Event>,
