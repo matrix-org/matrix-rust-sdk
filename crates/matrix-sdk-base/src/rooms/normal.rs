@@ -3629,6 +3629,17 @@ mod tests {
         assert_matches!(room.encryption_state(), EncryptionState::NotEncrypted);
     }
 
+    #[test]
+    fn test_encryption_state() {
+        assert!(EncryptionState::Unknown.is_unknown());
+        assert!(EncryptionState::Encrypted.is_unknown().not());
+        assert!(EncryptionState::NotEncrypted.is_unknown().not());
+
+        assert!(EncryptionState::Unknown.is_encrypted().not());
+        assert!(EncryptionState::Encrypted.is_encrypted());
+        assert!(EncryptionState::NotEncrypted.is_encrypted().not());
+    }
+
     #[async_test]
     async fn test_room_info_migration_v1() {
         let store = MemoryStore::new().into_state_store();
