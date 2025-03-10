@@ -161,21 +161,6 @@ impl Room {
         self.inner.active_room_call_participants().iter().map(|u| u.to_string()).collect()
     }
 
-    /// For rooms one is invited to, retrieves the room member information for
-    /// the user who invited the logged-in user to a room.
-    pub async fn inviter(&self) -> Option<RoomMember> {
-        if self.inner.state() == RoomState::Invited {
-            self.inner
-                .invite_details()
-                .await
-                .ok()
-                .and_then(|a| a.inviter)
-                .and_then(|m| m.try_into().ok())
-        } else {
-            None
-        }
-    }
-
     /// Forces the currently active room key, which is used to encrypt messages,
     /// to be rotated.
     ///
