@@ -38,7 +38,7 @@ use ruma::events::{
 #[cfg(doc)]
 use ruma::DeviceId;
 use ruma::{
-    api::client as api,
+    api::client::{self as api, sync::sync_events::v5},
     events::{
         ignored_user_list::IgnoredUserListEvent,
         marked_unread::MarkedUnreadEventContent,
@@ -422,6 +422,7 @@ impl BaseClient {
         limited: bool,
         events: Vec<Raw<AnySyncTimelineEvent>>,
         ignore_state_events: bool,
+        requested_required_states: &[(StateEventType, String)],
         prev_batch: Option<String>,
         push_rules: &Ruleset,
         user_ids: &mut BTreeSet<OwnedUserId>,
@@ -468,7 +469,7 @@ impl BaseClient {
                                     );
                                 }
                                 _ => {
-                                    room_info.handle_state_event(s);
+                                    room_info.handle_state_event(requested_required_states, s);
                                 }
                             }
 
@@ -623,6 +624,7 @@ impl BaseClient {
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_state(
         &self,
+        requested_required_states: &[(StateEventType, String)],
         raw_events: &[Raw<AnySyncStateEvent>],
         events: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
@@ -635,7 +637,7 @@ impl BaseClient {
         assert_eq!(raw_events.len(), events.len());
 
         for (raw_event, event) in iter::zip(raw_events, events) {
-            room_info.handle_state_event(event);
+            room_info.handle_state_event(requested_required_states, event);
 
             if let AnySyncStateEvent::RoomMember(member) = &event {
                 ambiguity_cache.handle_event(changes, &room_info.room_id, member).await?;
@@ -950,6 +952,25 @@ impl BaseClient {
         &self,
         response: api::sync::sync_events::v3::Response,
     ) -> Result<SyncResponse> {
+        self.receive_sync_response_with_requested_required_states(
+            response,
+            &RequestedRequiredStates::default(),
+        )
+        .await
+    }
+
+    /// Receive a response from a sync call, with the requested required state
+    /// events.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The response that we received after a successful sync.
+    /// * `requested_required_states` - The requested required state events.
+    pub async fn receive_sync_response_with_requested_required_states(
+        &self,
+        response: api::sync::sync_events::v3::Response,
+        requested_required_states: &RequestedRequiredStates,
+    ) -> Result<SyncResponse> {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
         // do.
@@ -1013,8 +1034,11 @@ impl BaseClient {
             let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
                 state_events.into_iter().unzip();
 
+            let requested_required_states = requested_required_states.for_room(&room_id);
+
             let mut user_ids = self
                 .handle_state(
+                    requested_required_states,
                     &raw_state_events,
                     &state_events,
                     &mut room_info,
@@ -1052,6 +1076,7 @@ impl BaseClient {
                     new_info.timeline.limited,
                     new_info.timeline.events,
                     false,
+                    requested_required_states,
                     new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
@@ -1131,8 +1156,11 @@ impl BaseClient {
             let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
                 state_events.into_iter().unzip();
 
+            let requested_required_states = requested_required_states.for_room(&room_id);
+
             let mut user_ids = self
                 .handle_state(
+                    requested_required_states,
                     &raw_state_events,
                     &state_events,
                     &mut room_info,
@@ -1147,6 +1175,7 @@ impl BaseClient {
                     new_info.timeline.limited,
                     new_info.timeline.events,
                     false,
+                    requested_required_states,
                     new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
@@ -1753,6 +1782,59 @@ fn handle_room_member_event_for_profiles(
             .entry(room_id.to_owned())
             .or_default()
             .push(event.state_key().clone());
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RequestedRequiredStates {
+    default: Vec<(StateEventType, String)>,
+    for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+}
+
+impl RequestedRequiredStates {
+    pub fn new(
+        default: Vec<(StateEventType, String)>,
+        for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+    ) -> Self {
+        Self { default, for_rooms }
+    }
+
+    pub fn for_room(&self, room_id: &RoomId) -> &[(StateEventType, String)] {
+        self.for_rooms.get(room_id).unwrap_or(&self.default)
+    }
+}
+
+impl From<&v5::Request> for RequestedRequiredStates {
+    fn from(request: &v5::Request) -> Self {
+        let default = {
+            let mut lists = request.lists.values();
+            let mut set = BTreeSet::new();
+
+            while let Some(next_list) = lists.next() {
+                set = set
+                    .intersection(&BTreeSet::from_iter(
+                        next_list.room_details.required_state.iter().cloned(),
+                    ))
+                    .cloned()
+                    .collect();
+            }
+
+            set
+        };
+
+        let for_rooms = request
+            .room_subscriptions
+            .iter()
+            .map(|(room_id, room_subscription)| {
+                let mut required_states = default.clone();
+                required_states
+                    .extend(BTreeSet::from_iter(room_subscription.required_state.iter().cloned()));
+
+                (room_id.to_owned(), required_states.into_iter().collect())
+            })
+            .collect();
+
+        Self { default: default.into_iter().collect(), for_rooms }
     }
 }
 

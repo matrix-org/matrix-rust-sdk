@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use imbl::Vector;
-use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider};
+use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider, RequestedRequiredStates};
 use ruma::{
     api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http},
     events::AnyToDeviceEvent,
@@ -136,8 +136,12 @@ impl Client {
     pub async fn process_sliding_sync_test_helper(
         &self,
         response: &http::Response,
+        requested_required_states: &RequestedRequiredStates,
     ) -> Result<SyncResponse> {
-        let response = self.base_client().process_sliding_sync(response, &()).await?;
+        let response = self
+            .base_client()
+            .process_sliding_sync(response, &(), requested_required_states)
+            .await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
@@ -201,11 +205,19 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         Ok(())
     }
 
-    pub async fn handle_room_response(&mut self, response: &http::Response) -> Result<()> {
+    pub async fn handle_room_response(
+        &mut self,
+        response: &http::Response,
+        requested_required_states: &RequestedRequiredStates,
+    ) -> Result<()> {
         self.response = Some(
             self.client
                 .base_client()
-                .process_sliding_sync(response, &SlidingSyncPreviousEventsProvider(self.rooms))
+                .process_sliding_sync(
+                    response,
+                    &SlidingSyncPreviousEventsProvider(self.rooms),
+                    requested_required_states,
+                )
                 .await?,
         );
         self.post_process().await
@@ -253,7 +265,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_base::notification_settings::RoomNotificationMode;
+    use matrix_sdk_base::{notification_settings::RoomNotificationMode, RequestedRequiredStates};
     use matrix_sdk_test::async_test;
     use ruma::{assign, room_id, serde::Raw};
     use serde_json::json;
@@ -391,7 +403,13 @@ mod tests {
             });
 
             let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?;
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
         }
 
         // The room must exist, since it's been synced.
@@ -439,7 +457,13 @@ mod tests {
             });
 
             let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?;
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
         }
 
         // The room has an updated cached user-defined notification mode.
