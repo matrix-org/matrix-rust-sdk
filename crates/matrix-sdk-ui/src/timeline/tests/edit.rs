@@ -176,6 +176,7 @@ async fn test_edit_updates_encryption_info() {
             sender_claimed_keys: BTreeMap::new(),
         },
         verification_state: VerificationState::Verified,
+        session_id: Some("mysessionid6333".to_owned()),
     };
 
     let original_event: TimelineEvent = DecryptedRoomEvent {

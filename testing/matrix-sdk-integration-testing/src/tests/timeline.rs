@@ -22,6 +22,9 @@ use eyeball_im::{Vector, VectorDiff};
 use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
+    assert_next_with_timeout,
+    config::SyncSettings,
+    deserialized_responses::{VerificationLevel, VerificationState},
     encryption::{backups::BackupState, EncryptionSettings},
     room::edit::EditedContent,
     ruma::{
@@ -30,15 +33,19 @@ use matrix_sdk::{
             room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
             InitialStateEvent,
         },
-        MilliSecondsSinceUnixEpoch,
+        MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, UserId,
     },
-    RoomState,
+    Client, Room, RoomState,
 };
 use matrix_sdk_ui::{
     notification_client::NotificationClient,
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
-    timeline::{EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent},
+    timeline::{
+        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineItem,
+        TimelineItemContent,
+    },
+    Timeline,
 };
 use similar_asserts::assert_eq;
 use stream_assert::assert_pending;
@@ -704,4 +711,191 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     );
 
     assert_eq!(message.body(), "It's a secret to everybody!");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_secure() {
+    async fn timeline_messages(timeline: &Timeline) -> Vec<EventTimelineItem> {
+        timeline
+            .items()
+            .await
+            .iter()
+            .filter_map(|item| item.as_event())
+            .filter(|e| e.content().as_message().is_some())
+            .cloned()
+            .collect()
+    }
+
+    /// Send the supplied message in the supplied room
+    async fn send_message(room: &Room, message: &str) -> OwnedEventId {
+        room.send(RoomMessageEventContent::text_plain(message))
+            .await
+            .expect("We should be able to send a message to our new room")
+            .event_id
+    }
+
+    /// Wait for a room with the supplied ID to appear, and then join it and
+    /// confirm it is encrypted.
+    async fn join_room(joiner: &Client, room_id: &RoomId) -> Room {
+        let sync_service = SyncService::builder(joiner.clone())
+            .build()
+            .await
+            .expect("should be able to create a SyncService");
+
+        sync_service.start().await;
+
+        let room_list = sync_service
+            .room_list_service()
+            .all_rooms()
+            .await
+            .expect("should be able to get the RoomList instance");
+
+        let until_room_list_is_loaded = async {
+            while let Some(state) = room_list.loading_state().next().await {
+                if let RoomListLoadingState::Loaded { .. } = state {
+                    break;
+                }
+            }
+        };
+
+        timeout(Duration::from_secs(5), until_room_list_is_loaded)
+            .await
+            .expect("the RoomList should finish loading within 5 seconds");
+
+        let room = joiner.get_room(room_id).expect("room should be in the room list");
+        room.join().await.expect("should be able to join the room");
+
+        assert_eq!(room.state(), RoomState::Joined);
+        assert!(room.is_encrypted().await.unwrap());
+
+        sync_service.stop().await;
+
+        room
+    }
+
+    /// Invite the supplied `invitee` to the supplied room. `inviter_room`
+    /// should be a [`Room`] instance created by the inviting user.
+    async fn invite_to_room(inviter_room: &Room, invitee: &Client) {
+        inviter_room
+            .invite_user_by_id(invitee.user_id().expect("client should have an ID"))
+            .await
+            .expect("should not fail to invite user to room");
+    }
+
+    /// Create a room and ensure it is encrypted
+    async fn create_encrypted_room(client: &Client) -> Room {
+        let room = client
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state: vec![
+                InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults()).to_raw_any()
+            ],
+            preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await
+        .expect("should not fail to create room");
+
+        assert!(room
+            .is_encrypted()
+            .await
+            .expect("should be able to check that the room is encrypted"));
+
+        room
+    }
+
+    /// Hit the `keys/query` endpoint to find the latest user information about
+    /// the supplied user ID.
+    async fn fetch_user_identity(client: &Client, user_id: Option<&UserId>) {
+        client
+            .encryption()
+            .request_user_identity(user_id.expect("user_id should not be None"))
+            .await
+            .expect("requesting user identity should not fail")
+            .expect("should be able to see other user's identity");
+    }
+
+    /// Create a new [`Client`] that has e2ee tasks done and is cross-signed.
+    async fn new_cross_signed_client(username: &str) -> Client {
+        let client = new_client(username).await;
+        cross_sign(&client).await;
+        client
+    }
+
+    /// Create a new [`Client`] that is not yet cross-signed, but has e2ee
+    /// initialization done.
+    async fn new_client(username: &str) -> Client {
+        let client = TestClientBuilder::new(username).use_sqlite().build().await.unwrap();
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        client
+    }
+
+    /// Cross-sign this client's identity, so others will see its devices as
+    /// verified.
+    async fn cross_sign(client: &Client) {
+        client
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("should not fail to bootstrap cross signing for alice");
+    }
+
+    // Given two clients who are in an encrypted room, but alice has not yet
+    // completed cross-signing.
+    let alice = new_client("alice").await;
+    let bob = new_cross_signed_client("bob").await;
+    let room_for_alice = create_encrypted_room(&alice).await;
+    invite_to_room(&room_for_alice, &bob).await;
+    let room_for_bob = join_room(&bob, room_for_alice.room_id()).await;
+
+    // We focus on the timeline that gives bob's view of the room
+    let timeline = room_for_bob.timeline().await.expect("should be able to get a timeline");
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // When alice sends a message in the room and bob syncs it
+    let event_id = send_message(&room_for_alice, "secret message").await;
+    // Wait for the event to appear
+    while timeline.item_by_event_id(&event_id).await.is_none() {
+        bob.sync_once(SyncSettings::new()).await.expect("should not fail to sync");
+    }
+    assert_next_with_timeout!(timeline_stream);
+
+    {
+        // Then the message is decrypted but it's not from a verified device
+        let messages = timeline_messages(&timeline).await;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content().as_message().unwrap().body(), "secret message");
+        assert_eq!(
+            messages[0].encryption_info().unwrap().verification_state,
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+        );
+    }
+
+    // But when alice becomes cross-signed and bob finds out about it
+    cross_sign(&alice).await;
+    fetch_user_identity(&bob, alice.user_id()).await;
+    let update2 = assert_next_with_timeout!(timeline_stream);
+
+    {
+        // Then we updated the timeline to reflect the fact that the message is from a
+        // verified device.
+        let messages = timeline_messages(&timeline).await;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content().as_message().unwrap().body(), "secret message");
+        assert_eq!(
+            messages[0].encryption_info().unwrap().verification_state,
+            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+        );
+        // (Note: the device is verified, but the _identity_ is not. We're not
+        // worried about that - it's "pinned".)
+    }
+
+    {
+        // Sanity: there is still just one message
+        assert_eq!(timeline_messages(&timeline).await.len(), 1);
+
+        // And the final update just changed the one item
+        assert_eq!(update2.len(), 1);
+        assert_let!(VectorDiff::Set { index, .. } = &update2[0]);
+        assert_eq!(*index, 10);
+    }
 }
