@@ -99,7 +99,6 @@ mod updates;
 use std::{
     fmt,
     marker::PhantomData,
-    ops::Not,
     ptr::NonNull,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -354,7 +353,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         // We need to update `self.links.last` if and only if `last_chunk` _is not_ the
         // first chunk, and _is_ the last chunk (ensured by the `debug_assert!`
         // above).
-        if last_chunk.is_first_chunk().not() {
+        if !last_chunk.is_first_chunk() {
             // Maybe `last_chunk` is the same as the previous `self.links.last` chunk, but
             // it's OK.
             self.links.last = Some(last_chunk.as_ptr());
@@ -455,7 +454,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         // We need to update `self.links.last` if and only if `chunk` _is not_ the first
         // chunk, and _is_ the last chunk.
-        if chunk.is_first_chunk().not() && chunk.is_last_chunk() {
+        if !chunk.is_first_chunk() && chunk.is_last_chunk() {
             // Maybe `chunk` is the same as the previous `self.links.last` chunk, but it's
             // OK.
             self.links.last = Some(chunk.as_ptr());
@@ -509,7 +508,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             // If removing empty chunk is desired, and if the `chunk` can be unlinked, and
             // if the `chunk` is not the first one, we can remove it.
-            if can_unlink_chunk && chunk.is_first_chunk().not() {
+            if can_unlink_chunk && !chunk.is_first_chunk() {
                 // Unlink `chunk`.
                 chunk.unlink(self.updates.as_mut());
 
@@ -682,7 +681,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         // We need to update `self.links.last` if and only if `chunk` _is not_ the first
         // chunk, and _is_ the last chunk.
-        if chunk.is_first_chunk().not() && chunk.is_last_chunk() {
+        if !chunk.is_first_chunk() && chunk.is_last_chunk() {
             // Maybe `chunk` is the same as the previous `self.links.last` chunk, but it's
             // OK.
             self.links.last = Some(chunk.as_ptr());

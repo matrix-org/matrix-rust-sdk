@@ -681,7 +681,7 @@ impl EventCacheInner {
                 room.inner.handle_joined_room_update(self.has_storage(), joined_room_update).await
             {
                 // Non-fatal error, try to continue to the next room.
-                error!("handling joined room update: {err}");
+                error!(%room_id, "handling joined room update: {err}");
             }
         }
 
