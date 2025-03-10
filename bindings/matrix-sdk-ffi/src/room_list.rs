@@ -679,7 +679,11 @@ impl RoomListItem {
     /// **Note**: this info may not be reliable if you don't set up
     /// `m.room.encryption` as required state.
     async fn is_encrypted(&self) -> bool {
-        self.inner.is_encrypted().await.unwrap_or(false)
+        self.inner
+            .latest_encryption_state()
+            .await
+            .map(|state| state.is_encrypted())
+            .unwrap_or(false)
     }
 
     async fn latest_event(&self) -> Option<EventTimelineItem> {

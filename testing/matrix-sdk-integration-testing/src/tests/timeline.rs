@@ -414,9 +414,10 @@ async fn test_enabling_backups_retries_decryption() {
         .unwrap();
 
     assert!(room
-        .is_encrypted()
+        .latest_encryption_state()
         .await
-        .expect("We should be able to check that the room is encrypted"));
+        .expect("We should be able to check that the room is encrypted")
+        .is_encrypted());
 
     let event_id = room
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
@@ -549,9 +550,10 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .unwrap();
 
     assert!(alice_room
-        .is_encrypted()
+        .latest_encryption_state()
         .await
-        .expect("We should be able to check that the room is encrypted"));
+        .expect("We should be able to check that the room is encrypted")
+        .is_encrypted());
 
     // Create stream listening for devices.
     let devices_stream = alice
@@ -601,7 +603,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
     debug!("Bob joined the room");
     assert_eq!(bob_room.state(), RoomState::Joined);
-    assert!(bob_room.is_encrypted().await.unwrap());
+    assert!(bob_room.latest_encryption_state().await.unwrap().is_encrypted());
 
     // Now we need to wait for Bob's device to turn up.
     let wait_for_bob_device = async {
@@ -766,7 +768,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         room.join().await.expect("should be able to join the room");
 
         assert_eq!(room.state(), RoomState::Joined);
-        assert!(room.is_encrypted().await.unwrap());
+        assert!(room.latest_encryption_state().await.unwrap().is_encrypted());
 
         sync_service.stop().await;
 
@@ -796,9 +798,10 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         .expect("should not fail to create room");
 
         assert!(room
-            .is_encrypted()
+            .latest_encryption_state()
             .await
-            .expect("should be able to check that the room is encrypted"));
+            .expect("should be able to check that the room is encrypted")
+            .is_encrypted());
 
         room
     }

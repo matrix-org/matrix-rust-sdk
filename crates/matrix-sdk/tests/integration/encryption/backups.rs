@@ -669,7 +669,7 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 
     alice_room.enable_encryption().await?;
 
-    assert!(alice_room.is_encrypted().await?, "room should be encrypted");
+    assert!(alice_room.latest_encryption_state().await?.is_encrypted(), "room should be encrypted");
 
     // Send a message to create an outbound session that should be uploaded to
     // backup
@@ -749,7 +749,7 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
 
     alice_room.enable_encryption().await?;
 
-    assert!(alice_room.is_encrypted().await?, "room should be encrypted");
+    assert!(alice_room.latest_encryption_state().await?.is_encrypted(), "room should be encrypted");
 
     // Send a message to create an outbound session that should be uploaded to
     // backup

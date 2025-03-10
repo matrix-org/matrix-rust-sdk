@@ -46,8 +46,8 @@ use matrix_sdk_base::{
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::MediaThumbnailSettings,
     store::StateStoreExt,
-    ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
-    StateStoreDataValue,
+    ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges,
+    StateStoreDataKey, StateStoreDataValue,
 };
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_common::BoxFuture;
@@ -588,7 +588,15 @@ impl Room {
             .await
     }
 
-    async fn request_encryption_state(&self) -> Result<()> {
+    /// Request to update the encryption state for this room.
+    ///
+    /// It does nothing if the encryption state is already
+    /// [`EncryptionState::Encrypted`] or [`EncryptionState::NotEncrypted`].
+    pub async fn request_encryption_state(&self) -> Result<()> {
+        if !self.inner.encryption_state().is_unknown() {
+            return Ok(());
+        }
+
         self.client
             .locks()
             .encryption_state_deduplicated_handler
@@ -625,16 +633,23 @@ impl Room {
             .await
     }
 
-    /// Check whether this room is encrypted. If the room encryption state is
-    /// not synced yet, it will send a request to fetch it.
+    /// Check the encryption state of this room.
     ///
-    /// Returns true if the room is encrypted, otherwise false.
-    pub async fn is_encrypted(&self) -> Result<bool> {
-        if !self.is_encryption_state_synced() {
-            self.request_encryption_state().await?;
-        }
+    /// If the result is [`EncryptionState::Unknown`], one might want to call
+    /// [`Room::request_encryption_state`].
+    pub fn encryption_state(&self) -> EncryptionState {
+        self.inner.encryption_state()
+    }
 
-        Ok(self.inner.is_encrypted())
+    /// Force to update the encryption state by calling
+    /// [`Room::request_encryption_state`], and then calling
+    /// [`Room::encryption_state`].
+    ///
+    /// This method is useful to ensure the encryption state is up-to-date.
+    pub async fn latest_encryption_state(&self) -> Result<EncryptionState> {
+        self.request_encryption_state().await?;
+
+        Ok(self.encryption_state())
     }
 
     /// Gets additional context info about the client crypto.
@@ -1635,7 +1650,7 @@ impl Room {
         };
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
-        if !self.is_encrypted().await? {
+        if !self.latest_encryption_state().await?.is_encrypted() {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
             self.send_state_event(content).await?;
@@ -1650,7 +1665,7 @@ impl Room {
             // the SDK to re-request it later for confirmation, instead of
             // assuming it's sync'd and correct (and not encrypted).
             let _sync_lock = self.client.base_client().sync_lock().lock().await;
-            if !self.inner.is_encrypted() {
+            if !self.inner.encryption_state().is_encrypted() {
                 debug!("still not marked as encrypted, marking encryption state as missing");
 
                 let mut room_info = self.clone_info();
@@ -2024,7 +2039,7 @@ impl Room {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        let (media_source, thumbnail) = if self.is_encrypted().await? {
+        let (media_source, thumbnail) = if self.latest_encryption_state().await?.is_encrypted() {
             self.client
                 .upload_encrypted_media_and_thumbnail(content_type, &data, thumbnail, send_progress)
                 .await?
@@ -2966,7 +2981,9 @@ impl Room {
 
         if notification_mode.is_some() {
             notification_mode
-        } else if let Ok(is_encrypted) = self.is_encrypted().await {
+        } else if let Ok(is_encrypted) =
+            self.latest_encryption_state().await.map(|state| state.is_encrypted())
+        {
             // Otherwise, if encrypted status is available, get the default mode for this
             // type of room.
             // From the point of view of notification settings, a `one-to-one` room is one

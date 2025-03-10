@@ -394,7 +394,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             state.mark_all_events_as_encrypted();
         };
 
-        if room_info.get().is_encrypted() {
+        if room_info.get().encryption_state().is_encrypted() {
             // If the room was already encrypted, it won't toggle to unencrypted, so we can
             // shut down this task early.
             mark_encrypted().await;
@@ -402,7 +402,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         }
 
         while let Some(info) = room_info.next().await {
-            if info.is_encrypted() {
+            if info.encryption_state().is_encrypted() {
                 mark_encrypted().await;
                 // Once the room is encrypted, it cannot switch back to unencrypted, so our work
                 // here is done.
