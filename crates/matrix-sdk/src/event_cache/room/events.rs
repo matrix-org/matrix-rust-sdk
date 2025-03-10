@@ -126,7 +126,8 @@ impl RoomEvents {
 
     /// Remove an empty chunk at the given position.
     ///
-    /// Note: the chunk must either be a gap, or an empty items chunk.
+    /// Note: the chunk must either be a gap, or an empty items chunk, and it
+    /// must NOT be the last one.
     ///
     /// Returns the next insert position, if any, left after the chunk that has
     /// just been removed.
@@ -149,7 +150,24 @@ impl RoomEvents {
         events: Vec<Event>,
         gap_identifier: ChunkIdentifier,
     ) -> Result<Option<Position>, Error> {
-        let next_pos = if events.is_empty() {
+        // As an optimization, we'll remove the empty chunk if it's a gap.
+        //
+        // However, our linked chunk requires that it includes at least one chunk in the
+        // in-memory representation. We could tweak this invariant, but in the
+        // meanwhile, don't remove the gap chunk if it's the only one we know
+        // about.
+        let has_only_one_chunk = {
+            let mut it = self.chunks.chunks();
+
+            // If there's no chunks at all, then we won't be able to find the gap chunk.
+            let _ =
+                it.next().ok_or(Error::InvalidChunkIdentifier { identifier: gap_identifier })?;
+
+            // If there's no next chunk, we can conclude there's only one.
+            it.next().is_none()
+        };
+
+        let next_pos = if events.is_empty() && !has_only_one_chunk {
             // There are no new events, so there's no need to create a new empty items
             // chunk; instead, remove the gap.
             self.chunks.remove_empty_chunk_at(gap_identifier)?
