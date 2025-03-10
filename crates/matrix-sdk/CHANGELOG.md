@@ -21,7 +21,6 @@ simpler methods:
   this URI is not desirable, the `Oidc::fetch_account_management_url` method
   can be used.
   ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
-
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
@@ -29,9 +28,27 @@ simpler methods:
   [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
   ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
 - Add `Room::report_room` api. ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
-- `Client::notification_client` will create a copy of the existing `Client`, but now it'll make sure 
-  it doesn't handle any verification events to avoid an issue with these events being received and 
-  processed twice if `NotificationProcessSetup` was `SingleSetup`.
+- `Client::notification_client` will create a copy of the existing `Client`,
+  but now it'll make sure  it doesn't handle any verification events to
+  avoid an issue with these events being received and  processed twice if
+  `NotificationProcessSetup` was `SingleSetup`.
+- [**breaking**] `Room::is_encrypted` is replaced by
+  `Room::latest_encryption_state` which returns a value of the new
+  `EncryptionState` enum; another `Room::encryption_state` non-async and
+  infallible method is added to get the `EncryptionState` without calling
+  `Room::request_encryption_state`. This latter method is also now public.
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777)). One can
+  safely replace:
+
+  ```rust
+  room.is_encrypted().await?
+  ```
+
+  by
+
+  ```rust
+  room.latest_encryption_state().await?.is_encrypted()
+  ```
 
 ### Bug Fixes
 
