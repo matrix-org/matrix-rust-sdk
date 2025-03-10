@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     io::{self, stdout, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -24,6 +24,7 @@ use matrix_sdk::{
     AuthSession, Client, OwnedServerName, SqliteCryptoStore, SqliteEventCacheStore,
     SqliteStateStore,
 };
+use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
@@ -201,7 +202,7 @@ impl App {
             // we couldn't do below, because it's a sync lock, and has to be
             // sync b/o rendering; and we'd have to cross await points
             // below).
-            let previous_ui_rooms = ui_rooms.lock().unwrap().clone();
+            let previous_ui_rooms = ui_rooms.lock().clone();
 
             let mut new_ui_rooms = HashMap::new();
             let mut new_timelines = Vec::new();
@@ -252,7 +253,7 @@ impl App {
                     pin_mut!(stream);
                     let items = i;
                     while let Some(diffs) = stream.next().await {
-                        let mut items = items.lock().unwrap();
+                        let mut items = items.lock();
 
                         for diff in diffs {
                             diff.apply(&mut items);
@@ -269,8 +270,8 @@ impl App {
                 new_ui_rooms.insert(ui_room.room_id().to_owned(), ui_room);
             }
 
-            ui_rooms.lock().unwrap().extend(new_ui_rooms);
-            timelines.lock().unwrap().extend(new_timelines);
+            ui_rooms.lock().extend(new_ui_rooms);
+            timelines.lock().extend(new_timelines);
         }
     }
 
@@ -279,7 +280,7 @@ impl App {
         let Some(room) = self
             .room_list
             .get_selected_room_id()
-            .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
+            .and_then(|room_id| self.ui_rooms.lock().get(&room_id).cloned())
         else {
             self.status.set_message("missing room or nothing to show".to_owned());
             return;
@@ -305,13 +306,12 @@ impl App {
         if let Some((sdk_timeline, items)) = selected.and_then(|room_id| {
             self.timelines
                 .lock()
-                .unwrap()
                 .get(&room_id)
                 .map(|timeline| (timeline.timeline.clone(), timeline.items.clone()))
         }) {
             // Look for the latest (most recent) room message.
             let item_id = {
-                let items = items.lock().unwrap();
+                let items = items.lock();
                 items.iter().rev().find_map(|it| {
                     it.as_event()
                         .and_then(|ev| ev.content().as_message().is_some().then(|| ev.identifier()))
@@ -338,13 +338,13 @@ impl App {
     /// we get 10 timeline items or hit the timeline start).
     fn back_paginate(&mut self) {
         let Some(sdk_timeline) = self.room_list.get_selected_room_id().and_then(|room_id| {
-            self.timelines.lock().unwrap().get(&room_id).map(|timeline| timeline.timeline.clone())
+            self.timelines.lock().get(&room_id).map(|timeline| timeline.timeline.clone())
         }) else {
             self.status.set_message("missing timeline for room".to_owned());
             return;
         };
 
-        let mut pagination = self.current_pagination.lock().unwrap();
+        let mut pagination = self.current_pagination.lock();
 
         // Cancel the previous back-pagination, if any.
         if let Some(prev) = pagination.take() {
@@ -397,7 +397,6 @@ impl App {
                                 if let Some(sdk_timeline) = selected.and_then(|room_id| {
                                     self.timelines
                                         .lock()
-                                        .unwrap()
                                         .get(&room_id)
                                         .map(|timeline| timeline.timeline.clone())
                                 }) {
@@ -462,7 +461,7 @@ impl App {
         self.sync_service.stop().await;
         self.listen_task.abort();
 
-        for timeline in self.timelines.lock().unwrap().values() {
+        for timeline in self.timelines.lock().values() {
             timeline.task.abort();
         }
 
@@ -538,7 +537,7 @@ impl App {
                 DetailsMode::ReadReceipts => {
                     // In read receipts mode, show the read receipts object as computed
                     // by the client.
-                    match self.ui_rooms.lock().unwrap().get(&room_id).cloned() {
+                    match self.ui_rooms.lock().get(&room_id).cloned() {
                         Some(room) => {
                             let receipts = room.read_receipts();
                             render_paragraph(
@@ -575,7 +574,7 @@ impl App {
 
                 DetailsMode::LinkedChunk => {
                     // In linked chunk mode, show a rough representation of the chunks.
-                    match self.ui_rooms.lock().unwrap().get(&room_id).cloned() {
+                    match self.ui_rooms.lock().get(&room_id).cloned() {
                         Some(room) => {
                             let lines = tokio::task::block_in_place(|| {
                                 Handle::current().block_on(async {
@@ -596,7 +595,7 @@ impl App {
                     }
                 }
 
-                DetailsMode::Events => match self.ui_rooms.lock().unwrap().get(&room_id).cloned() {
+                DetailsMode::Events => match self.ui_rooms.lock().get(&room_id).cloned() {
                     Some(room) => {
                         let events = tokio::task::block_in_place(|| {
                             Handle::current().block_on(async {
@@ -635,13 +634,12 @@ impl App {
         inner_area: Rect,
         buf: &mut Buffer,
     ) -> bool {
-        let Some(items) =
-            self.timelines.lock().unwrap().get(room_id).map(|timeline| timeline.items.clone())
+        let Some(items) = self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
         else {
             return false;
         };
 
-        let items = items.lock().unwrap();
+        let items = items.lock();
         let mut content = Vec::new();
 
         for item in items.iter() {
