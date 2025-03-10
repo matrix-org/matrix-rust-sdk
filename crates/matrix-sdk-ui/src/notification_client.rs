@@ -745,7 +745,11 @@ impl NotificationItem {
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
             is_direct_message_room: room.is_direct().await?,
-            is_room_encrypted: room.is_encrypted().await.ok(),
+            is_room_encrypted: room
+                .latest_encryption_state()
+                .await
+                .map(|state| state.is_encrypted())
+                .ok(),
             joined_members_count: room.joined_members_count(),
             is_noisy,
             has_mention,

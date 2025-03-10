@@ -164,7 +164,12 @@ impl TimelineBuilder {
 
         let is_live = matches!(focus, TimelineFocus::Live);
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
-        let is_room_encrypted = room.is_encrypted().await.ok().unwrap_or_default();
+        let is_room_encrypted = room
+            .latest_encryption_state()
+            .await
+            .map(|state| state.is_encrypted())
+            .ok()
+            .unwrap_or_default();
 
         let controller = TimelineController::new(
             room,

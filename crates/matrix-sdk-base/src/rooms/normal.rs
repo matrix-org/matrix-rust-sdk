@@ -426,16 +426,6 @@ impl Room {
         self.inner.read().sync_info != SyncInfo::NoState
     }
 
-    /// Check if the room has its encryption event synced.
-    ///
-    /// The encryption event can be missing when the room hasn't appeared in
-    /// sync yet.
-    ///
-    /// Returns true if the encryption state is synced, false otherwise.
-    pub fn is_encryption_state_synced(&self) -> bool {
-        self.inner.read().encryption_state_synced
-    }
-
     /// Get the `prev_batch` token that was received from the last sync. May be
     /// `None` if the last sync contained the full room history.
     pub fn last_prev_batch(&self) -> Option<String> {
@@ -531,9 +521,9 @@ impl Room {
         self.inner.read().base_info.dm_targets.len()
     }
 
-    /// Is the room encrypted.
-    pub fn is_encrypted(&self) -> bool {
-        self.inner.read().is_encrypted()
+    /// Get the encryption state of this room.
+    pub fn encryption_state(&self) -> EncryptionState {
+        self.inner.read().encryption_state()
     }
 
     /// Get the `m.room.encryption` content that enabled end to end encryption
@@ -1576,9 +1566,15 @@ impl RoomInfo {
         self.room_state
     }
 
-    /// Returns whether this is an encrypted room.
-    pub fn is_encrypted(&self) -> bool {
-        self.base_info.encryption.is_some()
+    /// Returns the encryption state of this room.
+    pub fn encryption_state(&self) -> EncryptionState {
+        if !self.encryption_state_synced {
+            EncryptionState::Unknown
+        } else if self.base_info.encryption.is_some() {
+            EncryptionState::Encrypted
+        } else {
+            EncryptionState::NotEncrypted
+        }
     }
 
     /// Set the encryption event content in this room.
@@ -1596,9 +1592,7 @@ impl RoomInfo {
         // then we can be certain that we have synced the encryption state event, so
         // mark it here as synced.
         if let AnySyncStateEvent::RoomEncryption(_) = event {
-            if self.is_encrypted() {
-                self.mark_encryption_state_synced();
-            }
+            self.mark_encryption_state_synced();
         }
 
         ret
@@ -2151,6 +2145,32 @@ fn compute_display_name_from_heroes(
     }
 }
 
+/// Represents the state of a room encryption.
+#[derive(Debug)]
+pub enum EncryptionState {
+    /// The room is encrypted.
+    Encrypted,
+
+    /// The room is not encrypted.
+    NotEncrypted,
+
+    /// The state of the room encryption is unknown, probably because the
+    /// `/sync` did not provide all data needed to decide.
+    Unknown,
+}
+
+impl EncryptionState {
+    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted].
+    pub fn is_encrypted(&self) -> bool {
+        matches!(self, Self::Encrypted)
+    }
+
+    /// Check whether `EncryptionState` is [`Unknown`][Self::Unknown].
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -2161,6 +2181,7 @@ mod tests {
         time::Duration,
     };
 
+    use assert_matches::assert_matches;
     use assign::assign;
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{
@@ -2197,7 +2218,10 @@ mod tests {
     use similar_asserts::assert_eq;
     use stream_assert::{assert_pending, assert_ready};
 
-    use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState, SyncInfo};
+    use super::{
+        compute_display_name_from_heroes, EncryptionState, Room, RoomHero, RoomInfo, RoomState,
+        SyncInfo,
+    };
     use crate::{
         latest_event::LatestEvent,
         rooms::RoomNotableTags,
@@ -3570,8 +3594,7 @@ mod tests {
     fn test_encryption_is_set_when_encryption_event_is_received() {
         let (_store, room) = make_room_test_helper(RoomState::Joined);
 
-        assert!(room.is_encryption_state_synced().not());
-        assert!(room.is_encrypted().not());
+        assert_matches!(room.encryption_state(), EncryptionState::Unknown);
 
         let encryption_content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
@@ -3589,8 +3612,7 @@ mod tests {
         ));
         receive_state_events(&room, vec![&encryption_event]);
 
-        assert!(room.is_encryption_state_synced());
-        assert!(room.is_encrypted());
+        assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
     }
 
     #[async_test]
