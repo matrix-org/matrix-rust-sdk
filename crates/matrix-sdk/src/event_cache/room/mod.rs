@@ -40,7 +40,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{error, trace, warn};
+use tracing::{error, instrument, trace, warn};
 
 use super::{
     deduplicator::DeduplicationOutcome, AllEventsCache, AutoShrinkChannelPayload, EventsOrigin,
@@ -381,6 +381,7 @@ impl RoomEventCacheInner {
         }
     }
 
+    #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_joined_room_update(
         &self,
         has_storage: bool,
@@ -447,6 +448,7 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
+    #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_left_room_update(
         &self,
         has_storage: bool,
