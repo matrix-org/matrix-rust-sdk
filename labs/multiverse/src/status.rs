@@ -64,7 +64,7 @@ impl Status {
 
     /// Set the current status message (displayed at the bottom), for a few
     /// seconds.
-    pub fn set_message(&mut self, status: String) {
+    pub fn set_message(&self, status: String) {
         self.message_sender.send(status).expect(
             "We should be able to send the status message since the receiver is alive \
                   as long as we are alive",
