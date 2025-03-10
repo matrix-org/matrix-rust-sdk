@@ -14,7 +14,7 @@ use tracing_subscriber::{
     EnvFilter, Layer,
 };
 
-use crate::tracing::LogLevel;
+use crate::{init_tokio_runtime, tracing::LogLevel};
 
 pub fn log_panics() {
     std::env::set_var("RUST_BACKTRACE", "1");
@@ -356,6 +356,8 @@ pub fn setup_tracing(config: TracingConfiguration) {
         .with(EnvFilter::new(build_tracing_filter(&config)))
         .with(text_layers(config))
         .init();
+
+    init_tokio_runtime();
 }
 
 #[cfg(test)]
