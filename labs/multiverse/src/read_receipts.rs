@@ -1,3 +1,4 @@
+use matrix_sdk_base::read_receipts::RoomReadReceipts;
 use matrix_sdk_ui::room_list_service::Room;
 use ratatui::{
     prelude::*,
@@ -27,22 +28,18 @@ impl Widget for &mut ReadReceipts<'_> {
 
         match self.room {
             Some(room) => {
-                let receipts = room.read_receipts();
-                let content = format!(
-                    r#"Read receipts:
-- unread: {}
-- notifications: {}
-- mentions: {}
+                let RoomReadReceipts { num_unread, num_notifications, num_mentions, .. } =
+                    room.read_receipts();
 
----
-
-{:?}
-"#,
-                    receipts.num_unread,
-                    receipts.num_notifications,
-                    receipts.num_mentions,
-                    receipts
-                );
+                let content = vec![
+                    Line::from(format!("- unread: {num_unread}")),
+                    Line::from(format!("- notifications: {num_notifications}")),
+                    Line::from(format!("- mentions: {num_mentions}")),
+                    Line::from(""),
+                    Line::from("---"),
+                    Line::from(format!("{:?}", room.read_receipts())),
+                    Line::from("#"),
+                ];
 
                 Paragraph::new(content)
                     .block(read_receipt_block.clone())

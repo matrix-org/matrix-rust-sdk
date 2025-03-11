@@ -423,7 +423,11 @@ impl App {
 
                             Char('L') => self.toggle_reaction_to_latest_msg().await,
 
-                            Char('r') => self.set_mode(DetailsMode::ReadReceipts),
+                            Char('r') => {
+                                if self.room_list.get_selected_room_id().is_some() {
+                                    self.set_mode(DetailsMode::ReadReceipts );
+                                }
+                            }
                             Char('t') => self.set_mode(DetailsMode::TimelineItems),
                             Char('e') => self.set_mode(DetailsMode::Events),
                             Char('l') => self.set_mode(DetailsMode::LinkedChunk),
@@ -532,7 +536,8 @@ impl App {
         if let Some(room_id) = self.room_list.get_selected_room_id() {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
-                    // In read receipts mode, show the read receipts object as computed by the client.
+                    // In read receipts mode, show the read receipts object as computed by the
+                    // client.
                     let rooms = self.ui_rooms.lock();
                     let room = rooms.get(&room_id);
 
