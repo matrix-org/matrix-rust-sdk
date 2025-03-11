@@ -156,7 +156,15 @@ impl SqliteEventCacheStore {
     }
 
     async fn acquire(&self) -> Result<SqliteAsyncConn> {
-        Ok(self.pool.get().await?)
+        let connection = self.pool.get().await?;
+
+        // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key support must be
+        // enabled on a per-connection basis. Execute it every time we try to get a
+        // connection, since we can't guarantee a previous connection did enable
+        // it before.
+        connection.execute_batch("PRAGMA foreign_keys = ON;").await?;
+
+        Ok(connection)
     }
 
     fn map_row_to_chunk(
@@ -302,6 +310,9 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         return Ok(());
     }
 
+    // Always enable foreign keys for the current connection.
+    conn.execute_batch("PRAGMA foreign_keys = ON;").await?;
+
     if version < 1 {
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
@@ -322,9 +333,6 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 3 {
-        // Enable foreign keys for this database.
-        conn.execute_batch("PRAGMA foreign_keys = ON;").await?;
-
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
             txn.set_db_version(3)
