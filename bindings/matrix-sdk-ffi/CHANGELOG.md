@@ -58,3 +58,5 @@ Additions:
 - Add `Room::send_raw`
 - Expose `withdraw_verification` to `UserIdentity`
 - Expose `report_room` to `Room`
+- Add `RoomInfo::encryption_state`
+  ([#4788](https://github.com/matrix-org/matrix-rust-sdk/pull/4788))
