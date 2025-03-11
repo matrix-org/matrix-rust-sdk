@@ -250,10 +250,6 @@ impl Room {
         Ok(self.inner.latest_encryption_state().await?)
     }
 
-    pub async fn is_encrypted(&self) -> Result<bool, ClientError> {
-        Ok(self.latest_encryption_state().await?.is_encrypted())
-    }
-
     pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
         Ok(Arc::new(RoomMembersIterator::new(self.inner.members(RoomMemberships::empty()).await?)))
     }
