@@ -1915,6 +1915,27 @@ mod tests {
         let chunks = store.load_all_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
 
+        // Check that cascading worked. Yes, sqlite, I doubt you.
+        store
+            .acquire()
+            .await
+            .unwrap()
+            .with_transaction(|txn| -> rusqlite::Result<_> {
+                let num_gaps = txn
+                    .prepare("SELECT COUNT(chunk_id) FROM gaps ORDER BY chunk_id")?
+                    .query_row((), |row| row.get::<_, u64>(0))?;
+                assert_eq!(num_gaps, 0);
+
+                let num_events = txn
+                    .prepare("SELECT COUNT(event_id) FROM events ORDER BY chunk_id")?
+                    .query_row((), |row| row.get::<_, u64>(0))?;
+                assert_eq!(num_events, 0);
+
+                Ok(())
+            })
+            .await
+            .unwrap();
+
         // It's okay to re-insert a past event.
         store
             .handle_linked_chunk_updates(
