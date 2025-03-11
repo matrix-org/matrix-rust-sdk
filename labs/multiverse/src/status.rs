@@ -1,11 +1,12 @@
 use std::{
     sync::{
         mpsc::{self, Receiver},
-        Arc, Mutex,
+        Arc,
     },
     time::Duration,
 };
 
+use matrix_sdk_common::locks::Mutex;
 use tokio::{
     spawn,
     task::{spawn_blocking, JoinHandle},
@@ -61,7 +62,7 @@ impl Status {
             }
 
             {
-                let mut status_message = status_message.lock().unwrap();
+                let mut status_message = status_message.lock();
                 *status_message = Some(message);
             }
 
@@ -71,7 +72,7 @@ impl Status {
                 async move {
                     // Clear the status message in 4 seconds.
                     sleep(MESSAGE_DURATION).await;
-                    status_message.lock().unwrap().take();
+                    status_message.lock().take();
                 }
             }));
         }

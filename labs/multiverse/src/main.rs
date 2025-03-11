@@ -717,7 +717,7 @@ impl App {
     /// Render the bottom part of the screen, with a status message if one is
     /// set, or a default help message otherwise.
     fn render_footer(&self, area: Rect, buf: &mut Buffer) {
-        let status_message = self.status.last_status_message.lock().unwrap();
+        let status_message = self.status.last_status_message.lock();
 
         let content = if let Some(status_message) = status_message.as_deref() {
             status_message
