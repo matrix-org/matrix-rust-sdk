@@ -2147,6 +2147,7 @@ fn compute_display_name_from_heroes(
 
 /// Represents the state of a room encryption.
 #[derive(Debug)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum EncryptionState {
     /// The room is encrypted.
     Encrypted,
