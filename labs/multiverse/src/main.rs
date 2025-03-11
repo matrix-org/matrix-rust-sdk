@@ -427,7 +427,7 @@ impl App {
 
                             Char('r') => {
                                 if self.room_list.get_selected_room_id().is_some() {
-                                    self.set_mode(DetailsMode::ReadReceipts );
+                                    self.set_mode(DetailsMode::ReadReceipts);
                                 }
                             }
                             Char('t') => self.set_mode(DetailsMode::TimelineItems),
