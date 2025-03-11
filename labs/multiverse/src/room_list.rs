@@ -4,11 +4,14 @@ use std::{
 };
 
 use imbl::Vector;
-use matrix_sdk::ruma::OwnedRoomId;
+use matrix_sdk::ruma::{api::client::receipt::create_receipt::v3::ReceiptType, OwnedRoomId};
 use matrix_sdk_ui::{room_list_service, sync_service::SyncService};
 use ratatui::{prelude::*, widgets::*};
 
-use crate::{UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG, TEXT_COLOR};
+use crate::{
+    status::StatusHandle, UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG,
+    TEXT_COLOR,
+};
 
 /// Extra room information, like its display name, etc.
 #[derive(Clone)]
@@ -28,6 +31,8 @@ pub type RoomInfos = Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>;
 
 pub struct RoomList {
     pub state: ListState,
+
+    pub status_handle: StatusHandle,
 
     pub rooms: Rooms,
 
@@ -50,10 +55,12 @@ impl RoomList {
         ui_rooms: UiRooms,
         room_infos: RoomInfos,
         sync_service: Arc<SyncService>,
+        status_handle: StatusHandle,
     ) -> Self {
         Self {
             state: Default::default(),
             rooms,
+            status_handle,
             room_infos,
             current_room_subscription: None,
             ui_rooms,
@@ -128,6 +135,31 @@ impl RoomList {
         {
             self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
             self.current_room_subscription = Some(room);
+        }
+    }
+
+    /// Mark the currently selected room as read.
+    pub async fn mark_as_read(&mut self) {
+        let Some(room) = self
+            .get_selected_room_id()
+            .and_then(|room_id| self.ui_rooms.lock().get(&room_id).cloned())
+        else {
+            self.status_handle.set_message("missing room or nothing to show".to_owned());
+            return;
+        };
+
+        // Mark as read!
+        match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
+            Ok(did) => {
+                self.status_handle.set_message(format!(
+                    "did {}send a read receipt!",
+                    if did { "" } else { "not " }
+                ));
+            }
+            Err(err) => {
+                self.status_handle
+                    .set_message(format!("error when marking a room as read: {err}",));
+            }
         }
     }
 }
