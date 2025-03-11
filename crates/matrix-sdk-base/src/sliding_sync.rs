@@ -109,8 +109,9 @@ impl BaseClient {
             .await?;
 
         trace!("ready to submit e2ee changes to store");
+        let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes, room_info_notable_updates);
+        self.apply_changes(&changes, room_info_notable_updates, prev_ignored_user_list);
         trace!("applied e2ee changes");
 
         Ok(Some(to_device))
@@ -324,8 +325,9 @@ impl BaseClient {
         changes.ambiguity_maps = ambiguity_cache.cache;
 
         trace!("ready to submit changes to store");
+        let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes, room_info_notable_updates);
+        self.apply_changes(&changes, room_info_notable_updates, prev_ignored_user_list);
         trace!("applied changes");
 
         // Now that all the rooms information have been saved, update the display name

@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] The `Client::subscribe_to_ignore_user_list_changes()` method will now only trigger
+  whenever the ignored user list has changed from what was previously known, instead of triggering
+  every time an ignore-user-list event has been received from sync.
+  ([#4779](https://github.com/matrix-org/matrix-rust-sdk/pull/4779))
 - [**breaking**] The `MediaRetentionPolicy` can now trigger regular cleanups
   with its new `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
