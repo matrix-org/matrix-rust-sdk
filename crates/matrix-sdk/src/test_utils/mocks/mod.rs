@@ -989,6 +989,13 @@ impl MatrixMockServer {
             .and(path_regex(r"^/_matrix/client/v3/keys/signatures/upload"));
         self.mock_endpoint(mock, UploadCrossSigningSignaturesEndpoint).expect_default_access_token()
     }
+
+    /// Creates a prebuilt mock for the endpoint used to leave a room.
+    pub fn mock_room_leave(&self) -> MockEndpoint<'_, RoomLeaveEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/leave"));
+        self.mock_endpoint(mock, RoomLeaveEndpoint).expect_default_access_token()
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2496,5 +2503,18 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningSignaturesEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for the room leave endpoint.
+pub struct RoomLeaveEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomLeaveEndpoint> {
+    /// Returns a successful response with some default data for the given room
+    /// id.
+    pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "room_id": room_id,
+        })))
     }
 }
