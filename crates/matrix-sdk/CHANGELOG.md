@@ -115,9 +115,10 @@ simpler methods:
   - `Oidc::restore_registered_client()` doesn't take a `VerifiedClientMetadata`
     anymore.
   - `Oidc::latest_id_token()` and `Oidc::client_metadata()` were removed.
-- [**breaking**]: The `Oidc` API makes use of the oauth2 crate rather than
-  mas-oidc-client.
+- [**breaking**]: The `Oidc` API makes use of the oauth2 and ruma crates rather
+  than mas-oidc-client.
   ([#4761](https://github.com/matrix-org/matrix-rust-sdk/pull/4761))
+  ([#4789](https://github.com/matrix-org/matrix-rust-sdk/pull/4789))
   - `ClientId` is a different type reexported from the oauth2 crate.
   - The error types that were in the `oidc` module have been moved to the
     `oidc::error` module.
@@ -130,6 +131,14 @@ simpler methods:
     `CsrfToken`.
   - The `error` field of `AuthorizationError` uses an error type from the oauth2
     crate rather than one from mas-oidc-client.
+  - The `types` and `requests` modules are gone and the necessary types are
+    exported from the `oidc` module or available from `ruma`.
+  - `AccountManagementUrlFull` now takes an `OwnedDeviceId` when a device ID is
+    required.
+  - `(Verified)ProviderMetadata` was replaced by `AuthorizationServerMetadata`.
+  - The `issuer` is now a `Url`.
+  - `Oidc::register()` doesn't accept a software statement anymore.
+  - `(Verified)ClientMetadata` was replaced by the opinionated `ClientMetadata`.
 - [**breaking**]: `OidcSessionTokens` and `MatrixSessionTokens` have been merged
   into `SessionTokens`. Methods to get and watch session tokens are now
   available directly on `Client`.
