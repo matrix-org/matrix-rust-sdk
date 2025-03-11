@@ -14,6 +14,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
+use imbl::Vector;
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{
     deserialized_responses::TimelineEventKind as SdkTimelineEventKind, executor::JoinHandle,
@@ -124,25 +125,21 @@ async fn decryption_task<D: Decryptor>(
         // Find the indices of events that are in the supplied sessions, distinguishing
         // between UTDs which we need to decrypt, and already-decrypted events where we
         // only need to re-fetch encryption info.
+        let mut state = state.write().await;
         let (retry_decryption_indices, retry_info_indices) =
-            event_indices_to_retry_decryption(state.read().await.items.iter(), should_retry);
+            compute_event_indices_to_retry_decryption(&state.items, should_retry);
 
         // Retry fetching encryption info for events that are already decrypted
         if !retry_info_indices.is_empty() {
             debug!("Retrying fetching encryption info");
-            retry_fetch_encryption_info(
-                &mut *state.write().await,
-                retry_info_indices,
-                &room_data_provider,
-            )
-            .await;
+            retry_fetch_encryption_info(&mut state, retry_info_indices, &room_data_provider).await;
         }
 
         // Retry decrypting any unable-to-decrypt messages
         if !retry_decryption_indices.is_empty() {
             debug!("Retrying decryption");
             decrypt_by_index(
-                &mut *state.write().await,
+                &mut state,
                 &request.settings,
                 &room_data_provider,
                 request.decryptor,
@@ -163,8 +160,8 @@ async fn decryption_task<D: Decryptor>(
 /// `retry_decryption_indices` is a list of the indices of UTDs to try
 /// decrypting, and retry_info_indices is a list of the indices of
 /// already-decrypted events whose encryption info we can re-fetch.
-fn event_indices_to_retry_decryption<'a>(
-    items: impl Iterator<Item = &'a Arc<TimelineItem>>,
+fn compute_event_indices_to_retry_decryption(
+    items: &Vector<Arc<TimelineItem>>,
     should_retry: impl Fn(&str) -> bool,
 ) -> (Vec<usize>, Vec<usize>) {
     use Either::{Left, Right};
@@ -194,12 +191,21 @@ fn event_indices_to_retry_decryption<'a>(
     };
 
     items
+        .iter()
         .enumerate()
         .filter_map(|(idx, item)| {
             item.as_event().filter(|e| should_retry_event(e)).map(|event| (idx, event))
         })
         // Break the result into 2 lists: (utds, decrypted)
-        .partition_map(|(idx, event)| if event.is_utd() { Left(idx) } else { Right(idx) })
+        .partition_map(
+            |(idx, event)| {
+                if event.content().is_unable_to_decrypt() {
+                    Left(idx)
+                } else {
+                    Right(idx)
+                }
+            },
+        )
 }
 
 /// Try to fetch [`EncryptionInfo`] for the events with the supplied
@@ -211,7 +217,7 @@ pub(super) async fn retry_fetch_encryption_info<P: RoomDataProvider>(
 ) {
     for idx in retry_indices {
         let old_item = state.items.get(idx);
-        if let Some(new_item) = replacement_for(room_data_provider, old_item).await {
+        if let Some(new_item) = make_replacement_for(room_data_provider, old_item).await {
             state.items.replace(idx, new_item);
         }
     }
@@ -220,22 +226,24 @@ pub(super) async fn retry_fetch_encryption_info<P: RoomDataProvider>(
 /// Create a replacement TimelineItem for the supplied one, with new
 /// [`EncryptionInfo`] from the supplied `room_data_provider`. Returns None if
 /// the supplied item is not a remote event, or if it doesn't have a session ID.
-async fn replacement_for<P: RoomDataProvider>(
+async fn make_replacement_for<P: RoomDataProvider>(
     room_data_provider: &P,
     item: Option<&Arc<TimelineItem>>,
 ) -> Option<Arc<TimelineItem>> {
     let item = item?;
     let event = item.as_event()?;
-    let sender = &event.sender;
     let remote = event.as_remote()?;
-    let session_id = remote.encryption_info.as_ref()?.session_id.as_ref()?;
+    let session_id = remote.encryption_info.as_ref()?.session_id.as_deref()?;
 
-    let new_encryption_info = room_data_provider.get_encryption_info(session_id, sender).await;
+    let new_encryption_info =
+        room_data_provider.get_encryption_info(session_id, &event.sender).await;
     let mut new_remote = remote.clone();
     new_remote.encryption_info = new_encryption_info;
-    Some(item.with_kind(TimelineItemKind::Event(
+    let new_item = item.with_kind(TimelineItemKind::Event(
         event.with_kind(EventTimelineItemKind::Remote(new_remote)),
-    )))
+    ));
+
+    Some(new_item)
 }
 
 /// Attempt decryption of the events encrypted with the session IDs in the
@@ -328,7 +336,7 @@ async fn decrypt_by_index<D: Decryptor>(
 mod tests {
     use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 
-    use imbl::Vector;
+    use imbl::{vector, Vector};
     use matrix_sdk::{
         crypto::types::events::UtdCause,
         deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},
@@ -346,7 +354,7 @@ mod tests {
     };
 
     use crate::timeline::{
-        controller::decryption_retry_task::event_indices_to_retry_decryption,
+        controller::decryption_retry_task::compute_event_indices_to_retry_decryption,
         event_item::{
             EventTimelineItemKind, LocalEventTimelineItem, RemoteEventOrigin,
             RemoteEventTimelineItem,
@@ -358,9 +366,9 @@ mod tests {
     #[test]
     fn test_non_events_are_not_retried() {
         // Given a timeline with only non-events
-        let timeline = [TimelineItem::read_marker(), date_divider()];
+        let timeline = vector![TimelineItem::read_marker(), date_divider()];
         // When we ask what to retry
-        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        let answer = compute_event_indices_to_retry_decryption(&timeline, always_retry);
         // Then we retry nothing
         assert!(answer.0.is_empty());
         assert!(answer.1.is_empty());
@@ -369,9 +377,9 @@ mod tests {
     #[test]
     fn test_non_remote_events_are_not_retried() {
         // Given a timeline with only local events
-        let timeline = [local_event()];
+        let timeline = vector![local_event()];
         // When we ask what to retry
-        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        let answer = compute_event_indices_to_retry_decryption(&timeline, always_retry);
         // Then we retry nothing
         assert!(answer.0.is_empty());
         assert!(answer.1.is_empty());
@@ -380,9 +388,9 @@ mod tests {
     #[test]
     fn test_utds_are_retried() {
         // Given a timeline with a UTD
-        let timeline = [utd_event("session1")];
+        let timeline = vector![utd_event("session1")];
         // When we ask what to retry
-        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        let answer = compute_event_indices_to_retry_decryption(&timeline, always_retry);
         // Then we retry decrypting it, and don't refetch any encryption info
         assert_eq!(answer.0, vec![0]);
         assert!(answer.1.is_empty());
@@ -391,9 +399,9 @@ mod tests {
     #[test]
     fn test_remote_decrypted_info_is_refetched() {
         // Given a timeline with a decrypted event
-        let timeline = [decrypted_event("session1")];
+        let timeline = vector![decrypted_event("session1")];
         // When we ask what to retry
-        let answer = event_indices_to_retry_decryption(timeline.iter(), always_retry);
+        let answer = compute_event_indices_to_retry_decryption(&timeline, always_retry);
         // Then we don't need to decrypt anything, but we do refetch the encryption info
         assert!(answer.0.is_empty());
         assert_eq!(answer.1, vec![0]);
@@ -409,7 +417,7 @@ mod tests {
 
         // And we have a timeline containing non-events, local events, UTDs and
         // decrypted events
-        let timeline = [
+        let timeline = vector![
             TimelineItem::read_marker(),
             utd_event("session1"),
             utd_event("session1"),
@@ -422,7 +430,7 @@ mod tests {
         ];
 
         // When we ask what to retry
-        let answer = event_indices_to_retry_decryption(timeline.iter(), retry);
+        let answer = compute_event_indices_to_retry_decryption(&timeline, retry);
 
         // Then we re-decrypt the UTDs, and refetch the decrypted events' info
         assert_eq!(answer.0, vec![1, 2]);
