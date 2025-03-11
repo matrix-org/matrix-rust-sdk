@@ -1254,9 +1254,10 @@ impl BaseClient {
 
         {
             let _sync_lock = self.sync_lock().lock().await;
+            let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
             self.store.save_changes(&changes).await?;
             *self.store.sync_token.write().await = Some(response.next_batch.clone());
-            self.apply_changes(&changes, room_info_notable_updates);
+            self.apply_changes(&changes, room_info_notable_updates, prev_ignored_user_list);
         }
 
         // Now that all the rooms information have been saved, update the display name
@@ -1286,10 +1287,17 @@ impl BaseClient {
         Ok(response)
     }
 
+    pub(crate) async fn load_previous_ignored_user_list(
+        &self,
+    ) -> Option<Raw<IgnoredUserListEvent>> {
+        self.store().get_account_data_event_static().await.ok().flatten()
+    }
+
     pub(crate) fn apply_changes(
         &self,
         changes: &StateChanges,
         room_info_notable_updates: BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
+        prev_ignored_user_list: Option<Raw<IgnoredUserListEvent>>,
     ) {
         if let Some(event) = changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
         {
@@ -1298,8 +1306,27 @@ impl BaseClient {
                     let user_ids: Vec<String> =
                         event.content.ignored_users.keys().map(|id| id.to_string()).collect();
 
-                    self.ignore_user_list_changes.set(user_ids);
+                    // Try to only trigger the observable if the ignored user list has changed,
+                    // from the previous time we've seen it. If we couldn't load the previous event
+                    // for any reason, always trigger.
+                    if let Some(prev_user_ids) =
+                        prev_ignored_user_list.and_then(|raw| raw.deserialize().ok()).map(|event| {
+                            event
+                                .content
+                                .ignored_users
+                                .keys()
+                                .map(|id| id.to_string())
+                                .collect::<Vec<_>>()
+                        })
+                    {
+                        if user_ids != prev_user_ids {
+                            self.ignore_user_list_changes.set(user_ids);
+                        }
+                    } else {
+                        self.ignore_user_list_changes.set(user_ids);
+                    }
                 }
+
                 Err(error) => {
                     error!("Failed to deserialize ignored user list event: {error}")
                 }
@@ -1419,8 +1446,9 @@ impl BaseClient {
         room_info.mark_members_synced();
         changes.add_room(room_info);
 
+        let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes, Default::default());
+        self.apply_changes(&changes, Default::default(), prev_ignored_user_list);
 
         let _ = room.room_member_updates_sender.send(RoomMembersUpdate::FullReload);
 
@@ -1758,9 +1786,11 @@ fn handle_room_member_event_for_profiles(
 
 #[cfg(test)]
 mod tests {
+    use assert_matches2::assert_let;
+    use futures_util::FutureExt as _;
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, ruma_response_from_json, InvitedRoomBuilder,
-        LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
+        LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, BOB,
     };
     use ruma::{
         api::client as api, event_id, events::room::member::MembershipState, room_id, serde::Raw,
@@ -2151,5 +2181,76 @@ mod tests {
         assert_eq!(member.user_id(), user_id);
         assert_eq!(member.display_name().unwrap(), "Invited Alice");
         assert_eq!(member.avatar_url().unwrap().to_string(), "mxc://localhost/fewjilfewjil42");
+    }
+
+    #[async_test]
+    async fn test_ignored_user_list_changes() {
+        let user_id = user_id!("@alice:example.org");
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
+        client
+            .set_session_meta(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client.subscribe_to_ignore_user_list_changes();
+        assert!(subscriber.next().now_or_never().is_none());
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_global_account_data_event(matrix_sdk_test::GlobalAccountDataTestEvent::Custom(
+                json!({
+                    "content": {
+                        "ignored_users": {
+                            *BOB: {}
+                        }
+                    },
+                    "type": "m.ignored_user_list",
+                }),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_let!(Some(ignored) = subscriber.next().await);
+        assert_eq!(ignored, [BOB.to_string()]);
+
+        // Receive the same response.
+        let response = sync_builder
+            .add_global_account_data_event(matrix_sdk_test::GlobalAccountDataTestEvent::Custom(
+                json!({
+                    "content": {
+                        "ignored_users": {
+                            *BOB: {}
+                        }
+                    },
+                    "type": "m.ignored_user_list",
+                }),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // No changes in the ignored list.
+        assert!(subscriber.next().now_or_never().is_none());
+
+        // Now remove Bob from the ignored list.
+        let response = sync_builder
+            .add_global_account_data_event(matrix_sdk_test::GlobalAccountDataTestEvent::Custom(
+                json!({
+                    "content": {
+                        "ignored_users": {}
+                    },
+                    "type": "m.ignored_user_list",
+                }),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_let!(Some(ignored) = subscriber.next().await);
+        assert!(ignored.is_empty());
     }
 }

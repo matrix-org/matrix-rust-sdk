@@ -2534,7 +2534,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2555,7 +2555,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2614,7 +2614,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2635,7 +2635,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -3197,7 +3197,7 @@ mod tests {
         assert!(room_info_notable_update.try_recv().is_err());
 
         // Then updating the room info will store the event,
-        client.apply_changes(&changes, room_info_notable_updates);
+        client.apply_changes(&changes, room_info_notable_updates, None);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
