@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
     app.run(terminal).await
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Default, Clone, Copy, PartialEq)]
 enum DetailsMode {
     ReadReceipts,
     #[default]
@@ -364,6 +364,11 @@ impl App {
         }));
     }
 
+    fn set_mode(&mut self, mode: DetailsMode) {
+        self.details_mode = mode;
+        self.status.set_mode(mode);
+    }
+
     async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         use KeyCode::*;
 
@@ -428,10 +433,10 @@ impl App {
 
                             Char('L') => self.toggle_reaction_to_latest_msg().await,
 
-                            Char('r') => self.details_mode = DetailsMode::ReadReceipts,
-                            Char('t') => self.details_mode = DetailsMode::TimelineItems,
-                            Char('e') => self.details_mode = DetailsMode::Events,
-                            Char('l') => self.details_mode = DetailsMode::LinkedChunk,
+                            Char('r') => self.set_mode(DetailsMode::ReadReceipts),
+                            Char('t') => self.set_mode(DetailsMode::TimelineItems),
+                            Char('e') => self.set_mode(DetailsMode::Events),
+                            Char('l') => self.set_mode(DetailsMode::LinkedChunk),
 
                             Char('b')
                                 if self.details_mode == DetailsMode::TimelineItems
@@ -479,7 +484,7 @@ impl Widget for &mut App {
         // Create a space for header, todo list and the footer.
         let vertical =
             Layout::vertical([Constraint::Length(2), Constraint::Min(0), Constraint::Length(2)]);
-        let [header_area, rest_area, footer_area] = vertical.areas(area);
+        let [header_area, rest_area, status_area] = vertical.areas(area);
 
         // Create two chunks with equal horizontal screen space. One for the list and
         // the other for the info block.
@@ -490,7 +495,7 @@ impl Widget for &mut App {
         self.render_title(header_area, buf);
         self.room_list.render(room_list_area, buf);
         self.render_right(rhs, buf);
-        self.render_footer(footer_area, buf);
+        self.status.render(status_area, buf);
     }
 }
 
@@ -730,38 +735,6 @@ impl App {
         let mut dummy_list_state = ListState::default();
         StatefulWidget::render(list, inner_area, buf, &mut dummy_list_state);
         true
-    }
-
-    /// Render the bottom part of the screen, with a status message if one is
-    /// set, or a default help message otherwise.
-    fn render_footer(&self, area: Rect, buf: &mut Buffer) {
-        let status_message = self.status.last_status_message.lock();
-
-        let content = if let Some(status_message) = status_message.as_deref() {
-            status_message
-        } else {
-            match self.details_mode {
-                DetailsMode::ReadReceipts => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, \
-                     m to mark as read, t to show the timeline, e to show events."
-                }
-                DetailsMode::TimelineItems => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, \
-                     r to show read receipts, e to show events, Q to enable/disable \
-                     the send queue, M to send a message, L to like the last message."
-                }
-                DetailsMode::Events => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
-                     read receipts, t to show the timeline"
-                }
-                DetailsMode::LinkedChunk => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
-                     read receipts, t to show the timeline, e to show events"
-                }
-            }
-        };
-
-        Paragraph::new(content).centered().render(area, buf);
     }
 }
 
