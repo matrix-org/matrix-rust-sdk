@@ -11,13 +11,13 @@ use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
+use layout::Flex;
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
     ruma::{
-        api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
@@ -34,11 +34,13 @@ use matrix_sdk_ui::{
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
+use read_receipts::ReadReceipts;
 use status::Status;
 use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
+mod read_receipts;
 mod room_list;
 mod status;
 
@@ -65,6 +67,16 @@ struct Cli {
     /// Set the proxy that should be used for the connection.
     #[clap(short, long, env = "PROXY")]
     proxy: Option<Url>,
+}
+
+/// Helper function to create a centered rect using up certain percentage of the
+/// available rect `r`
+fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
+    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
+    let [area] = vertical.areas(area);
+    let [area] = horizontal.areas(area);
+    area
 }
 
 #[tokio::main]
@@ -159,8 +171,14 @@ impl App {
         // stopped.
         sync_service.start().await;
 
-        let room_list = RoomList::new(rooms, ui_rooms.clone(), room_infos, sync_service.clone());
         let status = Status::new();
+        let room_list = RoomList::new(
+            rooms,
+            ui_rooms.clone(),
+            room_infos,
+            sync_service.clone(),
+            status.handle(),
+        );
 
         Ok(Self {
             sync_service,
@@ -274,31 +292,6 @@ impl App {
 
             ui_rooms.lock().extend(new_ui_rooms);
             timelines.lock().extend(new_timelines);
-        }
-    }
-
-    /// Mark the currently selected room as read.
-    async fn mark_as_read(&mut self) {
-        let Some(room) = self
-            .room_list
-            .get_selected_room_id()
-            .and_then(|room_id| self.ui_rooms.lock().get(&room_id).cloned())
-        else {
-            self.status.set_message("missing room or nothing to show".to_owned());
-            return;
-        };
-
-        // Mark as read!
-        match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
-            Ok(did) => {
-                self.status.set_message(format!(
-                    "did {}send a read receipt!",
-                    if did { "" } else { "not " }
-                ));
-            }
-            Err(err) => {
-                self.status.set_message(format!("error when marking a room as read: {err}",));
-            }
         }
     }
 
@@ -433,7 +426,11 @@ impl App {
 
                             Char('L') => self.toggle_reaction_to_latest_msg().await,
 
-                            Char('r') => self.set_mode(DetailsMode::ReadReceipts),
+                            Char('r') => {
+                                if self.room_list.get_selected_room_id().is_some() {
+                                    self.set_mode(DetailsMode::ReadReceipts);
+                                }
+                            }
                             Char('t') => self.set_mode(DetailsMode::TimelineItems),
                             Char('e') => self.set_mode(DetailsMode::Events),
                             Char('l') => self.set_mode(DetailsMode::LinkedChunk),
@@ -446,7 +443,7 @@ impl App {
                             }
 
                             Char('m') if self.details_mode == DetailsMode::ReadReceipts => {
-                                self.mark_as_read().await
+                                self.room_list.mark_as_read().await
                             }
 
                             _ => {}
@@ -542,35 +539,14 @@ impl App {
         if let Some(room_id) = self.room_list.get_selected_room_id() {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
-                    // In read receipts mode, show the read receipts object as computed
-                    // by the client.
-                    match self.ui_rooms.lock().get(&room_id).cloned() {
-                        Some(room) => {
-                            let receipts = room.read_receipts();
-                            render_paragraph(
-                                buf,
-                                format!(
-                                    r#"Read receipts:
-- unread: {}
-- notifications: {}
-- mentions: {}
+                    // In read receipts mode, show the read receipts object as computed by the
+                    // client.
+                    let rooms = self.ui_rooms.lock();
+                    let room = rooms.get(&room_id);
 
----
+                    let mut read_receipts = ReadReceipts::new(room);
 
-{:?}
-"#,
-                                    receipts.num_unread,
-                                    receipts.num_notifications,
-                                    receipts.num_mentions,
-                                    receipts
-                                ),
-                            )
-                        }
-                        None => render_paragraph(
-                            buf,
-                            "(room disappeared in the room list service)".to_owned(),
-                        ),
-                    }
+                    read_receipts.render(inner_area, buf);
                 }
 
                 DetailsMode::TimelineItems => {
