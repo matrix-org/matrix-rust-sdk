@@ -12,6 +12,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use layout::Flex;
+use linked_chunk::LinkedChunkView;
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::StoreConfig,
@@ -40,6 +41,7 @@ use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
+mod linked_chunk;
 mod read_receipts;
 mod room_list;
 mod status;
@@ -557,25 +559,12 @@ impl App {
 
                 DetailsMode::LinkedChunk => {
                     // In linked chunk mode, show a rough representation of the chunks.
-                    match self.ui_rooms.lock().get(&room_id).cloned() {
-                        Some(room) => {
-                            let lines = tokio::task::block_in_place(|| {
-                                Handle::current().block_on(async {
-                                    let (cache, _drop_guards) = room
-                                        .event_cache()
-                                        .await
-                                        .expect("no event cache for that room");
-                                    cache.debug_string().await
-                                })
-                            });
-                            render_paragraph(buf, lines.join("\n"));
-                        }
+                    let rooms = self.ui_rooms.lock();
+                    let room = rooms.get(&room_id);
 
-                        None => render_paragraph(
-                            buf,
-                            "(room disappeared in the room list service)".to_owned(),
-                        ),
-                    }
+                    let mut linked_chunk_view = LinkedChunkView::new(room);
+
+                    linked_chunk_view.render(inner_area, buf);
                 }
 
                 DetailsMode::Events => match self.ui_rooms.lock().get(&room_id).cloned() {
