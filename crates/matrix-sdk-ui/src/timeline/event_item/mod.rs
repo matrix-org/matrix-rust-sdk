@@ -233,11 +233,6 @@ impl EventTimelineItem {
         matches!(self.kind, EventTimelineItemKind::Remote(_))
     }
 
-    /// Check whether this item's content is UTD (unable to decrypt).
-    pub fn is_utd(&self) -> bool {
-        matches!(self.content(), TimelineItemContent::UnableToDecrypt(_))
-    }
-
     /// Get the `LocalEventTimelineItem` if `self` is `Local`.
     pub(super) fn as_local(&self) -> Option<&LocalEventTimelineItem> {
         as_variant!(&self.kind, EventTimelineItemKind::Local(local_event_item) => local_event_item)

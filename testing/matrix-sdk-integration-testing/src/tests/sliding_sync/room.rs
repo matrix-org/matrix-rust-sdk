@@ -920,7 +920,7 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
                         continue;
                     };
 
-                    if event.is_utd() {
+                    if event.content().is_unable_to_decrypt() {
                         info!("Observed UTD for {}", event.event_id().unwrap());
                     }
 

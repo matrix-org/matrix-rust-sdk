@@ -325,6 +325,12 @@ impl TimelineItemContent {
         as_variant!(self, Self::UnableToDecrypt)
     }
 
+    /// Check whether this item's content is a
+    /// [`UnableToDecrypt`][Self::UnableToDecrypt].
+    pub fn is_unable_to_decrypt(&self) -> bool {
+        matches!(self, Self::UnableToDecrypt(_))
+    }
+
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
