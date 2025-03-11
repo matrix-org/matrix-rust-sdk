@@ -7,7 +7,7 @@ use matrix_sdk::{
     room::{
         edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
     },
-    ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
+    ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
@@ -242,8 +242,16 @@ impl Room {
         self.inner.room_id().to_string()
     }
 
-    pub fn is_encrypted(&self) -> Result<bool, ClientError> {
-        Ok(RUNTIME.block_on(self.inner.latest_encryption_state())?.is_encrypted())
+    pub fn encryption_state(&self) -> EncryptionState {
+        self.inner.encryption_state()
+    }
+
+    pub async fn latest_encryption_state(&self) -> Result<EncryptionState, ClientError> {
+        Ok(self.inner.latest_encryption_state().await?)
+    }
+
+    pub async fn is_encrypted(&self) -> Result<bool, ClientError> {
+        Ok(self.latest_encryption_state().await?.is_encrypted())
     }
 
     pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
