@@ -18,9 +18,8 @@ use matrix_sdk_base::{store::StoreConfig, SessionMeta};
 use ruma::{api::MatrixVersion, owned_device_id, owned_user_id};
 
 use crate::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
-    config::RequestConfig,
-    Client, ClientBuilder,
+    authentication::matrix::MatrixSession, config::RequestConfig, Client, ClientBuilder,
+    SessionTokens,
 };
 
 /// An augmented [`ClientBuilder`] that also allows for handling session login.
@@ -79,6 +78,12 @@ impl MockClientBuilder {
         self
     }
 
+    /// Handle refreshing access tokens automatically.
+    pub fn handle_refresh_tokens(mut self) -> Self {
+        self.builder = self.builder.handle_refresh_tokens();
+        self
+    }
+
     /// Finish building the client into the final [`Client`] instance.
     pub async fn build(self) -> Client {
         let client = self.builder.build().await.expect("building client failed");
@@ -110,17 +115,7 @@ impl AuthState {
         match self {
             AuthState::None => {}
             AuthState::LoggedInWithMatrixAuth => {
-                client
-                    .matrix_auth()
-                    .restore_session(MatrixSession {
-                        meta: mock_session_meta(),
-                        tokens: MatrixSessionTokens {
-                            access_token: "1234".to_owned(),
-                            refresh_token: None,
-                        },
-                    })
-                    .await
-                    .unwrap();
+                client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
             }
             #[cfg(feature = "experimental-oidc")]
             AuthState::RegisteredWithOauth { issuer } => {
@@ -130,7 +125,10 @@ impl AuthState {
             AuthState::LoggedInWithOauth { issuer } => {
                 client
                     .oidc()
-                    .restore_session(oauth::mock_session(oauth::mock_session_tokens(), issuer))
+                    .restore_session(oauth::mock_session(
+                        mock_session_tokens_with_refresh(),
+                        issuer,
+                    ))
                     .await
                     .unwrap();
             }
@@ -138,11 +136,38 @@ impl AuthState {
     }
 }
 
-fn mock_session_meta() -> SessionMeta {
+/// A [`SessionMeta`], for unit or integration tests.
+pub fn mock_session_meta() -> SessionMeta {
     SessionMeta {
         user_id: owned_user_id!("@example:localhost"),
         device_id: owned_device_id!("DEVICEID"),
     }
+}
+
+/// A [`SessionTokens`] including only an access token, for unit or integration
+/// tests.
+pub fn mock_session_tokens() -> SessionTokens {
+    SessionTokens { access_token: "1234".to_owned(), refresh_token: None }
+}
+
+/// A [`SessionTokens`] including an access token and a refresh token, for unit
+/// or integration tests.
+pub fn mock_session_tokens_with_refresh() -> SessionTokens {
+    SessionTokens { access_token: "1234".to_owned(), refresh_token: Some("ZYXWV".to_owned()) }
+}
+
+/// Different session tokens than the ones returned by
+/// [`mock_session_tokens_with_refresh()`].
+pub fn mock_prev_session_tokens_with_refresh() -> SessionTokens {
+    SessionTokens {
+        access_token: "prev-access-token".to_owned(),
+        refresh_token: Some("prev-refresh-token".to_owned()),
+    }
+}
+
+/// A [`MatrixSession`], for unit or integration tests.
+pub fn mock_matrix_session() -> MatrixSession {
+    MatrixSession { meta: mock_session_meta(), tokens: mock_session_tokens() }
 }
 
 /// Mock client data for the OAuth 2.0 API.
@@ -156,13 +181,14 @@ pub mod oauth {
     };
     use url::Url;
 
-    use crate::authentication::oidc::{
-        registrations::ClientId, OidcSession, OidcSessionTokens, UserSession,
+    use crate::{
+        authentication::oidc::{registrations::ClientId, OidcSession, UserSession},
+        SessionTokens,
     };
 
     /// An OAuth 2.0 `ClientId`, for unit or integration tests.
     pub fn mock_client_id() -> ClientId {
-        ClientId("test_client_id".to_owned())
+        ClientId::new("test_client_id".to_owned())
     }
 
     /// `VerifiedClientMetadata` that should be valid in most cases, for unit or
@@ -189,16 +215,8 @@ pub mod oauth {
         .expect("client metadata should pass validation")
     }
 
-    /// An [`OidcSessionTokens`], for unit or integration tests.
-    pub fn mock_session_tokens() -> OidcSessionTokens {
-        OidcSessionTokens {
-            access_token: "1234".to_owned(),
-            refresh_token: Some("ZYXWV".to_owned()),
-        }
-    }
-
     /// An [`OidcSession`] to restore, for unit or integration tests.
-    pub fn mock_session(tokens: OidcSessionTokens, issuer: String) -> OidcSession {
+    pub fn mock_session(tokens: SessionTokens, issuer: String) -> OidcSession {
         OidcSession {
             client_id: mock_client_id(),
             user: UserSession { meta: super::mock_session_meta(), tokens, issuer },

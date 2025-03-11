@@ -13,7 +13,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::trace;
 
-use super::OidcSessionTokens;
+use crate::SessionTokens;
 
 /// Key in the database for the custom value holding the current session tokens
 /// hash.
@@ -50,7 +50,7 @@ impl std::fmt::Debug for SessionHash {
 }
 
 /// Compute a hash uniquely identifying the OIDC session tokens.
-fn compute_session_hash(tokens: &OidcSessionTokens) -> SessionHash {
+fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
     let mut hash = Sha256::new().chain_update(tokens.access_token.as_bytes());
     if let Some(refresh_token) = &tokens.refresh_token {
         hash = hash.chain_update(refresh_token.as_bytes());
@@ -118,7 +118,7 @@ impl CrossProcessRefreshManager {
         Ok(guard)
     }
 
-    pub async fn restore_session(&self, tokens: &OidcSessionTokens) {
+    pub async fn restore_session(&self, tokens: &SessionTokens) {
         let prev_tokens_hash = compute_session_hash(tokens);
         *self.known_session_hash.lock().await = Some(prev_tokens_hash);
     }
@@ -181,7 +181,7 @@ impl CrossProcessRefreshLockGuard {
     /// Must be called after a successful refresh.
     pub async fn save_in_memory_and_db(
         &mut self,
-        tokens: &OidcSessionTokens,
+        tokens: &SessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let hash = compute_session_hash(tokens);
         self.save_in_database(&hash).await?;
@@ -193,7 +193,7 @@ impl CrossProcessRefreshLockGuard {
     /// tokens we trust.
     pub async fn handle_mismatch(
         &mut self,
-        trusted_tokens: &OidcSessionTokens,
+        trusted_tokens: &SessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let new_hash = compute_session_hash(trusted_tokens);
         trace!("Trusted OIDC tokens have hash {new_hash:?}; db had {:?}", self.db_hash);
@@ -237,11 +237,6 @@ pub enum CrossProcessRefreshLockError {
     #[error("reload session callback must be set with Client::set_session_callbacks() for the cross-process lock to work")]
     MissingReloadSession,
 
-    /// Session tokens returned by the reload_session callback were not for
-    /// OIDC.
-    #[error("session tokens returned by the reload_session callback were not for OIDC")]
-    InvalidSessionTokens,
-
     /// The store has been created twice.
     #[error(
         "the cross-process lock has been set up twice with `enable_cross_process_refresh_lock`"
@@ -260,11 +255,11 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        authentication::oidc::{cross_process::SessionHash, tests::prev_session_tokens},
+        authentication::oidc::cross_process::SessionHash,
         test_utils::{
             client::{
-                oauth::{mock_session, mock_session_tokens},
-                MockClientBuilder,
+                mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
+                oauth::mock_session, MockClientBuilder,
             },
             mocks::MatrixMockServer,
         },
@@ -282,7 +277,7 @@ mod tests {
             .build()
             .await;
 
-        let tokens = mock_session_tokens();
+        let tokens = mock_session_tokens_with_refresh();
 
         client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
 
@@ -290,7 +285,7 @@ mod tests {
             Box::new({
                 // This is only called because of extra checks in the code.
                 let tokens = tokens.clone();
-                move |_| Ok(crate::authentication::SessionTokens::Oidc(tokens.clone()))
+                move |_| Ok(tokens.clone())
             }),
             Box::new(|_| panic!("save_session_callback shouldn't be called here")),
         )?;
@@ -304,7 +299,7 @@ mod tests {
             ))
             .await?;
 
-        assert_eq!(client.oidc().session_tokens().unwrap(), tokens);
+        assert_eq!(client.session_tokens().unwrap(), tokens);
 
         let oidc = client.oidc();
         let xp_manager = oidc.ctx().cross_process_token_refresh_manager.get().unwrap();
@@ -341,8 +336,8 @@ mod tests {
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Simulate we've done finalize_authorization / restore_session before.
-        let session_tokens = mock_session_tokens();
-        oidc.set_session_tokens(session_tokens.clone());
+        let session_tokens = mock_session_tokens_with_refresh();
+        client.auth_ctx().set_session_tokens(session_tokens.clone());
 
         // Now, finishing logging will get the user and device ids.
         oidc.finish_login().await?;
@@ -386,13 +381,17 @@ mod tests {
         let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
         let oidc = client.oidc();
 
-        let next_tokens = mock_session_tokens();
+        let next_tokens = mock_session_tokens_with_refresh();
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
-        oidc.restore_session(mock_session(prev_session_tokens(), server.server().uri())).await?;
+        oidc.restore_session(mock_session(
+            mock_prev_session_tokens_with_refresh(),
+            server.server().uri(),
+        ))
+        .await?;
 
         // Immediately try to refresh the access token twice in parallel.
         for result in join_all([oidc.refresh_access_token(), oidc.refresh_access_token()]).await {
@@ -423,8 +422,8 @@ mod tests {
         oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
         oauth_server.mock_token().ok().expect(1).named("token").mount().await;
 
-        let prev_tokens = prev_session_tokens();
-        let next_tokens = mock_session_tokens();
+        let prev_tokens = mock_prev_session_tokens_with_refresh();
+        let next_tokens = mock_session_tokens_with_refresh();
 
         // Create the first client.
         let tmp_dir = tempfile::tempdir()?;
@@ -455,7 +454,7 @@ mod tests {
             // first token.
             oidc3.refresh_access_token().await?;
 
-            assert_eq!(oidc3.session_tokens(), Some(next_tokens.clone()));
+            assert_eq!(client3.session_tokens(), Some(next_tokens.clone()));
 
             // Reading from the cross-process lock for the second client only shows the new
             // tokens.
@@ -476,7 +475,7 @@ mod tests {
                 Box::new({
                     // This is only called because of extra checks in the code.
                     let tokens = next_tokens.clone();
-                    move |_| Ok(crate::authentication::SessionTokens::Oidc(tokens.clone()))
+                    move |_| Ok(tokens.clone())
                 }),
                 Box::new(|_| panic!("save_session_callback shouldn't be called here")),
             )?;
@@ -513,7 +512,7 @@ mod tests {
             Box::new({
                 // This is only called because of extra checks in the code.
                 let tokens = next_tokens.clone();
-                move |_| Ok(crate::authentication::SessionTokens::Oidc(tokens.clone()))
+                move |_| Ok(tokens.clone())
             }),
             Box::new(|_| panic!("save_session_callback shouldn't be called here")),
         )?;
@@ -539,18 +538,24 @@ mod tests {
         let server = MatrixMockServer::new().await;
 
         let oauth_server = server.oauth();
-        oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
-        oauth_server.mock_revocation().ok().expect(1).named("token").mount().await;
+        oauth_server
+            .mock_server_metadata()
+            .ok_https()
+            .expect(1..)
+            .named("server_metadata")
+            .mount()
+            .await;
+        oauth_server.mock_revocation().ok().expect(1).named("revocation").mount().await;
 
         let tmp_dir = tempfile::tempdir()?;
         let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
-        let oidc = client.oidc();
+        let oidc = client.oidc().insecure_rewrite_https_to_http();
 
         // Enable cross-process lock.
         oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
-        let tokens = mock_session_tokens();
+        let tokens = mock_session_tokens_with_refresh();
         oidc.restore_session(mock_session(tokens.clone(), server.server().uri())).await?;
 
         oidc.logout().await?;

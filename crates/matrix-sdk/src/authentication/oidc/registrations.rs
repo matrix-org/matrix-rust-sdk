@@ -31,6 +31,7 @@ use std::{
 use mas_oidc_client::types::registration::{
     ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
 };
+pub use oauth2::ClientId;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -44,10 +45,6 @@ pub enum OidcRegistrationsError {
     #[error("Failed to save the registration data {0}.")]
     SaveFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
-
-/// A client ID that has been registered with an OpenID Connect provider.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct ClientId(pub String);
 
 /// The data needed to restore an OpenID Connect session.
 #[derive(Debug)]
@@ -214,9 +211,9 @@ mod tests {
         let registrations_file = dir.path().join("oidc").join("registrations.json");
 
         let static_url = Url::parse("https://example.com").unwrap();
-        let static_id = ClientId("static_client_id".to_owned());
+        let static_id = ClientId::new("static_client_id".to_owned());
         let dynamic_url = Url::parse("https://example.org").unwrap();
-        let dynamic_id = ClientId("dynamic_client_id".to_owned());
+        let dynamic_id = ClientId::new("dynamic_client_id".to_owned());
 
         let mut static_registrations = HashMap::new();
         static_registrations.insert(static_url.clone(), static_id.clone());
@@ -246,9 +243,9 @@ mod tests {
         let registrations_file = dir.path().join("oidc").join("registrations.json");
 
         let static_url = Url::parse("https://example.com").unwrap();
-        let static_id = ClientId("static_client_id".to_owned());
+        let static_id = ClientId::new("static_client_id".to_owned());
         let dynamic_url = Url::parse("https://example.org").unwrap();
-        let dynamic_id = ClientId("dynamic_client_id".to_owned());
+        let dynamic_id = ClientId::new("dynamic_client_id".to_owned());
 
         let oidc_metadata = mock_metadata("Example".to_owned());
 

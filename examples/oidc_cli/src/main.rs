@@ -38,7 +38,8 @@ use matrix_sdk::{
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::GrantType,
         },
-        AuthorizationCode, AuthorizationResponse, OidcAuthorizationData, OidcSession, UserSession,
+        AuthorizationCode, AuthorizationResponse, CsrfToken, OidcAuthorizationData, OidcSession,
+        UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -118,7 +119,7 @@ struct ClientSession {
 #[derive(Debug, Serialize, Deserialize)]
 struct Credentials {
     /// The client ID obtained after registration.
-    client_id: String,
+    client_id: ClientId,
 }
 
 /// The full session to persist.
@@ -189,7 +190,7 @@ impl OidcCli {
     /// Register the OIDC client with the provider.
     ///
     /// Returns the ID of the client returned by the provider.
-    async fn register_client(&self) -> anyhow::Result<String> {
+    async fn register_client(&self) -> anyhow::Result<ClientId> {
         let oidc = self.client.oidc();
 
         let provider_metadata = oidc.provider_metadata().await?;
@@ -214,7 +215,7 @@ impl OidcCli {
 
         println!("\nRegistered successfully");
 
-        Ok(res.client_id)
+        Ok(ClientId::new(res.client_id))
     }
 
     /// Login via the OIDC Authorization Code flow.
@@ -283,8 +284,7 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
-        let session =
-            OidcSession { client_id: ClientId(client_credentials.client_id), user: user_session };
+        let session = OidcSession { client_id: client_credentials.client_id, user: user_session };
         // Restore the Matrix user session.
         client.restore_session(session).await?;
 
@@ -747,7 +747,7 @@ fn client_metadata() -> VerifiedClientMetadata {
 /// Returns the code to obtain the access token.
 async fn use_auth_url(
     url: &Url,
-    state: &str,
+    state: &CsrfToken,
     data_rx: oneshot::Receiver<String>,
     signal_tx: oneshot::Sender<()>,
 ) -> anyhow::Result<AuthorizationCode> {
@@ -760,8 +760,7 @@ async fn use_auth_url(
     let code = match AuthorizationResponse::parse_query(&response_query)? {
         AuthorizationResponse::Success(code) => code,
         AuthorizationResponse::Error(err) => {
-            let err = err.error;
-            return Err(anyhow!("{}: {:?}", err.error, err.error_description));
+            return Err(anyhow!(err.error));
         }
     };
 
@@ -769,7 +768,7 @@ async fn use_auth_url(
     // wrong, it is an error. Some clients might want to allow several
     // authorizations at once, in which case the state string can be used to
     // identify the session that was authorized.
-    if code.state != state {
+    if code.state != *state {
         bail!("State strings don't match")
     }
 

@@ -1,43 +1,40 @@
 use std::{
     collections::HashMap,
-    env,
     io::{self, stdout, Write},
-    path::Path,
-    process::exit,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use color_eyre::config::HookBuilder;
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
-};
+use clap::Parser;
+use color_eyre::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
+    reqwest::Url,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
     sleep::sleep,
-    AuthSession, Client, ServerName, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    AuthSession, Client, OwnedServerName, SqliteCryptoStore, SqliteEventCacheStore,
+    SqliteStateStore,
 };
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
-    sync_service::{self, SyncService},
+    sync_service::SyncService,
     timeline::{TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem},
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::{error, warn};
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 const HEADER_BG: Color = tailwind::BLUE.c950;
 const NORMAL_ROW_COLOR: Color = tailwind::SLATE.c950;
@@ -45,65 +42,43 @@ const ALT_ROW_COLOR: Color = tailwind::SLATE.c900;
 const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
 const TEXT_COLOR: Color = tailwind::SLATE.c200;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(false)
-        .with_writer(tracing_appender::rolling::hourly("/tmp/", "logs-"));
+#[derive(Debug, Parser)]
+struct Cli {
+    /// The homeserver the client should connect to.
+    server_name: OwnedServerName,
 
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(env::var("RUST_LOG").unwrap_or("".into())))
-        .with(file_layer)
+    /// The path where session specific data should be stored.
+    #[clap(default_value = "/tmp/")]
+    session_path: PathBuf,
+
+    /// Set the proxy that should be used for the connection.
+    #[clap(short, long, env = "PROXY")]
+    proxy: Option<Url>,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let file_writer = tracing_appender::rolling::hourly("/tmp/", "logs-");
+
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(false)
+        .with_writer(file_writer)
         .init();
 
-    // Read the server name from the command line.
-    let Some(server_name) = env::args().nth(1) else {
-        eprintln!("Usage: {} <server_name> <session_path?>", env::args().next().unwrap());
-        exit(1)
-    };
+    color_eyre::install()?;
 
-    let config_path = env::args().nth(2).unwrap_or("/tmp/".to_owned());
-    let client = configure_client(&server_name, &config_path).await?;
+    let cli = Cli::parse();
+    let client = configure_client(cli).await?;
 
-    let ec = client.event_cache();
-    ec.subscribe().unwrap();
-    ec.enable_storage().unwrap();
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
 
-    init_error_hooks()?;
-    let terminal = init_terminal()?;
-
+    let terminal = ratatui::init();
     let mut app = App::new(client).await?;
 
     app.run(terminal).await
-}
-
-fn init_error_hooks() -> anyhow::Result<()> {
-    let (panic, error) = HookBuilder::default().into_hooks();
-    let panic = panic.into_panic_hook();
-    let error = error.into_eyre_hook();
-    color_eyre::eyre::set_hook(Box::new(move |e| {
-        let _ = restore_terminal();
-        error(e)
-    }))?;
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal();
-        panic(info)
-    }));
-    Ok(())
-}
-
-fn init_terminal() -> anyhow::Result<Terminal<impl Backend>> {
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout());
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
-}
-
-fn restore_terminal() -> anyhow::Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    Ok(())
 }
 
 #[derive(Default)]
@@ -178,7 +153,7 @@ struct App {
 }
 
 impl App {
-    async fn new(client: Client) -> anyhow::Result<Self> {
+    async fn new(client: Client) -> Result<Self> {
         let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
 
         let rooms = Arc::new(Mutex::new(Vector::<room_list_service::Room>::new()));
@@ -456,9 +431,9 @@ impl App {
         }
     }
 
-    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> anyhow::Result<()> {
+    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         loop {
-            terminal.draw(|f| f.render_widget(&mut *self, f.size()))?;
+            terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
@@ -548,31 +523,23 @@ impl App {
         }
     }
 
-    async fn run(&mut self, terminal: Terminal<impl Backend>) -> anyhow::Result<()> {
+    async fn run(&mut self, terminal: Terminal<impl Backend>) -> Result<()> {
         self.render_loop(terminal).await?;
 
         // At this point the user has exited the loop, so shut down the application.
-        restore_terminal()?;
+        ratatui::restore();
 
-        println!("Closing sync service...");
-
-        let s = self.sync_service.clone();
-        let wait_for_termination = spawn(async move {
-            while let Some(state) = s.state().next().await {
-                if !matches!(state, sync_service::State::Running) {
-                    break;
-                }
-            }
-        });
+        println!("Stopping the sync service...");
 
         self.sync_service.stop().await;
         self.listen_task.abort();
+
         for timeline in self.timelines.lock().unwrap().values() {
             timeline.task.abort();
         }
-        wait_for_termination.await.unwrap();
 
         println!("okthxbye!");
+
         Ok(())
     }
 }
@@ -982,17 +949,16 @@ impl<T> StatefulList<T> {
 /// Configure the client so it's ready for sync'ing.
 ///
 /// Will log in or reuse a previous session.
-async fn configure_client(server_name: &str, config_path: &str) -> anyhow::Result<Client> {
-    let server_name = ServerName::parse(server_name)?;
+async fn configure_client(cli: Cli) -> Result<Client> {
+    let Cli { server_name, session_path, proxy } = cli;
 
-    let config_path = Path::new(config_path);
     let mut client_builder = Client::builder()
         .store_config(
             StoreConfig::new("multiverse".to_owned())
-                .crypto_store(SqliteCryptoStore::open(config_path.join("crypto"), None).await?)
-                .state_store(SqliteStateStore::open(config_path.join("state"), None).await?)
+                .crypto_store(SqliteCryptoStore::open(session_path.join("crypto"), None).await?)
+                .state_store(SqliteStateStore::open(session_path.join("state"), None).await?)
                 .event_cache_store(
-                    SqliteEventCacheStore::open(config_path.join("cache"), None).await?,
+                    SqliteEventCacheStore::open(session_path.join("cache"), None).await?,
                 ),
         )
         .server_name(&server_name)
@@ -1002,20 +968,28 @@ async fn configure_client(server_name: &str, config_path: &str) -> anyhow::Resul
             auto_enable_backups: true,
         });
 
-    if let Ok(proxy_url) = env::var("PROXY") {
+    if let Some(proxy_url) = proxy {
         client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();
     }
 
     let client = client_builder.build().await?;
 
     // Try reading a session, otherwise create a new one.
-    let session_path = config_path.join("session.json");
+    log_in_or_restore_session(&client, &session_path).await?;
+
+    Ok(client)
+}
+
+async fn log_in_or_restore_session(client: &Client, session_path: &Path) -> Result<()> {
+    let session_path = session_path.join("session.json");
+
     if let Ok(serialized) = std::fs::read_to_string(&session_path) {
         let session: MatrixSession = serde_json::from_str(&serialized)?;
         client.restore_session(session).await?;
+
         println!("restored session");
     } else {
-        login_with_password(&client).await?;
+        login_with_password(client).await?;
         println!("new login");
 
         // Immediately save the session to disk.
@@ -1023,16 +997,17 @@ async fn configure_client(server_name: &str, config_path: &str) -> anyhow::Resul
             let AuthSession::Matrix(session) = session else { panic!("unexpected oidc session") };
             let serialized = serde_json::to_string(&session)?;
             std::fs::write(session_path, serialized)?;
+
             println!("saved session");
         }
     }
 
-    Ok(client)
+    Ok(())
 }
 
 /// Asks the user of a username and password, and try to login using the matrix
 /// auth with those.
-async fn login_with_password(client: &Client) -> anyhow::Result<()> {
+async fn login_with_password(client: &Client) -> Result<()> {
     println!("Logging in with username and password…");
 
     loop {

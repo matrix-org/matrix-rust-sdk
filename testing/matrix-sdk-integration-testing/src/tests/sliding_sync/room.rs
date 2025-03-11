@@ -920,13 +920,11 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
                         continue;
                     };
 
-                    let content = event.content();
-
-                    if content.as_unable_to_decrypt().is_some() {
+                    if event.content().is_unable_to_decrypt() {
                         info!("Observed UTD for {}", event.event_id().unwrap());
                     }
 
-                    if let Some(message) = content.as_message() {
+                    if let Some(message) = event.content().as_message() {
                         assert_eq!(message.body(), "hello world");
                         return;
                     }

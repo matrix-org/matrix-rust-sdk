@@ -20,6 +20,7 @@ use matrix_sdk::{
     },
     ruma::{
         api::client::{
+            discovery::get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
@@ -396,10 +397,20 @@ impl Client {
     /// view has succeeded, call `login_with_oidc_callback` with the callback it
     /// returns. If a failure occurs and a callback isn't available, make sure
     /// to call `abort_oidc_auth` to inform the client of this.
+    ///
+    /// # Arguments
+    ///
+    /// * `oidc_configuration` - The configuration used to load the credentials
+    ///   of the client if it is already registered with the authorization
+    ///   server, or register the client and store its credentials if it isn't.
+    ///
+    /// * `prompt` - The desired user experience in the web UI. No value means
+    ///   that the user wishes to login into an existing account, and a value of
+    ///   `Create` means that the user wishes to register a new account.
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
-        prompt: OidcPrompt,
+        prompt: Option<OidcPrompt>,
     ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
         let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
         let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
@@ -411,7 +422,7 @@ impl Client {
                     tracing::error!("Failed to parse {:?}", issuer);
                     return None;
                 };
-                Some((issuer, ClientId(client_id.clone())))
+                Some((issuer, ClientId::new(client_id.clone())))
             })
             .collect::<HashMap<_, _>>();
         let registrations = OidcRegistrations::new(
@@ -420,8 +431,11 @@ impl Client {
             static_registrations,
         )?;
 
-        let data =
-            self.inner.oidc().url_for_oidc(oidc_metadata, registrations, prompt.into()).await?;
+        let data = self
+            .inner
+            .oidc()
+            .url_for_oidc(oidc_metadata, registrations, prompt.map(Into::into))
+            .await?;
 
         Ok(Arc::new(data))
     }
@@ -1289,13 +1303,7 @@ impl Client {
         session_delegate: Arc<dyn ClientSessionDelegate>,
         user_id: &UserId,
     ) -> anyhow::Result<SessionTokens> {
-        let session = session_delegate.retrieve_session_from_keychain(user_id.to_string())?;
-        let auth_session = TryInto::<AuthSession>::try_into(session)?;
-        match auth_session {
-            AuthSession::Oidc(session) => Ok(SessionTokens::Oidc(session.user.tokens)),
-            AuthSession::Matrix(session) => Ok(SessionTokens::Matrix(session.tokens)),
-            _ => anyhow::bail!("Unexpected session kind."),
-        }
+        Ok(session_delegate.retrieve_session_from_keychain(user_id.to_string())?.into_tokens())
     }
 
     fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
@@ -1583,11 +1591,7 @@ impl Session {
             AuthApi::Matrix(a) => {
                 let matrix_sdk::authentication::matrix::MatrixSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
-                    tokens:
-                        matrix_sdk::authentication::matrix::MatrixSessionTokens {
-                            access_token,
-                            refresh_token,
-                        },
+                    tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                 } = a.session().context("Missing session")?;
 
                 Ok(Session {
@@ -1604,14 +1608,10 @@ impl Session {
             AuthApi::Oidc(api) => {
                 let matrix_sdk::authentication::oidc::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
-                    tokens:
-                        matrix_sdk::authentication::oidc::OidcSessionTokens {
-                            access_token,
-                            refresh_token,
-                        },
+                    tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                     issuer,
                 } = api.user_session().context("Missing session")?;
-                let client_id = api.client_id().context("OIDC client ID is missing.")?.0.clone();
+                let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
                 let oidc_data = OidcSessionData { client_id, issuer };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
@@ -1627,6 +1627,10 @@ impl Session {
             }
             _ => Err(anyhow!("Unknown authentication API").into()),
         }
+    }
+
+    fn into_tokens(self) -> matrix_sdk::SessionTokens {
+        SessionTokens { access_token: self.access_token, refresh_token: self.refresh_token }
     }
 }
 
@@ -1652,15 +1656,11 @@ impl TryFrom<Session> for AuthSession {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::authentication::oidc::OidcSessionTokens {
-                    access_token,
-                    refresh_token,
-                },
+                tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                 issuer: oidc_data.issuer,
             };
 
-            let session =
-                OidcSession { client_id: ClientId(oidc_data.client_id), user: user_session };
+            let session = OidcSession { client_id: oidc_data.client_id, user: user_session };
 
             Ok(AuthSession::Oidc(session.into()))
         } else {
@@ -1670,10 +1670,7 @@ impl TryFrom<Session> for AuthSession {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
                 },
-                tokens: matrix_sdk::authentication::matrix::MatrixSessionTokens {
-                    access_token,
-                    refresh_token,
-                },
+                tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
             };
 
             Ok(AuthSession::Matrix(session))
@@ -1686,13 +1683,13 @@ impl TryFrom<Session> for AuthSession {
 #[derive(Serialize, Deserialize)]
 #[serde(try_from = "OidcSessionDataDeHelper")]
 pub(crate) struct OidcSessionData {
-    client_id: String,
+    client_id: ClientId,
     issuer: String,
 }
 
 #[derive(Deserialize)]
 struct OidcSessionDataDeHelper {
-    client_id: String,
+    client_id: ClientId,
     issuer_info: Option<AuthenticationServerInfo>,
     issuer: Option<String>,
 }
@@ -1814,26 +1811,6 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
 
 #[derive(Clone, uniffi::Enum)]
 pub enum OidcPrompt {
-    /// The Authorization Server must not display any authentication or consent
-    /// user interface pages.
-    None,
-
-    /// The Authorization Server should prompt the End-User for
-    /// reauthentication.
-    Login,
-
-    /// The Authorization Server should prompt the End-User for consent before
-    /// returning information to the Client.
-    Consent,
-
-    /// The Authorization Server should prompt the End-User to select a user
-    /// account.
-    ///
-    /// This enables an End-User who has multiple accounts at the Authorization
-    /// Server to select amongst the multiple accounts that they might have
-    /// current sessions for.
-    SelectAccount,
-
     /// The Authorization Server should prompt the End-User to create a user
     /// account.
     ///
@@ -1847,26 +1824,17 @@ pub enum OidcPrompt {
 impl From<&SdkOidcPrompt> for OidcPrompt {
     fn from(value: &SdkOidcPrompt) -> Self {
         match value {
-            SdkOidcPrompt::None => Self::None,
-            SdkOidcPrompt::Login => Self::Login,
-            SdkOidcPrompt::Consent => Self::Consent,
-            SdkOidcPrompt::SelectAccount => Self::SelectAccount,
             SdkOidcPrompt::Create => Self::Create,
-            SdkOidcPrompt::Unknown(value) => Self::Unknown { value: value.to_owned() },
             _ => Self::Unknown { value: value.to_string() },
         }
     }
 }
 
-impl From<OidcPrompt> for SdkOidcPrompt {
+impl From<OidcPrompt> for RumaOidcPrompt {
     fn from(value: OidcPrompt) -> Self {
         match value {
-            OidcPrompt::None => Self::None,
-            OidcPrompt::Login => Self::Login,
-            OidcPrompt::Consent => Self::Consent,
-            OidcPrompt::SelectAccount => Self::SelectAccount,
             OidcPrompt::Create => Self::Create,
-            OidcPrompt::Unknown { value } => Self::Unknown(value),
+            OidcPrompt::Unknown { value } => value.into(),
         }
     }
 }

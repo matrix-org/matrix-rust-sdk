@@ -3740,12 +3740,12 @@ pub struct TryFromReportedContentScoreError(());
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use assert_matches2::assert_matches;
-    use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft, SessionMeta};
+    use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft};
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder,
     };
-    use ruma::{device_id, event_id, events::room::member::MembershipState, int, room_id, user_id};
+    use ruma::{event_id, events::room::member::MembershipState, int, room_id, user_id};
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
@@ -3753,9 +3753,8 @@ mod tests {
 
     use super::ReportedContentScore;
     use crate::{
-        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        test_utils::{logged_in_client, mocks::MatrixMockServer},
+        test_utils::{client::mock_matrix_session, logged_in_client, mocks::MatrixMockServer},
         Client,
     };
 
@@ -3765,13 +3764,7 @@ mod tests {
         use matrix_sdk_test::{message_like_event_content, DEFAULT_TEST_ROOM_ID};
 
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
-        let session = MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        };
+        let session = mock_matrix_session();
 
         let client = Client::builder()
             .homeserver_url("http://localhost:1234")
