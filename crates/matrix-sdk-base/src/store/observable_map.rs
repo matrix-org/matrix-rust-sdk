@@ -147,6 +147,11 @@ where
 
         Some(self.values.remove(position))
     }
+
+    /// Get the number of values.
+    pub(crate) fn len(&self) -> usize {
+        self.mapping.len()
+    }
 }
 
 #[cfg(test)]
@@ -294,5 +299,22 @@ mod tests {
 
         drop(map);
         assert_closed!(stream);
+    }
+
+    #[test]
+    fn test_len() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        assert_eq!(map.len(), 0);
+
+        map.insert('a', 'e');
+        map.insert('b', 'f');
+        map.insert('c', 'g');
+
+        assert_eq!(map.len(), 3);
+
+        map.remove(&'b');
+
+        assert_eq!(map.len(), 2);
     }
 }
