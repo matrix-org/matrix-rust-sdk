@@ -29,8 +29,27 @@ Breaking changes:
         - There is a new `abortOidcLogin` method that should be called if the webview is dismissed without a callback (
           or fails to present).
         - The rest of `AuthenticationError` is now found in the OidcError type.
+
 - `OidcAuthenticationData` is now called `OidcAuthorizationData`.
+
 - The `get_element_call_required_permissions` function now requires the device_id.
+
+- `Room::is_encrypted` is replaced by `Room::latest_encryption_state`
+  which returns a value of the new `EncryptionState` enum; another
+  `Room::encryption_state` non-async and infallible method is added to get the
+  `EncryptionState` without running a network request.
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777)). One can
+  safely replace:
+
+  ```rust
+  room.is_encrypted().await?
+  ```
+
+  by
+
+  ```rust
+  room.latest_encryption_state().await?.is_encrypted()
+  ```
 
 Additions:
 
