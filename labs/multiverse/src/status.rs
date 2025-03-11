@@ -7,21 +7,29 @@ use std::{
 };
 
 use matrix_sdk_common::locks::Mutex;
+use ratatui::{
+    prelude::{Buffer, Rect, *},
+    widgets::Paragraph,
+};
 use tokio::{
     spawn,
     task::{spawn_blocking, JoinHandle},
     time::sleep,
 };
 
+use crate::DetailsMode;
+
 const MESSAGE_DURATION: Duration = Duration::from_secs(4);
 
 pub struct Status {
     /// Content of the latest status message, if set.
-    pub last_status_message: Arc<Mutex<Option<String>>>,
+    last_status_message: Arc<Mutex<Option<String>>>,
 
     message_sender: mpsc::Sender<String>,
 
     _receiver_task: JoinHandle<()>,
+
+    mode: DetailsMode,
 }
 
 pub struct StatusHandle {
@@ -50,7 +58,12 @@ impl Status {
             move || Self::receiving_task(receiver, last_status_message)
         });
 
-        Self { last_status_message, _receiver_task: receiver_task, message_sender }
+        Self {
+            last_status_message,
+            _receiver_task: receiver_task,
+            message_sender,
+            mode: DetailsMode::default(),
+        }
     }
 
     fn receiving_task(receiver: Receiver<String>, status_message: Arc<Mutex<Option<String>>>) {
@@ -87,7 +100,48 @@ impl Status {
         );
     }
 
+    pub(super) fn set_mode(&mut self, mode: DetailsMode) {
+        self.mode = mode;
+    }
+
     pub fn handle(&self) -> StatusHandle {
         StatusHandle { message_sender: self.message_sender.clone() }
+    }
+}
+
+impl Widget for &mut Status {
+    /// Render the bottom part of the screen, with a status message if one is
+    /// set, or a default help message otherwise.
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        let status_message = self.last_status_message.lock();
+
+        let content = if let Some(status_message) = status_message.as_deref() {
+            status_message
+        } else {
+            match self.mode {
+                DetailsMode::ReadReceipts => {
+                    "\nUse j/k to move, s/S to start/stop the sync service, \
+                     m to mark as read, t to show the timeline, e to show events."
+                }
+                DetailsMode::TimelineItems => {
+                    "\nUse j/k to move, s/S to start/stop the sync service, \
+                     r to show read receipts, e to show events, Q to enable/disable \
+                     the send queue, M to send a message, L to like the last message."
+                }
+                DetailsMode::Events => {
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
+                     read receipts, t to show the timeline"
+                }
+                DetailsMode::LinkedChunk => {
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
+                     read receipts, t to show the timeline, e to show events"
+                }
+            }
+        };
+
+        Paragraph::new(content).centered().render(area, buf);
     }
 }
