@@ -748,7 +748,7 @@ async fn test_retry_decryption_updates_response() {
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
-        assert!(replied_to.content.as_unable_to_decrypt().is_some());
+        assert!(replied_to.content.is_unable_to_decrypt());
     }
 
     // Import a room key backup.
