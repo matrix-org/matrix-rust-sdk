@@ -640,15 +640,7 @@ impl EventCacheInner {
 
         let rooms = self.by_room.write().await;
         for room in rooms.values() {
-            // Clear all the room state.
-            let updates_as_vector_diffs = room.inner.state.write().await.reset().await?;
-
-            // Notify all the observers that we've lost track of state. (We ignore the
-            // error if there aren't any.)
-            let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Sync,
-            });
+            room.clear().await?;
         }
 
         Ok(())
