@@ -38,7 +38,7 @@ use ruma::events::{
 #[cfg(doc)]
 use ruma::DeviceId;
 use ruma::{
-    api::client as api,
+    api::client::{self as api, sync::sync_events::v5},
     events::{
         ignored_user_list::IgnoredUserListEvent,
         marked_unread::MarkedUnreadEventContent,
@@ -1797,8 +1797,67 @@ fn handle_room_member_event_for_profiles(
     }
 }
 
+/// Represent the `required_state` values sent by a sync request.
+///
+/// This is useful to track what state events have been requested when handling
+/// a response.
+///
+/// For example, if a sync requests the `m.room.encryption` state event, and the
+/// server replies with nothing, if means the room **is not** encrypted. Without
+/// knowing which state event was required by the sync, it is impossible to
+/// interpret the absence of state event from the server as _the room's
+/// encryption state is **not encrypted**_ or _the room's encryption state is
+/// **unknown**_.
+#[derive(Debug, Default)]
+pub struct RequestedRequiredStates {
+    default: Vec<(StateEventType, String)>,
+    for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+}
+
+impl RequestedRequiredStates {
+    /// Create a new `RequestedRequiredStates`.
+    ///
+    /// `default` represents the `required_state` value for all rooms.
+    /// `for_rooms` is the `required_state` per room.
+    pub fn new(
+        default: Vec<(StateEventType, String)>,
+        for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+    ) -> Self {
+        Self { default, for_rooms }
+    }
+
+    /// Get the `required_state` value for a specific room.
+    pub fn for_room(&self, room_id: &RoomId) -> &[(StateEventType, String)] {
+        self.for_rooms.get(room_id).unwrap_or(&self.default)
+    }
+}
+
+impl From<&v5::Request> for RequestedRequiredStates {
+    fn from(request: &v5::Request) -> Self {
+        // The following information is missing in the MSC4186 at the time of writing
+        // (2025-03-12) but: the `required_state`s from all lists and from all room
+        // subscriptions are combined by doing an union.
+        //
+        // Thus, we can do the same here, put the union in `default` and keep
+        // `for_rooms` empty. The `Self::for_room` will automatically do the fallback.
+        let mut default = BTreeSet::new();
+
+        for list in request.lists.values() {
+            default.extend(BTreeSet::from_iter(list.room_details.required_state.iter().cloned()));
+        }
+
+        for room_subscription in request.room_subscriptions.values() {
+            default.extend(BTreeSet::from_iter(room_subscription.required_state.iter().cloned()));
+        }
+
+        Self { default: default.into_iter().collect(), for_rooms: HashMap::new() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use assert_matches2::assert_let;
     use futures_util::FutureExt as _;
     use matrix_sdk_test::{
@@ -1806,17 +1865,175 @@ mod tests {
         LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, BOB,
     };
     use ruma::{
-        api::client as api, event_id, events::room::member::MembershipState, room_id, serde::Raw,
+        api::client::{self as api, sync::sync_events::v5},
+        event_id,
+        events::{room::member::MembershipState, StateEventType},
+        room_id,
+        serde::Raw,
         user_id,
     };
     use serde_json::{json, value::to_raw_value};
 
-    use super::BaseClient;
+    use super::{BaseClient, RequestedRequiredStates};
     use crate::{
         store::{StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
         RoomDisplayName, RoomState, SessionMeta,
     };
+
+    #[test]
+    fn test_requested_required_states() {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+
+        let requested_required_states = RequestedRequiredStates::new(
+            vec![(StateEventType::RoomAvatar, "".to_owned())],
+            HashMap::from([(
+                room_id_0.to_owned(),
+                vec![
+                    (StateEventType::RoomMember, "foo".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                ],
+            )]),
+        );
+
+        // A special set of state events exists for `room_id_0`.
+        assert_eq!(
+            requested_required_states.for_room(room_id_0),
+            &[
+                (StateEventType::RoomMember, "foo".to_owned()),
+                (StateEventType::RoomEncryption, "".to_owned()),
+            ]
+        );
+
+        // No special list for `room_id_1`, it should return the defaults.
+        assert_eq!(
+            requested_required_states.for_room(room_id_1),
+            &[(StateEventType::RoomAvatar, "".to_owned()),]
+        );
+    }
+
+    #[test]
+    fn test_requested_required_states_from_sync_v5_request() {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+
+        // Empty request.
+        let mut request = v5::Request::new();
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            assert!(requested_required_states.default.is_empty());
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // One list.
+        request.lists.insert("foo".to_owned(), {
+            let mut list = v5::request::List::default();
+            list.room_details.required_state = vec![
+                (StateEventType::RoomAvatar, "".to_owned()),
+                (StateEventType::RoomEncryption, "".to_owned()),
+            ];
+
+            list
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned())
+                ]
+            );
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // Two lists.
+        request.lists.insert("bar".to_owned(), {
+            let mut list = v5::request::List::default();
+            list.room_details.required_state = vec![
+                (StateEventType::RoomEncryption, "".to_owned()),
+                (StateEventType::RoomName, "".to_owned()),
+            ];
+
+            list
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            // Union of the state events.
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                    (StateEventType::RoomName, "".to_owned()),
+                ]
+            );
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // One room subscription.
+        request.room_subscriptions.insert(room_id_0.to_owned(), {
+            let mut room_subscription = v5::request::RoomSubscription::default();
+
+            room_subscription.required_state = vec![
+                (StateEventType::RoomJoinRules, "".to_owned()),
+                (StateEventType::RoomEncryption, "".to_owned()),
+            ];
+
+            room_subscription
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            // Union of state events, all in `default`, still nothing in `for_rooms`.
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                    (StateEventType::RoomJoinRules, "".to_owned()),
+                    (StateEventType::RoomName, "".to_owned()),
+                ]
+            );
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // Two room subscriptions.
+        request.room_subscriptions.insert(room_id_1.to_owned(), {
+            let mut room_subscription = v5::request::RoomSubscription::default();
+
+            room_subscription.required_state = vec![
+                (StateEventType::RoomName, "".to_owned()),
+                (StateEventType::RoomTopic, "".to_owned()),
+            ];
+
+            room_subscription
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            // Union of state events, all in `default`, still nothing in `for_rooms`.
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                    (StateEventType::RoomJoinRules, "".to_owned()),
+                    (StateEventType::RoomName, "".to_owned()),
+                    (StateEventType::RoomTopic, "".to_owned()),
+                ]
+            );
+        }
+    }
 
     #[async_test]
     async fn test_invite_after_leaving() {
