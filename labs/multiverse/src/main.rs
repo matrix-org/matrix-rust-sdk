@@ -9,6 +9,7 @@ use std::{
 use clap::Parser;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use events::EventsView;
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use layout::Flex;
@@ -41,6 +42,7 @@ use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
+mod events;
 mod linked_chunk;
 mod read_receipts;
 mod room_list;
@@ -516,6 +518,7 @@ impl App {
             .bg(HEADER_BG)
             .title("Room view")
             .title_alignment(Alignment::Center);
+
         let inner_block = Block::default()
             .borders(Borders::NONE)
             .bg(NORMAL_ROW_COLOR)
@@ -563,35 +566,16 @@ impl App {
                     let room = rooms.get(&room_id);
 
                     let mut linked_chunk_view = LinkedChunkView::new(room);
-
                     linked_chunk_view.render(inner_area, buf);
                 }
 
-                DetailsMode::Events => match self.ui_rooms.lock().get(&room_id).cloned() {
-                    Some(room) => {
-                        let events = tokio::task::block_in_place(|| {
-                            Handle::current().block_on(async {
-                                let (room_event_cache, _drop_handles) =
-                                    room.event_cache().await.unwrap();
-                                let (events, _) = room_event_cache.subscribe().await;
-                                events
-                            })
-                        });
+                DetailsMode::Events => {
+                    let rooms = self.ui_rooms.lock();
+                    let room = rooms.get(&room_id);
 
-                        let rendered_events = events
-                            .into_iter()
-                            .map(|sync_timeline_item| sync_timeline_item.raw().json().to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n\n");
-
-                        render_paragraph(buf, format!("Events:\n\n{rendered_events}"))
-                    }
-
-                    None => render_paragraph(
-                        buf,
-                        "(room disappeared in the room list service)".to_owned(),
-                    ),
-                },
+                    let mut events_view = EventsView::new(room);
+                    events_view.render(inner_area, buf);
+                }
             }
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
