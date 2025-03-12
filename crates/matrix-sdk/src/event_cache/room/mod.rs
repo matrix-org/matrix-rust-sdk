@@ -239,7 +239,7 @@ impl RoomEventCache {
         // Notify observers about the update.
         let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
+            origin: EventsOrigin::Cache,
         });
 
         Ok(())
