@@ -265,43 +265,10 @@ impl TimelineBuilder {
             controller.clone(),
         ));
 
-        let room_key_backup_enabled_join_handle = {
-            let inner = controller.clone();
-            let stream = client.encryption().backups().state_stream();
-
-            spawn(async move {
-                pin_mut!(stream);
-
-                while let Some(update) = stream.next().await {
-                    match update {
-                        // If the backup got enabled, or we lagged and thus missed that the backup
-                        // might be enabled, retry to decrypt all the events. Please note, depending
-                        // on the backup download strategy, this might do two things under the
-                        // assumption that the backup contains the relevant room keys:
-                        //
-                        // 1. It will decrypt the events, if `BackupDownloadStrategy` has been set
-                        //    to `OneShot`.
-                        // 2. It will fail to decrypt the event, but try to download the room key to
-                        //    decrypt it if the `BackupDownloadStrategy` has been set to
-                        //    `AfterDecryptionFailure`.
-                        Ok(BackupState::Enabled) | Err(_) => {
-                            let room = inner.room();
-                            inner.retry_event_decryption(room, None).await;
-                        }
-                        // The other states aren't interesting since they are either still enabling
-                        // the backup or have the backup in the disabled state.
-                        Ok(
-                            BackupState::Unknown
-                            | BackupState::Creating
-                            | BackupState::Resuming
-                            | BackupState::Disabling
-                            | BackupState::Downloading
-                            | BackupState::Enabling,
-                        ) => (),
-                    }
-                }
-            })
-        };
+        let room_key_backup_enabled_join_handle = spawn(backup_states_task(
+            client.encryption().backups().state_stream(),
+            controller.clone(),
+        ));
 
         // TODO: Technically, this should be the only stream we need to listen to get
         // notified when we should retry to decrypt an event. We sadly can't do that,
@@ -520,6 +487,41 @@ where
             }
             // We lagged, so retry every event.
             Err(_) => timeline_controller.retry_event_decryption(room, None).await,
+        }
+    }
+}
+
+/// The task that handles the [`BackupState`] updates.
+async fn backup_states_task<S>(backup_states_stream: S, timeline_controller: TimelineController)
+where
+    S: Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
+{
+    pin_mut!(backup_states_stream);
+
+    while let Some(update) = backup_states_stream.next().await {
+        match update {
+            // If the backup got enabled, or we lagged and thus missed that the backup
+            // might be enabled, retry to decrypt all the events. Please note, depending
+            // on the backup download strategy, this might do two things under the
+            // assumption that the backup contains the relevant room keys:
+            //
+            // 1. It will decrypt the events, if `BackupDownloadStrategy` has been set to `OneShot`.
+            // 2. It will fail to decrypt the event, but try to download the room key to decrypt it
+            //    if the `BackupDownloadStrategy` has been set to `AfterDecryptionFailure`.
+            Ok(BackupState::Enabled) | Err(_) => {
+                let room = timeline_controller.room();
+                timeline_controller.retry_event_decryption(room, None).await;
+            }
+            // The other states aren't interesting since they are either still enabling
+            // the backup or have the backup in the disabled state.
+            Ok(
+                BackupState::Unknown
+                | BackupState::Creating
+                | BackupState::Resuming
+                | BackupState::Disabling
+                | BackupState::Downloading
+                | BackupState::Enabling,
+            ) => (),
         }
     }
 }
