@@ -246,9 +246,6 @@ impl TimelineBuilder {
             })
         };
 
-        // Not using room.add_event_handler here because RoomKey events are
-        // to-device events that are not received in the context of a room.
-
         let room_key_handle = client.add_event_handler(handle_room_key_event(
             controller.clone(),
             room.room_id().to_owned(),
@@ -260,6 +257,9 @@ impl TimelineBuilder {
         ));
 
         let handles = vec![room_key_handle, forwarded_room_key_handle];
+
+        // Not using room.add_event_handler here because RoomKey events are
+        // to-device events that are not received in the context of a room.
 
         let room_key_from_backups_join_handle = spawn(room_keys_from_backups_task(
             client.encryption().backups().room_keys_for_room_stream(controller.room().room_id()),
