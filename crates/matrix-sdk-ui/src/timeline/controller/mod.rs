@@ -1475,13 +1475,9 @@ impl TimelineController {
         state.items.all_remote_events().last().map(|event_meta| &event_meta.event_id).cloned()
     }
 
-    #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
-    pub(super) async fn retry_event_decryption(
-        &self,
-        room: &Room,
-        session_ids: Option<BTreeSet<String>>,
-    ) {
-        self.retry_event_decryption_inner(room.to_owned(), session_ids).await
+    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
+    pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
+        self.retry_event_decryption_inner(self.room().to_owned(), session_ids).await
     }
 }
 

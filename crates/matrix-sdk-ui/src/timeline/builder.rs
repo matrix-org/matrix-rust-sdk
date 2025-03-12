@@ -448,8 +448,6 @@ where
     pin_mut!(stream);
 
     while let Some(update) = stream.next().await {
-        let room = timeline_controller.room();
-
         match update {
             Ok(info) => {
                 let mut session_ids = BTreeSet::new();
@@ -458,10 +456,10 @@ where
                     session_ids.extend(set);
                 }
 
-                timeline_controller.retry_event_decryption(room, Some(session_ids)).await;
+                timeline_controller.retry_event_decryption(Some(session_ids)).await;
             }
             // We lagged, so retry every event.
-            Err(_) => timeline_controller.retry_event_decryption(room, None).await,
+            Err(_) => timeline_controller.retry_event_decryption(None).await,
         }
     }
 }
@@ -484,8 +482,7 @@ where
             // 2. It will fail to decrypt the event, but try to download the room key to decrypt it
             //    if the `BackupDownloadStrategy` has been set to `AfterDecryptionFailure`.
             Ok(BackupState::Enabled) | Err(_) => {
-                let room = timeline_controller.room();
-                timeline_controller.retry_event_decryption(room, None).await;
+                timeline_controller.retry_event_decryption(None).await;
             }
             // The other states aren't interesting since they are either still enabling
             // the backup or have the backup in the disabled state.
@@ -535,7 +532,6 @@ async fn room_key_received_task<S>(
             }
         };
 
-        let room = timeline_controller.room();
-        timeline_controller.retry_event_decryption(room, session_ids).await;
+        timeline_controller.retry_event_decryption(session_ids).await;
     }
 }
