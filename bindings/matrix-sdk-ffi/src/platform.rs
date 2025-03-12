@@ -348,20 +348,38 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
     filters.join(",")
 }
 
+/// Sets up logs and the tokio runtime for the current application.
+///
+/// If `use_lightweight_tokio_runtime` is set to true, this will set up a lightweight tokio
+/// runtime, for processes that have memory limitations (like the NSE process on iOS). Otherwise,
+/// this can remain false, in which case a multithreaded tokio runtime will be set up.
 #[matrix_sdk_ffi_macros::export]
-pub fn setup_tracing(config: TracingConfiguration) {
+pub fn init_platform(config: TracingConfiguration, use_lightweight_tokio_runtime: bool) {
     log_panics();
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(build_tracing_filter(&config)))
         .with(text_layers(config))
         .init();
+
+    if use_lightweight_tokio_runtime {
+        setup_lightweight_tokio_runtime();
+    } else {
+        setup_multithreaded_tokio_runtime();
+    }
 }
 
-/// Set up a lightweight tokio runtime, for processes that have memory
-/// limitations (like the NSE process on iOS).
-#[matrix_sdk_ffi_macros::export]
-pub fn setup_lightweight_tokio_runtime() {
+fn setup_multithreaded_tokio_runtime() {
+    async_compat::set_runtime_builder(Box::new(|| {
+        eprintln!("spawning a multithreaded tokio runtime");
+
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.enable_all();
+        builder
+    }));
+}
+
+fn setup_lightweight_tokio_runtime() {
     async_compat::set_runtime_builder(Box::new(|| {
         eprintln!("spawning a lightweight tokio runtime");
 

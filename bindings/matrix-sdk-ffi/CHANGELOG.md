@@ -2,6 +2,11 @@
 
 Breaking changes:
 
+- `setup_tracing` has been renamed `init_platform`; in addition to the `TracingConfiguration`
+  parameter it also now takes a boolean indicating whether to spawn a minimal tokio runtime for the
+  application; in general for main app processes this can be set to `false`, and memory-constrained
+  programs can set it to `true`.
+
 - Matrix client API errors coming from API responses will now be mapped to `ClientError::MatrixApi`, containing both the
   original message and the associated error code and kind. 
 
