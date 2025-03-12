@@ -72,10 +72,12 @@ struct Cli {
     proxy: Option<Url>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub enum GlobalMode {
+    /// The default mode, no popout screen is opened.
     #[default]
     Default,
+    /// Mode where we have opened the help screen.
     Help,
 }
 
@@ -114,7 +116,7 @@ async fn main() -> Result<()> {
     app.run(terminal).await
 }
 
-#[derive(Default, Clone, Copy, PartialEq)]
+#[derive(Default, PartialEq)]
 pub enum DetailsMode {
     ReadReceipts,
     #[default]
@@ -127,6 +129,16 @@ struct Timeline {
     timeline: Arc<SdkTimeline>,
     items: Arc<Mutex<Vector<Arc<TimelineItem>>>>,
     task: JoinHandle<()>,
+}
+
+#[derive(Default)]
+pub struct AppState {
+    /// What popup are we showing that is covering the majority of the screen,
+    /// mainly used for help and settings screens.
+    global_mode: GlobalMode,
+
+    /// What's shown in the details view, aka the right panel.
+    details_mode: DetailsMode,
 }
 
 struct App {
@@ -151,17 +163,16 @@ struct App {
     /// The status widet at the bottom of the screen.
     status: Status,
 
-    /// What's shown in the details view, aka the right panel.
-    details_mode: DetailsMode,
+    state: AppState,
 
     current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
 
-    /// What popup are we showing that is covering the majority of the screen,
-    /// mainly used for help and settings screens.
-    global_mode: GlobalMode,
+    last_tick: Instant,
 }
 
 impl App {
+    const TICK_RATE: Duration = Duration::from_millis(250);
+
     async fn new(client: Client) -> Result<Self> {
         let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
 
@@ -201,8 +212,7 @@ impl App {
             client,
             listen_task,
             status,
-            global_mode: GlobalMode::default(),
-            details_mode: Default::default(),
+            state: AppState::default(),
             timelines,
             current_pagination: Default::default(),
         })
@@ -373,13 +383,11 @@ impl App {
     }
 
     fn set_mode(&mut self, mode: DetailsMode) {
-        self.details_mode = mode;
-        self.status.set_mode(mode);
+        self.state.details_mode = mode;
     }
 
     fn set_global_mode(&mut self, mode: GlobalMode) {
-        self.global_mode = mode;
-        self.status.set_global_mode(mode);
+        self.state.global_mode = mode;
     }
 
     async fn handle_help_key_press(&mut self, key: KeyEvent) -> Result<()> {
@@ -405,7 +413,7 @@ impl App {
         if key.kind == KeyEventKind::Press && key.modifiers == KeyModifiers::NONE {
             match key.code {
                 Char('q') | Esc => {
-                    if self.global_mode != GlobalMode::Default {
+                    if self.state.global_mode != GlobalMode::Default {
                         self.set_global_mode(GlobalMode::Default);
                     } else {
                         return Ok(true);
@@ -472,13 +480,13 @@ impl App {
                 Char('l') => self.set_mode(DetailsMode::LinkedChunk),
 
                 Char('b')
-                    if self.details_mode == DetailsMode::TimelineItems
-                        || self.details_mode == DetailsMode::LinkedChunk =>
+                    if self.state.details_mode == DetailsMode::TimelineItems
+                        || self.state.details_mode == DetailsMode::LinkedChunk =>
                 {
                     self.back_paginate();
                 }
 
-                Char('m') if self.details_mode == DetailsMode::ReadReceipts => {
+                Char('m') if self.state.details_mode == DetailsMode::ReadReceipts => {
                     self.room_list.mark_as_read().await
                 }
 
@@ -495,7 +503,7 @@ impl App {
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
-                    match self.global_mode {
+                    match self.state.global_mode {
                         GlobalMode::Default => {
                             if self.handle_global_key_press(key).await? {
                                 break;
@@ -548,7 +556,7 @@ impl Widget for &mut App {
         self.render_title(header_area, buf);
         self.room_list.render(room_list_area, buf);
         self.render_right(rhs, buf);
-        self.status.render(status_area, buf);
+        self.status.render(status_area, buf, &mut self.state);
 
         match self.global_mode {
             GlobalMode::Default => (),
@@ -602,7 +610,7 @@ impl App {
         };
 
         if let Some(room_id) = self.room_list.get_selected_room_id() {
-            match self.details_mode {
+            match self.state.details_mode {
                 DetailsMode::ReadReceipts => {
                     // In read receipts mode, show the read receipts object as computed by the
                     // client.
