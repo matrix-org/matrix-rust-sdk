@@ -17,7 +17,7 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{DetailsMode, GlobalMode};
+use crate::{AppState, DetailsMode, GlobalMode};
 
 const MESSAGE_DURATION: Duration = Duration::from_secs(4);
 
@@ -32,12 +32,6 @@ pub struct Status {
     /// The task listening for messages to be received over the
     /// [mpsc::Receiver].
     _receiver_task: JoinHandle<()>,
-
-    /// A copy of the [`DetailsMode`] set by the main application.
-    mode: DetailsMode,
-
-    /// A copy of the [`GlobalMode`] set by the main application.
-    global_mode: GlobalMode,
 }
 
 /// A handle to the [`Status`] widget, this handle can be moved to different
@@ -68,13 +62,7 @@ impl Status {
             move || Self::receiving_task(receiver, last_status_message)
         });
 
-        Self {
-            last_status_message,
-            _receiver_task: receiver_task,
-            message_sender,
-            mode: DetailsMode::default(),
-            global_mode: GlobalMode::default(),
-        }
+        Self { last_status_message, _receiver_task: receiver_task, message_sender }
     }
 
     fn receiving_task(receiver: Receiver<String>, status_message: Arc<Mutex<Option<String>>>) {
@@ -111,14 +99,6 @@ impl Status {
         );
     }
 
-    pub fn set_mode(&mut self, mode: DetailsMode) {
-        self.mode = mode;
-    }
-
-    pub fn set_global_mode(&mut self, mode: GlobalMode) {
-        self.global_mode = mode;
-    }
-
     /// Get a handle to the [`Status`] widget, this can be used to set the
     /// status message from a separate thread.
     pub fn handle(&self) -> StatusHandle {
@@ -126,21 +106,23 @@ impl Status {
     }
 }
 
-impl Widget for &mut Status {
+impl StatefulWidget for &mut Status {
+    type State = AppState;
+
     /// Render the bottom part of the screen, with a status message if one is
     /// set, or a default help message otherwise.
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let status_message = self.last_status_message.lock();
 
         let content = if let Some(status_message) = status_message.as_deref() {
             status_message
         } else {
-            match self.global_mode {
+            let AppState { global_mode, details_mode } = state;
+
+            match global_mode {
                 GlobalMode::Help => "Press q to exit the help screen",
-                GlobalMode::Default => match self.mode {
+                GlobalMode::Recovery { .. } => "Press q to exit the recovery screen",
+                GlobalMode::Default => match details_mode {
                     DetailsMode::ReadReceipts => {
                         "\nUse j/k to move, s/S to start/stop the sync service, \
                      m to mark as read, t to show the timeline, e to show events."
