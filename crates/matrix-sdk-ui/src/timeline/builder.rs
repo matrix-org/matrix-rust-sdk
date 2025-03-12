@@ -20,10 +20,11 @@ use matrix_sdk::{
     encryption::backups::BackupState,
     event_cache::{EventsOrigin, RoomEventCache, RoomEventCacheListener, RoomEventCacheUpdate},
     executor::spawn,
+    send_queue::RoomSendQueueUpdate,
     Room,
 };
 use ruma::{events::AnySyncTimelineEvent, OwnedEventId, RoomVersionId};
-use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
@@ -219,13 +220,13 @@ impl TimelineBuilder {
         });
 
         let local_echo_listener_handle = {
-            let timeline = controller.clone();
-            let (local_echoes, mut listener) = room.send_queue().subscribe().await?;
+            let timeline_controller = controller.clone();
+            let (local_echoes, send_queue_stream) = room.send_queue().subscribe().await?;
 
             spawn({
                 // Handles existing local echoes first.
                 for echo in local_echoes {
-                    timeline.handle_local_echo(echo).await;
+                    timeline_controller.handle_local_echo(echo).await;
                 }
 
                 let span = info_span!(
@@ -237,26 +238,7 @@ impl TimelineBuilder {
                 );
                 span.follows_from(Span::current());
 
-                // React to future local echoes too.
-                async move {
-                    info!("spawned the local echo handler!");
-
-                    loop {
-                        match listener.recv().await {
-                            Ok(update) => timeline.handle_room_send_queue_update(update).await,
-
-                            Err(RecvError::Lagged(num_missed)) => {
-                                warn!("missed {num_missed} local echoes, ignoring those missed");
-                            }
-
-                            Err(RecvError::Closed) => {
-                                info!("channel closed, exiting the local echo handler");
-                                break;
-                            }
-                        }
-                    }
-                }
-                .instrument(span)
+                room_send_queue_update_task(send_queue_stream, timeline_controller).instrument(span)
             })
         };
 
@@ -509,6 +491,29 @@ async fn room_event_cache_updates_task(
                         .force_update_sender_profiles(&member_ambiguity_changes)
                         .await;
                 }
+            }
+        }
+    }
+}
+
+/// The task that handles the [`RoomSendQueueUpdate`]s.
+async fn room_send_queue_update_task(
+    mut send_queue_stream: Receiver<RoomSendQueueUpdate>,
+    timeline_controller: TimelineController,
+) {
+    info!("spawned the local echo task!");
+
+    loop {
+        match send_queue_stream.recv().await {
+            Ok(update) => timeline_controller.handle_room_send_queue_update(update).await,
+
+            Err(RecvError::Lagged(num_missed)) => {
+                warn!("missed {num_missed} local echoes, ignoring those missed");
+            }
+
+            Err(RecvError::Closed) => {
+                info!("channel closed, exiting the local echo handler");
+                break;
             }
         }
     }
