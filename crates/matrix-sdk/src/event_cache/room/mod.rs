@@ -418,6 +418,7 @@ impl RoomEventCacheInner {
                 timeline.prev_batch,
                 ephemeral_events,
                 ambiguity_changes,
+                EventsOrigin::Sync,
             )
             .await?;
         } else {
@@ -467,6 +468,7 @@ impl RoomEventCacheInner {
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        events_origin: EventsOrigin,
     ) -> Result<()> {
         // Acquire the lock.
         let mut state = self.state.write().await;
@@ -477,7 +479,7 @@ impl RoomEventCacheInner {
         // Propagate to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
+            origin: events_origin,
         });
 
         // Push the new events.
