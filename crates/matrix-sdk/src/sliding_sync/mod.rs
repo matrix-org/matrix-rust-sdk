@@ -35,6 +35,7 @@ use std::{
 use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
+use matrix_sdk_base::RequestedRequiredStates;
 use matrix_sdk_common::{deserialized_responses::TimelineEvent, executor::spawn, timer};
 use ruma::{
     api::client::{error::ErrorKind, sync::sync_events::v5 as http},
@@ -265,6 +266,7 @@ impl SlidingSync {
         &self,
         sliding_sync_response: http::Response,
         position: &mut SlidingSyncPositionMarkers,
+        requested_required_states: RequestedRequiredStates,
     ) -> Result<UpdateSummary, crate::Error> {
         let pos = Some(sliding_sync_response.pos.clone());
 
@@ -296,7 +298,9 @@ impl SlidingSync {
             // Only handle the room's subsection of the response, if this sliding sync was
             // configured to do so.
             if must_process_rooms_response {
-                response_processor.handle_room_response(&sliding_sync_response).await?;
+                response_processor
+                    .handle_room_response(&sliding_sync_response, &requested_required_states)
+                    .await?;
             }
 
             response_processor.process_and_take_response().await?
@@ -543,6 +547,7 @@ impl SlidingSync {
         debug!("Sending request");
 
         // Prepare the request.
+        let requested_required_states = RequestedRequiredStates::from(&request);
         let request = self.inner.client.send(request).with_request_config(request_config);
 
         // Send the request and get a response with end-to-end encryption support.
@@ -625,7 +630,9 @@ impl SlidingSync {
             // `position_guard`, so we're fine.
 
             // Handle the response.
-            let updates = this.handle_response(response, &mut position_guard).await?;
+            let updates = this
+                .handle_response(response, &mut position_guard, requested_required_states)
+                .await?;
 
             this.cache_to_storage(&position_guard).await?;
 
@@ -967,6 +974,7 @@ mod tests {
     use assert_matches::assert_matches;
     use event_listener::Listener;
     use futures_util::{future::join_all, pin_mut, StreamExt};
+    use matrix_sdk_base::RequestedRequiredStates;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::error::ErrorKind, assign, owned_room_id, room_id, serde::Raw, uint,
@@ -2102,7 +2110,13 @@ mod tests {
 
             let _summary = {
                 let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+                sliding_sync
+                    .handle_response(
+                        server_response.clone(),
+                        &mut pos_guard,
+                        RequestedRequiredStates::default(),
+                    )
+                    .await?
             };
         }
 
@@ -2136,7 +2150,13 @@ mod tests {
 
         let summary = {
             let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?
         };
 
         assert!(summary.rooms.contains(&room));
@@ -2176,7 +2196,13 @@ mod tests {
 
             let _summary = {
                 let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+                sliding_sync
+                    .handle_response(
+                        server_response.clone(),
+                        &mut pos_guard,
+                        RequestedRequiredStates::default(),
+                    )
+                    .await?
             };
         }
 
@@ -2187,7 +2213,13 @@ mod tests {
 
         let update_summary = {
             let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?
         };
 
         // Check that the list list and entry received the update
@@ -2205,7 +2237,13 @@ mod tests {
         let server_response = make_mark_unread_response("2", room_id.clone(), false, true);
 
         let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-        sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?;
+        sliding_sync
+            .handle_response(
+                server_response.clone(),
+                &mut pos_guard,
+                RequestedRequiredStates::default(),
+            )
+            .await?;
 
         let room = client.get_room(&room_id).unwrap();
 
@@ -2280,7 +2318,13 @@ mod tests {
 
             let _summary = {
                 let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+                sliding_sync
+                    .handle_response(
+                        server_response.clone(),
+                        &mut pos_guard,
+                        RequestedRequiredStates::default(),
+                    )
+                    .await?
             };
         }
 
@@ -2312,7 +2356,13 @@ mod tests {
         });
         let summary = {
             let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?
         };
 
         assert!(summary.rooms.contains(&room));
@@ -2364,7 +2414,13 @@ mod tests {
         {
             let mut position_guard = sliding_sync.inner.position.clone().lock_owned().await;
 
-            sliding_sync.handle_response(server_response.clone(), &mut position_guard).await?;
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut position_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
         }
 
         // E2EE has been properly handled.
@@ -2395,7 +2451,13 @@ mod tests {
         {
             let mut position_guard = sliding_sync.inner.position.clone().lock_owned().await;
 
-            sliding_sync.handle_response(server_response.clone(), &mut position_guard).await?;
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut position_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
         }
 
         // E2EE response has been ignored.
@@ -2429,7 +2491,13 @@ mod tests {
         {
             let mut position_guard = sliding_sync.inner.position.clone().lock_owned().await;
 
-            sliding_sync.handle_response(server_response.clone(), &mut position_guard).await?;
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut position_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
         }
 
         // E2EE has been properly handled.
@@ -2638,7 +2706,13 @@ mod tests {
 
             let _summary = {
                 let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+                sliding_sync
+                    .handle_response(
+                        server_response.clone(),
+                        &mut pos_guard,
+                        RequestedRequiredStates::default(),
+                    )
+                    .await?
             };
         }
 
@@ -2680,7 +2754,13 @@ mod tests {
 
             let _summary = {
                 let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+                sliding_sync
+                    .handle_response(
+                        server_response.clone(),
+                        &mut pos_guard,
+                        RequestedRequiredStates::default(),
+                    )
+                    .await?
             };
         }
 
@@ -2703,7 +2783,13 @@ mod tests {
 
             let _summary = {
                 let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
-                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+                sliding_sync
+                    .handle_response(
+                        server_response.clone(),
+                        &mut pos_guard,
+                        RequestedRequiredStates::default(),
+                    )
+                    .await?
             };
         }
 

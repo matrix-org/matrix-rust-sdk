@@ -1582,20 +1582,41 @@ impl RoomInfo {
         self.base_info.encryption = event;
     }
 
+    /// Handle the encryption state.
+    pub fn handle_encryption_state(
+        &mut self,
+        requested_required_states: &[(StateEventType, String)],
+    ) {
+        if requested_required_states
+            .iter()
+            .any(|(state_event, _)| state_event == &StateEventType::RoomEncryption)
+        {
+            // The `m.room.encryption` event was requested during the sync. Whether we have
+            // received a `m.room.encryption` event in return doesn't matter: we must mark
+            // the encryption state as synced; if the event is present, it means the room
+            // _is_ encrypted, otherwise it means the room _is not_ encrypted.
+
+            self.mark_encryption_state_synced();
+        }
+    }
+
     /// Handle the given state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        let ret = self.base_info.handle_state_event(event);
+        // Store the state event in the `BaseRoomInfo` first.
+        let base_info_has_been_modified = self.base_info.handle_state_event(event);
 
-        // If we received an `m.room.encryption` event here, and encryption got enabled,
-        // then we can be certain that we have synced the encryption state event, so
-        // mark it here as synced.
         if let AnySyncStateEvent::RoomEncryption(_) = event {
+            // The `m.room.encryption` event was or wasn't explicitly requested, we don't
+            // know here (see `Self::handle_encryption_state`) but we got one in
+            // return! In this case, we can deduce the room _is_ encrypted, but we cannot
+            // know if it _is not_ encrypted.
+
             self.mark_encryption_state_synced();
         }
 
-        ret
+        base_info_has_been_modified
     }
 
     /// Handle the given stripped state event.
