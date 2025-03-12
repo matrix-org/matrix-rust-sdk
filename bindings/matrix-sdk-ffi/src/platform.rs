@@ -350,9 +350,10 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
 
 /// Sets up logs and the tokio runtime for the current application.
 ///
-/// If `use_lightweight_tokio_runtime` is set to true, this will set up a lightweight tokio
-/// runtime, for processes that have memory limitations (like the NSE process on iOS). Otherwise,
-/// this can remain false, in which case a multithreaded tokio runtime will be set up.
+/// If `use_lightweight_tokio_runtime` is set to true, this will set up a
+/// lightweight tokio runtime, for processes that have memory limitations (like
+/// the NSE process on iOS). Otherwise, this can remain false, in which case a
+/// multithreaded tokio runtime will be set up.
 #[matrix_sdk_ffi_macros::export]
 pub fn init_platform(config: TracingConfiguration, use_lightweight_tokio_runtime: bool) {
     log_panics();
