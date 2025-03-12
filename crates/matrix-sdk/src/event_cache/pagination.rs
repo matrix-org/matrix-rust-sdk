@@ -226,7 +226,7 @@ impl RoomPagination {
                         let _ =
                             self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                                 diffs: timeline_event_diffs,
-                                origin: EventsOrigin::Pagination,
+                                origin: EventsOrigin::Cache,
                             });
                     }
 
