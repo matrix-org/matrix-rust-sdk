@@ -426,7 +426,13 @@ impl EventCache {
 
         room_cache
             .inner
-            .replace_all_events_by(events, prev_batch, Default::default(), Default::default())
+            .replace_all_events_by(
+                events,
+                prev_batch,
+                Default::default(),
+                Default::default(),
+                EventsOrigin::Cache,
+            )
             .await?;
 
         Ok(())
