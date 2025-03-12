@@ -3399,6 +3399,7 @@ dependencies = [
  "crossterm",
  "futures-util",
  "imbl",
+ "itertools 0.14.0",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-common",
