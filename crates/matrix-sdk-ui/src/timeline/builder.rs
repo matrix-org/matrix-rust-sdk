@@ -244,15 +244,12 @@ impl TimelineBuilder {
                             // The updates might have lagged, but the room event cache might have
                             // events, so retrieve them and add them back again to the timeline,
                             // after clearing it.
-                            //
-                            // If we can't get a handle on the room cache's events, just clear the
-                            // current timeline.
                             let (initial_events, _stream) = room_event_cache.subscribe().await;
 
                             inner
                                 .replace_with_initial_remote_events(
                                     initial_events.into_iter(),
-                                    RemoteEventOrigin::Sync,
+                                    RemoteEventOrigin::Cache,
                                 )
                                 .await;
 
