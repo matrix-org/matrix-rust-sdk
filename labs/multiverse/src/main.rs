@@ -9,12 +9,9 @@ use std::{
 use clap::Parser;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use events::EventsView;
 use futures_util::{pin_mut, StreamExt as _};
-use help::HelpView;
 use imbl::Vector;
 use layout::Flex;
-use linked_chunk::LinkedChunkView;
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::StoreConfig,
@@ -37,20 +34,20 @@ use matrix_sdk_ui::{
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
-use read_receipts::ReadReceipts;
-use status::Status;
 use tokio::{spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
-mod events;
-mod help;
-mod linked_chunk;
-mod read_receipts;
-mod room_list;
-mod status;
+use crate::widgets::{
+    events::EventsView,
+    help::HelpView,
+    linked_chunk::LinkedChunkView,
+    read_receipts::ReadReceipts,
+    room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms},
+    status::Status,
+};
 
-use room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms};
+mod widgets;
 
 const HEADER_BG: Color = tailwind::BLUE.c950;
 const NORMAL_ROW_COLOR: Color = tailwind::SLATE.c950;
@@ -76,7 +73,7 @@ struct Cli {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum GlobalMode {
+pub enum GlobalMode {
     #[default]
     Default,
     Help,
@@ -118,7 +115,7 @@ async fn main() -> Result<()> {
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
-enum DetailsMode {
+pub enum DetailsMode {
     ReadReceipts,
     #[default]
     TimelineItems,

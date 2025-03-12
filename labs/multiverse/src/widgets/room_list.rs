@@ -9,8 +9,8 @@ use matrix_sdk_ui::{room_list_service, sync_service::SyncService};
 use ratatui::{prelude::*, widgets::*};
 
 use crate::{
-    status::StatusHandle, UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG,
-    TEXT_COLOR,
+    widgets::status::StatusHandle, UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR,
+    SELECTED_STYLE_FG, TEXT_COLOR,
 };
 
 /// Extra room information, like its display name, etc.
