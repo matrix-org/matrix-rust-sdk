@@ -4,7 +4,7 @@ use matrix_sdk::{
     config::SyncSettings,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
-use matrix_sdk_base::RoomState;
+use matrix_sdk_base::{RequestedRequiredStates, RoomState};
 use matrix_sdk_test::{
     async_test, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder,
 };
@@ -167,7 +167,10 @@ async fn test_room_preview_computes_name_if_room_is_known() {
     let mut response = sliding_sync_http::Response::new("0".to_owned());
     response.rooms.insert(room_id.to_owned(), room);
 
-    client.process_sliding_sync_test_helper(&response).await.expect("Failed to process sync");
+    client
+        .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+        .await
+        .expect("Failed to process sync");
 
     // When we get its preview
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();

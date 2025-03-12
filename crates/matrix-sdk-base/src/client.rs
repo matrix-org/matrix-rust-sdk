@@ -963,6 +963,25 @@ impl BaseClient {
         &self,
         response: api::sync::sync_events::v3::Response,
     ) -> Result<SyncResponse> {
+        self.receive_sync_response_with_requested_required_states(
+            response,
+            &RequestedRequiredStates::default(),
+        )
+        .await
+    }
+
+    /// Receive a response from a sync call, with the requested required state
+    /// events.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The response that we received after a successful sync.
+    /// * `requested_required_states` - The requested required state events.
+    pub async fn receive_sync_response_with_requested_required_states(
+        &self,
+        response: api::sync::sync_events::v3::Response,
+        requested_required_states: &RequestedRequiredStates,
+    ) -> Result<SyncResponse> {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
         // do.
@@ -1021,6 +1040,7 @@ impl BaseClient {
             room_info.update_from_ruma_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
+            room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
             let state_events = Self::deserialize_state_events(&new_info.state.events);
             let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
@@ -1139,6 +1159,7 @@ impl BaseClient {
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
+            room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
             let state_events = Self::deserialize_state_events(&new_info.state.events);
             let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
