@@ -1210,8 +1210,8 @@ mod private {
             let diff_updates = self.events.updates_as_vector_diffs();
 
             // Ensure the contract defined in the doc comment is true:
-            assert_eq!(diff_updates.len(), 1);
-            assert!(matches!(diff_updates[0], VectorDiff::Clear));
+            debug_assert_eq!(diff_updates.len(), 1);
+            debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
 
             Ok(diff_updates)
         }
