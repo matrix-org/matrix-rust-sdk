@@ -39,6 +39,8 @@ Breaking changes:
 
 - The `get_element_call_required_permissions` function now requires the device_id.
 
+- Some `OidcPrompt` cases have been removed (`None`, `SelectAccount`).
+
 - `Room::is_encrypted` is replaced by `Room::latest_encryption_state`
   which returns a value of the new `EncryptionState` enum; another
   `Room::encryption_state` non-async and infallible method is added to get the

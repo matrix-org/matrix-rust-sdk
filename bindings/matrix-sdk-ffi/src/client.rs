@@ -1817,6 +1817,14 @@ pub enum OidcPrompt {
     /// Defined in [Initiating User Registration via OpenID Connect](https://openid.net/specs/openid-connect-prompt-create-1_0.html).
     Create,
 
+    /// The Authorization Server should prompt the End-User for
+    /// reauthentication.
+    Login,
+
+    /// The Authorization Server should prompt the End-User for consent before
+    /// returning information to the Client.
+    Consent,
+
     /// An unknown value.
     Unknown { value: String },
 }
@@ -1825,6 +1833,8 @@ impl From<&SdkOidcPrompt> for OidcPrompt {
     fn from(value: &SdkOidcPrompt) -> Self {
         match value {
             SdkOidcPrompt::Create => Self::Create,
+            SdkOidcPrompt::Login => Self::Login,
+            SdkOidcPrompt::Consent => Self::Consent,
             _ => Self::Unknown { value: value.to_string() },
         }
     }
@@ -1834,6 +1844,8 @@ impl From<OidcPrompt> for RumaOidcPrompt {
     fn from(value: OidcPrompt) -> Self {
         match value {
             OidcPrompt::Create => Self::Create,
+            OidcPrompt::Consent => Self::from(SdkOidcPrompt::Consent.to_string()),
+            OidcPrompt::Login => Self::from(SdkOidcPrompt::Login.to_string()),
             OidcPrompt::Unknown { value } => value.into(),
         }
     }
