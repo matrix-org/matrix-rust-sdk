@@ -14,6 +14,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
+use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     encryption::backups::BackupState,
@@ -21,7 +22,7 @@ use matrix_sdk::{
     executor::spawn,
     Room,
 };
-use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
+use ruma::{events::AnySyncTimelineEvent, OwnedEventId, RoomVersionId};
 use tokio::sync::broadcast::error::RecvError;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{info, info_span, trace, warn, Instrument, Span};
@@ -186,22 +187,7 @@ impl TimelineBuilder {
         let client = room.client();
 
         let pinned_events_join_handle = if is_pinned_events {
-            let mut pinned_event_ids_stream = room.pinned_event_ids_stream();
-            Some(spawn({
-                let inner = controller.clone();
-                async move {
-                    while pinned_event_ids_stream.next().await.is_some() {
-                        if let Ok(events) = inner.reload_pinned_events().await {
-                            inner
-                                .replace_with_initial_remote_events(
-                                    events.into_iter(),
-                                    RemoteEventOrigin::Pagination,
-                                )
-                                .await;
-                        }
-                    }
-                }
-            }))
+            Some(spawn(pinned_events_task(room.pinned_event_ids_stream(), controller.clone())))
         } else {
             None
         };
@@ -422,6 +408,25 @@ impl TimelineBuilder {
         }
 
         Ok(timeline)
+    }
+}
+
+/// The task that handles the pinned event IDs updates.
+async fn pinned_events_task<S>(pinned_event_ids_stream: S, timeline_controller: TimelineController)
+where
+    S: Stream<Item = Vec<OwnedEventId>>,
+{
+    pin_mut!(pinned_event_ids_stream);
+
+    while pinned_event_ids_stream.next().await.is_some() {
+        if let Ok(events) = timeline_controller.reload_pinned_events().await {
+            timeline_controller
+                .replace_with_initial_remote_events(
+                    events.into_iter(),
+                    RemoteEventOrigin::Pagination,
+                )
+                .await;
+        }
     }
 }
 
