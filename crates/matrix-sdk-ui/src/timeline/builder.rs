@@ -20,6 +20,7 @@ use std::{
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
+    crypto::store::RoomKeyInfo,
     encryption::backups::BackupState,
     event_cache::{EventsOrigin, RoomEventCache, RoomEventCacheListener, RoomEventCacheUpdate},
     executor::spawn,
@@ -276,39 +277,13 @@ impl TimelineBuilder {
         // turn kills this stream. Once this is solved remove all the other ways we
         // listen for room keys.
         let room_keys_received_join_handle = {
-            let inner = controller.clone();
-            let stream = client.encryption().room_keys_received_stream().await.expect(
-                "We should be logged in by now, so we should have access to an OlmMachine \
-                 to be able to listen to this stream",
-            );
-
-            spawn(async move {
-                pin_mut!(stream);
-
-                while let Some(room_keys) = stream.next().await {
-                    let session_ids = match room_keys {
-                        Ok(room_keys) => {
-                            let session_ids: BTreeSet<String> = room_keys
-                                .into_iter()
-                                .filter(|info| info.room_id == inner.room().room_id())
-                                .map(|info| info.session_id)
-                                .collect();
-
-                            Some(session_ids)
-                        }
-                        Err(BroadcastStreamRecvError::Lagged(missed_updates)) => {
-                            // We lagged, let's retry to decrypt anything we have, maybe something
-                            // was received.
-                            warn!(missed_updates, "The room keys stream has lagged, retrying to decrypt the whole timeline");
-
-                            None
-                        }
-                    };
-
-                    let room = inner.room();
-                    inner.retry_event_decryption(room, session_ids).await;
-                }
-            })
+            spawn(room_key_received_task(
+                client.encryption().room_keys_received_stream().await.expect(
+                    "We should be logged in by now, so we should have access to an `OlmMachine` \
+                     to be able to listen to this stream",
+                ),
+                controller.clone(),
+            ))
         };
 
         let timeline = Timeline {
@@ -523,5 +498,44 @@ where
                 | BackupState::Enabling,
             ) => (),
         }
+    }
+}
+
+/// The task that handles the [`RoomKeyInfo`] updates.
+async fn room_key_received_task<S>(
+    room_keys_received_stream: S,
+    timeline_controller: TimelineController,
+) where
+    S: Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>>,
+{
+    pin_mut!(room_keys_received_stream);
+
+    let room_id = timeline_controller.room().room_id();
+
+    while let Some(room_keys) = room_keys_received_stream.next().await {
+        let session_ids = match room_keys {
+            Ok(room_keys) => {
+                let session_ids: BTreeSet<String> = room_keys
+                    .into_iter()
+                    .filter(|info| info.room_id == room_id)
+                    .map(|info| info.session_id)
+                    .collect();
+
+                Some(session_ids)
+            }
+            Err(BroadcastStreamRecvError::Lagged(missed_updates)) => {
+                // We lagged, let's retry to decrypt anything we have, maybe something
+                // was received.
+                warn!(
+                    missed_updates,
+                    "The room keys stream has lagged, retrying to decrypt the whole timeline"
+                );
+
+                None
+            }
+        };
+
+        let room = timeline_controller.room();
+        timeline_controller.retry_event_decryption(room, session_ids).await;
     }
 }
