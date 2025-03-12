@@ -102,11 +102,11 @@ impl Status {
         );
     }
 
-    pub(super) fn set_mode(&mut self, mode: DetailsMode) {
+    pub fn set_mode(&mut self, mode: DetailsMode) {
         self.mode = mode;
     }
 
-    pub(super) fn set_global_mode(&mut self, mode: GlobalMode) {
+    pub fn set_global_mode(&mut self, mode: GlobalMode) {
         self.global_mode = mode;
     }
 
