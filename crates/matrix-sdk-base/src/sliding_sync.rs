@@ -858,7 +858,7 @@ fn process_room_properties(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::collections::{BTreeMap, HashMap, HashSet};
+    use std::collections::{BTreeMap, HashSet};
     #[cfg(feature = "e2e-encryption")]
     use std::sync::{Arc, RwLock as SyncRwLock};
 
@@ -2625,6 +2625,134 @@ mod tests {
         assert!(room_2.is_direct().await.unwrap());
     }
 
+    #[async_test]
+    async fn test_room_encryption_state_is_and_is_not_encrypted() {
+        let user_id = user_id!("@raclette:patate");
+        let client = logged_in_base_client(Some(user_id)).await;
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+        let room_id_2 = room_id!("!r2");
+
+        // A room is considered encrypted when it receives a `m.room.encryption` event,
+        // period.
+        //
+        // A room is considered **not** encrypted when it receives no
+        // `m.room.encryption` event but it was requested, period.
+        //
+        // We are going to test three rooms:
+        //
+        // - two of them receive a `m.room.encryption` event
+        // - the last one does not receive a `m.room.encryption`.
+        // - the first one is configured with a `required_state` for this event, the
+        //   others have nothing.
+        //
+        // The trick is that, since sliding sync makes an union of all the
+        // `required_state`s, then all rooms are technically requesting a
+        // `m.room.encryption`.
+        let requested_required_states = RequestedRequiredStates::from(&{
+            let mut request = http::Request::new();
+
+            request.room_subscriptions.insert(room_id_0.to_owned(), {
+                let mut room_subscription = http::request::RoomSubscription::default();
+
+                room_subscription
+                    .required_state
+                    .push((StateEventType::RoomEncryption, "".to_owned()));
+
+                room_subscription
+            });
+
+            request
+        });
+
+        let mut response = http::Response::new("0".to_owned());
+
+        // Create two rooms that are encrypted, i.e. they have a `m.room.encryption`
+        // state event in their `required_state`. Create a third room that is not
+        // encrypted, i.e. it doesn't have a `m.room.encryption` state event.
+        {
+            let not_encrypted_room = http::response::Room::new();
+            let mut encrypted_room = http::response::Room::new();
+            set_room_is_encrypted(&mut encrypted_room, user_id);
+
+            response.rooms.insert(room_id_0.to_owned(), encrypted_room.clone());
+            response.rooms.insert(room_id_1.to_owned(), encrypted_room);
+            response.rooms.insert(room_id_2.to_owned(), not_encrypted_room);
+        }
+
+        client
+            .process_sliding_sync(&response, &(), &requested_required_states)
+            .await
+            .expect("Failed to process sync");
+
+        // They are both encrypted, yepee.
+        assert_matches!(
+            client.get_room(room_id_0).unwrap().encryption_state(),
+            EncryptionState::Encrypted
+        );
+        assert_matches!(
+            client.get_room(room_id_1).unwrap().encryption_state(),
+            EncryptionState::Encrypted
+        );
+        // This one is not encrypted because it has received nothing.
+        assert_matches!(
+            client.get_room(room_id_2).unwrap().encryption_state(),
+            EncryptionState::NotEncrypted
+        )
+    }
+
+    #[async_test]
+    async fn test_room_encryption_state_is_unknown() {
+        let user_id = user_id!("@raclette:patate");
+        let client = logged_in_base_client(Some(user_id)).await;
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+
+        // A room is considered encrypted when it receives a `m.room.encryption` event,
+        // period.
+        //
+        // A room is considered **not** encrypted when it receives no
+        // `m.room.encryption` event but it was requested, period.
+        //
+        // We are going to test two rooms:
+        //
+        // - one that receives a `m.room.encryption` event,
+        // - one that receives nothing,
+        // - none of them have requested the state event.
+
+        let requested_required_states = RequestedRequiredStates::from(&http::Request::new());
+
+        let mut response = http::Response::new("0".to_owned());
+
+        // Create two rooms with and without a `m.room.encryption` event.
+        {
+            let not_encrypted_room = http::response::Room::new();
+            let mut encrypted_room = http::response::Room::new();
+            set_room_is_encrypted(&mut encrypted_room, user_id);
+
+            response.rooms.insert(room_id_0.to_owned(), encrypted_room);
+            response.rooms.insert(room_id_1.to_owned(), not_encrypted_room);
+        }
+
+        client
+            .process_sliding_sync(&response, &(), &requested_required_states)
+            .await
+            .expect("Failed to process sync");
+
+        // Encrypted, because the presence of a `m.room.encryption` always mean the room
+        // is encrypted.
+        assert_matches!(
+            client.get_room(room_id_0).unwrap().encryption_state(),
+            EncryptionState::Encrypted
+        );
+        // Unknown, because the absence of `m.room.encryption` when not requested
+        // means we don't know what the state is.
+        assert_matches!(
+            client.get_room(room_id_1).unwrap().encryption_state(),
+            EncryptionState::Unknown
+        );
+    }
+
     #[cfg(feature = "e2e-encryption")]
     async fn choose_event_to_cache(events: &[TimelineEvent]) -> Option<TimelineEvent> {
         let room = make_room();
@@ -2912,8 +3040,16 @@ mod tests {
         room.timeline.push(make_membership_event(user_id, MembershipState::Leave));
     }
 
+    fn set_room_is_encrypted(room: &mut http::response::Room, user_id: &UserId) {
+        room.required_state.push(make_encryption_event(user_id));
+    }
+
     fn make_membership_event<K>(user_id: &UserId, state: MembershipState) -> Raw<K> {
         make_state_event(user_id, user_id.as_str(), RoomMemberEventContent::new(state), None)
+    }
+
+    fn make_encryption_event<K>(user_id: &UserId) -> Raw<K> {
+        make_state_event(user_id, "", RoomEncryptionEventContent::with_recommended_defaults(), None)
     }
 
     fn make_global_account_data_event<C: GlobalAccountDataEventContent, E>(content: C) -> Raw<E> {
