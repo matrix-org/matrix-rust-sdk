@@ -17,7 +17,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     encryption::backups::BackupState,
-    event_cache::{EventsOrigin, RoomEventCacheUpdate},
+    event_cache::{EventsOrigin, RoomEventCache, RoomEventCacheListener, RoomEventCacheUpdate},
     executor::spawn,
     Room,
 };
@@ -160,7 +160,7 @@ impl TimelineBuilder {
         event_cache.subscribe()?;
 
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
-        let (_, mut event_subscriber) = room_event_cache.subscribe().await;
+        let (_, event_subscriber) = room_event_cache.subscribe().await;
 
         let is_live = matches!(focus, TimelineFocus::Live);
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
@@ -214,9 +214,6 @@ impl TimelineBuilder {
         });
 
         let room_update_join_handle = spawn({
-            let room_event_cache = room_event_cache.clone();
-            let inner = controller.clone();
-
             let span = info_span!(
                 parent: Span::none(),
                 "live_update_handler",
@@ -226,84 +223,12 @@ impl TimelineBuilder {
             );
             span.follows_from(Span::current());
 
-            async move {
-                trace!("Spawned the event subscriber task.");
-
-                loop {
-                    trace!("Waiting for an event.");
-
-                    let update = match event_subscriber.recv().await {
-                        Ok(up) => up,
-                        Err(RecvError::Closed) => break,
-                        Err(RecvError::Lagged(num_skipped)) => {
-                            warn!(
-                                num_skipped,
-                                "Lagged behind event cache updates, resetting timeline"
-                            );
-
-                            // The updates might have lagged, but the room event cache might have
-                            // events, so retrieve them and add them back again to the timeline,
-                            // after clearing it.
-                            let (initial_events, _stream) = room_event_cache.subscribe().await;
-
-                            inner
-                                .replace_with_initial_remote_events(
-                                    initial_events.into_iter(),
-                                    RemoteEventOrigin::Cache,
-                                )
-                                .await;
-
-                            continue;
-                        }
-                    };
-
-                    match update {
-                        RoomEventCacheUpdate::MoveReadMarkerTo { event_id } => {
-                            trace!(target = %event_id, "Handling fully read marker.");
-                            inner.handle_fully_read_marker(event_id).await;
-                        }
-
-                        RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
-                            trace!("Received new timeline events diffs");
-
-                            // We shouldn't use the general way of adding events to timelines to
-                            // non-live timelines, such as pinned events or focused timeline.
-                            // These timelines should handle any live updates by themselves.
-                            if !is_live {
-                                continue;
-                            }
-
-                            inner
-                                .handle_remote_events_with_diffs(
-                                    diffs,
-                                    match origin {
-                                        EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                                        EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
-                                        EventsOrigin::Cache => RemoteEventOrigin::Cache,
-                                    },
-                                )
-                                .await;
-                        }
-
-                        RoomEventCacheUpdate::AddEphemeralEvents { events } => {
-                            trace!("Received new ephemeral events from sync.");
-
-                            // TODO: (bnjbvr) ephemeral should be handled by the event cache.
-                            inner.handle_ephemeral_events(events).await;
-                        }
-
-                        RoomEventCacheUpdate::UpdateMembers { ambiguity_changes } => {
-                            if !ambiguity_changes.is_empty() {
-                                let member_ambiguity_changes = ambiguity_changes
-                                    .values()
-                                    .flat_map(|change| change.user_ids())
-                                    .collect::<BTreeSet<_>>();
-                                inner.force_update_sender_profiles(&member_ambiguity_changes).await;
-                            }
-                        }
-                    }
-                }
-            }
+            room_event_cache_updates_task(
+                room_event_cache.clone(),
+                controller.clone(),
+                event_subscriber,
+                is_live,
+            )
             .instrument(span)
         });
 
@@ -497,5 +422,89 @@ impl TimelineBuilder {
         }
 
         Ok(timeline)
+    }
+}
+
+/// The task that handles the [`RoomEventCacheUpdate`]s.
+async fn room_event_cache_updates_task(
+    room_event_cache: RoomEventCache,
+    timeline_controller: TimelineController,
+    mut event_subscriber: RoomEventCacheListener,
+    is_live: bool,
+) {
+    trace!("Spawned the event subscriber task.");
+
+    loop {
+        trace!("Waiting for an event.");
+
+        let update = match event_subscriber.recv().await {
+            Ok(up) => up,
+            Err(RecvError::Closed) => break,
+            Err(RecvError::Lagged(num_skipped)) => {
+                warn!(num_skipped, "Lagged behind event cache updates, resetting timeline");
+
+                // The updates might have lagged, but the room event cache might have
+                // events, so retrieve them and add them back again to the timeline,
+                // after clearing it.
+                let (initial_events, _stream) = room_event_cache.subscribe().await;
+
+                timeline_controller
+                    .replace_with_initial_remote_events(
+                        initial_events.into_iter(),
+                        RemoteEventOrigin::Cache,
+                    )
+                    .await;
+
+                continue;
+            }
+        };
+
+        match update {
+            RoomEventCacheUpdate::MoveReadMarkerTo { event_id } => {
+                trace!(target = %event_id, "Handling fully read marker.");
+                timeline_controller.handle_fully_read_marker(event_id).await;
+            }
+
+            RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
+                trace!("Received new timeline events diffs");
+
+                // We shouldn't use the general way of adding events to timelines to
+                // non-live timelines, such as pinned events or focused timeline.
+                // These timelines should handle any live updates by themselves.
+                if !is_live {
+                    continue;
+                }
+
+                timeline_controller
+                    .handle_remote_events_with_diffs(
+                        diffs,
+                        match origin {
+                            EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                            EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                            EventsOrigin::Cache => RemoteEventOrigin::Cache,
+                        },
+                    )
+                    .await;
+            }
+
+            RoomEventCacheUpdate::AddEphemeralEvents { events } => {
+                trace!("Received new ephemeral events from sync.");
+
+                // TODO: (bnjbvr) ephemeral should be handled by the event cache.
+                timeline_controller.handle_ephemeral_events(events).await;
+            }
+
+            RoomEventCacheUpdate::UpdateMembers { ambiguity_changes } => {
+                if !ambiguity_changes.is_empty() {
+                    let member_ambiguity_changes = ambiguity_changes
+                        .values()
+                        .flat_map(|change| change.user_ids())
+                        .collect::<BTreeSet<_>>();
+                    timeline_controller
+                        .force_update_sender_profiles(&member_ambiguity_changes)
+                        .await;
+                }
+            }
+        }
     }
 }
