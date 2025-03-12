@@ -487,7 +487,7 @@ impl App {
         Ok(false)
     }
 
-    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+    async fn draw(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
@@ -509,7 +509,7 @@ impl App {
     }
 
     async fn run(&mut self, terminal: Terminal<impl Backend>) -> Result<()> {
-        self.render_loop(terminal).await?;
+        self.draw(terminal).await?;
 
         // At this point the user has exited the loop, so shut down the application.
         ratatui::restore();
