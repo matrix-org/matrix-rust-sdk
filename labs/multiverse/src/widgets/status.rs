@@ -25,14 +25,23 @@ pub struct Status {
     /// Content of the latest status message, if set.
     last_status_message: Arc<Mutex<Option<String>>>,
 
+    /// An [mpsc::Sender] that other widgets can use to change the status
+    /// message.
     message_sender: mpsc::Sender<String>,
 
+    /// The task listening for messages to be received over the
+    /// [mpsc::Receiver].
     _receiver_task: JoinHandle<()>,
 
+    /// A copy of the [`DetailsMode`] set by the main application.
     mode: DetailsMode,
+
+    /// A copy of the [`GlobalMode`] set by the main application.
     global_mode: GlobalMode,
 }
 
+/// A handle to the [`Status`] widget, this handle can be moved to different
+/// threads where it can be used to set the status message.
 pub struct StatusHandle {
     message_sender: mpsc::Sender<String>,
 }
@@ -110,6 +119,8 @@ impl Status {
         self.global_mode = mode;
     }
 
+    /// Get a handle to the [`Status`] widget, this can be used to set the
+    /// status message from a separate thread.
     pub fn handle(&self) -> StatusHandle {
         StatusHandle { message_sender: self.message_sender.clone() }
     }
