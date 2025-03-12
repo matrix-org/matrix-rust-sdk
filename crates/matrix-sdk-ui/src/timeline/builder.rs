@@ -393,6 +393,10 @@ async fn room_event_cache_updates_task(
                         },
                     )
                     .await;
+
+                if matches!(origin, EventsOrigin::Cache) {
+                    timeline_controller.retry_event_decryption(None).await;
+                }
             }
 
             RoomEventCacheUpdate::AddEphemeralEvents { events } => {
