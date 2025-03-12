@@ -467,7 +467,8 @@ impl EventTimelineItem {
             EventTimelineItemKind::Remote(remote_event) => match remote_event.origin {
                 RemoteEventOrigin::Sync => Some(EventItemOrigin::Sync),
                 RemoteEventOrigin::Pagination => Some(EventItemOrigin::Pagination),
-                _ => None,
+                RemoteEventOrigin::Cache => Some(EventItemOrigin::Cache),
+                RemoteEventOrigin::Unknown => None,
             },
         }
     }
@@ -722,6 +723,8 @@ pub enum EventItemOrigin {
     Sync,
     /// The event came from pagination.
     Pagination,
+    /// The event came from a cache.
+    Cache,
 }
 
 /// What's the status of a reaction?
