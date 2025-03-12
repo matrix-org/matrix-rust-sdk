@@ -17,7 +17,7 @@ use tokio::{
     time::sleep,
 };
 
-use crate::DetailsMode;
+use crate::{DetailsMode, GlobalMode};
 
 const MESSAGE_DURATION: Duration = Duration::from_secs(4);
 
@@ -30,6 +30,7 @@ pub struct Status {
     _receiver_task: JoinHandle<()>,
 
     mode: DetailsMode,
+    global_mode: GlobalMode,
 }
 
 pub struct StatusHandle {
@@ -63,6 +64,7 @@ impl Status {
             _receiver_task: receiver_task,
             message_sender,
             mode: DetailsMode::default(),
+            global_mode: GlobalMode::default(),
         }
     }
 
@@ -104,6 +106,10 @@ impl Status {
         self.mode = mode;
     }
 
+    pub(super) fn set_global_mode(&mut self, mode: GlobalMode) {
+        self.global_mode = mode;
+    }
+
     pub fn handle(&self) -> StatusHandle {
         StatusHandle { message_sender: self.message_sender.clone() }
     }
@@ -121,24 +127,27 @@ impl Widget for &mut Status {
         let content = if let Some(status_message) = status_message.as_deref() {
             status_message
         } else {
-            match self.mode {
-                DetailsMode::ReadReceipts => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, \
+            match self.global_mode {
+                GlobalMode::Help => "Press q to exit the help screen",
+                GlobalMode::Default => match self.mode {
+                    DetailsMode::ReadReceipts => {
+                        "\nUse j/k to move, s/S to start/stop the sync service, \
                      m to mark as read, t to show the timeline, e to show events."
-                }
-                DetailsMode::TimelineItems => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, \
+                    }
+                    DetailsMode::TimelineItems => {
+                        "\nUse j/k to move, s/S to start/stop the sync service, \
                      r to show read receipts, e to show events, Q to enable/disable \
                      the send queue, M to send a message, L to like the last message."
-                }
-                DetailsMode::Events => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
+                    }
+                    DetailsMode::Events => {
+                        "\nUse j/k to move, s/S to start/stop the sync service, r to show \
                      read receipts, t to show the timeline"
-                }
-                DetailsMode::LinkedChunk => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show \
+                    }
+                    DetailsMode::LinkedChunk => {
+                        "\nUse j/k to move, s/S to start/stop the sync service, r to show \
                      read receipts, t to show the timeline, e to show events"
-                }
+                    }
+                },
             }
         };
 

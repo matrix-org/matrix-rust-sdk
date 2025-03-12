@@ -8,9 +8,10 @@ use std::{
 
 use clap::Parser;
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use events::EventsView;
 use futures_util::{pin_mut, StreamExt as _};
+use help::HelpView;
 use imbl::Vector;
 use layout::Flex;
 use linked_chunk::LinkedChunkView;
@@ -38,11 +39,12 @@ use matrix_sdk_ui::{
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use read_receipts::ReadReceipts;
 use status::Status;
-use tokio::{runtime::Handle, spawn, task::JoinHandle};
+use tokio::{spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
 mod events;
+mod help;
 mod linked_chunk;
 mod read_receipts;
 mod room_list;
@@ -71,6 +73,13 @@ struct Cli {
     /// Set the proxy that should be used for the connection.
     #[clap(short, long, env = "PROXY")]
     proxy: Option<Url>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum GlobalMode {
+    #[default]
+    Default,
+    Help,
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -149,6 +158,10 @@ struct App {
     details_mode: DetailsMode,
 
     current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
+
+    /// What popup are we showing that is covering the majority of the screen,
+    /// mainly used for help and settings screens.
+    global_mode: GlobalMode,
 }
 
 impl App {
@@ -191,6 +204,7 @@ impl App {
             client,
             listen_task,
             status,
+            global_mode: GlobalMode::default(),
             details_mode: Default::default(),
             timelines,
             current_pagination: Default::default(),
@@ -366,96 +380,137 @@ impl App {
         self.status.set_mode(mode);
     }
 
-    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+    fn set_global_mode(&mut self, mode: GlobalMode) {
+        self.global_mode = mode;
+        self.status.set_global_mode(mode);
+    }
+
+    async fn handle_help_key_press(&mut self, key: KeyEvent) -> Result<()> {
         use KeyCode::*;
 
+        match (key.modifiers, key.code) {
+            (KeyModifiers::NONE, Char('q')) => self.set_global_mode(GlobalMode::Default),
+            _ => (),
+        }
+
+        Ok(())
+    }
+
+    async fn handle_global_key_press(&mut self, key: KeyEvent) -> Result<bool> {
+        use KeyCode::*;
+
+        match (key.modifiers, key.code) {
+            (KeyModifiers::NONE, F(1)) => self.set_global_mode(GlobalMode::Help),
+
+            _ => (),
+        }
+
+        if key.kind == KeyEventKind::Press && key.modifiers == KeyModifiers::NONE {
+            match key.code {
+                Char('q') | Esc => {
+                    if self.global_mode != GlobalMode::Default {
+                        self.set_global_mode(GlobalMode::Default);
+                    } else {
+                        return Ok(true);
+                    }
+                }
+
+                Char('j') | Down => {
+                    self.room_list.next_room();
+                }
+
+                Char('k') | Up => {
+                    self.room_list.previous_room();
+                }
+
+                Char('s') => self.sync_service.start().await,
+                Char('S') => self.sync_service.stop().await,
+
+                Char('Q') => {
+                    let q = self.client.send_queue();
+                    let enabled = q.is_enabled();
+                    q.set_enabled(!enabled).await;
+                }
+
+                Char('M') => {
+                    let selected = self.room_list.get_selected_room_id();
+
+                    if let Some(sdk_timeline) = selected.and_then(|room_id| {
+                        self.timelines
+                            .lock()
+                            .get(&room_id)
+                            .map(|timeline| timeline.timeline.clone())
+                    }) {
+                        match sdk_timeline
+                            .send(
+                                RoomMessageEventContent::text_plain(format!(
+                                    "hey {}",
+                                    MilliSecondsSinceUnixEpoch::now().get()
+                                ))
+                                .into(),
+                            )
+                            .await
+                        {
+                            Ok(_) => {
+                                self.status.set_message("message sent!".to_owned());
+                            }
+                            Err(err) => {
+                                self.status.set_message(format!("error when sending event: {err}"));
+                            }
+                        }
+                    } else {
+                        self.status.set_message("missing timeline for room".to_owned());
+                    };
+                }
+
+                Char('L') => self.toggle_reaction_to_latest_msg().await,
+
+                Char('r') => {
+                    if self.room_list.get_selected_room_id().is_some() {
+                        self.set_mode(DetailsMode::ReadReceipts);
+                    }
+                }
+                Char('t') => self.set_mode(DetailsMode::TimelineItems),
+                Char('e') => self.set_mode(DetailsMode::Events),
+                Char('l') => self.set_mode(DetailsMode::LinkedChunk),
+
+                Char('b')
+                    if self.details_mode == DetailsMode::TimelineItems
+                        || self.details_mode == DetailsMode::LinkedChunk =>
+                {
+                    self.back_paginate();
+                }
+
+                Char('m') if self.details_mode == DetailsMode::ReadReceipts => {
+                    self.room_list.mark_as_read().await
+                }
+
+                _ => {}
+            }
+        }
+
+        Ok(false)
+    }
+
+    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        match key.code {
-                            Char('q') | Esc => return Ok(()),
-
-                            Char('j') | Down => {
-                                self.room_list.next_room();
+                    match self.global_mode {
+                        GlobalMode::Default => {
+                            if self.handle_global_key_press(key).await? {
+                                break;
                             }
-
-                            Char('k') | Up => {
-                                self.room_list.previous_room();
-                            }
-
-                            Char('s') => self.sync_service.start().await,
-                            Char('S') => self.sync_service.stop().await,
-
-                            Char('Q') => {
-                                let q = self.client.send_queue();
-                                let enabled = q.is_enabled();
-                                q.set_enabled(!enabled).await;
-                            }
-
-                            Char('M') => {
-                                let selected = self.room_list.get_selected_room_id();
-
-                                if let Some(sdk_timeline) = selected.and_then(|room_id| {
-                                    self.timelines
-                                        .lock()
-                                        .get(&room_id)
-                                        .map(|timeline| timeline.timeline.clone())
-                                }) {
-                                    match sdk_timeline
-                                        .send(
-                                            RoomMessageEventContent::text_plain(format!(
-                                                "hey {}",
-                                                MilliSecondsSinceUnixEpoch::now().get()
-                                            ))
-                                            .into(),
-                                        )
-                                        .await
-                                    {
-                                        Ok(_) => {
-                                            self.status.set_message("message sent!".to_owned());
-                                        }
-                                        Err(err) => {
-                                            self.status.set_message(format!(
-                                                "error when sending event: {err}"
-                                            ));
-                                        }
-                                    }
-                                } else {
-                                    self.status.set_message("missing timeline for room".to_owned());
-                                };
-                            }
-
-                            Char('L') => self.toggle_reaction_to_latest_msg().await,
-
-                            Char('r') => {
-                                if self.room_list.get_selected_room_id().is_some() {
-                                    self.set_mode(DetailsMode::ReadReceipts);
-                                }
-                            }
-                            Char('t') => self.set_mode(DetailsMode::TimelineItems),
-                            Char('e') => self.set_mode(DetailsMode::Events),
-                            Char('l') => self.set_mode(DetailsMode::LinkedChunk),
-
-                            Char('b')
-                                if self.details_mode == DetailsMode::TimelineItems
-                                    || self.details_mode == DetailsMode::LinkedChunk =>
-                            {
-                                self.back_paginate();
-                            }
-
-                            Char('m') if self.details_mode == DetailsMode::ReadReceipts => {
-                                self.room_list.mark_as_read().await
-                            }
-
-                            _ => {}
                         }
+                        GlobalMode::Help => self.handle_help_key_press(key).await?,
                     }
                 }
             }
         }
+
+        Ok(())
     }
 
     async fn run(&mut self, terminal: Terminal<impl Backend>) -> Result<()> {
@@ -497,6 +552,14 @@ impl Widget for &mut App {
         self.room_list.render(room_list_area, buf);
         self.render_right(rhs, buf);
         self.status.render(status_area, buf);
+
+        match self.global_mode {
+            GlobalMode::Default => (),
+            GlobalMode::Help => {
+                let mut help_view = HelpView::new();
+                help_view.render(area, buf);
+            }
+        }
     }
 }
 
@@ -550,7 +613,6 @@ impl App {
                     let room = rooms.get(&room_id);
 
                     let mut read_receipts = ReadReceipts::new(room);
-
                     read_receipts.render(inner_area, buf);
                 }
 
