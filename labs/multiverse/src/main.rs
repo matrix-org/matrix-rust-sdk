@@ -22,8 +22,7 @@ use matrix_sdk::{
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
     sleep::sleep,
-    AuthSession, Client, OwnedServerName, SqliteCryptoStore, SqliteEventCacheStore,
-    SqliteStateStore,
+    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
@@ -45,7 +44,7 @@ const TEXT_COLOR: Color = tailwind::SLATE.c200;
 #[derive(Debug, Parser)]
 struct Cli {
     /// The homeserver the client should connect to.
-    server_name: OwnedServerName,
+    server_name: String,
 
     /// The path where session specific data should be stored.
     #[clap(default_value = "/tmp/")]
@@ -961,7 +960,7 @@ async fn configure_client(cli: Cli) -> Result<Client> {
                     SqliteEventCacheStore::open(session_path.join("cache"), None).await?,
                 ),
         )
-        .server_name(&server_name)
+        .server_name_or_homeserver_url(&server_name)
         .with_encryption_settings(EncryptionSettings {
             auto_enable_cross_signing: true,
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
