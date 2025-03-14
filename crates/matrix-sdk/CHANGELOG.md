@@ -169,6 +169,9 @@ simpler methods:
   `set_media_retention_policy()`, `clean_up_media_cache()`.
   ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
 
+- Add support for creating custom conditional push rules in `NotificationSettings::create_custom_conditional_push_rule`.
+  ([#4587](https://github.com/matrix-org/matrix-rust-sdk/pull/4587))
+
 ### Refactor
 
 - [**breaking**]: The `RoomEventCacheUpdate::Clear` variant has been removed, as
