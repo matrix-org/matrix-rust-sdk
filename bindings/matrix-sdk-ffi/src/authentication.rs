@@ -10,7 +10,7 @@ use matrix_sdk::{
         error::OauthAuthorizationCodeError,
         registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
         registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
-        OidcError as SdkOidcError,
+        OauthError as SdkOauthError,
     },
     Error,
 };
@@ -206,15 +206,15 @@ pub enum OidcError {
     Generic { message: String },
 }
 
-impl From<SdkOidcError> for OidcError {
-    fn from(e: SdkOidcError) -> OidcError {
+impl From<SdkOauthError> for OidcError {
+    fn from(e: SdkOauthError) -> OidcError {
         match e {
-            SdkOidcError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
-            SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::RedirectUri(_))
-            | SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState) => {
+            SdkOauthError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
+            SdkOauthError::AuthorizationCode(OauthAuthorizationCodeError::RedirectUri(_))
+            | SdkOauthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState) => {
                 OidcError::CallbackUrlInvalid
             }
-            SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled) => {
+            SdkOauthError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled) => {
                 OidcError::Cancelled
             }
             _ => OidcError::Generic { message: e.to_string() },
@@ -234,7 +234,7 @@ impl From<OidcRegistrationsError> for OidcError {
 impl From<Error> for OidcError {
     fn from(e: Error) -> OidcError {
         match e {
-            Error::Oidc(e) => e.into(),
+            Error::Oauth(e) => e.into(),
             _ => OidcError::Generic { message: e.to_string() },
         }
     }

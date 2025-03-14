@@ -208,7 +208,7 @@ use self::{
 pub use self::{
     account_management_url::AccountManagementActionFull,
     auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
-    error::OidcError,
+    error::OauthError,
 };
 use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
@@ -296,7 +296,7 @@ impl Oauth {
     pub async fn enable_cross_process_refresh_lock(
         &self,
         lock_value: String,
-    ) -> Result<(), OidcError> {
+    ) -> Result<(), OauthError> {
         // FIXME: it must be deferred only because we're using the crypto store and it's
         // initialized only in `set_session_meta`, not if we use a dedicated
         // store.
@@ -459,7 +459,7 @@ impl Oauth {
         registrations: OidcRegistrations,
         redirect_uri: Url,
         prompt: Option<Prompt>,
-    ) -> Result<OidcAuthorizationData, OidcError> {
+    ) -> Result<OidcAuthorizationData, OauthError> {
         let metadata = self.provider_metadata().await?;
 
         self.configure(metadata.issuer, registrations).await?;
@@ -485,12 +485,12 @@ impl Oauth {
     ) -> Result<()> {
         let response = AuthorizationResponse::parse_uri(&callback_url)
             .map_err(OauthAuthorizationCodeError::from)
-            .map_err(OidcError::from)?;
+            .map_err(OauthError::from)?;
 
         let code = match response {
             AuthorizationResponse::Success(code) => code,
             AuthorizationResponse::Error(err) => {
-                return Err(OidcError::from(OauthAuthorizationCodeError::from(err.error)).into());
+                return Err(OauthError::from(OauthAuthorizationCodeError::from(err.error)).into());
             }
         };
 
@@ -498,7 +498,7 @@ impl Oauth {
         // the client to have called `abort_authorization` which we can't guarantee so
         // lets double check with their supplied authorization data to be safe.
         if code.state != authorization_data.state {
-            return Err(OidcError::from(OauthAuthorizationCodeError::InvalidState).into());
+            return Err(OauthError::from(OauthAuthorizationCodeError::InvalidState).into());
         };
 
         self.finish_authorization(code).await?;
@@ -513,7 +513,7 @@ impl Oauth {
         &self,
         issuer: Url,
         registrations: OidcRegistrations,
-    ) -> std::result::Result<(), OidcError> {
+    ) -> std::result::Result<(), OauthError> {
         if self.client_id().is_some() {
             tracing::info!("OIDC is already configured.");
             return Ok(());
@@ -529,7 +529,7 @@ impl Oauth {
 
         tracing::info!("Persisting OIDC registration data.");
         self.store_client_registration(&registrations)
-            .map_err(|e| OidcError::UnknownError(Box::new(e)))?;
+            .map_err(|e| OauthError::UnknownError(Box::new(e)))?;
 
         Ok(())
     }
@@ -539,13 +539,13 @@ impl Oauth {
     fn store_client_registration(
         &self,
         registrations: &OidcRegistrations,
-    ) -> std::result::Result<(), OidcError> {
+    ) -> std::result::Result<(), OauthError> {
         let issuer = self.issuer().expect("issuer should be set after registration").to_owned();
-        let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.to_owned();
+        let client_id = self.client_id().ok_or(OauthError::NotRegistered)?.to_owned();
 
         registrations
             .set_and_write_client_id(client_id, issuer)
-            .map_err(|e| OidcError::UnknownError(Box::new(e)))?;
+            .map_err(|e| OauthError::UnknownError(Box::new(e)))?;
 
         Ok(())
     }
@@ -580,7 +580,7 @@ impl Oauth {
     /// request to get the provider metadata fails.
     pub async fn account_management_actions_supported(
         &self,
-    ) -> Result<BTreeSet<AccountManagementAction>, OidcError> {
+    ) -> Result<BTreeSet<AccountManagementAction>, OauthError> {
         let provider_metadata = self.provider_metadata().await?;
 
         Ok(provider_metadata.account_management_actions_supported)
@@ -601,7 +601,7 @@ impl Oauth {
     pub async fn fetch_account_management_url(
         &self,
         action: Option<AccountManagementActionFull>,
-    ) -> Result<Option<Url>, OidcError> {
+    ) -> Result<Option<Url>, OauthError> {
         let provider_metadata = self.provider_metadata().await?;
         self.management_url_from_provider_metadata(provider_metadata, action)
     }
@@ -610,14 +610,14 @@ impl Oauth {
         &self,
         provider_metadata: AuthorizationServerMetadata,
         action: Option<AccountManagementActionFull>,
-    ) -> Result<Option<Url>, OidcError> {
+    ) -> Result<Option<Url>, OauthError> {
         let Some(base_url) = provider_metadata.account_management_uri else {
             return Ok(None);
         };
 
         let url = if let Some(action) = action {
             build_account_management_url(base_url, action)
-                .map_err(OidcError::AccountManagementUrl)?
+                .map_err(OauthError::AccountManagementUrl)?
         } else {
             base_url
         };
@@ -646,7 +646,7 @@ impl Oauth {
     pub async fn account_management_url(
         &self,
         action: Option<AccountManagementActionFull>,
-    ) -> Result<Option<Url>, OidcError> {
+    ) -> Result<Option<Url>, OauthError> {
         const CACHE_KEY: &str = "PROVIDER_METADATA";
 
         let mut cache = self.client.inner.caches.provider_metadata.lock().await;
@@ -826,7 +826,7 @@ impl Oauth {
     pub async fn register_client(
         &self,
         client_metadata: &Raw<ClientMetadata>,
-    ) -> Result<ClientRegistrationResponse, OidcError> {
+    ) -> Result<ClientRegistrationResponse, OauthError> {
         let provider_metadata = self.provider_metadata().await?;
 
         let registration_endpoint = provider_metadata
@@ -921,7 +921,7 @@ impl Oauth {
             let mut guard = cross_process_lock
                 .spin_lock()
                 .await
-                .map_err(|err| crate::Error::Oidc(err.into()))?;
+                .map_err(|err| crate::Error::Oauth(err.into()))?;
 
             // After we got the lock, it's possible that our session doesn't match the one
             // read from the database, because of a race: another process has
@@ -933,12 +933,12 @@ impl Oauth {
             if guard.hash_mismatch {
                 Box::pin(self.handle_session_hash_mismatch(&mut guard))
                     .await
-                    .map_err(|err| crate::Error::Oidc(err.into()))?;
+                    .map_err(|err| crate::Error::Oauth(err.into()))?;
             } else {
                 guard
                     .save_in_memory_and_db(&tokens)
                     .await
-                    .map_err(|err| crate::Error::Oidc(err.into()))?;
+                    .map_err(|err| crate::Error::Oauth(err.into()))?;
                 // No need to call the save_session_callback here; it was the
                 // source of the session, so it's already in
                 // sync with what we had.
@@ -1075,7 +1075,7 @@ impl Oauth {
         &self,
         redirect_uri: Url,
         device_id: Option<OwnedDeviceId>,
-    ) -> Result<OidcAuthCodeUrlBuilder, OidcError> {
+    ) -> Result<OidcAuthCodeUrlBuilder, OauthError> {
         let scopes = Self::login_scopes(device_id).to_vec();
 
         Ok(OidcAuthCodeUrlBuilder::new(self.clone(), scopes, redirect_uri))
@@ -1096,7 +1096,7 @@ impl Oauth {
 
         let session = SessionMeta {
             user_id: whoami_res.user_id,
-            device_id: whoami_res.device_id.ok_or(OidcError::MissingDeviceId)?,
+            device_id: whoami_res.device_id.ok_or(OauthError::MissingDeviceId)?,
         };
 
         self.client
@@ -1109,7 +1109,7 @@ impl Oauth {
         // At this point the Olm machine has been set up.
 
         // Enable the cross-process lock for refreshes, if needs be.
-        self.enable_cross_process_lock().await.map_err(OidcError::from)?;
+        self.enable_cross_process_lock().await.map_err(OauthError::from)?;
 
         #[cfg(feature = "e2e-encryption")]
         self.client.encryption().spawn_initialization_task(None);
@@ -1163,8 +1163,8 @@ impl Oauth {
     pub async fn finish_authorization(
         &self,
         auth_code: AuthorizationCode,
-    ) -> Result<(), OidcError> {
-        let data = self.data().ok_or(OidcError::NotAuthenticated)?;
+    ) -> Result<(), OauthError> {
+        let data = self.data().ok_or(OauthError::NotAuthenticated)?;
         let client_id = data.client_id.clone();
 
         let validation_data = data
@@ -1225,9 +1225,9 @@ impl Oauth {
     {
         let scopes = Self::login_scopes(device_id);
 
-        let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
+        let client_id = self.client_id().ok_or(OauthError::NotRegistered)?.clone();
 
-        let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
+        let server_metadata = self.provider_metadata().await.map_err(OauthError::from)?;
         let device_authorization_url = server_metadata
             .device_authorization_endpoint
             .clone()
@@ -1252,9 +1252,9 @@ impl Oauth {
     ) -> Result<(), qrcode::DeviceAuthorizationOauthError> {
         use oauth2::TokenResponse;
 
-        let client_id = self.client_id().ok_or(OidcError::NotRegistered)?.clone();
+        let client_id = self.client_id().ok_or(OauthError::NotRegistered)?.clone();
 
-        let server_metadata = self.provider_metadata().await.map_err(OidcError::from)?;
+        let server_metadata = self.provider_metadata().await.map_err(OauthError::from)?;
         let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
 
         let response = OauthClient::new(client_id)
@@ -1277,7 +1277,7 @@ impl Oauth {
         token_endpoint: Url,
         client_id: ClientId,
         cross_process_lock: Option<CrossProcessRefreshLockGuard>,
-    ) -> Result<(), OidcError> {
+    ) -> Result<(), OauthError> {
         trace!(
             "Token refresh: attempting to refresh with refresh_token {:x}",
             hash_str(&refresh_token)
@@ -1291,7 +1291,7 @@ impl Oauth {
             .exchange_refresh_token(&token)
             .request_async(self.http_client())
             .await
-            .map_err(OidcError::RefreshToken)?;
+            .map_err(OauthError::RefreshToken)?;
 
         let new_access_token = response.access_token().secret().clone();
         let new_refresh_token = response.refresh_token().map(RefreshToken::secret).cloned();
@@ -1374,7 +1374,7 @@ impl Oauth {
                 let mut cross_process_guard = match manager
                     .spin_lock()
                     .await
-                    .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))
+                    .map_err(|err| RefreshTokenError::Oauth(Arc::new(err.into())))
                 {
                     Ok(guard) => guard,
                     Err(err) => {
@@ -1386,7 +1386,7 @@ impl Oauth {
                 if cross_process_guard.hash_mismatch {
                     Box::pin(self.handle_session_hash_mismatch(&mut cross_process_guard))
                         .await
-                        .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
+                        .map_err(|err| RefreshTokenError::Oauth(Arc::new(err.into())))?;
                     // Optimistic exit: assume that the underlying process did update fast enough.
                     // In the worst case, we'll do another refresh Soon™.
                     info!("other process handled refresh for us, assuming success");
@@ -1413,7 +1413,7 @@ impl Oauth {
             Ok(metadata) => metadata,
             Err(err) => {
                 warn!("couldn't get authorization server metadata: {err:?}");
-                fail!(refresh_status_guard, RefreshTokenError::Oidc(Arc::new(err.into())));
+                fail!(refresh_status_guard, RefreshTokenError::Oauth(Arc::new(err.into())));
             }
         };
 
@@ -1421,7 +1421,7 @@ impl Oauth {
             warn!("invalid state: missing client ID");
             fail!(
                 refresh_status_guard,
-                RefreshTokenError::Oidc(Arc::new(OidcError::NotAuthenticated))
+                RefreshTokenError::Oauth(Arc::new(OauthError::NotAuthenticated))
             );
         };
 
@@ -1448,7 +1448,7 @@ impl Oauth {
                 }
 
                 Err(err) => {
-                    let err = RefreshTokenError::Oidc(Arc::new(err));
+                    let err = RefreshTokenError::Oauth(Arc::new(err));
                     warn!("error refreshing an oidc token: {err}");
                     fail!(refresh_status_guard, err);
                 }
@@ -1459,13 +1459,13 @@ impl Oauth {
     }
 
     /// Log out from the currently authenticated session.
-    pub async fn logout(&self) -> Result<(), OidcError> {
-        let client_id = self.client_id().ok_or(OidcError::NotAuthenticated)?.clone();
+    pub async fn logout(&self) -> Result<(), OauthError> {
+        let client_id = self.client_id().ok_or(OauthError::NotAuthenticated)?.clone();
 
         let provider_metadata = self.provider_metadata().await?;
         let revocation_url = RevocationUrl::from_url(provider_metadata.revocation_endpoint);
 
-        let tokens = self.client.session_tokens().ok_or(OidcError::NotAuthenticated)?;
+        let tokens = self.client.session_tokens().ok_or(OauthError::NotAuthenticated)?;
 
         // Revoke the access token, it should revoke both tokens.
         OauthClient::new(client_id)
