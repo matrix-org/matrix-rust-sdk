@@ -364,7 +364,7 @@ impl Oidc {
     /// use anyhow::bail;
     /// use futures_util::StreamExt;
     /// use matrix_sdk::{
-    ///     authentication::oidc::{
+    ///     authentication::oauth::{
     ///         registration::ClientMetadata,
     ///         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
     ///     },
@@ -789,8 +789,8 @@ impl Oidc {
     ///
     /// ```no_run
     /// use matrix_sdk::{Client, ServerName};
-    /// use matrix_sdk::authentication::oidc::registrations::ClientId;
-    /// # use matrix_sdk::authentication::oidc::registration::ClientMetadata;
+    /// use matrix_sdk::authentication::oauth::registrations::ClientId;
+    /// # use matrix_sdk::authentication::oauth::registration::ClientMetadata;
     /// # use ruma::serde::Raw;
     /// # let client_metadata = unimplemented!();
     /// # fn persist_client_registration (_: &url::Url, _: &Raw<ClientMetadata>, _: &ClientId) {}
@@ -1026,8 +1026,10 @@ impl Oidc {
     ///
     /// ```no_run
     /// # use anyhow::anyhow;
-    /// use matrix_sdk::{Client};
-    /// # use matrix_sdk::authentication::oidc::AuthorizationResponse;
+    /// use matrix_sdk::{
+    ///     Client,
+    ///     authentication::oauth::AuthorizationResponse,
+    /// };
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # let redirect_uri = Url::parse("http://127.0.0.1/oidc").unwrap();

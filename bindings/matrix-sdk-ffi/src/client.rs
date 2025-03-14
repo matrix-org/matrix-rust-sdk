@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
-    authentication::oidc::{
+    authentication::oauth::{
         registrations::ClientId, AccountManagementActionFull, OidcAuthorizationData, OidcSession,
     },
     event_cache::EventCacheError,
@@ -1603,7 +1603,7 @@ impl Session {
             }
             // Build the session from the OIDC UserSession.
             AuthApi::Oidc(api) => {
-                let matrix_sdk::authentication::oidc::UserSession {
+                let matrix_sdk::authentication::oauth::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                     issuer,
@@ -1648,7 +1648,7 @@ impl TryFrom<Session> for AuthSession {
             // Create an OidcSession.
             let oidc_data = serde_json::from_str::<OidcSessionData>(&oidc_data)?;
 
-            let user_session = matrix_sdk::authentication::oidc::UserSession {
+            let user_session = matrix_sdk::authentication::oauth::UserSession {
                 meta: matrix_sdk::SessionMeta {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),

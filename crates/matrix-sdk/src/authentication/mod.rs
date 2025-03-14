@@ -22,11 +22,11 @@ use tokio::sync::{broadcast, Mutex as AsyncMutex, OnceCell};
 
 pub mod matrix;
 #[cfg(feature = "experimental-oidc")]
-pub mod oidc;
+pub mod oauth;
 
 use self::matrix::MatrixAuth;
 #[cfg(feature = "experimental-oidc")]
-use self::oidc::{Oidc, OidcAuthData, OidcCtx};
+use self::oauth::{Oidc, OidcAuthData, OidcCtx};
 use crate::{Client, RefreshTokenError, SessionChange};
 
 /// The tokens for a user session.
@@ -136,7 +136,7 @@ pub enum AuthSession {
 
     /// A session using the OpenID Connect API.
     #[cfg(feature = "experimental-oidc")]
-    Oidc(Box<oidc::OidcSession>),
+    Oidc(Box<oauth::OidcSession>),
 }
 
 impl AuthSession {
@@ -184,8 +184,8 @@ impl From<matrix::MatrixSession> for AuthSession {
 }
 
 #[cfg(feature = "experimental-oidc")]
-impl From<oidc::OidcSession> for AuthSession {
-    fn from(session: oidc::OidcSession) -> Self {
+impl From<oauth::OidcSession> for AuthSession {
+    fn from(session: oauth::OidcSession) -> Self {
         Self::Oidc(session.into())
     }
 }
