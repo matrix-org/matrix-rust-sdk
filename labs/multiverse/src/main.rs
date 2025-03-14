@@ -3,7 +3,7 @@ use std::{
     io::{self, stdout, Write},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use clap::Parser;
@@ -37,6 +37,7 @@ use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
+use widgets::recovery::{RecoveryView, RecoveryViewState};
 
 use crate::widgets::{
     events::EventsView,
@@ -72,13 +73,15 @@ struct Cli {
     proxy: Option<Url>,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Default)]
 pub enum GlobalMode {
     /// The default mode, no popout screen is opened.
     #[default]
     Default,
     /// Mode where we have opened the help screen.
     Help,
+    /// Mode where we have opened the recovery screen.
+    Recovery { state: RecoveryViewState },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -215,6 +218,7 @@ impl App {
             state: AppState::default(),
             timelines,
             current_pagination: Default::default(),
+            last_tick: Instant::now(),
         })
     }
 
@@ -390,22 +394,14 @@ impl App {
         self.state.global_mode = mode;
     }
 
-    async fn handle_help_key_press(&mut self, key: KeyEvent) -> Result<()> {
-        use KeyCode::*;
-
-        match (key.modifiers, key.code) {
-            (KeyModifiers::NONE, Char('q')) => self.set_global_mode(GlobalMode::Default),
-            _ => (),
-        }
-
-        Ok(())
-    }
-
     async fn handle_global_key_press(&mut self, key: KeyEvent) -> Result<bool> {
         use KeyCode::*;
 
         match (key.modifiers, key.code) {
             (KeyModifiers::NONE, F(1)) => self.set_global_mode(GlobalMode::Help),
+            (KeyModifiers::NONE, F(10)) => self.set_global_mode(GlobalMode::Recovery {
+                state: RecoveryViewState::new(self.client.clone()),
+            }),
 
             _ => (),
         }
@@ -413,7 +409,7 @@ impl App {
         if key.kind == KeyEventKind::Press && key.modifiers == KeyModifiers::NONE {
             match key.code {
                 Char('q') | Esc => {
-                    if self.state.global_mode != GlobalMode::Default {
+                    if !matches!(self.state.global_mode, GlobalMode::Default) {
                         self.set_global_mode(GlobalMode::Default);
                     } else {
                         return Ok(true);
@@ -497,21 +493,48 @@ impl App {
         Ok(false)
     }
 
+    fn on_tick(&mut self) {
+        match &mut self.state.global_mode {
+            GlobalMode::Help | GlobalMode::Default => {}
+
+            GlobalMode::Recovery { state } => {
+                state.on_tick();
+            }
+        }
+    }
+
     async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+        use KeyCode::*;
+
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
-                    match self.state.global_mode {
+                    match &mut self.state.global_mode {
                         GlobalMode::Default => {
                             if self.handle_global_key_press(key).await? {
                                 break;
                             }
                         }
-                        GlobalMode::Help => self.handle_help_key_press(key).await?,
+                        GlobalMode::Help => match (key.modifiers, key.code) {
+                            (KeyModifiers::NONE, Char('q')) => {
+                                self.set_global_mode(GlobalMode::Default)
+                            }
+                            _ => (),
+                        },
+                        GlobalMode::Recovery { state } => {
+                            if state.handle_key_press(key) {
+                                self.set_global_mode(GlobalMode::Default);
+                            }
+                        }
                     }
                 }
+            }
+
+            if self.last_tick.elapsed() >= Self::TICK_RATE {
+                self.on_tick();
+                self.last_tick = Instant::now();
             }
         }
 
@@ -558,8 +581,12 @@ impl Widget for &mut App {
         self.render_right(rhs, buf);
         self.status.render(status_area, buf, &mut self.state);
 
-        match self.global_mode {
-            GlobalMode::Default => (),
+        match &mut self.state.global_mode {
+            GlobalMode::Default => {}
+            GlobalMode::Recovery { state } => {
+                let mut recovery_view = RecoveryView::new();
+                recovery_view.render(area, buf, state);
+            }
             GlobalMode::Help => {
                 let mut help_view = HelpView::new();
                 help_view.render(area, buf);

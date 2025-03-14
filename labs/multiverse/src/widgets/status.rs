@@ -36,6 +36,7 @@ pub struct Status {
 
 /// A handle to the [`Status`] widget, this handle can be moved to different
 /// threads where it can be used to set the status message.
+#[derive(Clone)]
 pub struct StatusHandle {
     message_sender: mpsc::Sender<String>,
 }
@@ -121,7 +122,7 @@ impl StatefulWidget for &mut Status {
 
             match global_mode {
                 GlobalMode::Help => "Press q to exit the help screen",
-                GlobalMode::Recovery { .. } => "Press q to exit the recovery screen",
+                GlobalMode::Recovery { .. } => "Press ESC to exit the recovery screen",
                 GlobalMode::Default => match details_mode {
                     DetailsMode::ReadReceipts => {
                         "\nUse j/k to move, s/S to start/stop the sync service, \
