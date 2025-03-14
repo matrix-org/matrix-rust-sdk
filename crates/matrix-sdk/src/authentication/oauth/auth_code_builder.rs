@@ -21,7 +21,7 @@ use ruma::{api::client::discovery::get_authorization_server_metadata::msc2965::P
 use tracing::{info, instrument};
 use url::Url;
 
-use super::{OAuth, OidcError};
+use super::{OAuth, OAuthError};
 use crate::{authentication::oauth::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
@@ -73,10 +73,10 @@ impl OidcAuthCodeUrlBuilder {
     /// Returns an error if the client registration was not restored, or if a
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
-    pub async fn build(self) -> Result<OidcAuthorizationData, OidcError> {
+    pub async fn build(self) -> Result<OidcAuthorizationData, OAuthError> {
         let Self { oauth, scopes, redirect_uri, prompt, login_hint } = self;
 
-        let data = oauth.data().ok_or(OidcError::NotAuthenticated)?;
+        let data = oauth.data().ok_or(OAuthError::NotAuthenticated)?;
         info!(
             issuer = data.issuer.as_str(),
             ?scopes,

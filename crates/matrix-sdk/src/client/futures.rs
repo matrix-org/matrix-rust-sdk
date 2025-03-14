@@ -29,7 +29,7 @@ use tracing::trace;
 
 use super::super::Client;
 #[cfg(feature = "experimental-oidc")]
-use crate::authentication::oauth::OidcError;
+use crate::authentication::oauth::OAuthError;
 use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
@@ -114,19 +114,21 @@ where
                         }
 
                         #[cfg(feature = "experimental-oidc")]
-                        RefreshTokenError::Oidc(oidc_error) => {
-                            match &**oidc_error {
-                                OidcError::RefreshToken(RequestTokenError::ServerResponse(
+                        RefreshTokenError::OAuth(oauth_error) => {
+                            match &**oauth_error {
+                                OAuthError::RefreshToken(RequestTokenError::ServerResponse(
                                     error_response,
                                 )) if *error_response.error()
                                     == BasicErrorResponseType::InvalidGrant =>
                                 {
-                                    error!("Token refresh: OIDC refresh_token rejected with invalid grant");
+                                    error!("Token refresh: OAuth 2.0 refresh_token rejected with invalid grant");
                                     // The refresh was denied, signal to sign out the user.
                                     client.broadcast_unknown_token(soft_logout);
                                 }
                                 _ => {
-                                    trace!("Token refresh: OIDC refresh encountered a problem.");
+                                    trace!(
+                                        "Token refresh: OAuth 2.0 refresh encountered a problem."
+                                    );
                                     // The refresh failed for other reasons, no
                                     // need to sign out.
                                 }

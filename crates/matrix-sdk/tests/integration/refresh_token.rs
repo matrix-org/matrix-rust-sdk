@@ -609,7 +609,7 @@ async fn test_oauth_refresh_token_handled_success() {
 #[async_test]
 async fn test_oauth_refresh_token_handled_failure() {
     use matrix_sdk::{
-        authentication::oauth::OidcError,
+        authentication::oauth::OAuthError,
         test_utils::{
             client::{mock_prev_session_tokens_with_refresh, oauth::mock_session},
             mocks::MatrixMockServer,
@@ -646,12 +646,12 @@ async fn test_oauth_refresh_token_handled_failure() {
     // The request fails with a refresh token error.
     let res = client.whoami().await;
     assert_let!(
-        Err(HttpError::RefreshToken(RefreshTokenError::Oidc(oidc_err))) = res,
-        "The request should fail with a refresh token error from the OIDC API"
+        Err(HttpError::RefreshToken(RefreshTokenError::OAuth(oidc_err))) = res,
+        "The request should fail with a refresh token error from the OAuth 2.0 API"
     );
     assert_matches!(
         *oidc_err,
-        OidcError::RefreshToken(_),
+        OAuthError::RefreshToken(_),
         "The OIDC error should be a refresh token error"
     );
 

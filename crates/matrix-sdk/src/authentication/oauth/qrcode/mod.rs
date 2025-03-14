@@ -113,7 +113,7 @@ pub enum DeviceAuthorizationOauthError {
     /// A generic OAuth 2.0 error happened while we were attempting to register
     /// the device with the OAuth 2.0 authorization server.
     #[error(transparent)]
-    Oauth(#[from] crate::authentication::oauth::OidcError),
+    OAuth(#[from] crate::authentication::oauth::OAuthError),
 
     /// The OAuth 2.0 server doesn't support the device authorization grant.
     #[error("OAuth 2.0 server doesn't support the device authorization grant")]
