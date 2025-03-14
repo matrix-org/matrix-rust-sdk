@@ -163,19 +163,8 @@ impl From<Intent> for matrix_sdk::widget::Intent {
 pub struct VirtualElementCallWidgetOptions {
     /// The url to the app.
     ///
-    /// E.g. <https://call.element.io>, <https://call.element.dev>
+    /// E.g. <https://call.element.io>, <https://call.element.dev>, <https://call.element.dev/room>
     pub element_call_url: String,
-
-    /// If `/room` should be added to the url:
-    /// [`VirtualElementCallWidgetOptions::element_call_url`] + "/room" or just
-    /// [`VirtualElementCallWidgetOptions::element_call_url`].
-    #[deprecated(
-        since = "0.10.0",
-        note = "This is not used anymore when embedding the widget (loading the widget from a file).
-    If the `/room` part is needed to setup remote urls in developer settings the frontend should take care of extending the url,
-    or communicate the correct required format to the user."
-    )]
-    pub element_call_url_add_room: bool,
 
     /// The widget id.
     pub widget_id: String,
@@ -275,8 +264,6 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             rageshake_submit_url: value.rageshake_submit_url,
             sentry_dsn: value.sentry_dsn,
             sentry_environment: value.sentry_environment,
-
-            element_call_url_add_room: value.element_call_url_add_room,
         }
     }
 }

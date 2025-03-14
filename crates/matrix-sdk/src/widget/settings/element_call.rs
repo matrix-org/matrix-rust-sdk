@@ -42,7 +42,7 @@ struct ElementCallParams {
     app_prompt: bool,
     hide_header: bool,
     preload: bool,
-    #[deprecated = "Renamed to `posthog_user_id`. Kept here for backwards compatibility."]
+    /// The same as `posthog_user_id` used for backwards compatibility.
     analytics_id: Option<String>,
     posthog_user_id: Option<String>,
     font_scale: Option<f64>,
@@ -97,19 +97,8 @@ pub enum Intent {
 pub struct VirtualElementCallWidgetOptions {
     /// The url to the app.
     ///
-    /// E.g. <https://call.element.io>, <https://call.element.dev>
+    /// E.g. <https://call.element.io>, <https://call.element.dev>, <https://call.element.dev/room>
     pub element_call_url: String,
-
-    /// If `/room` should be added to the url:
-    /// [`VirtualElementCallWidgetOptions::element_call_url`] + "/room" or just
-    /// [`VirtualElementCallWidgetOptions::element_call_url`].
-    #[deprecated(
-        since = "0.10.0",
-        note = "This is not used anymore when embedding the widget (loading the widget from a file).
-    If the `/room` part is needed to setup remote urls in developer settings the frontend should take care of extending the url,
-    or communicate the correct required format to the user."
-    )]
-    pub element_call_url_add_room: bool,
 
     /// The widget id.
     pub widget_id: String,
@@ -205,11 +194,7 @@ impl WidgetSettings {
     pub fn new_virtual_element_call_widget(
         props: VirtualElementCallWidgetOptions,
     ) -> Result<Self, url::ParseError> {
-        let mut raw_url: Url = Url::parse(&format!(
-            "{}{}",
-            props.element_call_url,
-            if props.element_call_url_add_room { "/room" } else { "" }
-        ))?;
+        let mut raw_url: Url = Url::parse(&props.element_call_url)?;
 
         let query_params = ElementCallParams {
             user_id: url_params::USER_ID.to_owned(),
