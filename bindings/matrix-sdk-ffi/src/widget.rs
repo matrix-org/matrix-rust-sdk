@@ -146,7 +146,9 @@ impl From<EncryptionSystem> for matrix_sdk::widget::EncryptionSystem {
 /// This controls whether to show or skip the lobby.
 #[derive(uniffi::Enum, Clone)]
 pub enum Intent {
+    /// The user wants to start a call.
     StartCall,
+    /// The user wants to join an existing call.
     JoinExisting,
 }
 impl From<Intent> for matrix_sdk::widget::Intent {
