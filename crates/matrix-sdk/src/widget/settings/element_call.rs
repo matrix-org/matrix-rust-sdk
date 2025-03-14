@@ -86,9 +86,9 @@ pub enum EncryptionSystem {
 #[serde(rename_all = "snake_case")]
 pub enum Intent {
     #[default]
-    /// The user wants to start a call. This will skip the lobby.
+    /// The user wants to start a call.
     StartCall,
-    /// The user wants to join an existing call. This will show the lobby.
+    /// The user wants to join an existing call.
     JoinExisting,
 }
 
