@@ -141,6 +141,23 @@ impl From<EncryptionSystem> for matrix_sdk::widget::EncryptionSystem {
     }
 }
 
+/// Defines the intent of showing the call.
+///
+/// This controls wheter to show or skip the lobby.
+#[derive(uniffi::Enum, Clone)]
+pub enum Intent {
+    StartCall,
+    JoinExisting,
+}
+impl From<Intent> for matrix_sdk::widget::Intent {
+    fn from(value: Intent) -> Self {
+        match value {
+            Intent::StartCall => Self::StartCall,
+            Intent::JoinExisting => Self::JoinExisting,
+        }
+    }
+}
+
 /// Properties to create a new virtual Element Call widget.
 #[derive(uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
@@ -148,6 +165,15 @@ pub struct VirtualElementCallWidgetOptions {
     ///
     /// E.g. <https://call.element.io>, <https://call.element.dev>
     pub element_call_url: String,
+
+    /// If `/room` should be added to the url: [`VirtualElementCallWidgetOptions::element_call_url`] + "/room" or just [`VirtualElementCallWidgetOptions::element_call_url`].
+    #[deprecated(
+        since = "0.10.0",
+        note = "This is not used anymore when embedding the widget (loading the widget from a file).
+    If the `/room` part is needed to setup remote urls in developer settings the frontend should take care of extending the url,
+    or communicate the correct required format to the user."
+    )]
+    pub element_call_url_add_room: bool,
 
     /// The widget id.
     pub widget_id: String,
@@ -189,11 +215,6 @@ pub struct VirtualElementCallWidgetOptions {
     /// Default: `false`
     pub app_prompt: Option<bool>,
 
-    /// Don't show the lobby and join the call immediately.
-    ///
-    /// Default: `false`
-    pub skip_lobby: Option<bool>,
-
     /// Make it not possible to get to the calls list in the webview.
     ///
     /// Default: `true`
@@ -202,13 +223,33 @@ pub struct VirtualElementCallWidgetOptions {
     /// The font to use, to adapt to the system font.
     pub font: Option<String>,
 
-    /// Can be used to pass a PostHog id to element call.
-    pub analytics_id: Option<String>,
-
     /// The encryption system to use.
     ///
     /// Use `EncryptionSystem::Unencrypted` to disable encryption.
     pub encryption: EncryptionSystem,
+
+    /// The intent of showing the call.
+    /// If the user wants to start a call or join an existing one.
+    /// Controls if the lobby is skipped or not.
+    pub intent: Option<Intent>,
+
+    /// Do not show the screenshare button.
+    pub hide_screensharing: bool,
+
+    /// Can be used to pass a PostHog id to element call.
+    pub posthog_user_id: Option<String>,
+    /// The host of the posthog api.
+    pub posthog_api_host: Option<String>,
+    /// The key for the posthog api.
+    pub posthog_api_key: Option<String>,
+
+    /// The url to use for submitting rageshakes.
+    pub rageshake_submit_url: Option<String>,
+
+    /// Sentry [DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/)
+    pub sentry_dsn: Option<String>,
+    /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
+    pub sentry_environment: Option<String>,
 }
 
 impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
@@ -221,11 +262,19 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             preload: value.preload,
             font_scale: value.font_scale,
             app_prompt: value.app_prompt,
-            skip_lobby: value.skip_lobby,
             confine_to_room: value.confine_to_room,
             font: value.font,
-            analytics_id: value.analytics_id,
+            posthog_user_id: value.posthog_user_id,
             encryption: value.encryption.into(),
+            intent: value.intent.map(Into::into),
+            hide_screensharing: value.hide_screensharing,
+            posthog_api_host: value.posthog_api_host,
+            posthog_api_key: value.posthog_api_key,
+            rageshake_submit_url: value.rageshake_submit_url,
+            sentry_dsn: value.sentry_dsn,
+            sentry_environment: value.sentry_environment,
+
+            element_call_url_add_room: value.element_call_url_add_room,
         }
     }
 }
