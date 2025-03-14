@@ -1994,7 +1994,9 @@ impl Store {
     }
 
     /// Assemble a room key bundle for sharing encrypted history, as per
-    /// MSC4268.
+    /// [MSC4268].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     pub async fn build_room_key_bundle(
         &self,
         room_id: &RoomId,

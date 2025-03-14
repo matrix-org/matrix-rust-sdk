@@ -14,7 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//! Types for sharing encrypted room history, per MSC4268
+//! Types for sharing encrypted room history, per [MSC4268].
+//!
+//! [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 
 use std::fmt::Debug;
 
