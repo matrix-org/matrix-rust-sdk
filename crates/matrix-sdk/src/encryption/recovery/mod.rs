@@ -418,7 +418,7 @@ impl Recovery {
     ///
     ///             handle.reset(Some(uiaa::AuthData::Password(password))).await?;
     ///         }
-    ///         CrossSigningResetAuthType::Oidc(o) => {
+    ///         CrossSigningResetAuthType::OAuth(o) => {
     ///             println!(
     ///                 "To reset your end-to-end encryption cross-signing identity, \
     ///                 you first need to approve it at {}",

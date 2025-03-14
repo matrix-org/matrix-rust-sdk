@@ -27,11 +27,11 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Re
                 password.session = uiaa.session.clone();
                 handle.auth(Some(uiaa::AuthData::Password(password))).await?;
             }
-            CrossSigningResetAuthType::Oidc(oidc) => {
+            CrossSigningResetAuthType::OAuth(oauth) => {
                 println!(
                     "To reset your end-to-end encryption cross-signing identity, \
                     you first need to approve it at {}",
-                    oidc.approval_url
+                    oauth.approval_url
                 );
                 handle.auth(None).await?;
             }
