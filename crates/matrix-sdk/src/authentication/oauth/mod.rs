@@ -237,7 +237,7 @@ impl OAuthCtx {
     }
 }
 
-pub(crate) struct OidcAuthData {
+pub(crate) struct OAuthAuthData {
     pub(crate) issuer: Url,
     pub(crate) client_id: ClientId,
     /// The data necessary to validate authorization responses.
@@ -245,9 +245,9 @@ pub(crate) struct OidcAuthData {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for OidcAuthData {
+impl fmt::Debug for OAuthAuthData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OidcAuthData")
+        f.debug_struct("OAuthAuthData")
             .field("issuer", &self.issuer.as_str())
             .finish_non_exhaustive()
     }
@@ -338,14 +338,14 @@ impl OAuth {
         let _ = self.ctx().cross_process_token_refresh_manager.set(manager);
     }
 
-    /// The OpenID Connect authentication data.
+    /// The OAuth 2.0 authentication data.
     ///
     /// Returns `None` if the client was not registered or if the registration
     /// was not restored with [`OAuth::restore_registered_client()`] or
     /// [`OAuth::restore_session()`].
-    fn data(&self) -> Option<&OidcAuthData> {
+    fn data(&self) -> Option<&OAuthAuthData> {
         let data = self.client.auth_ctx().auth_data.get()?;
-        as_variant!(data, AuthData::Oidc)
+        as_variant!(data, AuthData::OAuth)
     }
 
     /// Log in using a QR code.
@@ -869,12 +869,12 @@ impl OAuth {
     ///
     /// Panics if authentication data was already set.
     pub fn restore_registered_client(&self, issuer: Url, client_id: ClientId) {
-        let data = OidcAuthData { issuer, client_id, authorization_data: Default::default() };
+        let data = OAuthAuthData { issuer, client_id, authorization_data: Default::default() };
 
         self.client
             .auth_ctx()
             .auth_data
-            .set(AuthData::Oidc(data))
+            .set(AuthData::OAuth(data))
             .expect("Client authentication data was already set");
     }
 
@@ -894,7 +894,7 @@ impl OAuth {
     pub async fn restore_session(&self, session: OidcSession) -> Result<()> {
         let OidcSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
 
-        let data = OidcAuthData { issuer, client_id, authorization_data: Default::default() };
+        let data = OAuthAuthData { issuer, client_id, authorization_data: Default::default() };
 
         self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
@@ -910,7 +910,7 @@ impl OAuth {
             .inner
             .auth_ctx
             .auth_data
-            .set(AuthData::Oidc(data))
+            .set(AuthData::OAuth(data))
             .expect("Client authentication data was already set");
 
         // Initialize the cross-process locking by saving our tokens' hash into the
