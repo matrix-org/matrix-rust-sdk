@@ -112,3 +112,28 @@ impl From<ExportedRoomKey> for HistoricRoomKey {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use insta::assert_debug_snapshot;
+    use ruma::{owned_room_id, DeviceKeyAlgorithm};
+    use vodozemac::{
+        megolm::ExportedSessionKey, Curve25519PublicKey, Curve25519SecretKey, Ed25519SecretKey,
+    };
+
+    use crate::types::{room_history::HistoricRoomKey, EventEncryptionAlgorithm};
+
+    #[test]
+    fn test_historic_room_key_debug() {
+        let key = HistoricRoomKey {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id: owned_room_id!("!room:id"),
+            sender_key: Curve25519PublicKey::from(&Curve25519SecretKey::from_slice(b"abcdabcdabcdabcdabcdabcdabcdabcd")),
+            session_id: "id1234".to_owned(),
+            session_key: ExportedSessionKey::from_base64("AQAAAAC2XHVzsMBKs4QCRElJ92CJKyGtknCSC8HY7cQ7UYwndMKLQAejXLh5UA0l6s736mgctcUMNvELScUWrObdflrHo+vth/gWreXOaCnaSxmyjjKErQwyIYTkUfqbHy40RJfEesLwnN23on9XAkch/iy8R2+Jz7B8zfG01f2Ow2SxPQFnAndcO1ZSD2GmXgedy6n4B20MWI1jGP2wiexOWbFS").unwrap(),
+            sender_claimed_keys: vec![(DeviceKeyAlgorithm::Ed25519, Ed25519SecretKey::from_slice(b"abcdabcdabcdabcdabcdabcdabcdabcd").public_key().into())].into_iter().collect(),
+        };
+
+        assert_debug_snapshot!(key);
+    }
+}
