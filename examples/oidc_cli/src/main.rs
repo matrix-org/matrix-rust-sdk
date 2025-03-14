@@ -26,7 +26,7 @@ use matrix_sdk::{
         registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
         registrations::ClientId,
         AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, CsrfToken,
-        OAuthSession, OidcAuthorizationData, UserSession,
+        OAuthAuthorizationData, OAuthSession, UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -219,7 +219,7 @@ impl OidcCli {
             // the redirect when the custom URI scheme is opened.
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
-            let OidcAuthorizationData { url, state } =
+            let OAuthAuthorizationData { url, state } =
                 oauth.login(redirect_uri, None)?.build().await?;
 
             let authorization_code = match use_auth_url(&url, &state, server_handle).await {
