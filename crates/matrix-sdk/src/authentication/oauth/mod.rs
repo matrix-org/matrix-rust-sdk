@@ -65,8 +65,8 @@
 //! With OIDC, logging into a Matrix account is simply logging in with a
 //! predefined scope, part of it declaring the device ID of the session.
 //!
-//! [`Oauth::login()`] constructs an [`OidcAuthCodeUrlBuilder`] that can be
-//! configured, and then calling [`OidcAuthCodeUrlBuilder::build()`] will
+//! [`Oauth::login()`] constructs an [`OauthAuthCodeUrlBuilder`] that can be
+//! configured, and then calling [`OauthAuthCodeUrlBuilder::build()`] will
 //! provide the URL to present to the user in a web browser. After
 //! authenticating with the OIDC provider, the user will be redirected to the
 //! provided redirect URI, with a code in the query that will allow to finish
@@ -207,7 +207,7 @@ use self::{
 };
 pub use self::{
     account_management_url::AccountManagementActionFull,
-    auth_code_builder::{OidcAuthCodeUrlBuilder, OidcAuthorizationData},
+    auth_code_builder::{OauthAuthCodeUrlBuilder, OauthAuthorizationData},
     error::OauthError,
 };
 use super::{AuthData, SessionTokens};
@@ -459,7 +459,7 @@ impl Oauth {
         registrations: OidcRegistrations,
         redirect_uri: Url,
         prompt: Option<Prompt>,
-    ) -> Result<OidcAuthorizationData, OauthError> {
+    ) -> Result<OauthAuthorizationData, OauthError> {
         let metadata = self.provider_metadata().await?;
 
         self.configure(metadata.issuer, registrations).await?;
@@ -480,7 +480,7 @@ impl Oauth {
     /// tandem with [`Oauth::url_for_oidc`].
     pub async fn login_with_oidc_callback(
         &self,
-        authorization_data: &OidcAuthorizationData,
+        authorization_data: &OauthAuthorizationData,
         callback_url: Url,
     ) -> Result<()> {
         let response = AuthorizationResponse::parse_uri(&callback_url)
@@ -1075,10 +1075,10 @@ impl Oauth {
         &self,
         redirect_uri: Url,
         device_id: Option<OwnedDeviceId>,
-    ) -> Result<OidcAuthCodeUrlBuilder, OauthError> {
+    ) -> Result<OauthAuthCodeUrlBuilder, OauthError> {
         let scopes = Self::login_scopes(device_id).to_vec();
 
-        Ok(OidcAuthCodeUrlBuilder::new(self.clone(), scopes, redirect_uri))
+        Ok(OauthAuthCodeUrlBuilder::new(self.clone(), scopes, redirect_uri))
     }
 
     /// Finish the login process.
@@ -1147,7 +1147,7 @@ impl Oauth {
     /// Finish the authorization process.
     ///
     /// This method should be called after the URL returned by
-    /// [`OidcAuthCodeUrlBuilder::build()`] has been presented and the user has
+    /// [`OauthAuthCodeUrlBuilder::build()`] has been presented and the user has
     /// been redirected to the redirect URI after a successful authorization.
     ///
     /// If the authorization has not been successful,
@@ -1197,7 +1197,7 @@ impl Oauth {
     /// Abort the authorization process.
     ///
     /// This method should be called after the URL returned by
-    /// [`OidcAuthCodeUrlBuilder::build()`] has been presented and the user has
+    /// [`OauthAuthCodeUrlBuilder::build()`] has been presented and the user has
     /// been redirected to the redirect URI after a failed authorization, or if
     /// the authorization should be aborted before it is completed.
     ///
@@ -1207,7 +1207,7 @@ impl Oauth {
     /// # Arguments
     ///
     /// * `state` - The state received as part of the redirect URI when the
-    ///   authorization failed, or the one provided in [`OidcAuthorizationData`]
+    ///   authorization failed, or the one provided in [`OauthAuthorizationData`]
     ///   after building the authorization URL.
     pub async fn abort_authorization(&self, state: &CsrfToken) {
         if let Some(data) = self.data() {

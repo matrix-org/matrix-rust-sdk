@@ -20,7 +20,7 @@ use wiremock::{
 
 use super::{
     registrations::OidcRegistrations, AuthorizationCode, AuthorizationError, AuthorizationResponse,
-    Oauth, OauthError, OidcAuthorizationData, RedirectUriQueryParseError,
+    Oauth, OauthAuthorizationData, OauthError, RedirectUriQueryParseError,
 };
 use crate::{
     authentication::oauth::{
@@ -61,7 +61,7 @@ async fn mock_environment() -> anyhow::Result<(Oauth, MatrixMockServer, Url, Oid
 
 /// Check the URL in the given authorization data.
 async fn check_authorization_url(
-    authorization_data: &OidcAuthorizationData,
+    authorization_data: &OauthAuthorizationData,
     oauth: &Oauth,
     issuer: &Url,
     device_id: Option<&DeviceId>,
