@@ -31,12 +31,12 @@
 //!
 //! To enable support for OpenID Connect on the [`Client`], simply enable the
 //! `experimental-oidc` cargo feature for the `matrix-sdk` crate. Then this
-//! authentication API is available with [`Client::oidc()`].
+//! authentication API is available with [`Client::oauth()`].
 //!
 //! # Homeserver support
 //!
 //! After building the client, you can check that the homeserver supports
-//! logging in via OAuth 2.0 when [`Oidc::provider_metadata()`] succeeds.
+//! logging in via OAuth 2.0 when [`OAuth::provider_metadata()`] succeeds.
 //!
 //! # Registration
 //!
@@ -46,7 +46,7 @@
 //! without credentials.
 //!
 //! If the issuer supports dynamic registration, it can be done by using
-//! [`Oidc::register_client()`]. After registration, the client ID should be
+//! [`OAuth::register_client()`]. After registration, the client ID should be
 //! persisted and reused for every session that interacts with that same issuer.
 //!
 //! If dynamic registration is not available, the homeserver should document how
@@ -54,7 +54,7 @@
 //!
 //! To provide the client ID and metadata if dynamic registration is not
 //! available, or if the client is already registered with the issuer, call
-//! [`Oidc::restore_registered_client()`].
+//! [`OAuth::restore_registered_client()`].
 //!
 //! # Login
 //!
@@ -65,14 +65,14 @@
 //! With OIDC, logging into a Matrix account is simply logging in with a
 //! predefined scope, part of it declaring the device ID of the session.
 //!
-//! [`Oidc::login()`] constructs an [`OidcAuthCodeUrlBuilder`] that can be
+//! [`OAuth::login()`] constructs an [`OidcAuthCodeUrlBuilder`] that can be
 //! configured, and then calling [`OidcAuthCodeUrlBuilder::build()`] will
 //! provide the URL to present to the user in a web browser. After
 //! authenticating with the OIDC provider, the user will be redirected to the
 //! provided redirect URI, with a code in the query that will allow to finish
-//! the authorization process by calling [`Oidc::finish_authorization()`].
+//! the authorization process by calling [`OAuth::finish_authorization()`].
 //!
-//! When the login is successful, you must then call [`Oidc::finish_login()`].
+//! When the login is successful, you must then call [`OAuth::finish_login()`].
 //!
 //! # Persisting/restoring a session
 //!
@@ -85,12 +85,12 @@
 //! Both parts are usually stored separately because the client ID can be reused
 //! for any session with the same issuer, while the user session is unique.
 //!
-//! _Note_ that the type returned by [`Oidc::full_session()`] is not
+//! _Note_ that the type returned by [`OAuth::full_session()`] is not
 //! (de)serializable. This is done on purpose because the client ID and metadata
 //! should be stored separately than the user session, as they should be reused
 //! for the same provider across with different user sessions.
 //!
-//! To restore a previous session, use [`Oidc::restore_session()`].
+//! To restore a previous session, use [`OAuth::restore_session()`].
 //!
 //! # Refresh tokens
 //!
@@ -109,13 +109,13 @@
 //! [`ErrorKind::UnknownToken`].
 //!
 //! The first step is to try to refresh the token with
-//! [`Oidc::refresh_access_token()`]. This step is done automatically if the
+//! [`OAuth::refresh_access_token()`]. This step is done automatically if the
 //! client was built with [`ClientBuilder::handle_refresh_tokens()`].
 //!
 //! If refreshing the access token fails, the next step is to try to request a
-//! new login authorization with [`Oidc::login()`], using the device ID from the
-//! session. _Note_ that in this case [`Oidc::finish_login()`] must NOT be
-//! called after [`Oidc::finish_authorization()`].
+//! new login authorization with [`OAuth::login()`], using the device ID from
+//! the session. _Note_ that in this case [`OAuth::finish_login()`] must NOT be
+//! called after [`OAuth::finish_authorization()`].
 //!
 //! If this fails again, the client should assume to be logged out, and all
 //! local data should be erased.
@@ -124,12 +124,12 @@
 //!
 //! The homeserver or provider might advertise a URL that allows the user to
 //! manage their account, it can be obtained with
-//! [`Oidc::account_management_url()`].
+//! [`OAuth::account_management_url()`].
 //!
 //! # Logout
 //!
-//! To log the [`Client`] out of the session, simply call [`Oidc::logout()`]. If
-//! the provider supports it, it will return a URL to present to the user if
+//! To log the [`Client`] out of the session, simply call [`OAuth::logout()`].
+//! If the provider supports it, it will return a URL to present to the user if
 //! they also want to log out from their account on the provider's website.
 //!
 //! # Examples
@@ -253,16 +253,17 @@ impl fmt::Debug for OidcAuthData {
     }
 }
 
-/// A high-level authentication API to interact with an OpenID Connect Provider.
+/// A high-level authentication API to interact with an OAuth 2.0 authorization
+/// server.
 #[derive(Debug, Clone)]
-pub struct Oidc {
+pub struct OAuth {
     /// The underlying Matrix API client.
     client: Client,
     /// The HTTP client used for making OAuth 2.0 request.
     http_client: OauthHttpClient,
 }
 
-impl Oidc {
+impl OAuth {
     pub(crate) fn new(client: Client) -> Self {
         let http_client = OauthHttpClient {
             inner: client.inner.http_client.inner.clone(),
@@ -340,8 +341,8 @@ impl Oidc {
     /// The OpenID Connect authentication data.
     ///
     /// Returns `None` if the client was not registered or if the registration
-    /// was not restored with [`Oidc::restore_registered_client()`] or
-    /// [`Oidc::restore_session()`].
+    /// was not restored with [`OAuth::restore_registered_client()`] or
+    /// [`OAuth::restore_session()`].
     fn data(&self) -> Option<&OidcAuthData> {
         let data = self.client.auth_ctx().auth_data.get()?;
         as_variant!(data, AuthData::Oidc)
@@ -390,12 +391,12 @@ impl Oidc {
     ///     .build()
     ///     .await?;
     ///
-    /// let oidc = client.oidc();
+    /// let oauth = client.oauth();
     /// let metadata: Raw<ClientMetadata> = client_metadata();
     ///
     /// // Subscribing to the progress is necessary since we need to input the check
     /// // code on the existing device.
-    /// let login = oidc.login_with_qr_code(&qr_code_data, metadata);
+    /// let login = oauth.login_with_qr_code(&qr_code_data, metadata);
     /// let mut progress = login.subscribe_to_progress();
     ///
     /// // Create a task which will show us the progress and tell us the check
@@ -436,7 +437,7 @@ impl Oidc {
     /// will take some client metadata, register the client if needed and begin
     /// the login process, returning the authorization data required to show a
     /// webview for a user to login to their account. Call
-    /// [`Oidc::login_with_oidc_callback`] to finish the process when the
+    /// [`OAuth::login_with_oidc_callback`] to finish the process when the
     /// webview is complete.
     ///
     /// # Arguments
@@ -476,7 +477,7 @@ impl Oidc {
 
     /// A higher level wrapper around the methods to complete a login after the
     /// user has logged in through a webview. This method should be used in
-    /// tandem with [`Oidc::url_for_oidc`].
+    /// tandem with [`OAuth::url_for_oidc`].
     pub async fn login_with_oidc_callback(
         &self,
         authorization_data: &OidcAuthorizationData,
@@ -566,8 +567,8 @@ impl Oidc {
     /// The OpenID Connect Provider used for authorization.
     ///
     /// Returns `None` if the client was not registered or if the registration
-    /// was not restored with [`Oidc::restore_registered_client()`] or
-    /// [`Oidc::restore_session()`].
+    /// was not restored with [`OAuth::restore_registered_client()`] or
+    /// [`OAuth::restore_session()`].
     pub fn issuer(&self) -> Option<&Url> {
         self.data().map(|data| &data.issuer)
     }
@@ -592,7 +593,7 @@ impl Oidc {
     /// * `action` - An optional action that wants to be performed by the user
     ///   when they open the URL. The list of supported actions by the account
     ///   management URL can be found in the [`AuthorizationServerMetadata`], or
-    ///   directly with [`Oidc::account_management_actions_supported()`].
+    ///   directly with [`OAuth::account_management_actions_supported()`].
     ///
     /// Returns `Ok(None)` if the URL was not found. Returns an error if the
     /// request to get the provider metadata fails or the URL could not be
@@ -632,7 +633,7 @@ impl Oidc {
     /// * `action` - An optional action that wants to be performed by the user
     ///   when they open the URL. The list of supported actions by the account
     ///   management URL can be found in the [`AuthorizationServerMetadata`], or
-    ///   directly with [`Oidc::account_management_actions_supported()`].
+    ///   directly with [`OAuth::account_management_actions_supported()`].
     ///
     /// Returns `Ok(None)` if the URL was not found. Returns an error if the
     /// request to get the provider metadata fails or the URL could not be
@@ -640,7 +641,7 @@ impl Oidc {
     ///
     /// This method will cache the URL for a while, if the cache is not
     /// populated it will internally call
-    /// [`Oidc::fetch_account_management_url()`] and cache the resulting URL
+    /// [`OAuth::fetch_account_management_url()`] and cache the resulting URL
     /// before returning it.
     pub async fn account_management_url(
         &self,
@@ -732,8 +733,8 @@ impl Oidc {
     /// registration.
     ///
     /// Returns `None` if the client was not registered or if the registration
-    /// was not restored with [`Oidc::restore_registered_client()`] or
-    /// [`Oidc::restore_session()`].
+    /// was not restored with [`OAuth::restore_registered_client()`] or
+    /// [`OAuth::restore_session()`].
     pub fn client_id(&self) -> Option<&ClientId> {
         self.data().map(|data| &data.client_id)
     }
@@ -763,14 +764,14 @@ impl Oidc {
     ///
     /// This should be called before any authorization request with an unknown
     /// authorization server. If the client is already registered with the
-    /// given issuer, it should use [`Oidc::restore_registered_client()`].
+    /// given issuer, it should use [`OAuth::restore_registered_client()`].
     ///
     /// Note that this method only supports public clients, i.e. clients without
     /// a secret.
     ///
     /// The client should adapt the security measures enabled in its metadata
     /// according to the capabilities advertised in
-    /// [`Oidc::provider_metadata()`].
+    /// [`OAuth::provider_metadata()`].
     ///
     /// # Arguments
     ///
@@ -778,8 +779,8 @@ impl Oidc {
     ///
     /// The client ID in the response should be persisted for future use and
     /// reused for the same authorization server, identified by the
-    /// [`Oidc::issuer()`], along with the client metadata sent to the provider,
-    /// even for different sessions or user accounts.
+    /// [`OAuth::issuer()`], along with the client metadata sent to the
+    /// provider, even for different sessions or user accounts.
     ///
     /// # Panic
     ///
@@ -797,9 +798,9 @@ impl Oidc {
     /// # _ = async {
     /// let server_name = ServerName::parse("myhomeserver.org")?;
     /// let client = Client::builder().server_name(&server_name).build().await?;
-    /// let oidc = client.oidc();
+    /// let oauth = client.oauth();
     ///
-    /// if let Err(error) = oidc.provider_metadata().await {
+    /// if let Err(error) = oauth.provider_metadata().await {
     ///     if error.is_not_supported() {
     ///         println!("OAuth 2.0 is not supported");
     ///     }
@@ -807,7 +808,7 @@ impl Oidc {
     ///     return Err(error.into());
     /// }
     ///
-    /// let response = oidc
+    /// let response = oauth
     ///     .register_client(&client_metadata)
     ///     .await?;
     ///
@@ -818,7 +819,7 @@ impl Oidc {
     ///
     /// // The API only supports clients without secrets.
     /// let client_id = response.client_id;
-    /// let issuer = oidc.issuer().expect("issuer should be set after registration");
+    /// let issuer = oauth.issuer().expect("issuer should be set after registration");
     ///
     /// persist_client_registration(issuer, &client_metadata, &client_id);
     /// # anyhow::Ok(()) };
@@ -1000,11 +1001,11 @@ impl Oidc {
 
     /// Login via OpenID Connect with the Authorization Code flow.
     ///
-    /// This should be called after [`Oidc::register_client()`] or
-    /// [`Oidc::restore_registered_client()`].
+    /// This should be called after [`OAuth::register_client()`] or
+    /// [`OAuth::restore_registered_client()`].
     ///
-    /// If this is a brand new login, [`Oidc::finish_login()`] must be called
-    /// after [`Oidc::finish_authorization()`], to finish loading the user
+    /// If this is a brand new login, [`OAuth::finish_login()`] must be called
+    /// after [`OAuth::finish_authorization()`], to finish loading the user
     /// session.
     ///
     /// # Arguments
@@ -1038,14 +1039,14 @@ impl Oidc {
     /// # let client_id = unimplemented!();
     /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
-    /// let oidc = client.oidc();
+    /// let oauth = client.oauth();
     ///
-    /// oidc.restore_registered_client(
+    /// oauth.restore_registered_client(
     ///     issuer_info,
     ///     client_id,
     /// );
     ///
-    /// let auth_data = oidc.login(redirect_uri, None)?.build().await?;
+    /// let auth_data = oauth.login(redirect_uri, None)?.build().await?;
     ///
     /// // Open auth_data.url and wait for response at the redirect URI.
     /// // The full URL obtained is called here `redirected_to_uri`.
@@ -1059,10 +1060,10 @@ impl Oidc {
     ///     }
     /// };
     ///
-    /// let _tokens_response = oidc.finish_authorization(code).await?;
+    /// let _tokens_response = oauth.finish_authorization(code).await?;
     ///
     /// // Important! Without this we can't access the full session.
-    /// oidc.finish_login().await?;
+    /// oauth.finish_login().await?;
     ///
     /// // The session tokens can be persisted either from the response, or from
     /// // the `Client::session_tokens()` method.
@@ -1083,9 +1084,9 @@ impl Oidc {
 
     /// Finish the login process.
     ///
-    /// Must be called after [`Oidc::finish_authorization()`] after logging into
-    /// a brand new session, to load the last part of the user session and
-    /// complete the initialization of the [`Client`].
+    /// Must be called after [`OAuth::finish_authorization()`] after logging
+    /// into a brand new session, to load the last part of the user session
+    /// and complete the initialization of the [`Client`].
     ///
     /// # Panic
     ///
@@ -1151,7 +1152,7 @@ impl Oidc {
     /// been redirected to the redirect URI after a successful authorization.
     ///
     /// If the authorization has not been successful,
-    /// [`Oidc::abort_authorization()`] should be used instead to clean up the
+    /// [`OAuth::abort_authorization()`] should be used instead to clean up the
     /// local data.
     ///
     /// # Arguments
@@ -1202,7 +1203,7 @@ impl Oidc {
     /// the authorization should be aborted before it is completed.
     ///
     /// If the authorization has been successful,
-    /// [`Oidc::finish_authorization()`] should be used instead.
+    /// [`OAuth::finish_authorization()`] should be used instead.
     ///
     /// # Arguments
     ///

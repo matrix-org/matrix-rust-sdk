@@ -21,16 +21,16 @@ use ruma::{api::client::discovery::get_authorization_server_metadata::msc2965::P
 use tracing::{info, instrument};
 use url::Url;
 
-use super::{Oidc, OidcError};
+use super::{OAuth, OidcError};
 use crate::{authentication::oauth::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
 /// OpenID Connect Provider via the Authorization Code flow.
 ///
-/// Created with [`Oidc::login()`]. Finalized with [`Self::build()`].
+/// Created with [`OAuth::login()`]. Finalized with [`Self::build()`].
 #[allow(missing_debug_implementations)]
 pub struct OidcAuthCodeUrlBuilder {
-    oidc: Oidc,
+    oauth: OAuth,
     scopes: Vec<Scope>,
     redirect_uri: Url,
     prompt: Option<Vec<Prompt>>,
@@ -38,8 +38,8 @@ pub struct OidcAuthCodeUrlBuilder {
 }
 
 impl OidcAuthCodeUrlBuilder {
-    pub(super) fn new(oidc: Oidc, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
-        Self { oidc, scopes, redirect_uri, prompt: None, login_hint: None }
+    pub(super) fn new(oauth: OAuth, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
+        Self { oauth, scopes, redirect_uri, prompt: None, login_hint: None }
     }
 
     /// Set the [`Prompt`] of the authorization URL.
@@ -68,22 +68,22 @@ impl OidcAuthCodeUrlBuilder {
     ///
     /// This URL should be presented to the user and once they are redirected to
     /// the `redirect_uri`, the authorization can be completed by calling
-    /// [`Oidc::finish_authorization()`].
+    /// [`OAuth::finish_authorization()`].
     ///
     /// Returns an error if the client registration was not restored, or if a
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OidcAuthorizationData, OidcError> {
-        let Self { oidc, scopes, redirect_uri, prompt, login_hint } = self;
+        let Self { oauth, scopes, redirect_uri, prompt, login_hint } = self;
 
-        let data = oidc.data().ok_or(OidcError::NotAuthenticated)?;
+        let data = oauth.data().ok_or(OidcError::NotAuthenticated)?;
         info!(
             issuer = data.issuer.as_str(),
             ?scopes,
             "Authorizing scope via the OpenID Connect Authorization Code flow"
         );
 
-        let provider_metadata = oidc.provider_metadata().await?;
+        let provider_metadata = oauth.provider_metadata().await?;
         let auth_url = AuthUrl::from_url(provider_metadata.authorization_endpoint);
 
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();

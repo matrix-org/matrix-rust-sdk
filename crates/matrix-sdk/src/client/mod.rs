@@ -77,7 +77,7 @@ use url::Url;
 
 use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
-use crate::authentication::oauth::Oidc;
+use crate::authentication::oauth::OAuth;
 use crate::{
     authentication::{
         matrix::MatrixAuth, AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,
@@ -607,7 +607,7 @@ impl Client {
         match self.auth_ctx().auth_data.get()? {
             AuthData::Matrix => Some(AuthApi::Matrix(self.matrix_auth())),
             #[cfg(feature = "experimental-oidc")]
-            AuthData::Oidc(_) => Some(AuthApi::Oidc(self.oidc())),
+            AuthData::Oidc(_) => Some(AuthApi::OAuth(self.oauth())),
         }
     }
 
@@ -621,7 +621,7 @@ impl Client {
         match self.auth_api()? {
             AuthApi::Matrix(api) => api.session().map(Into::into),
             #[cfg(feature = "experimental-oidc")]
-            AuthApi::Oidc(api) => api.full_session().map(Into::into),
+            AuthApi::OAuth(api) => api.full_session().map(Into::into),
         }
     }
 
@@ -661,10 +661,10 @@ impl Client {
         Pusher::new(self.clone())
     }
 
-    /// Access the OpenID Connect API of the client.
+    /// Access the OAuth 2.0 API of the client.
     #[cfg(feature = "experimental-oidc")]
-    pub fn oidc(&self) -> Oidc {
-        Oidc::new(self.clone())
+    pub fn oauth(&self) -> OAuth {
+        OAuth::new(self.clone())
     }
 
     /// Register a handler for a specific event type.
@@ -1274,7 +1274,7 @@ impl Client {
         match session {
             AuthSession::Matrix(s) => Box::pin(self.matrix_auth().restore_session(s)).await,
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(s) => Box::pin(self.oidc().restore_session(*s)).await,
+            AuthSession::Oidc(s) => Box::pin(self.oauth().restore_session(*s)).await,
         }
     }
 
@@ -1310,8 +1310,8 @@ impl Client {
                 Box::pin(api.refresh_access_token()).await?;
             }
             #[cfg(feature = "experimental-oidc")]
-            AuthApi::Oidc(api) => {
-                trace!("Token refresh: Using OIDC.");
+            AuthApi::OAuth(api) => {
+                trace!("Token refresh: Using OAuth 2.0.");
                 Box::pin(api.refresh_access_token()).await?;
             }
         }

@@ -581,9 +581,10 @@ async fn test_oauth_refresh_token_handled_success() {
 
     let issuer = server.server().uri();
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
-    let oidc = client.oidc();
+    let oauth = client.oauth();
 
-    oidc.restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+    oauth
+        .restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
         .await
         .unwrap();
 
@@ -633,9 +634,10 @@ async fn test_oauth_refresh_token_handled_failure() {
 
     let issuer = server.server().uri();
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
-    let oidc = client.oidc();
+    let oauth = client.oauth();
 
-    oidc.restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+    oauth
+        .restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
         .await
         .unwrap();
 
@@ -685,8 +687,9 @@ async fn test_oauth_handle_refresh_tokens() {
     let issuer = server.server().uri();
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
 
-    let oidc = client.oidc();
-    oidc.restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+    let oauth = client.oauth();
+    oauth
+        .restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
         .await
         .unwrap();
 
@@ -709,7 +712,7 @@ async fn test_oauth_handle_refresh_tokens() {
     // Refresh token successfully.
     oauth_server.mock_token().ok().mock_once().named("refresh_token").mount().await;
 
-    oidc.refresh_access_token().await.unwrap();
+    oauth.refresh_access_token().await.unwrap();
 
     // The tokens were updated.
     assert_eq!(
