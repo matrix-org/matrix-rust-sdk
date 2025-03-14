@@ -13,20 +13,13 @@
 // limitations under the License.
 
 use std::{
-    convert::Infallible,
-    future::IntoFuture,
     io::{self, Write},
-    ops::Range,
+    net::{Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use anyhow::{anyhow, bail};
-use axum::{
-    http::{Method, Request, StatusCode},
-    response::IntoResponse,
-    routing::any_service,
-};
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oidc::{
@@ -42,13 +35,13 @@ use matrix_sdk::{
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
         serde::Raw,
     },
+    utils::local_server::{LocalServerBuilder, LocalServerRedirectHandle},
     Client, ClientBuildError, Result, RoomState,
 };
 use matrix_sdk_ui::sync_service::SyncService;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use tokio::{fs, io::AsyncBufReadExt as _, net::TcpListener, sync::oneshot};
-use tower::service_fn;
+use tokio::{fs, io::AsyncBufReadExt as _};
 use url::Url;
 
 /// A command-line tool to demonstrate the steps requiring an interaction with
@@ -224,12 +217,12 @@ impl OidcCli {
             // Here we spawn a server to listen on the loopback interface. Another option
             // would be to register a custom URI scheme with the system and handle
             // the redirect when the custom URI scheme is opened.
-            let (redirect_uri, data_rx, signal_tx) = spawn_local_server().await?;
+            let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OidcAuthorizationData { url, state } =
                 oidc.login(redirect_uri, None)?.build().await?;
 
-            let authorization_code = match use_auth_url(&url, &state, data_rx, signal_tx).await {
+            let authorization_code = match use_auth_url(&url, &state, server_handle).await {
                 Ok(code) => code,
                 Err(err) => {
                     oidc.abort_authorization(&state).await;
@@ -707,10 +700,13 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
 /// possible, for example by using the most secure signing algorithms supported
 /// by the provider.
 fn client_metadata() -> Raw<ClientMetadata> {
-    // Native clients should be able to register the loopback interface and then
-    // point to any port when needing a redirect URI. An alternative is to use a
-    // custom URI scheme registered with the OS.
-    let redirect_uri = Url::parse("http://127.0.0.1").expect("Couldn't parse redirect URI");
+    // Native clients should be able to register the IPv4 and IPv6 loopback
+    // interfaces and then point to any port when needing a redirect URI. An
+    // alternative is to use a custom URI scheme registered with the OS.
+    let ipv4_localhost_uri = Url::parse(&format!("http://{}/", Ipv4Addr::LOCALHOST))
+        .expect("Couldn't parse IPv4 redirect URI");
+    let ipv6_localhost_uri = Url::parse(&format!("http://[{}]/", Ipv6Addr::LOCALHOST))
+        .expect("Couldn't parse IPv6 redirect URI");
     let client_uri = Localized::new(
         Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
             .expect("Couldn't parse client URI"),
@@ -730,7 +726,9 @@ fn client_metadata() -> Raw<ClientMetadata> {
             // browser).
             ApplicationType::Native,
             // We are going to use the Authorization Code flow.
-            vec![OauthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] }],
+            vec![OauthGrantType::AuthorizationCode {
+                redirect_uris: vec![ipv4_localhost_uri, ipv6_localhost_uri],
+            }],
             client_uri,
         )
     };
@@ -744,21 +742,20 @@ fn client_metadata() -> Raw<ClientMetadata> {
 async fn use_auth_url(
     url: &Url,
     state: &CsrfToken,
-    data_rx: oneshot::Receiver<String>,
-    signal_tx: oneshot::Sender<()>,
+    server_handle: LocalServerRedirectHandle,
 ) -> anyhow::Result<AuthorizationCode> {
     println!("\nPlease authenticate yourself at: {url}\n");
     println!("Then proceed to the authorization.\n");
 
-    let response_query = data_rx.await?;
-    signal_tx.send(()).expect("Receiver is still alive");
+    let response_query = server_handle.await;
 
-    let code = match AuthorizationResponse::parse_query(&response_query)? {
-        AuthorizationResponse::Success(code) => code,
-        AuthorizationResponse::Error(err) => {
-            return Err(anyhow!(err.error));
-        }
-    };
+    let code =
+        match AuthorizationResponse::parse_query(response_query.as_deref().unwrap_or_default())? {
+            AuthorizationResponse::Success(code) => code,
+            AuthorizationResponse::Error(err) => {
+                return Err(anyhow!(err.error));
+            }
+        };
 
     // Here we only manage one authorization at a time so, if the state string is
     // wrong, it is an error. Some clients might want to allow several
@@ -769,87 +766,6 @@ async fn use_auth_url(
     }
 
     Ok(code)
-}
-
-/// Spawn a local server to listen on redirects at the end of the authorization
-/// process.
-///
-/// Returns the URL the server listens to, the receiver that will receive the
-/// data returned by the provider and a sender to shutdown the server.
-async fn spawn_local_server(
-) -> anyhow::Result<(Url, oneshot::Receiver<String>, oneshot::Sender<()>)> {
-    /// The range of ports the SSO server will try to bind to randomly.
-    ///
-    /// This is used to avoid binding to a port blocked by browsers.
-    /// See <https://fetch.spec.whatwg.org/#port-blocking>.
-    const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
-    /// The number of times the SSO server will try to bind to a random port
-    const SSO_SERVER_BIND_TRIES: u8 = 10;
-
-    // The channel used to shutdown the server when we are done with it.
-    let (signal_tx, signal_rx) = oneshot::channel::<()>();
-    // The channel used to transmit the data received a the redirect URL.
-    let (data_tx, data_rx) = oneshot::channel::<String>();
-    let data_tx_mutex = Arc::new(Mutex::new(Some(data_tx)));
-
-    // We bind to the IPv4 loopback interface.
-    let mut redirect_url = Url::parse("http://127.0.0.1:0/")
-        .expect("Couldn't parse good known loopback interface URL");
-
-    // Bind a TCP listener to a random port.
-    let listener = {
-        let host = redirect_url.host_str().expect("The redirect URL doesn't have a host");
-        let mut n = 0u8;
-
-        loop {
-            let port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
-            match TcpListener::bind((host, port)).await {
-                Ok(l) => {
-                    redirect_url
-                        .set_port(Some(port))
-                        .expect("Could not set new port on redirect URL");
-                    break l;
-                }
-                Err(_) if n < SSO_SERVER_BIND_TRIES => {
-                    n += 1;
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-    };
-
-    // Set up the server.
-    let router = any_service(service_fn(move |request: Request<_>| {
-        let data_tx_mutex = data_tx_mutex.clone();
-        async move {
-            // Reject methods others than HEAD or GET.
-            if request.method() != Method::HEAD && request.method() != Method::GET {
-                return Ok::<_, Infallible>(StatusCode::METHOD_NOT_ALLOWED.into_response());
-            }
-
-            // We only need to get the first response so we consume the transmitter the
-            // first time.
-            if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                let query_string = request.uri().query().unwrap_or_default();
-
-                data_tx.send(query_string.to_owned()).expect("The receiver is still alive");
-            }
-
-            Ok("The authorization step is complete. You can close this page and go back to the oidc-cli.".into_response())
-        }
-    }));
-
-    let server = axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            signal_rx.await.ok();
-        })
-        .into_future();
-
-    tokio::spawn(server);
-
-    Ok((redirect_url, data_rx, signal_tx))
 }
 
 /// Handle room messages.

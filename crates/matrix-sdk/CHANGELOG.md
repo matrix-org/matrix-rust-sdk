@@ -49,6 +49,10 @@ simpler methods:
   ```rust
   room.latest_encryption_state().await?.is_encrypted()
   ```
+- `LocalServerBuilder`, behind the `local-server` feature, can be used to spawn
+  a server when the end-user needs to be redirected to an address on localhost.
+  It was used for `SsoLoginBuilder` and can now be used in other cases, like for
+  login with the OAuth 2.0 API.
 
 ### Bug Fixes
 
@@ -150,6 +154,9 @@ simpler methods:
   However it now takes the redirect URI to use, instead of always using the
   first one in the client metadata.
   ([#4771](https://github.com/matrix-org/matrix-rust-sdk/pull/4771))
+- [**breaking**] The `server_url` and `server_response` methods of
+  `SsoLoginBuilder` are replaced by `server_builder()`, which allows more
+  fine-grained settings for the server.
 
 ## [0.10.0] - 2025-02-04
 

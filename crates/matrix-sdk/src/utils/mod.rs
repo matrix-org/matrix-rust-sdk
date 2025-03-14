@@ -34,6 +34,9 @@ use tokio::sync::broadcast;
 #[cfg(feature = "e2e-encryption")]
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 
+#[cfg(feature = "local-server")]
+pub mod local_server;
+
 #[cfg(doc)]
 use crate::Room;
 
