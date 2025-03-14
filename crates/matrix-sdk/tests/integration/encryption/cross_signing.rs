@@ -163,9 +163,9 @@ async fn test_reset_oidc() {
         .unwrap()
         .expect("We should have received a reset handle");
 
-    assert_let!(CrossSigningResetAuthType::Oidc(oidc_info) = reset_handle.auth_type());
+    assert_let!(CrossSigningResetAuthType::OAuth(oauth_info) = reset_handle.auth_type());
     assert_eq!(
-        oidc_info.approval_url.as_str(),
+        oauth_info.approval_url.as_str(),
         format!("{}/account/?action=org.matrix.cross_signing_reset", server.server().uri())
     );
 

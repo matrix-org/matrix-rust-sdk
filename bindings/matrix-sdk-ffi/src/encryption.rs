@@ -570,7 +570,7 @@ impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningRe
     fn from(value: &matrix_sdk::encryption::CrossSigningResetAuthType) -> Self {
         match value {
             encryption::CrossSigningResetAuthType::Uiaa(_) => Self::Uiaa,
-            encryption::CrossSigningResetAuthType::Oidc(info) => Self::Oidc { info: info.into() },
+            encryption::CrossSigningResetAuthType::OAuth(info) => Self::Oidc { info: info.into() },
         }
     }
 }
@@ -581,8 +581,8 @@ pub struct OidcCrossSigningResetInfo {
     pub approval_url: String,
 }
 
-impl From<&matrix_sdk::encryption::OidcCrossSigningResetInfo> for OidcCrossSigningResetInfo {
-    fn from(value: &matrix_sdk::encryption::OidcCrossSigningResetInfo) -> Self {
+impl From<&matrix_sdk::encryption::OAuthCrossSigningResetInfo> for OidcCrossSigningResetInfo {
+    fn from(value: &matrix_sdk::encryption::OAuthCrossSigningResetInfo) -> Self {
         Self { approval_url: value.approval_url.to_string() }
     }
 }
