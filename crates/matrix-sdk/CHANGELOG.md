@@ -12,8 +12,8 @@ All notable changes to this project will be documented in this file.
   have changed.
   - It supports the new fields: `hide_screensharing`, `posthog_api_host`, `posthog_api_key`,
   `rageshake_submit_url`, `sentry_dsn`, `sentry_environment`.
-  - The widget URL will no longer automatically add `/room` to the base domain. `element_call_url_add_room` has been added
-  as a deprecated field for backward compatibility. (Setting it to true will result in the previous behavior)
+  - The widget URL will no longer automatically add `/room` to the base domain. For backward compatibility
+  the app itself would need to add `/room` to the `element_call_url`.
   - And replaced:
     - `analytics_id` -> `posthog_user_id` (The widget URL query parameters will include `analytics_id` & `posthog_user_id`
     for backward compatibility)
