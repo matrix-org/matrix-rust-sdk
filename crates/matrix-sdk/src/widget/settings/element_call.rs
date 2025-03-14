@@ -294,7 +294,7 @@ mod tests {
         };
         let props = if sentry {
             VirtualElementCallWidgetOptions {
-                sentry_dsn: Some("SENTRY_DNS".to_owned()),
+                sentry_dsn: Some("SENTRY_DSN".to_owned()),
                 sentry_environment: Some("SENTRY_ENV".to_owned()),
                 ..props
             }
@@ -445,7 +445,7 @@ mod tests {
                 &analyticsId=POSTHOG_USER_ID\
                 &posthogUserId=POSTHOG_USER_ID\
                 &rageshakeSubmitUrl=https%3A%2F%2Frageshake.element.io\
-                &sentryDsn=SENTRY_DNS\
+                &sentryDsn=SENTRY_DSN\
                 &sentryEnvironment=SENTRY_ENV\
         ";
         let gen = build_url_from_widget_settings(get_widget_settings(None, true, true, true));
