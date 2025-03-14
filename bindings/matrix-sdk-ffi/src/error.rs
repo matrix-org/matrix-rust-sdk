@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt, fmt::Display, time::SystemTime};
 
 use matrix_sdk::{
-    authentication::oidc::OidcError, encryption::CryptoStoreError, event_cache::EventCacheError,
+    authentication::oauth::OidcError, encryption::CryptoStoreError, event_cache::EventCacheError,
     reqwest, room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,

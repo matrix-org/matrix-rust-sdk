@@ -255,7 +255,7 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        authentication::oidc::cross_process::SessionHash,
+        authentication::oauth::cross_process::SessionHash,
         test_utils::{
             client::{
                 mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,

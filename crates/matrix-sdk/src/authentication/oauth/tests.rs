@@ -23,7 +23,7 @@ use super::{
     Oidc, OidcAuthorizationData, OidcError, RedirectUriQueryParseError,
 };
 use crate::{
-    authentication::oidc::{
+    authentication::oauth::{
         error::{AuthorizationCodeErrorResponseType, OauthClientRegistrationError},
         AccountManagementActionFull, AuthorizationValidationData, OauthAuthorizationCodeError,
     },

@@ -608,7 +608,7 @@ async fn test_oauth_refresh_token_handled_success() {
 #[async_test]
 async fn test_oauth_refresh_token_handled_failure() {
     use matrix_sdk::{
-        authentication::oidc::OidcError,
+        authentication::oauth::OidcError,
         test_utils::{
             client::{mock_prev_session_tokens_with_refresh, oauth::mock_session},
             mocks::MatrixMockServer,

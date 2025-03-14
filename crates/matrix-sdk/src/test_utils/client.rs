@@ -178,7 +178,7 @@ pub mod oauth {
     use url::Url;
 
     use crate::{
-        authentication::oidc::{
+        authentication::oauth::{
             registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
             registrations::ClientId,
             OidcSession, UserSession,
