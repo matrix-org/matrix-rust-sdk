@@ -2056,15 +2056,15 @@ mod tests {
     use std::pin::pin;
 
     use futures_util::StreamExt;
-    use insta::assert_json_snapshot;
+    use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, DeviceId, RoomId, UserId};
+    use ruma::{device_id, room_id, user_id, RoomId};
     use vodozemac::megolm::SessionKey;
 
     use crate::{
         machine::test_helpers::get_machine_pair,
         olm::{InboundGroupSession, SenderData},
-        store::{DehydratedDeviceKey, MemoryStore},
+        store::DehydratedDeviceKey,
         types::EventEncryptionAlgorithm,
         OlmMachine,
     };
@@ -2235,30 +2235,16 @@ mod tests {
     async fn test_build_room_key_bundle() {
         // Given: Alice has sent a number of room keys to Bob, including some in the
         // wrong room, and some that are not marked as shared...
-        let alice = olm_machine_from_account_pickle(
-            user_id!("@a:s.co"),
-            device_id!("ALICE"),
-            olm_pickle_data1(),
-        )
-        .await;
-
-        let bob = olm_machine_from_account_pickle(
-            user_id!("@b:s.co"),
-            device_id!("BOB"),
-            olm_pickle_data2(),
-        )
-        .await;
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
 
         let room1_id = room_id!("!room1:localhost");
         let room2_id = room_id!("!room2:localhost");
 
-        /* base64-encoded Megolm session keys, created with:
-           println!(
-               "{}",
-               vodozemac::megolm::GroupSession::new(Default::default()).session_key().to_base64()
-           );
-        */
+        /* We use hardcoded megolm session data, to get a stable output snapshot. These were all created with:
 
+           println!("{}", vodozemac::megolm::GroupSession::new(Default::default()).session_key().to_base64());
+        */
         let session_key1 = "AgAAAAC2XHVzsMBKs4QCRElJ92CJKyGtknCSC8HY7cQ7UYwndMKLQAejXLh5UA0l6s736mgctcUMNvELScUWrObdflrHo+vth/gWreXOaCnaSxmyjjKErQwyIYTkUfqbHy40RJfEesLwnN23on9XAkch/iy8R2+Jz7B8zfG01f2Ow2SxPQFnAndcO1ZSD2GmXgedy6n4B20MWI1jGP2wiexOWbFSya8DO/VxC9m5+/mF+WwYqdpKn9g4Y05Yw4uz7cdjTc3rXm7xK+8E7hI//5QD1nHPvuKYbjjM9u2JSL+Bzp61Cw";
         let session_key2 = "AgAAAAC1BXreFTUQQSBGekTEuYxhdytRKyv4JgDGcG+VOBYdPNGgs807SdibCGJky4lJ3I+7ZDGHoUzZPZP/4ogGu4kxni0PWdtWuN7+5zsuamgoFF/BkaGeUUGv6kgIkx8pyPpM5SASTUEP9bN2loDSpUPYwfiIqz74DgC4WQ4435sTBctYvKz8n+TDJwdLXpyT6zKljuqADAioud+s/iqx9LYn9HpbBfezZcvbg67GtE113pLrvde3IcPI5s6dNHK2onGO2B2eoaobcen18bbEDnlUGPeIivArLya7Da6us14jBQ";
         let session_key3 = "AgAAAAAM9KFsliaUUhGSXgwOzM5UemjkNH4n8NHgvC/y8hhw13zTF+ooGD4uIYEXYX630oNvQm/EvgZo+dkoc0re+vsqsx4sQeNODdSjcBsWOa0oDF+irQn9oYoLUDPI1IBtY1rX+FV99Zm/xnG7uFOX7aTVlko2GSdejy1w9mfobmfxu5aUc04A9zaKJP1pOthZvRAlhpymGYHgsDtWPrrjyc/yypMflE4kIUEEEtu1kT6mrAmcl615XYRAHYK9G2+fZsGvokwzbkl4nulGwcZMpQEoM0nD2o3GWgX81HW3nGfKBg";
@@ -2296,49 +2282,29 @@ mod tests {
         let mut bundle = bob.store().build_room_key_bundle(room1_id).await.unwrap();
 
         // Then the bundle matches the snapshot.
+
         // We sort the sessions in the bundle, so that the snapshot is stable.
         bundle.room_keys.sort_by_key(|session| session.session_id.clone());
+
+        // We also substitute alice's keys in the snapshot with placeholders
+        let alice_curve_key = alice.identity_keys().curve25519.to_base64();
+        let map_alice_curve_key = move |value: Content, _path: ContentPath<'_>| {
+            assert_eq!(value.as_str().unwrap(), alice_curve_key);
+            "[alice curve key]"
+        };
+        let alice_ed25519_key = alice.identity_keys().ed25519.to_base64();
+        let map_alice_ed25519_key = move |value: Content, _path: ContentPath<'_>| {
+            assert_eq!(value.as_str().unwrap(), alice_ed25519_key);
+            "[alice ed25519 key]"
+        };
+
         insta::with_settings!({ sort_maps => true }, {
-            assert_json_snapshot!(bundle);
+            assert_json_snapshot!(bundle, {
+                ".room_keys[].sender_key" => insta::dynamic_redaction(map_alice_curve_key.clone()),
+                ".withheld[].sender_key" => insta::dynamic_redaction(map_alice_curve_key),
+                ".room_keys[].sender_claimed_keys.ed25519" => insta::dynamic_redaction(map_alice_ed25519_key),
+            });
         });
-    }
-
-    /// Create a test [`OlmMachine`], backed by an in-memory store, based on the
-    /// given pickle data.
-    async fn olm_machine_from_account_pickle(
-        user_id: &UserId,
-        device_id: &DeviceId,
-        pickle: vodozemac::olm::AccountPickle,
-    ) -> OlmMachine {
-        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), Some(pickle.into()))
-            .await
-            .unwrap()
-    }
-
-    /// A hardcoded set of device keys, suitable for creating a test olm machine
-    /// with.
-    fn olm_pickle_data1() -> vodozemac::olm::AccountPickle {
-        let alice_account_pickle = serde_json::json!({
-            "signing_key": {"Normal": b"alicesigningkey12345678901234567"},
-            "diffie_hellman_key": b"alicediffiehelmankey123456789012",
-            "one_time_keys":{"next_key_id":0,"public_keys":{},"private_keys":{}},
-            "fallback_keys":{"key_id":0,"fallback_key":null,"previous_fallback_key":null}
-        });
-
-        serde_json::from_value(alice_account_pickle).unwrap()
-    }
-
-    /// Another set hardcoded set of device keys, suitable for creating a test
-    /// olm machine with.
-    fn olm_pickle_data2() -> vodozemac::olm::AccountPickle {
-        let alice_account_pickle = serde_json::json!({
-            "signing_key": {"Normal": b"alicesigningkey12345678901234567"},
-            "diffie_hellman_key": b"alicediffiehelmankey123456789012",
-            "one_time_keys":{"next_key_id":0,"public_keys":{},"private_keys":{}},
-            "fallback_keys":{"key_id":0,"fallback_key":null,"previous_fallback_key":null}
-        });
-
-        serde_json::from_value(alice_account_pickle).unwrap()
     }
 
     /// Create an inbound Megolm session for the given room.
