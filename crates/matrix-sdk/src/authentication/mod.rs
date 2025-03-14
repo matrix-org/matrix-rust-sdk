@@ -26,7 +26,7 @@ pub mod oauth;
 
 use self::matrix::MatrixAuth;
 #[cfg(feature = "experimental-oidc")]
-use self::oauth::{OAuth, OidcAuthData, OidcCtx};
+use self::oauth::{OAuth, OAuthCtx, OidcAuthData};
 use crate::{Client, RefreshTokenError, SessionChange};
 
 /// The tokens for a user session.
@@ -58,7 +58,7 @@ pub(crate) type ReloadSessionCallback =
 /// client and all its children.
 pub(crate) struct AuthCtx {
     #[cfg(feature = "experimental-oidc")]
-    pub(crate) oidc: OidcCtx,
+    pub(crate) oauth: OAuthCtx,
 
     /// Whether to try to refresh the access token automatically when an
     /// `M_UNKNOWN_TOKEN` error is encountered.

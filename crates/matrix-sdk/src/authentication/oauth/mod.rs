@@ -213,8 +213,8 @@ pub use self::{
 use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
 
-pub(crate) struct OidcCtx {
-    /// Lock and state when multiple processes may refresh an OIDC session.
+pub(crate) struct OAuthCtx {
+    /// Lock and state when multiple processes may refresh an OAuth 2.0 session.
     cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
 
     /// Deferred cross-process lock initializer.
@@ -227,7 +227,7 @@ pub(crate) struct OidcCtx {
     insecure_discover: bool,
 }
 
-impl OidcCtx {
+impl OAuthCtx {
     pub(crate) fn new(insecure_discover: bool) -> Self {
         Self {
             insecure_discover,
@@ -283,8 +283,8 @@ impl OAuth {
         self
     }
 
-    fn ctx(&self) -> &OidcCtx {
-        &self.client.auth_ctx().oidc
+    fn ctx(&self) -> &OAuthCtx {
+        &self.client.auth_ctx().oauth
     }
 
     fn http_client(&self) -> &OauthHttpClient {
