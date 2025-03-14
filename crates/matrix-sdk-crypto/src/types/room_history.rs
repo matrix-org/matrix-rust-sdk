@@ -24,8 +24,6 @@ use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey};
 
-#[cfg(doc)]
-use crate::olm::InboundGroupSession;
 use crate::{
     olm::ExportedRoomKey,
     types::{
@@ -33,27 +31,38 @@ use crate::{
         serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
     },
 };
+#[cfg(doc)]
+use crate::{olm::InboundGroupSession, types::events::room_key::RoomKeyContent};
 
-/// A bundle of room keys, for sharing encrypted room history.
+/// A bundle of historic room keys, for sharing encrypted room history, per
+/// [MSC4268].
+///
+/// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct RoomKeyBundle {
     /// Keys that we are sharing with the recipient.
-    pub room_keys: Vec<SharedRoomKey>,
+    pub room_keys: Vec<HistoricRoomKey>,
 
     /// Keys that we are *not* sharing with the recipient.
     pub withheld: Vec<RoomKeyWithheldContent>,
 }
 
-/// An [`InboundGroupSession`] for sharing as part of the key bundle.
+/// An [`InboundGroupSession`] for sharing as part of a [`RoomKeyBundle`].
+///
+/// Note: unlike a room key received via an `m.room_key` message (i.e., a
+/// [`RoomKeyContent`]), we have no direct proof that the original sender
+/// actually created this session; rather, we have to take the word of
+/// whoever sent us this key bundle.
 #[derive(Deserialize, Serialize)]
-pub struct SharedRoomKey {
+pub struct HistoricRoomKey {
     /// The encryption algorithm that the session uses.
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The room where the session is used.
     pub room_id: OwnedRoomId,
 
-    /// The Curve25519 key of the device which initiated the session originally.
+    /// The Curve25519 key of the device which initiated the session originally,
+    /// according to the device that sent us this key.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     pub sender_key: Curve25519PublicKey,
 
@@ -63,12 +72,13 @@ pub struct SharedRoomKey {
     /// The key for the session.
     pub session_key: ExportedSessionKey,
 
-    /// The Ed25519 key of the device which initiated the session originally.
+    /// The Ed25519 key of the device which initiated the session originally,
+    /// according to the device that sent us this key.
     #[serde(default)]
     pub sender_claimed_keys: SigningKeys<DeviceKeyAlgorithm>,
 }
 
-impl Debug for SharedRoomKey {
+impl Debug for HistoricRoomKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SharedRoomKey")
             .field("algorithm", &self.algorithm)
@@ -80,7 +90,7 @@ impl Debug for SharedRoomKey {
     }
 }
 
-impl From<ExportedRoomKey> for SharedRoomKey {
+impl From<ExportedRoomKey> for HistoricRoomKey {
     fn from(exported_room_key: ExportedRoomKey) -> Self {
         let ExportedRoomKey {
             algorithm,
@@ -92,7 +102,7 @@ impl From<ExportedRoomKey> for SharedRoomKey {
             shared_history: _,
             forwarding_curve25519_key_chain: _,
         } = exported_room_key;
-        SharedRoomKey {
+        HistoricRoomKey {
             algorithm,
             room_id,
             sender_key,

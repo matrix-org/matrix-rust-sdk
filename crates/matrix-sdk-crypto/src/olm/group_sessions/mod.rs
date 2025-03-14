@@ -64,9 +64,11 @@ pub enum SessionExportError {
     MissingEd25519Key,
 }
 
-/// An exported version of an `InboundGroupSession`
+/// An exported version of an [`InboundGroupSession`].
 ///
 /// This can be used to share the `InboundGroupSession` in an exported file.
+///
+/// See <https://spec.matrix.org/v1.13/client-server-api/#key-export-format>.
 #[derive(Deserialize, Serialize)]
 #[allow(missing_debug_implementations)]
 pub struct ExportedRoomKey {
@@ -144,7 +146,9 @@ impl ExportedRoomKey {
 /// This can be used to back up the [`InboundGroupSession`] to the server using
 /// [server-side key backups].
 ///
-/// [server-side key backups]: https://spec.matrix.org/unstable/client-server-api/#server-side-key-backups
+/// See <https://spec.matrix.org/v1.13/client-server-api/#definition-backedupsessiondata>.
+///
+/// [server-side key backups]: https://spec.matrix.org/v1.13/client-server-api/#server-side-key-backups
 #[derive(Deserialize, Serialize)]
 #[allow(missing_debug_implementations)]
 pub struct BackedUpRoomKey {
