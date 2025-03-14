@@ -1,0 +1,39 @@
+---
+source: crates/matrix-sdk-crypto/src/store/mod.rs
+expression: bundle
+---
+{
+  "room_keys": [
+    {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "room_id": "!room1:localhost",
+      "sender_key": "[alice curve key]",
+      "session_id": "AWcCd1w7VlIPYaZeB53LqfgHbQxYjWMY/bCJ7E5ZsVI",
+      "session_key": "AQAAAAC2XHVzsMBKs4QCRElJ92CJKyGtknCSC8HY7cQ7UYwndMKLQAejXLh5UA0l6s736mgctcUMNvELScUWrObdflrHo+vth/gWreXOaCnaSxmyjjKErQwyIYTkUfqbHy40RJfEesLwnN23on9XAkch/iy8R2+Jz7B8zfG01f2Ow2SxPQFnAndcO1ZSD2GmXgedy6n4B20MWI1jGP2wiexOWbFS",
+      "sender_claimed_keys": {
+        "ed25519": "[alice ed25519 key]"
+      }
+    },
+    {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "room_id": "!room1:localhost",
+      "sender_key": "[alice curve key]",
+      "session_id": "y1i8rPyf5MMnB0tenJPrMqWO6oAMCKi536z+KrH0tic",
+      "session_key": "AQAAAAC1BXreFTUQQSBGekTEuYxhdytRKyv4JgDGcG+VOBYdPNGgs807SdibCGJky4lJ3I+7ZDGHoUzZPZP/4ogGu4kxni0PWdtWuN7+5zsuamgoFF/BkaGeUUGv6kgIkx8pyPpM5SASTUEP9bN2loDSpUPYwfiIqz74DgC4WQ4435sTBctYvKz8n+TDJwdLXpyT6zKljuqADAioud+s/iqx9LYn",
+      "sender_claimed_keys": {
+        "ed25519": "[alice ed25519 key]"
+      }
+    }
+  ],
+  "withheld": [
+    {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "code": "m.unauthorised",
+      "from_device": "BOB",
+      "reason": "You are not authorised to read the message.",
+      "room_id": "!room1:localhost",
+      "sender_key": "[alice curve key]",
+      "session_id": "lpRzTgD3Nook/Wk62Fm9ECWGnKYZgeCwO1Y+uuPJz/I"
+    }
+  ]
+}

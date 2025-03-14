@@ -53,7 +53,7 @@ use futures_util::StreamExt;
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
     encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
-    OwnedRoomId, OwnedUserId, UserId,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
@@ -94,10 +94,15 @@ pub mod integration_tests;
 use caches::{SequenceNumber, UsersForKeyQuery};
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
-use matrix_sdk_common::{store_locks::CrossProcessStoreLock, timeout::timeout};
+use matrix_sdk_common::{
+    deserialized_responses::WithheldCode, store_locks::CrossProcessStoreLock, timeout::timeout,
+};
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
+use crate::types::{
+    events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle,
+};
 pub use crate::{
     dehydrated_devices::DehydrationError,
     gossiping::{GossipRequest, SecretInfo},
@@ -1987,6 +1992,38 @@ impl Store {
         Ok(futures_util::stream::iter(sessions.into_iter().filter(predicate))
             .then(|session| async move { session.export().await }))
     }
+
+    /// Assemble a room key bundle for sharing encrypted history, as per
+    /// [MSC4268].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub async fn build_room_key_bundle(
+        &self,
+        room_id: &RoomId,
+    ) -> std::result::Result<RoomKeyBundle, CryptoStoreError> {
+        // TODO: make this WAY more efficient. We should only fetch sessions for the
+        //   correct room.
+        let mut sessions = self.get_inbound_group_sessions().await?;
+        sessions.retain(|session| session.room_id == room_id);
+
+        let mut bundle = RoomKeyBundle::default();
+        for session in sessions {
+            if session.shared_history() {
+                bundle.room_keys.push(session.export().await.into());
+            } else {
+                bundle.withheld.push(RoomKeyWithheldContent::new(
+                    session.algorithm().to_owned(),
+                    WithheldCode::Unauthorised,
+                    session.room_id().to_owned(),
+                    session.session_id().to_owned(),
+                    session.sender_key().to_owned(),
+                    self.device_id().to_owned(),
+                ));
+            }
+        }
+
+        Ok(bundle)
+    }
 }
 
 impl Deref for Store {
@@ -2021,12 +2058,17 @@ mod tests {
     use std::pin::pin;
 
     use futures_util::StreamExt;
+    use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, user_id};
+    use ruma::{device_id, room_id, user_id, RoomId};
+    use vodozemac::megolm::SessionKey;
 
     use crate::{
-        machine::test_helpers::get_machine_pair, store::DehydratedDeviceKey,
+        machine::test_helpers::get_machine_pair,
+        olm::{InboundGroupSession, SenderData},
+        store::DehydratedDeviceKey,
         types::EventEncryptionAlgorithm,
+        OlmMachine,
     };
 
     #[async_test]
@@ -2189,5 +2231,105 @@ mod tests {
         let pickle_key = DehydratedDeviceKey::from_slice(&too_big);
 
         assert!(pickle_key.is_err());
+    }
+
+    #[async_test]
+    async fn test_build_room_key_bundle() {
+        // Given: Alice has sent a number of room keys to Bob, including some in the
+        // wrong room, and some that are not marked as shared...
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
+
+        let room1_id = room_id!("!room1:localhost");
+        let room2_id = room_id!("!room2:localhost");
+
+        /* We use hardcoded megolm session data, to get a stable output snapshot. These were all created with:
+
+           println!("{}", vodozemac::megolm::GroupSession::new(Default::default()).session_key().to_base64());
+        */
+        let session_key1 = "AgAAAAC2XHVzsMBKs4QCRElJ92CJKyGtknCSC8HY7cQ7UYwndMKLQAejXLh5UA0l6s736mgctcUMNvELScUWrObdflrHo+vth/gWreXOaCnaSxmyjjKErQwyIYTkUfqbHy40RJfEesLwnN23on9XAkch/iy8R2+Jz7B8zfG01f2Ow2SxPQFnAndcO1ZSD2GmXgedy6n4B20MWI1jGP2wiexOWbFSya8DO/VxC9m5+/mF+WwYqdpKn9g4Y05Yw4uz7cdjTc3rXm7xK+8E7hI//5QD1nHPvuKYbjjM9u2JSL+Bzp61Cw";
+        let session_key2 = "AgAAAAC1BXreFTUQQSBGekTEuYxhdytRKyv4JgDGcG+VOBYdPNGgs807SdibCGJky4lJ3I+7ZDGHoUzZPZP/4ogGu4kxni0PWdtWuN7+5zsuamgoFF/BkaGeUUGv6kgIkx8pyPpM5SASTUEP9bN2loDSpUPYwfiIqz74DgC4WQ4435sTBctYvKz8n+TDJwdLXpyT6zKljuqADAioud+s/iqx9LYn9HpbBfezZcvbg67GtE113pLrvde3IcPI5s6dNHK2onGO2B2eoaobcen18bbEDnlUGPeIivArLya7Da6us14jBQ";
+        let session_key3 = "AgAAAAAM9KFsliaUUhGSXgwOzM5UemjkNH4n8NHgvC/y8hhw13zTF+ooGD4uIYEXYX630oNvQm/EvgZo+dkoc0re+vsqsx4sQeNODdSjcBsWOa0oDF+irQn9oYoLUDPI1IBtY1rX+FV99Zm/xnG7uFOX7aTVlko2GSdejy1w9mfobmfxu5aUc04A9zaKJP1pOthZvRAlhpymGYHgsDtWPrrjyc/yypMflE4kIUEEEtu1kT6mrAmcl615XYRAHYK9G2+fZsGvokwzbkl4nulGwcZMpQEoM0nD2o3GWgX81HW3nGfKBg";
+        let session_key4 = "AgAAAAA4Kkesxq2h4v9PLD6Sm3Smxspz1PXTqytQPCMQMkkrHNmzV2bHlJ+6/Al9cu8vh1Oj69AK0WUAeJOJuaiskEeg/PI3P03+UYLeC379RzgqwSHdBgdQ41G2vD6zpgmE/8vYToe+qpCZACtPOswZxyqxHH+T/Iq0nv13JmlFGIeA6fEPfr5Y28B49viG74Fs9rxV9EH5PfjbuPM/p+Sz5obShuaBPKQBX1jT913nEXPoIJ06exNZGr0285nw/LgVvNlmWmbqNnbzO2cNZjQWA+xZYz5FSfyCxwqEBbEdUCuRCQ";
+
+        let sessions = [
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room1_id,
+                &SessionKey::from_base64(session_key1).unwrap(),
+                true,
+            ),
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room1_id,
+                &SessionKey::from_base64(session_key2).unwrap(),
+                true,
+            ),
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room1_id,
+                &SessionKey::from_base64(session_key3).unwrap(),
+                false,
+            ),
+            create_inbound_group_session_with_visibility(
+                &alice,
+                room2_id,
+                &SessionKey::from_base64(session_key4).unwrap(),
+                true,
+            ),
+        ];
+        bob.store().save_inbound_group_sessions(&sessions).await.unwrap();
+
+        // When I build the bundle
+        let mut bundle = bob.store().build_room_key_bundle(room1_id).await.unwrap();
+
+        // Then the bundle matches the snapshot.
+
+        // We sort the sessions in the bundle, so that the snapshot is stable.
+        bundle.room_keys.sort_by_key(|session| session.session_id.clone());
+
+        // We also substitute alice's keys in the snapshot with placeholders
+        let alice_curve_key = alice.identity_keys().curve25519.to_base64();
+        let map_alice_curve_key = move |value: Content, _path: ContentPath<'_>| {
+            assert_eq!(value.as_str().unwrap(), alice_curve_key);
+            "[alice curve key]"
+        };
+        let alice_ed25519_key = alice.identity_keys().ed25519.to_base64();
+        let map_alice_ed25519_key = move |value: Content, _path: ContentPath<'_>| {
+            assert_eq!(value.as_str().unwrap(), alice_ed25519_key);
+            "[alice ed25519 key]"
+        };
+
+        insta::with_settings!({ sort_maps => true }, {
+            assert_json_snapshot!(bundle, {
+                ".room_keys[].sender_key" => insta::dynamic_redaction(map_alice_curve_key.clone()),
+                ".withheld[].sender_key" => insta::dynamic_redaction(map_alice_curve_key),
+                ".room_keys[].sender_claimed_keys.ed25519" => insta::dynamic_redaction(map_alice_ed25519_key),
+            });
+        });
+    }
+
+    /// Create an inbound Megolm session for the given room.
+    ///
+    /// `olm_machine` is used to set the `sender_key` and `signing_key`
+    /// fields of the resultant session.
+    fn create_inbound_group_session_with_visibility(
+        olm_machine: &OlmMachine,
+        room_id: &RoomId,
+        session_key: &SessionKey,
+        shared_history: bool,
+    ) -> InboundGroupSession {
+        let identity_keys = &olm_machine.store().static_account().identity_keys;
+        InboundGroupSession::new(
+            identity_keys.curve25519,
+            identity_keys.ed25519,
+            room_id,
+            session_key,
+            SenderData::unknown(),
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            None,
+            shared_history,
+        )
+        .unwrap()
     }
 }

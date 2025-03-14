@@ -22,6 +22,8 @@ use serde_json::{value::to_raw_value, Value};
 use vodozemac::megolm::SessionKey;
 
 use super::{EventType, ToDeviceEvent};
+#[cfg(doc)]
+use crate::olm::InboundGroupSession;
 use crate::types::EventEncryptionAlgorithm;
 
 /// The `m.room_key` to-device event.
@@ -40,11 +42,15 @@ impl EventType for RoomKeyContent {
 
 /// The `m.room_key` event content.
 ///
-/// This is an enum over the different room key algorithms we support.
+/// This is an enum over the different room key algorithms we support.  The
+/// currently-supported implementations are used to share
+/// [`InboundGroupSession`]s.
 ///
 /// This event type is used to exchange keys for end-to-end encryption.
-/// Typically it is encrypted as an m.room.encrypted event, then sent as a
+/// Typically, it is encrypted as an m.room.encrypted event, then sent as a
 /// to-device event.
+///
+/// See <https://spec.matrix.org/v1.13/client-server-api/#mroom_key>.
 #[derive(Debug, Deserialize)]
 #[serde(try_from = "RoomKeyHelper")]
 pub enum RoomKeyContent {
