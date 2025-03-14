@@ -143,7 +143,7 @@ impl From<EncryptionSystem> for matrix_sdk::widget::EncryptionSystem {
 
 /// Defines the intent of showing the call.
 ///
-/// This controls wheter to show or skip the lobby.
+/// This controls whether to show or skip the lobby.
 #[derive(uniffi::Enum, Clone)]
 pub enum Intent {
     StartCall,
@@ -166,7 +166,9 @@ pub struct VirtualElementCallWidgetOptions {
     /// E.g. <https://call.element.io>, <https://call.element.dev>
     pub element_call_url: String,
 
-    /// If `/room` should be added to the url: [`VirtualElementCallWidgetOptions::element_call_url`] + "/room" or just [`VirtualElementCallWidgetOptions::element_call_url`].
+    /// If `/room` should be added to the url:
+    /// [`VirtualElementCallWidgetOptions::element_call_url`] + "/room" or just
+    /// [`VirtualElementCallWidgetOptions::element_call_url`].
     #[deprecated(
         since = "0.10.0",
         note = "This is not used anymore when embedding the widget (loading the widget from a file).
