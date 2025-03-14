@@ -692,8 +692,8 @@ impl ClientBuilder {
             .client_metadata()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
-        let oidc = client.inner.oidc();
-        let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
+        let oauth = client.inner.oauth();
+        let login = oauth.login_with_qr_code(&qr_code_data.inner, client_metadata);
 
         let mut progress = login.subscribe_to_progress();
 

@@ -118,9 +118,9 @@ async fn login(proxy: Option<Url>) -> Result<()> {
     let client = client.build().await?;
 
     let metadata = client_metadata();
-    let oidc = client.oidc();
+    let oauth = client.oauth();
 
-    let login_client = oidc.login_with_qr_code(&data, metadata);
+    let login_client = oauth.login_with_qr_code(&data, metadata);
     let mut subscriber = login_client.subscribe_to_progress();
 
     let task = tokio::spawn(async move {

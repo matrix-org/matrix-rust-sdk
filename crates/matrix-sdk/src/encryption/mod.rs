@@ -321,7 +321,7 @@ impl CrossSigningResetAuthType {
     ) -> Result<Option<Self>> {
         if let Some(auth_info) = error.as_uiaa_response() {
             #[cfg(feature = "experimental-oidc")]
-            if client.oidc().issuer().is_some() {
+            if client.oauth().issuer().is_some() {
                 OidcCrossSigningResetInfo::from_auth_info(client, auth_info)
                     .map(|t| Some(CrossSigningResetAuthType::Oidc(t)))
             } else {

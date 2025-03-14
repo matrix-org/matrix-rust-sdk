@@ -152,20 +152,20 @@ impl ClientMetadata {
 
 /// The grant types that the user will use at the token endpoint.
 ///
-/// The available variants match the methods supported by the [`Oidc`] API.
+/// The available variants match the methods supported by the [`Oauth`] API.
 ///
-/// [`Oidc`]: super::Oidc
+/// [`Oauth`]: super::Oauth
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum OauthGrantType {
     /// The authorization code grant type, defined in [RFC 6749].
     ///
-    /// This grant type is necessary to use the [`Oidc::login()`] and
-    /// [`Oidc::url_for_oidc()`] methods.
+    /// This grant type is necessary to use the [`Oauth::login()`] and
+    /// [`Oauth::url_for_oidc()`] methods.
     ///
     /// [RFC 6749]: https://datatracker.ietf.org/doc/html/rfc6749
-    /// [`Oidc::login()`]: super::Oidc::login
-    /// [`Oidc::url_for_oidc()`]: super::Oidc::url_for_oidc
+    /// [`Oauth::login()`]: super::Oauth::login
+    /// [`Oauth::url_for_oidc()`]: super::Oauth::url_for_oidc
     AuthorizationCode {
         /// Redirection URIs for the authorization endpoint.
         redirect_uris: Vec<Url>,
@@ -173,10 +173,10 @@ pub enum OauthGrantType {
 
     /// The device authorization grant, defined in [RFC 8628].
     ///
-    /// This grant type is necessary to use [`Oidc::login_with_qr_code()`].
+    /// This grant type is necessary to use [`Oauth::login_with_qr_code()`].
     ///
     /// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
-    /// [`Oidc::login_with_qr_code()`]: super::Oidc::login_with_qr_code
+    /// [`Oauth::login_with_qr_code()`]: super::Oauth::login_with_qr_code
     DeviceCode,
 }
 

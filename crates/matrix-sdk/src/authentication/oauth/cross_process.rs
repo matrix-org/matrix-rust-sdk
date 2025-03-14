@@ -279,7 +279,7 @@ mod tests {
 
         let tokens = mock_session_tokens_with_refresh();
 
-        client.oidc().enable_cross_process_refresh_lock("test".to_owned()).await?;
+        client.oauth().enable_cross_process_refresh_lock("test".to_owned()).await?;
 
         client.set_session_callbacks(
             Box::new({
@@ -292,14 +292,14 @@ mod tests {
 
         let session_hash = compute_session_hash(&tokens);
         client
-            .oidc()
+            .oauth()
             .restore_session(mock_session(tokens.clone(), "https://oidc.example.com/issuer"))
             .await?;
 
         assert_eq!(client.session_tokens().unwrap(), tokens);
 
-        let oidc = client.oidc();
-        let xp_manager = oidc.ctx().cross_process_token_refresh_manager.get().unwrap();
+        let oauth = client.oauth();
+        let xp_manager = oauth.ctx().cross_process_token_refresh_manager.get().unwrap();
 
         {
             let known_session = xp_manager.known_session_hash.lock().await;
@@ -327,17 +327,17 @@ mod tests {
             .registered_with_oauth(server.server().uri())
             .build()
             .await;
-        let oidc = client.oidc();
+        let oauth = client.oauth();
 
         // Enable cross-process lock.
-        oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
+        oauth.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Simulate we've done finalize_authorization / restore_session before.
         let session_tokens = mock_session_tokens_with_refresh();
         client.auth_ctx().set_session_tokens(session_tokens.clone());
 
         // Now, finishing logging will get the user and device ids.
-        oidc.finish_login().await?;
+        oauth.finish_login().await?;
 
         let session_meta = client.session_meta().context("should have session meta now")?;
         assert_eq!(
@@ -352,7 +352,7 @@ mod tests {
             // The cross process lock has been correctly updated, and the next attempt to
             // take it won't result in a mismatch.
             let xp_manager =
-                oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
+                oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&session_tokens);
             assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
@@ -376,22 +376,23 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir()?;
         let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
-        let oidc = client.oidc();
+        let oauth = client.oauth();
 
         let next_tokens = mock_session_tokens_with_refresh();
 
         // Enable cross-process lock.
-        oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
+        oauth.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
-        oidc.restore_session(mock_session(
-            mock_prev_session_tokens_with_refresh(),
-            server.server().uri(),
-        ))
-        .await?;
+        oauth
+            .restore_session(mock_session(
+                mock_prev_session_tokens_with_refresh(),
+                server.server().uri(),
+            ))
+            .await?;
 
         // Immediately try to refresh the access token twice in parallel.
-        for result in join_all([oidc.refresh_access_token(), oidc.refresh_access_token()]).await {
+        for result in join_all([oauth.refresh_access_token(), oauth.refresh_access_token()]).await {
             result?;
         }
 
@@ -399,7 +400,7 @@ mod tests {
             // The cross process lock has been correctly updated, and the next attempt to
             // take it won't result in a mismatch.
             let xp_manager =
-                oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
+                oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&next_tokens);
             assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
@@ -426,37 +427,37 @@ mod tests {
         let tmp_dir = tempfile::tempdir()?;
         let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
 
-        let oidc = client.oidc();
-        oidc.enable_cross_process_refresh_lock("client1".to_owned()).await?;
+        let oauth = client.oauth();
+        oauth.enable_cross_process_refresh_lock("client1".to_owned()).await?;
 
-        oidc.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
+        oauth.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
 
         // Create a second client, without restoring it, to test that a token update
         // before restoration doesn't cause new issues.
         let unrestored_client =
             server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
-        let unrestored_oidc = unrestored_client.oidc();
-        unrestored_oidc.enable_cross_process_refresh_lock("unrestored_client".to_owned()).await?;
+        let unrestored_oauth = unrestored_client.oauth();
+        unrestored_oauth.enable_cross_process_refresh_lock("unrestored_client".to_owned()).await?;
 
         {
             // Create a third client that will run a refresh while the others two are doing
             // nothing.
             let client3 = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
 
-            let oidc3 = client3.oidc();
-            oidc3.enable_cross_process_refresh_lock("client3".to_owned()).await?;
-            oidc3.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
+            let oauth3 = client3.oauth();
+            oauth3.enable_cross_process_refresh_lock("client3".to_owned()).await?;
+            oauth3.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
 
             // Run a refresh in the second client; this will invalidate the tokens from the
             // first token.
-            oidc3.refresh_access_token().await?;
+            oauth3.refresh_access_token().await?;
 
             assert_eq!(client3.session_tokens(), Some(next_tokens.clone()));
 
             // Reading from the cross-process lock for the second client only shows the new
             // tokens.
             let xp_manager =
-                oidc3.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
+                oauth3.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&next_tokens);
             assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
@@ -466,7 +467,7 @@ mod tests {
 
         {
             // Restoring the client that was not restored yet will work Just Fine.
-            let oidc = unrestored_oidc;
+            let oauth = unrestored_oauth;
 
             unrestored_client.set_session_callbacks(
                 Box::new({
@@ -477,18 +478,18 @@ mod tests {
                 Box::new(|_| panic!("save_session_callback shouldn't be called here")),
             )?;
 
-            oidc.restore_session(mock_session(prev_tokens.clone(), issuer)).await?;
+            oauth.restore_session(mock_session(prev_tokens.clone(), issuer)).await?;
 
             // And this client is now aware of the latest tokens.
             let xp_manager =
-                oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
+                oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let next_hash = compute_session_hash(&next_tokens);
             assert_eq!(guard.db_hash.as_ref(), Some(&next_hash));
             assert_eq!(guard.hash_guard.as_ref(), Some(&next_hash));
             assert!(!guard.hash_mismatch);
 
-            drop(oidc);
+            drop(oauth);
             drop(unrestored_client);
         }
 
@@ -496,7 +497,7 @@ mod tests {
             // The cross process lock has been correctly updated, and the next attempt to
             // take it will result in a mismatch.
             let xp_manager =
-                oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
+                oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let previous_hash = compute_session_hash(&prev_tokens);
             let next_hash = compute_session_hash(&next_tokens);
@@ -514,12 +515,12 @@ mod tests {
             Box::new(|_| panic!("save_session_callback shouldn't be called here")),
         )?;
 
-        oidc.refresh_access_token().await?;
+        oauth.refresh_access_token().await?;
 
         {
             // The next attempt to take the lock isn't a mismatch.
             let xp_manager =
-                oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
+                oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             let actual_hash = compute_session_hash(&next_tokens);
             assert_eq!(guard.db_hash.as_ref(), Some(&actual_hash));
@@ -546,22 +547,22 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir()?;
         let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
-        let oidc = client.oidc().insecure_rewrite_https_to_http();
+        let oauth = client.oauth().insecure_rewrite_https_to_http();
 
         // Enable cross-process lock.
-        oidc.enable_cross_process_refresh_lock("lock".to_owned()).await?;
+        oauth.enable_cross_process_refresh_lock("lock".to_owned()).await?;
 
         // Restore the session.
         let tokens = mock_session_tokens_with_refresh();
-        oidc.restore_session(mock_session(tokens.clone(), server.server().uri())).await?;
+        oauth.restore_session(mock_session(tokens.clone(), server.server().uri())).await?;
 
-        oidc.logout().await.unwrap();
+        oauth.logout().await.unwrap();
 
         {
             // The cross process lock has been correctly updated, and all the hashes are
             // empty after a logout.
             let xp_manager =
-                oidc.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
+                oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
             assert!(guard.db_hash.is_none());
             assert!(guard.hash_guard.is_none());
