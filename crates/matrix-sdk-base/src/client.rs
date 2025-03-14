@@ -152,17 +152,15 @@ impl BaseClient {
 
         // Create the channel to receive `RoomInfoNotableUpdate`.
         //
-        // Configure the size of the channel based on the number of rooms. Let's
-        // consider a room can receive 5 updates at the same time. This is unrealistic
-        // in practise, as the sync mechanism is pretty unlikely to trigger such amount
-        // of updates. It's a trade-off here. The size of the channel should be
-        // as small as possible avoiding to allocate too much memory.
+        // Let's consider the channel will receive 5 updates for 100 rooms maximum. This
+        // is unrealistic in practise, as the sync mechanism is pretty unlikely to
+        // trigger such amount of updates, it's a safe value.
         //
-        // The size cannot be below 500, which corresponds to 100 rooms. It must not be
-        // zero, because (i) it will panic, (ii) a new user has no room, we have to
-        // handle this case.
+        // Also, note that it must not be
+        // zero, because (i) it will panic, (ii) a new user has no room, but can create
+        // rooms; remember that the channel's capacity is immutable.
         let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
-            broadcast::channel(usize::max(500, store.number_of_rooms().saturating_mul(5)));
+            broadcast::channel(500);
 
         BaseClient {
             store,

@@ -280,11 +280,6 @@ impl Store {
         self.rooms.read().unwrap().get(room_id).is_some()
     }
 
-    /// Get the number of rooms.
-    pub(crate) fn number_of_rooms(&self) -> usize {
-        self.rooms.read().unwrap().len()
-    }
-
     /// Lookup the `Room` for the given `RoomId`, or create one, if it didn't
     /// exist yet in the store
     pub fn get_or_create_room(
