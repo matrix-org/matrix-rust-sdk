@@ -48,10 +48,10 @@ pub enum RedirectUriQueryParseError {
     UnknownFormat,
 }
 
-/// All errors that can occur when using the OpenID Connect API.
+/// All errors that can occur when using the OAuth 2.0 API.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum OidcError {
+pub enum OAuthError {
     /// An error occurred when discovering the authorization server's issuer.
     #[error("authorization server discovery failed: {0}")]
     Discovery(#[from] OauthDiscoveryError),

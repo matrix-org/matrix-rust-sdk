@@ -20,7 +20,7 @@ use wiremock::{
 
 use super::{
     registrations::OidcRegistrations, AuthorizationCode, AuthorizationError, AuthorizationResponse,
-    OAuth, OidcAuthorizationData, OidcError, RedirectUriQueryParseError,
+    OAuth, OAuthError, OidcAuthorizationData, RedirectUriQueryParseError,
 };
 use crate::{
     authentication::oauth::{
@@ -201,7 +201,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Then a cancellation error should be thrown.
     assert_matches!(
         error,
-        Error::Oidc(OidcError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled))
+        Error::OAuth(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled))
     );
 
     Ok(())
@@ -228,7 +228,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Then the login should fail by flagging the invalid state.
     assert_matches!(
         error,
-        Error::Oidc(OidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
+        Error::OAuth(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
     );
 
     Ok(())
@@ -342,7 +342,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(OidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
+        Err(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
     );
     assert!(client.session_tokens().is_none());
 
@@ -371,7 +371,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(OidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
+        Err(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
     );
     assert!(client.session_tokens().is_none());
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state).is_some());
@@ -489,7 +489,7 @@ async fn test_register_client() {
     let result = oauth.register_client(&client_metadata).await;
     assert_matches!(
         result,
-        Err(OidcError::ClientRegistration(OauthClientRegistrationError::NotSupported))
+        Err(OAuthError::ClientRegistration(OauthClientRegistrationError::NotSupported))
     );
 
     server.verify_and_reset().await;
