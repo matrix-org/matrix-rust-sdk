@@ -25,11 +25,11 @@ use super::{OAuth, OAuthError};
 use crate::{authentication::oauth::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
-/// OpenID Connect Provider via the Authorization Code flow.
+/// OAuth 2.0 authorization server via the Authorization Code flow.
 ///
 /// Created with [`OAuth::login()`]. Finalized with [`Self::build()`].
 #[allow(missing_debug_implementations)]
-pub struct OidcAuthCodeUrlBuilder {
+pub struct OAuthAuthCodeUrlBuilder {
     oauth: OAuth,
     scopes: Vec<Scope>,
     redirect_uri: Url,
@@ -37,7 +37,7 @@ pub struct OidcAuthCodeUrlBuilder {
     login_hint: Option<String>,
 }
 
-impl OidcAuthCodeUrlBuilder {
+impl OAuthAuthCodeUrlBuilder {
     pub(super) fn new(oauth: OAuth, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
         Self { oauth, scopes, redirect_uri, prompt: None, login_hint: None }
     }
@@ -73,7 +73,7 @@ impl OidcAuthCodeUrlBuilder {
     /// Returns an error if the client registration was not restored, or if a
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
-    pub async fn build(self) -> Result<OidcAuthorizationData, OAuthError> {
+    pub async fn build(self) -> Result<OAuthAuthorizationData, OAuthError> {
         let Self { oauth, scopes, redirect_uri, prompt, login_hint } = self;
 
         let data = oauth.data().ok_or(OAuthError::NotAuthenticated)?;
@@ -113,14 +113,14 @@ impl OidcAuthCodeUrlBuilder {
             .await
             .insert(state.clone(), AuthorizationValidationData { redirect_uri, pkce_verifier });
 
-        Ok(OidcAuthorizationData { url, state })
+        Ok(OAuthAuthorizationData { url, state })
     }
 }
 
-/// The data needed to perform authorization using OpenID Connect.
+/// The data needed to perform authorization using OAuth 2.0.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
-pub struct OidcAuthorizationData {
+pub struct OAuthAuthorizationData {
     /// The URL that should be presented.
     pub url: Url,
     /// A unique identifier for the request, used to ensure the response
@@ -130,7 +130,7 @@ pub struct OidcAuthorizationData {
 
 #[cfg(feature = "uniffi")]
 #[matrix_sdk_ffi_macros::export]
-impl OidcAuthorizationData {
+impl OAuthAuthorizationData {
     /// The login URL to use for authorization.
     pub fn login_url(&self) -> String {
         self.url.to_string()

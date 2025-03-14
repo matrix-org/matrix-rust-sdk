@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oauth::{
-        registrations::ClientId, AccountManagementActionFull, OAuthSession, OidcAuthorizationData,
+        registrations::ClientId, AccountManagementActionFull, OAuthAuthorizationData, OAuthSession,
     },
     event_cache::EventCacheError,
     media::{
@@ -406,7 +406,7 @@ impl Client {
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
-    ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
+    ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registrations = oidc_configuration.registrations()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
@@ -421,14 +421,14 @@ impl Client {
 
     /// Aborts an existing OIDC login operation that might have been cancelled,
     /// failed etc.
-    pub async fn abort_oidc_auth(&self, authorization_data: Arc<OidcAuthorizationData>) {
+    pub async fn abort_oidc_auth(&self, authorization_data: Arc<OAuthAuthorizationData>) {
         self.inner.oauth().abort_authorization(&authorization_data.state).await;
     }
 
     /// Completes the OIDC login process.
     pub async fn login_with_oidc_callback(
         &self,
-        authorization_data: Arc<OidcAuthorizationData>,
+        authorization_data: Arc<OAuthAuthorizationData>,
         callback_url: String,
     ) -> Result<(), OidcError> {
         let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
