@@ -26,7 +26,7 @@ use matrix_sdk::{
         registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
         registrations::ClientId,
         AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, CsrfToken,
-        OidcAuthorizationData, OidcSession, UserSession,
+        OAuthSession, OidcAuthorizationData, UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -274,7 +274,7 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
-        let session = OidcSession { client_id: client_credentials.client_id, user: user_session };
+        let session = OAuthSession { client_id: client_credentials.client_id, user: user_session };
         // Restore the Matrix user session.
         client.restore_session(session).await?;
 

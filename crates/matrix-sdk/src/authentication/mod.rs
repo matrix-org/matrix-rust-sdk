@@ -134,9 +134,9 @@ pub enum AuthSession {
     /// A session using the native Matrix authentication API.
     Matrix(matrix::MatrixSession),
 
-    /// A session using the OpenID Connect API.
+    /// A session using the OAuth 2.0 API.
     #[cfg(feature = "experimental-oidc")]
-    Oidc(Box<oauth::OidcSession>),
+    OAuth(Box<oauth::OAuthSession>),
 }
 
 impl AuthSession {
@@ -145,7 +145,7 @@ impl AuthSession {
         match self {
             AuthSession::Matrix(session) => &session.meta,
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => &session.user.meta,
+            AuthSession::OAuth(session) => &session.user.meta,
         }
     }
 
@@ -154,7 +154,7 @@ impl AuthSession {
         match self {
             AuthSession::Matrix(session) => session.meta,
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => session.user.meta,
+            AuthSession::OAuth(session) => session.user.meta,
         }
     }
 
@@ -163,7 +163,7 @@ impl AuthSession {
         match self {
             AuthSession::Matrix(session) => &session.tokens.access_token,
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => &session.user.tokens.access_token,
+            AuthSession::OAuth(session) => &session.user.tokens.access_token,
         }
     }
 
@@ -172,7 +172,7 @@ impl AuthSession {
         match self {
             AuthSession::Matrix(session) => session.tokens.refresh_token.as_deref(),
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => session.user.tokens.refresh_token.as_deref(),
+            AuthSession::OAuth(session) => session.user.tokens.refresh_token.as_deref(),
         }
     }
 }
@@ -184,9 +184,9 @@ impl From<matrix::MatrixSession> for AuthSession {
 }
 
 #[cfg(feature = "experimental-oidc")]
-impl From<oauth::OidcSession> for AuthSession {
-    fn from(session: oauth::OidcSession) -> Self {
-        Self::Oidc(session.into())
+impl From<oauth::OAuthSession> for AuthSession {
+    fn from(session: oauth::OAuthSession) -> Self {
+        Self::OAuth(session.into())
     }
 }
 

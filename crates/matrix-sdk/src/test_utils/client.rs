@@ -181,7 +181,7 @@ pub mod oauth {
         authentication::oauth::{
             registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
             registrations::ClientId,
-            OidcSession, UserSession,
+            OAuthSession, UserSession,
         },
         SessionTokens,
     };
@@ -215,11 +215,11 @@ pub mod oauth {
         Raw::new(&metadata).expect("client metadata should serialize successfully")
     }
 
-    /// An [`OidcSession`] to restore, for unit or integration tests.
-    pub fn mock_session(tokens: SessionTokens, issuer: impl AsRef<str>) -> OidcSession {
+    /// An [`OAuthSession`] to restore, for unit or integration tests.
+    pub fn mock_session(tokens: SessionTokens, issuer: impl AsRef<str>) -> OAuthSession {
         let issuer = Url::parse(issuer.as_ref()).unwrap();
 
-        OidcSession {
+        OAuthSession {
             client_id: mock_client_id(),
             user: UserSession { meta: super::mock_session_meta(), tokens, issuer },
         }
