@@ -40,7 +40,8 @@ markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
-sso-login = ["dep:axum", "dep:rand", "dep:tower"]
+local-server = ["dep:axum", "dep:rand", "dep:tower"]
+sso-login = ["local-server"]
 
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
