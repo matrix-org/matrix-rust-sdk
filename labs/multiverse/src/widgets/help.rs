@@ -17,7 +17,7 @@ impl Widget for &mut HelpView {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block =
             Block::bordered().title(" Help Menu ").borders(Borders::ALL).padding(Padding::left(2));
-        let area = popup_area(area, 80, 80);
+        let area = popup_area(area, 50, 50);
         Clear.render(area, buf);
 
         let rows = vec![
