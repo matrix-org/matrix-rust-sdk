@@ -1274,7 +1274,7 @@ impl Client {
         match session {
             AuthSession::Matrix(s) => Box::pin(self.matrix_auth().restore_session(s)).await,
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(s) => Box::pin(self.oauth().restore_session(*s)).await,
+            AuthSession::OAuth(s) => Box::pin(self.oauth().restore_session(*s)).await,
         }
     }
 

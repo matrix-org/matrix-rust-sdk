@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oauth::{
-        registrations::ClientId, AccountManagementActionFull, OidcAuthorizationData, OidcSession,
+        registrations::ClientId, AccountManagementActionFull, OAuthSession, OidcAuthorizationData,
     },
     event_cache::EventCacheError,
     media::{
@@ -1657,9 +1657,9 @@ impl TryFrom<Session> for AuthSession {
                 issuer: oidc_data.issuer,
             };
 
-            let session = OidcSession { client_id: oidc_data.client_id, user: user_session };
+            let session = OAuthSession { client_id: oidc_data.client_id, user: user_session };
 
-            Ok(AuthSession::Oidc(session.into()))
+            Ok(AuthSession::OAuth(session.into()))
         } else {
             // Create a regular Matrix Session.
             let session = matrix_sdk::authentication::matrix::MatrixSession {

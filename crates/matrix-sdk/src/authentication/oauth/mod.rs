@@ -750,14 +750,13 @@ impl OAuth {
         Some(UserSession { meta, tokens, issuer })
     }
 
-    /// The full OpenID Connect session of this client.
+    /// The full OAuth 2.0 session of this client.
     ///
-    /// Returns `None` if the client was not logged in with the OpenID Connect
-    /// API.
-    pub fn full_session(&self) -> Option<OidcSession> {
+    /// Returns `None` if the client was not logged in with the OAuth 2.0 API.
+    pub fn full_session(&self) -> Option<OAuthSession> {
         let user = self.user_session()?;
         let data = self.data()?;
-        Some(OidcSession { client_id: data.client_id.clone(), user })
+        Some(OAuthSession { client_id: data.client_id.clone(), user })
     }
 
     /// Register a client with the OAuth 2.0 server.
@@ -891,8 +890,8 @@ impl OAuth {
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub async fn restore_session(&self, session: OidcSession) -> Result<()> {
-        let OidcSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
+    pub async fn restore_session(&self, session: OAuthSession) -> Result<()> {
+        let OAuthSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
 
         let data = OAuthAuthData { issuer, client_id, authorization_data: Default::default() };
 
@@ -1487,9 +1486,9 @@ impl OAuth {
     }
 }
 
-/// A full session for the OpenID Connect API.
+/// A full session for the OAuth 2.0 API.
 #[derive(Debug, Clone)]
-pub struct OidcSession {
+pub struct OAuthSession {
     /// The client ID obtained after registration.
     pub client_id: ClientId,
 
