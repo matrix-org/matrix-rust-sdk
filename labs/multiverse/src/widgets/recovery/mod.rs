@@ -169,8 +169,6 @@ impl StatefulWidget for &mut RecoveryView {
     type State = RecoveryViewState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        // Let's first see if our state has changed.
-        // TODO: Should we do this in our `on_tick()` method?
         state.update_state();
 
         // Create a centered popout with 8 lines and 70 rows.

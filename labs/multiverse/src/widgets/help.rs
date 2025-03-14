@@ -22,6 +22,7 @@ impl Widget for &mut HelpView {
 
         let rows = vec![
             Row::new(vec![Cell::from("F1"), Cell::from("Open Help")]),
+            Row::new(vec![Cell::from("F10"), Cell::from("Open the encryption settings")]),
             Row::new(vec![Cell::from("s"), Cell::from("Resume syncing")]),
             Row::new(vec![Cell::from("S"), Cell::from("Stop syncing")]),
             Row::new(vec![Cell::from("Q"), Cell::from("Enable/disable the send queue")]),
