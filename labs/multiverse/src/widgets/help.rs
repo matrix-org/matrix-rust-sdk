@@ -17,11 +17,12 @@ impl Widget for &mut HelpView {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block =
             Block::bordered().title(" Help Menu ").borders(Borders::ALL).padding(Padding::left(2));
-        let area = popup_area(area, 80, 80);
+        let area = popup_area(area, 50, 50);
         Clear.render(area, buf);
 
         let rows = vec![
             Row::new(vec![Cell::from("F1"), Cell::from("Open Help")]),
+            Row::new(vec![Cell::from("F10"), Cell::from("Open the encryption settings")]),
             Row::new(vec![Cell::from("s"), Cell::from("Resume syncing")]),
             Row::new(vec![Cell::from("S"), Cell::from("Stop syncing")]),
             Row::new(vec![Cell::from("Q"), Cell::from("Enable/disable the send queue")]),

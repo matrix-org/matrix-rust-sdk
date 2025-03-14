@@ -21,6 +21,9 @@ matrix-sdk-base = { path = "../../crates/matrix-sdk-base" }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 ratatui = "0.29.0"
+throbber-widgets-tui = "0.8.0"
+tui-textarea = "0.7.0"
+tui-framework-experiment = "0.4.0"
 rpassword = "7.3.1"
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
