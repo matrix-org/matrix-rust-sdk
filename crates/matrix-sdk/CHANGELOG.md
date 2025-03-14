@@ -8,7 +8,18 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- [**breaking**]: The `RoomPagination::run_backwards` method has been removed, and replaced by two
+- [**breaking**]: The element call widget URL configuration struct (`VirtualElementCallWidgetOptions`) and URL generation
+  have changed.
+  - It supports the new fields: `hide_screensharing`, `posthog_api_host`, `posthog_api_key`,
+  `rageshake_submit_url`, `sentry_dsn`, `sentry_environment`.
+  - The widget URL will no longer automatically add `/room` to the base domain. For backward compatibility
+  the app itself would need to add `/room` to the `element_call_url`.
+  - And replaced:
+    - `analytics_id` -> `posthog_user_id` (The widget URL query parameters will include `analytics_id` & `posthog_user_id`
+    for backward compatibility)
+    - `skip_lobby` -> `intent` (`Intent.StartCall`, `Intent.JoinCall`)
+  - `VirtualElementCallWidgetOptions` now implements `Default`.
+- [**breaking**]: The `RoomPagination::run_backwards` method has been removed and replaced by two
 simpler methods:
   - `RoomPagination::run_backwards_until()`, which will retrigger back-paginations until a certain
   number of events have been received (and retry if the timeline has been reset in the background).
