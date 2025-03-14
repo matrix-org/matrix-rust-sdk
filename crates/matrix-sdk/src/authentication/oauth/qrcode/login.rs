@@ -32,7 +32,7 @@ use super::{
     DeviceAuthorizationOauthError, QRCodeLoginError, SecureChannelError,
 };
 #[cfg(doc)]
-use crate::authentication::oauth::Oidc;
+use crate::authentication::oauth::OAuth;
 use crate::{authentication::oauth::ClientMetadata, Client};
 
 async fn send_unexpected_message_error(
@@ -72,7 +72,7 @@ pub enum LoginProgress {
     Done,
 }
 
-/// Named future for the [`Oidc::login_with_qr_code()`] method.
+/// Named future for the [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
 pub struct LoginWithQrCode<'a> {
     client: &'a Client,
@@ -186,7 +186,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // We only received an access token from the OAuth 2.0 authorization server, we
             // have no clue who we are, so we need to figure out our user ID
             // now. TODO: This snippet is almost the same as the
-            // Oidc::finish_login_method(), why is that method even a public
+            // OAuth::finish_login_method(), why is that method even a public
             // method and not called as part of the set session tokens method.
             trace!("Discovering our own user id.");
             let whoami_response =
@@ -202,7 +202,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
                 .await
                 .map_err(QRCodeLoginError::SessionTokens)?;
 
-            self.client.oidc().enable_cross_process_lock().await?;
+            self.client.oauth().enable_cross_process_lock().await?;
 
             // Tell the existing device that we're logged in.
             trace!("Telling the existing device that we successfully logged in.");
@@ -283,8 +283,8 @@ impl<'a> LoginWithQrCode<'a> {
 
     /// Register the client with the OAuth 2.0 authorization server.
     async fn register_client(&self) -> Result<(), DeviceAuthorizationOauthError> {
-        let oidc = self.client.oidc();
-        oidc.register_client(&self.client_metadata).await?;
+        let oauth = self.client.oauth();
+        oauth.register_client(&self.client_metadata).await?;
         Ok(())
     }
 
@@ -292,9 +292,9 @@ impl<'a> LoginWithQrCode<'a> {
         &self,
         device_id: Curve25519PublicKey,
     ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOauthError> {
-        let oidc = self.client.oidc();
+        let oauth = self.client.oauth();
         let response =
-            oidc.request_device_authorization(Some(device_id.to_base64().into())).await?;
+            oauth.request_device_authorization(Some(device_id.to_base64().into())).await?;
         Ok(response)
     }
 
@@ -302,8 +302,8 @@ impl<'a> LoginWithQrCode<'a> {
         &self,
         auth_response: &StandardDeviceAuthorizationResponse,
     ) -> Result<(), DeviceAuthorizationOauthError> {
-        let oidc = self.client.oidc();
-        oidc.exchange_device_code(auth_response).await?;
+        let oauth = self.client.oauth();
+        oauth.exchange_device_code(auth_response).await?;
         Ok(())
     }
 }
@@ -445,8 +445,8 @@ mod test {
 
         let qr_code = alice.qr_code_data().clone();
 
-        let oidc = bob.oidc();
-        let login_bob = oidc.login_with_qr_code(&qr_code, mock_client_metadata());
+        let oauth = bob.oauth();
+        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata());
         let mut updates = login_bob.subscribe_to_progress();
 
         let updates_task = tokio::spawn(async move {
@@ -532,8 +532,8 @@ mod test {
 
         let qr_code = alice.qr_code_data().clone();
 
-        let oidc = bob.oidc();
-        let login_bob = oidc.login_with_qr_code(&qr_code, mock_client_metadata());
+        let oauth = bob.oauth();
+        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata());
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = tokio::spawn(async move {
@@ -655,8 +655,8 @@ mod test {
 
         let qr_code = alice.qr_code_data().clone();
 
-        let oidc = bob.oidc();
-        let login_bob = oidc.login_with_qr_code(&qr_code, mock_client_metadata());
+        let oauth = bob.oauth();
+        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata());
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = tokio::spawn(async move {

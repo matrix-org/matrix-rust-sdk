@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Error types used in the [`Oidc`](super::Oidc) API.
+//! Error types used in the [`OAuth`](super::OAuth) API.
 
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;

@@ -19,7 +19,7 @@
 //!
 //! This currently only implements the case where the new device is scanning the
 //! QR code. To log in using a QR code, please take a look at the
-//! [`Oidc::login_with_qr_code()`] method.
+//! [`OAuth::login_with_qr_code()`] method.
 
 use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::types::qr_login::{
@@ -46,7 +46,7 @@ pub use self::{
 };
 use super::CrossProcessRefreshLockError;
 #[cfg(doc)]
-use super::Oidc;
+use super::OAuth;
 use crate::HttpError;
 
 /// The error type for failures while trying to log in a new device using a QR

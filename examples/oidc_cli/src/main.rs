@@ -154,7 +154,7 @@ impl OidcCli {
         // storing secrets securely, it should be used instead.
         // Note that we could also build the user session from the login response.
         let user_session =
-            cli.client.oidc().user_session().expect("A logged-in client should have a session");
+            cli.client.oauth().user_session().expect("A logged-in client should have a session");
 
         // The client registration data should be persisted separately than the user
         // session, to be reused for other sessions or user accounts with the same
@@ -181,9 +181,9 @@ impl OidcCli {
     ///
     /// Returns the ID of the client returned by the provider.
     async fn register_client(&self) -> anyhow::Result<ClientId> {
-        let oidc = self.client.oidc();
+        let oauth = self.client.oauth();
 
-        let provider_metadata = oidc.provider_metadata().await?;
+        let provider_metadata = oauth.provider_metadata().await?;
 
         if provider_metadata.registration_endpoint.is_none() {
             // This would require to register with the provider manually, which
@@ -201,7 +201,7 @@ impl OidcCli {
         // to update the metadata later without changing the client ID, but requires to
         // have a way to serve public keys online to validate the signature of
         // the JWT.
-        let res = oidc.register_client(&metadata).await?;
+        let res = oauth.register_client(&metadata).await?;
 
         println!("\nRegistered successfully");
 
@@ -210,7 +210,7 @@ impl OidcCli {
 
     /// Login via the OIDC Authorization Code flow.
     async fn login(&self) -> anyhow::Result<()> {
-        let oidc = self.client.oidc();
+        let oauth = self.client.oauth();
 
         // We create a loop here so the user can retry if an error happens.
         loop {
@@ -220,17 +220,17 @@ impl OidcCli {
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OidcAuthorizationData { url, state } =
-                oidc.login(redirect_uri, None)?.build().await?;
+                oauth.login(redirect_uri, None)?.build().await?;
 
             let authorization_code = match use_auth_url(&url, &state, server_handle).await {
                 Ok(code) => code,
                 Err(err) => {
-                    oidc.abort_authorization(&state).await;
+                    oauth.abort_authorization(&state).await;
                     return Err(err);
                 }
             };
 
-            let res = oidc.finish_authorization(authorization_code).await;
+            let res = oauth.finish_authorization(authorization_code).await;
 
             if let Err(err) = res {
                 println!("Error: failed to login: {err}");
@@ -238,7 +238,7 @@ impl OidcCli {
                 continue;
             }
 
-            match oidc.finish_login().await {
+            match oauth.finish_login().await {
                 Ok(()) => {
                     let user_id = self.client.user_id().expect("Got a user ID");
                     println!("Logged in as {user_id}");
@@ -405,12 +405,12 @@ impl OidcCli {
     /// Get information about this session.
     fn whoami(&self) {
         let client = &self.client;
-        let oidc = client.oidc();
+        let oauth = client.oauth();
 
         let user_id = client.user_id().expect("A logged in client has a user ID");
         let device_id = client.device_id().expect("A logged in client has a device ID");
         let homeserver = client.homeserver();
-        let issuer = oidc.issuer().expect("A logged in OIDC client has an issuer");
+        let issuer = oauth.issuer().expect("A logged in OIDC client has an issuer");
 
         println!("\nUser ID: {user_id}");
         println!("Device ID: {device_id}");
@@ -420,7 +420,7 @@ impl OidcCli {
 
     /// Get the account management URL.
     async fn account(&self, action: Option<AccountManagementActionFull>) {
-        match self.client.oidc().fetch_account_management_url(action).await {
+        match self.client.oauth().fetch_account_management_url(action).await {
             Ok(Some(url)) => {
                 println!("\nTo manage your account, visit: {url}");
             }
@@ -571,8 +571,8 @@ impl OidcCli {
         let serialized_session = fs::read_to_string(&self.session_file).await?;
         let mut session = serde_json::from_str::<StoredSession>(&serialized_session)?;
 
-        let user_session =
-            self.client.oidc().user_session().expect("A logged in client has a session");
+        let user_session: UserSession =
+            self.client.oauth().user_session().expect("A logged in client has a session");
         session.user_session = user_session;
 
         let serialized_session = serde_json::to_string(&session)?;
@@ -584,7 +584,7 @@ impl OidcCli {
 
     /// Refresh the access token.
     async fn refresh_token(&self) -> anyhow::Result<()> {
-        self.client.oidc().refresh_access_token().await?;
+        self.client.oauth().refresh_access_token().await?;
 
         // The session will automatically be refreshed because of the task persisting
         // the full session upon refresh in `setup_background_save`.
@@ -596,8 +596,8 @@ impl OidcCli {
 
     /// Log out from this session.
     async fn logout(&self) -> anyhow::Result<()> {
-        // Log out via OIDC.
-        self.client.oidc().logout().await?;
+        // Log out via OAuth 2.0.
+        self.client.oauth().logout().await?;
 
         // Delete the stored session and database.
         let data_dir = self.session_file.parent().expect("The file has a parent directory");
@@ -648,7 +648,7 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
         {
             Ok(client) => {
                 // Check if the homeserver advertises OAuth 2.0 server metadata.
-                match client.oidc().provider_metadata().await {
+                match client.oauth().provider_metadata().await {
                     Ok(server_metadata) => {
                         println!(
                             "Found OAuth 2.0 server metadata with issuer: {}",

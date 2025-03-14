@@ -120,12 +120,12 @@ impl AuthState {
             #[cfg(feature = "experimental-oidc")]
             AuthState::RegisteredWithOauth { issuer } => {
                 let issuer = url::Url::parse(&issuer).unwrap();
-                client.oidc().restore_registered_client(issuer, oauth::mock_client_id());
+                client.oauth().restore_registered_client(issuer, oauth::mock_client_id());
             }
             #[cfg(feature = "experimental-oidc")]
             AuthState::LoggedInWithOauth { issuer } => {
                 client
-                    .oidc()
+                    .oauth()
                     .restore_session(oauth::mock_session(
                         mock_session_tokens_with_refresh(),
                         issuer,
