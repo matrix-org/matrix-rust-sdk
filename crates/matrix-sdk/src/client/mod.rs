@@ -607,7 +607,7 @@ impl Client {
         match self.auth_ctx().auth_data.get()? {
             AuthData::Matrix => Some(AuthApi::Matrix(self.matrix_auth())),
             #[cfg(feature = "experimental-oidc")]
-            AuthData::Oidc(_) => Some(AuthApi::OAuth(self.oauth())),
+            AuthData::OAuth(_) => Some(AuthApi::OAuth(self.oauth())),
         }
     }
 

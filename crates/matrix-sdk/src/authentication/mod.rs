@@ -26,7 +26,7 @@ pub mod oauth;
 
 use self::matrix::MatrixAuth;
 #[cfg(feature = "experimental-oidc")]
-use self::oauth::{OAuth, OAuthCtx, OidcAuthData};
+use self::oauth::{OAuth, OAuthAuthData, OAuthCtx};
 use crate::{Client, RefreshTokenError, SessionChange};
 
 /// The tokens for a user session.
@@ -195,7 +195,7 @@ impl From<oauth::OidcSession> for AuthSession {
 pub(crate) enum AuthData {
     /// Data for the native Matrix authentication API.
     Matrix,
-    /// Data for the OpenID Connect API.
+    /// Data for the OAuth 2.0 API.
     #[cfg(feature = "experimental-oidc")]
-    Oidc(OidcAuthData),
+    OAuth(OAuthAuthData),
 }
