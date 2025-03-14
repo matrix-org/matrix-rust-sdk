@@ -12,9 +12,10 @@ use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::task::JoinHandle;
 
 use super::{create_centered_throbber_area, ShouldExit};
+use crate::popup_area;
 
 #[derive(Debug)]
-pub struct DisabledView {
+pub struct DefaultRecoveryView {
     client: Client,
     state: ListState,
     mode: Mode,
@@ -48,12 +49,12 @@ impl From<usize> for MenuEntries {
     }
 }
 
-impl DisabledView {
+impl DefaultRecoveryView {
     pub fn new(client: Client) -> Self {
         let mut state = ListState::default();
         state.select_first();
 
-        Self { client, state, mode: Default::default() }
+        Self { client, state, mode: Mode::default() }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ShouldExit {
@@ -137,7 +138,7 @@ impl DisabledView {
     }
 }
 
-impl Widget for &mut DisabledView {
+impl Widget for &mut DefaultRecoveryView {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
@@ -191,8 +192,8 @@ impl Widget for &mut DisabledView {
                     }
                     Err(error) => {
                         Paragraph::new(format!("Failed to enable recovery: {error:?}"))
-                            .block(block)
                             .centered()
+                            .block(block)
                             .render(popup, buf);
                     }
                 }

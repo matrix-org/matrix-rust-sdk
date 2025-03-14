@@ -8,10 +8,10 @@ use ratatui::{
 use recovering::RecoveringView;
 use throbber_widgets_tui::{Throbber, ThrobberState};
 
-mod disabled;
+mod default;
 mod recovering;
 
-use disabled::DisabledView;
+use default::DefaultRecoveryView;
 
 pub struct RecoveryView {}
 
@@ -36,8 +36,8 @@ enum Mode {
     Incomplete {
         view: RecoveringView,
     },
-    Disabled {
-        view: DisabledView,
+    Default {
+        view: DefaultRecoveryView,
     },
 }
 
@@ -64,22 +64,46 @@ impl RecoveryViewState {
         let recovery_state = self.client.encryption().recovery().state();
 
         match (&mut self.mode, recovery_state) {
-            (Mode::Unknown, RecoveryState::Disabled) => {
-                let view = RecoveringView::new(self.client.clone());
-                self.mode = Mode::Incomplete { view }
+            // We were in the unknown mode, showing a throbber, but now we figured out that
+            // recovery either exists and there's nothing much to do, or we can enable it.
+            //
+            // Let's switch to our default view which allows recovery to be disabled or enabled.
+            (Mode::Unknown, RecoveryState::Disabled | RecoveryState::Enabled) => {
+                // let view = RecoveringView::new(self.client.clone());
+                // self.mode = Mode::Incomplete { view }
 
-                // self.mode = Mode::Disabled { view:
-                // DisabledView::new(self.client.clone()) };
+                self.mode = Mode::Default { view: DefaultRecoveryView::new(self.client.clone()) };
             }
 
-            // The recovery state changed to incomplete, we go into the incomplete view.
+            // The recovery state changed to incomplete, we go into the incomplete view so users
+            // can input the recovery key or reset recovery.
             (Mode::Unknown, RecoveryState::Incomplete) => {
                 let view = RecoveringView::new(self.client.clone());
                 self.mode = Mode::Incomplete { view }
             }
 
-            // TODO: add an Unknown -> Enabled transition.
-            _ => {}
+            // We were showing the incomplete view but someone disabled recovery on another device,
+            // let's change the screen to reflect that.
+            (Mode::Incomplete { .. }, RecoveryState::Disabled) => {
+                self.mode = Mode::Default { view: DefaultRecoveryView::new(self.client.clone()) }
+            }
+
+            (Mode::Incomplete { .. }, RecoveryState::Enabled) => todo!(),
+
+            (Mode::Default { .. }, RecoveryState::Incomplete) => todo!(),
+
+            // The recovery state didn't change in comparison to our desired view.
+            (Mode::Incomplete { .. }, RecoveryState::Incomplete)
+            | (Mode::Default { .. }, RecoveryState::Disabled | RecoveryState::Enabled)
+            | (Mode::Unknown, RecoveryState::Unknown) => {}
+
+            // The recovery state changed back to `Unknown`? This can never
+            // happen but let's just go back to the `Unknown` view
+            // showing a throbber.
+            (Mode::Default { .. }, RecoveryState::Unknown)
+            | (Mode::Incomplete { .. }, RecoveryState::Unknown) => {
+                self.mode = Mode::Unknown;
+            }
         }
     }
 
@@ -99,7 +123,7 @@ impl RecoveryViewState {
                 }
                 ShouldExit::Yes => true,
             },
-            Mode::Disabled { view } => match view.handle_key(key) {
+            Mode::Default { view } => match view.handle_key(key) {
                 ShouldExit::No => false,
                 ShouldExit::OnlySubScreen => {
                     self.mode = Mode::Unknown;
@@ -116,7 +140,7 @@ impl RecoveryViewState {
         match &mut self.mode {
             Mode::Unknown => (),
             Mode::Incomplete { view } => view.on_tick(),
-            Mode::Disabled { view } => view.on_tick(),
+            Mode::Default { view } => view.on_tick(),
         }
     }
 
@@ -145,6 +169,10 @@ impl StatefulWidget for &mut RecoveryView {
     type State = RecoveryViewState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        // Let's first see if our state has changed.
+        // TODO: Should we do this in our `on_tick()` method?
+        state.update_state();
+
         // Create a centered popout with 8 lines and 70 rows.
         let vertical =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(10), Constraint::Fill(1)])
@@ -170,14 +198,7 @@ impl StatefulWidget for &mut RecoveryView {
 
         // The block uses borders so let's add margins so new widgets don't draw over
         // the block.
-        let [usable_area] = Layout::vertical([Constraint::Fill(1)])
-            .horizontal_margin(2)
-            .vertical_margin(1)
-            .areas(area);
-
-        // Let's first see if our state has changed.
-        // TODO: Should we do this in our `on_tick()` method?
-        state.update_state();
+        let usable_area = area.inner(Margin { horizontal: 2, vertical: 1 });
 
         // Let's now render our current screen.
         match &mut state.mode {
@@ -186,7 +207,7 @@ impl StatefulWidget for &mut RecoveryView {
                 let centered_area = create_centered_throbber_area(usable_area);
                 StatefulWidget::render(throbber, centered_area, buf, &mut state.throbber_state);
             }
-            Mode::Disabled { view } => {
+            Mode::Default { view } => {
                 view.render(usable_area, buf);
             }
             Mode::Incomplete { view } => {
