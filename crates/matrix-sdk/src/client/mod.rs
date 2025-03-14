@@ -77,7 +77,7 @@ use url::Url;
 
 use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
-use crate::authentication::oidc::Oidc;
+use crate::authentication::oauth::Oidc;
 use crate::{
     authentication::{
         matrix::MatrixAuth, AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,

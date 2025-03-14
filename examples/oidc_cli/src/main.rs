@@ -22,7 +22,7 @@ use std::{
 use anyhow::{anyhow, bail};
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::oidc::{
+    authentication::oauth::{
         registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
         registrations::ClientId,
         AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, CsrfToken,

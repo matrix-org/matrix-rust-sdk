@@ -166,7 +166,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::authentication::oidc::registration::{ApplicationType, Localized, OauthGrantType};
+    use crate::authentication::oauth::registration::{ApplicationType, Localized, OauthGrantType};
 
     #[test]
     fn test_oidc_registrations() {

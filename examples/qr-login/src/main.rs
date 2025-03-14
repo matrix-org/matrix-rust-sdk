@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::oidc::{
+    authentication::oauth::{
         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
         registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
     },

@@ -22,7 +22,7 @@ use tracing::{info, instrument};
 use url::Url;
 
 use super::{Oidc, OidcError};
-use crate::{authentication::oidc::AuthorizationValidationData, Result};
+use crate::{authentication::oauth::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
 /// OpenID Connect Provider via the Authorization Code flow.

@@ -22,6 +22,9 @@
 //! [`Oidc::login_with_qr_code()`] method.
 
 use as_variant::as_variant;
+pub use matrix_sdk_base::crypto::types::qr_login::{
+    LoginQrCodeDecodeError, QrCodeData, QrCodeMode, QrCodeModeData,
+};
 use matrix_sdk_base::crypto::SecretImportError;
 pub use oauth2::{
     basic::{BasicErrorResponse, BasicRequestTokenError},
@@ -32,23 +35,19 @@ use thiserror::Error;
 use url::Url;
 pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
 
-#[cfg(doc)]
-use crate::authentication::oidc::Oidc;
-use crate::{authentication::oidc::CrossProcessRefreshLockError, HttpError};
-
 mod login;
 mod messages;
 mod rendezvous_channel;
 mod secure_channel;
 
-pub use matrix_sdk_base::crypto::types::qr_login::{
-    LoginQrCodeDecodeError, QrCodeData, QrCodeMode, QrCodeModeData,
-};
-
 pub use self::{
     login::{LoginProgress, LoginWithQrCode},
     messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
 };
+use super::CrossProcessRefreshLockError;
+#[cfg(doc)]
+use super::Oidc;
+use crate::HttpError;
 
 /// The error type for failures while trying to log in a new device using a QR
 /// code.
@@ -114,7 +113,7 @@ pub enum DeviceAuthorizationOauthError {
     /// A generic OAuth 2.0 error happened while we were attempting to register
     /// the device with the OAuth 2.0 authorization server.
     #[error(transparent)]
-    Oauth(#[from] crate::authentication::oidc::OidcError),
+    Oauth(#[from] crate::authentication::oauth::OidcError),
 
     /// The OAuth 2.0 server doesn't support the device authorization grant.
     #[error("OAuth 2.0 server doesn't support the device authorization grant")]

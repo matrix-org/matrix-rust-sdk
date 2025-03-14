@@ -32,8 +32,8 @@ use super::{
     DeviceAuthorizationOauthError, QRCodeLoginError, SecureChannelError,
 };
 #[cfg(doc)]
-use crate::authentication::oidc::Oidc;
-use crate::{authentication::oidc::ClientMetadata, Client};
+use crate::authentication::oauth::Oidc;
+use crate::{authentication::oauth::ClientMetadata, Client};
 
 async fn send_unexpected_message_error(
     channel: &mut EstablishedSecureChannel,
@@ -318,7 +318,7 @@ mod test {
 
     use super::*;
     use crate::{
-        authentication::oidc::qrcode::{
+        authentication::oauth::qrcode::{
             messages::LoginProtocolType,
             secure_channel::{test::MockedRendezvousServer, SecureChannel},
         },

@@ -29,7 +29,7 @@ use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "experimental-oidc")]
-use crate::authentication::oidc::OidcCtx;
+use crate::authentication::oauth::OidcCtx;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
