@@ -286,8 +286,13 @@ impl CrossSigningResetHandle {
                 return Ok(());
             }
 
-            if e.as_uiaa_response().is_none() {
-                return Err(e.into());
+            match e.as_uiaa_response() {
+                Some(uiaa_info) => {
+                    if uiaa_info.auth_error.is_some() {
+                        return Err(e.into());
+                    }
+                }
+                None => return Err(e.into()),
             }
         }
 
