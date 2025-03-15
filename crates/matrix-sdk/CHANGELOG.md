@@ -150,6 +150,19 @@ simpler methods:
   However it now takes the redirect URI to use, instead of always using the
   first one in the client metadata.
   ([#4771](https://github.com/matrix-org/matrix-rust-sdk/pull/4771))
+- [**breaking**]: Rename the `Oidc` API to `Oauth`, since it's using almost
+  exclusively OAuth 2.0 rather than OpenID Connect.
+  ([#4805](https://github.com/matrix-org/matrix-rust-sdk/pull/4805))
+  - The `oidc` module was renamed to `oauth`.
+  - `Client::oidc()` was renamed to `Client::oauth()` and the `AuthApi::Oidc`
+    variant was renamed to `AuthApi::Oauth`.
+  - `OidcSession` was renamed to `OauthSession` and the `AuthSession::Oidc`
+    variant was renamed to `AuthSession::Oauth`.
+  - `OidcAuthCodeUrlBuilder` and `OidcAuthorizationData` were renamed to
+    `OauthAuthCodeUrlBuilder` and `OauthAuthorizationData`.
+  - `OidcError` was renamed to `OauthError` and the `RefreshTokenError::Oidc`
+    variant was renamed to `RefreshTokenError::Oauth`.
+  - `Oidc::provider_metadata()` was renamed to `Oauth::server_metadata()`.
 
 ## [0.10.0] - 2025-02-04
 
