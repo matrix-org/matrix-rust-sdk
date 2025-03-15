@@ -183,13 +183,13 @@ impl OidcCli {
     async fn register_client(&self) -> anyhow::Result<ClientId> {
         let oauth = self.client.oauth();
 
-        let provider_metadata = oauth.provider_metadata().await?;
+        let server_metadata = oauth.server_metadata().await?;
 
-        if provider_metadata.registration_endpoint.is_none() {
-            // This would require to register with the provider manually, which
+        if server_metadata.registration_endpoint.is_none() {
+            // This would require to register with the authorization server manually, which
             // we don't support here.
             bail!(
-                "This provider doesn't support dynamic registration.\n\
+                "This server doesn't support dynamic registration.\n\
                 Please select another homeserver."
             );
         }
@@ -648,7 +648,7 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
         {
             Ok(client) => {
                 // Check if the homeserver advertises OAuth 2.0 server metadata.
-                match client.oauth().provider_metadata().await {
+                match client.oauth().server_metadata().await {
                     Ok(server_metadata) => {
                         println!(
                             "Found OAuth 2.0 server metadata with issuer: {}",
