@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Error types used in the [`Oidc`](super::Oidc) API.
+//! Error types used in the [`Oauth`](super::Oauth) API.
 
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;
@@ -48,10 +48,10 @@ pub enum RedirectUriQueryParseError {
     UnknownFormat,
 }
 
-/// All errors that can occur when using the OpenID Connect API.
+/// All errors that can occur when using the OAuth 2.0 API.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum OidcError {
+pub enum OauthError {
     /// An error occurred when discovering the authorization server's issuer.
     #[error("authorization server discovery failed: {0}")]
     Discovery(#[from] OauthDiscoveryError),
@@ -250,7 +250,8 @@ pub enum OauthClientRegistrationError {
     #[error("failed to serialize client metadata: {0}")]
     IntoJson(serde_json::Error),
 
-    /// An error occurred when making a request to the OpenID Connect provider.
+    /// An error occurred when making a request to the OAuth 2.0 authorization
+    /// server.
     #[error(transparent)]
     Oauth(#[from] OauthRequestError<ClientRegistrationErrorResponseType>),
 
