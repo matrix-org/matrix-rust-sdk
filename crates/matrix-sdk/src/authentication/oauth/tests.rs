@@ -38,7 +38,7 @@ use crate::{
     Client, Error, SessionChange,
 };
 
-const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oidc/callback";
+const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oauth/callback";
 
 async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, OidcRegistrations)> {
     let server = MatrixMockServer::new().await;
@@ -52,7 +52,8 @@ async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, Oid
     let client = server.client_builder().unlogged().build().await;
     let client_metadata = mock_client_metadata();
 
-    let registrations_path = tempdir().unwrap().path().join("oidc").join("registrations.json");
+    let registrations_path =
+        tempdir().unwrap().path().join("matrix-sdk-oauth").join("registrations.json");
     let registrations =
         OidcRegistrations::new(&registrations_path, client_metadata, HashMap::new()).unwrap();
 
@@ -388,12 +389,12 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 }
 
 #[async_test]
-async fn test_oidc_session() -> anyhow::Result<()> {
+async fn test_oauth_session() -> anyhow::Result<()> {
     let client = MockClientBuilder::new("https://example.org".to_owned()).unlogged().build().await;
     let oauth = client.oauth();
 
     let tokens = mock_session_tokens_with_refresh();
-    let issuer = "https://oidc.example.com/issuer";
+    let issuer = "https://oauth.example.com/issuer";
     let session = mock_session(tokens.clone(), issuer);
     oauth.restore_session(session.clone()).await?;
 

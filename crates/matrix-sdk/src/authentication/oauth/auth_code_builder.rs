@@ -80,7 +80,7 @@ impl OAuthAuthCodeUrlBuilder {
         info!(
             issuer = data.issuer.as_str(),
             ?scopes,
-            "Authorizing scope via the OpenID Connect Authorization Code flow"
+            "Authorizing scope via the OAuth 2.0 Authorization Code flow"
         );
 
         let server_metadata = oauth.server_metadata().await?;

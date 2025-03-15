@@ -34,7 +34,7 @@ pub(super) async fn discover(
     http_client: &OauthHttpClient,
     issuer: &str,
 ) -> Result<Raw<AuthorizationServerMetadata>, OauthDiscoveryError> {
-    tracing::debug!("Fetching provider metadata...");
+    tracing::debug!("Fetching OpenID Connect provider metadata...");
 
     let mut url = Url::parse(issuer)?;
 
