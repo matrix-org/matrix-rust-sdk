@@ -993,7 +993,9 @@ async fn log_in_or_restore_session(client: &Client, session_path: &Path) -> Resu
 
         // Immediately save the session to disk.
         if let Some(session) = client.session() {
-            let AuthSession::Matrix(session) = session else { panic!("unexpected oidc session") };
+            let AuthSession::Matrix(session) = session else {
+                panic!("unexpected OAuth 2.0 session")
+            };
             let serialized = serde_json::to_string(&session)?;
             std::fs::write(session_path, serialized)?;
 

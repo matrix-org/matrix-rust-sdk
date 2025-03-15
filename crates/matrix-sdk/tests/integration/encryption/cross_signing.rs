@@ -111,7 +111,7 @@ async fn test_reset_legacy_auth() {
 
 #[cfg(feature = "experimental-oidc")]
 #[async_test]
-async fn test_reset_oidc() {
+async fn test_reset_oauth() {
     use assert_matches2::assert_let;
     use matrix_sdk::{encryption::CrossSigningResetAuthType, test_utils::mocks::MatrixMockServer};
     use similar_asserts::assert_eq;

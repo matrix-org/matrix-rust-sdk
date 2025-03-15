@@ -49,7 +49,7 @@ impl std::fmt::Debug for SessionHash {
     }
 }
 
-/// Compute a hash uniquely identifying the OIDC session tokens.
+/// Compute a hash uniquely identifying the OAuth 2.0 session tokens.
 fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
     let mut hash = Sha256::new().chain_update(tokens.access_token.as_bytes());
     if let Some(refresh_token) = &tokens.refresh_token {
@@ -196,7 +196,7 @@ impl CrossProcessRefreshLockGuard {
         trusted_tokens: &SessionTokens,
     ) -> Result<(), CrossProcessRefreshLockError> {
         let new_hash = compute_session_hash(trusted_tokens);
-        trace!("Trusted OIDC tokens have hash {new_hash:?}; db had {:?}", self.db_hash);
+        trace!("Trusted OAuth 2.0 tokens have hash {new_hash:?}; db had {:?}", self.db_hash);
 
         if let Some(db_hash) = &self.db_hash {
             if new_hash != *db_hash {
@@ -293,7 +293,7 @@ mod tests {
         let session_hash = compute_session_hash(&tokens);
         client
             .oauth()
-            .restore_session(mock_session(tokens.clone(), "https://oidc.example.com/issuer"))
+            .restore_session(mock_session(tokens.clone(), "https://oauth.example.com/issuer"))
             .await?;
 
         assert_eq!(client.session_tokens().unwrap(), tokens);

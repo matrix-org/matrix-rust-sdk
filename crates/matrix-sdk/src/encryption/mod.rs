@@ -275,7 +275,7 @@ impl CrossSigningResetHandle {
     }
 
     /// Continue the cross-signing reset by either waiting for the
-    /// authentication to be done on the side of the OIDC issuer or by
+    /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
     pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
         let mut upload_request = self.upload_request.clone();

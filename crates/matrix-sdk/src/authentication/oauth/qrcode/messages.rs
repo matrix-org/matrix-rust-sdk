@@ -44,9 +44,9 @@ pub enum QrAuthMessage {
     /// message the new device has picked. Sent by the new device.
     #[serde(rename = "m.login.protocol")]
     LoginProtocol {
-        /// The device authorization grant the OIDC provider has given to the
-        /// new device, contains the URL the existing device should use
-        /// to confirm the log in.
+        /// The device authorization grant the OAuth 2.0 server has given to the
+        /// new device, contains the URL the existing device should use to
+        /// confirm the log in.
         device_authorization_grant: AuthorizationGrant,
         /// The protocol the new device has picked.
         protocol: LoginProtocolType,
@@ -64,13 +64,13 @@ pub enum QrAuthMessage {
     LoginProtocolAccepted,
 
     /// Message that informs the existing device that it successfully obtained
-    /// an access token from the OIDC provider. Sent by the new device.
+    /// an access token from the OAuth 2.0 server. Sent by the new device.
     #[serde(rename = "m.login.success")]
     LoginSuccess,
 
-    /// Message that informs the existing device that the OIDC provider has
-    /// declined to give us an access token, i.e. because the user declined
-    /// the log in. Sent by the new device.
+    /// Message that informs the existing device that the OAuth 2.0 server has
+    /// declined to give us an access token, i.e. because the user declined the
+    /// log in. Sent by the new device.
     #[serde(rename = "m.login.declined")]
     LoginDeclined,
 

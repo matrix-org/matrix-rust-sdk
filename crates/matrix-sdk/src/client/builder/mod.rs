@@ -158,8 +158,8 @@ impl ClientBuilder {
     }
 
     /// Set the server name to discover the homeserver from, assuming an HTTP
-    /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
-    /// HTTP schemes.
+    /// (not secured) scheme. This also relaxes OAuth 2.0 discovery checks to
+    /// allow HTTP schemes.
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
