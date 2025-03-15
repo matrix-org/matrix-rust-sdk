@@ -279,7 +279,7 @@ impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let oauth = self.inner.oauth();
-        let (supports_oidc_login, supported_oidc_prompts) = match oauth.provider_metadata().await {
+        let (supports_oidc_login, supported_oidc_prompts) = match oauth.server_metadata().await {
             Ok(metadata) => {
                 let prompts =
                     metadata.prompt_values_supported.into_iter().map(Into::into).collect();

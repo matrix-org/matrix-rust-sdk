@@ -357,7 +357,7 @@ impl ClientInner {
         let caches = ClientCaches {
             server_capabilities: server_capabilities.into(),
             #[cfg(feature = "experimental-oidc")]
-            provider_metadata: Mutex::new(TtlCache::new()),
+            server_metadata: Mutex::new(TtlCache::new()),
         };
 
         let client = Self {

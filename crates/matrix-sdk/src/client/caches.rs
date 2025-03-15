@@ -27,5 +27,5 @@ pub(crate) struct ClientCaches {
     /// the server.
     pub(super) server_capabilities: RwLock<ClientServerCapabilities>,
     #[cfg(feature = "experimental-oidc")]
-    pub(crate) provider_metadata: tokio::sync::Mutex<TtlCache<String, AuthorizationServerMetadata>>,
+    pub(crate) server_metadata: tokio::sync::Mutex<TtlCache<String, AuthorizationServerMetadata>>,
 }

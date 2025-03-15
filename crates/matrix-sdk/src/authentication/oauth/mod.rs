@@ -36,7 +36,7 @@
 //! # Homeserver support
 //!
 //! After building the client, you can check that the homeserver supports
-//! logging in via OAuth 2.0 when [`OAuth::provider_metadata()`] succeeds.
+//! logging in via OAuth 2.0 when [`OAuth::server_metadata()`] succeeds.
 //!
 //! # Registration
 //!
@@ -460,9 +460,9 @@ impl OAuth {
         redirect_uri: Url,
         prompt: Option<Prompt>,
     ) -> Result<OAuthAuthorizationData, OAuthError> {
-        let metadata = self.provider_metadata().await?;
+        let server_metadata = self.server_metadata().await?;
 
-        self.configure(metadata.issuer, registrations).await?;
+        self.configure(server_metadata.issuer, registrations).await?;
 
         let mut data_builder = self.login(redirect_uri, None)?;
 
@@ -573,17 +573,17 @@ impl OAuth {
         self.data().map(|data| &data.issuer)
     }
 
-    /// The account management actions supported by the provider's account
-    /// management URL.
+    /// The account management actions supported by the authorization server's
+    /// account management URL.
     ///
     /// Returns `Ok(None)` if the data was not found. Returns an error if the
     /// request to get the provider metadata fails.
     pub async fn account_management_actions_supported(
         &self,
     ) -> Result<BTreeSet<AccountManagementAction>, OAuthError> {
-        let provider_metadata = self.provider_metadata().await?;
+        let server_metadata = self.server_metadata().await?;
 
-        Ok(provider_metadata.account_management_actions_supported)
+        Ok(server_metadata.account_management_actions_supported)
     }
 
     /// Build the URL where the user can manage their account.
@@ -596,22 +596,21 @@ impl OAuth {
     ///   directly with [`OAuth::account_management_actions_supported()`].
     ///
     /// Returns `Ok(None)` if the URL was not found. Returns an error if the
-    /// request to get the provider metadata fails or the URL could not be
-    /// parsed.
+    /// request to get the server metadata fails or the URL could not be parsed.
     pub async fn fetch_account_management_url(
         &self,
         action: Option<AccountManagementActionFull>,
     ) -> Result<Option<Url>, OAuthError> {
-        let provider_metadata = self.provider_metadata().await?;
-        self.management_url_from_provider_metadata(provider_metadata, action)
+        let server_metadata = self.server_metadata().await?;
+        self.management_url_from_server_metadata(server_metadata, action)
     }
 
-    fn management_url_from_provider_metadata(
+    fn management_url_from_server_metadata(
         &self,
-        provider_metadata: AuthorizationServerMetadata,
+        server_metadata: AuthorizationServerMetadata,
         action: Option<AccountManagementActionFull>,
     ) -> Result<Option<Url>, OAuthError> {
-        let Some(base_url) = provider_metadata.account_management_uri else {
+        let Some(base_url) = server_metadata.account_management_uri else {
             return Ok(None);
         };
 
@@ -647,19 +646,19 @@ impl OAuth {
         &self,
         action: Option<AccountManagementActionFull>,
     ) -> Result<Option<Url>, OAuthError> {
-        const CACHE_KEY: &str = "PROVIDER_METADATA";
+        const CACHE_KEY: &str = "SERVER_METADATA";
 
-        let mut cache = self.client.inner.caches.provider_metadata.lock().await;
+        let mut cache = self.client.inner.caches.server_metadata.lock().await;
 
-        let metadata = if let Some(metadata) = cache.get("PROVIDER_METADATA") {
+        let metadata = if let Some(metadata) = cache.get(CACHE_KEY) {
             metadata
         } else {
-            let provider_metadata = self.provider_metadata().await?;
-            cache.insert(CACHE_KEY.to_owned(), provider_metadata.clone());
-            provider_metadata
+            let server_metadata = self.server_metadata().await?;
+            cache.insert(CACHE_KEY.to_owned(), server_metadata.clone());
+            server_metadata
         };
 
-        self.management_url_from_provider_metadata(metadata, action)
+        self.management_url_from_server_metadata(metadata, action)
     }
 
     /// Discover the authentication issuer and retrieve the
@@ -689,11 +688,11 @@ impl OAuth {
         discover(self.http_client(), &issuer).await
     }
 
-    /// Fetch the OAuth 2.0 server metadata of the homeserver.
+    /// Fetch the OAuth 2.0 authorization server metadata of the homeserver.
     ///
     /// Returns an error if a problem occurred when fetching or validating the
     /// metadata.
-    pub async fn provider_metadata(
+    pub async fn server_metadata(
         &self,
     ) -> Result<AuthorizationServerMetadata, OauthDiscoveryError> {
         let is_endpoint_unsupported = |error: &HttpError| {
@@ -770,7 +769,7 @@ impl OAuth {
     ///
     /// The client should adapt the security measures enabled in its metadata
     /// according to the capabilities advertised in
-    /// [`OAuth::provider_metadata()`].
+    /// [`OAuth::server_metadata()`].
     ///
     /// # Arguments
     ///
@@ -799,7 +798,7 @@ impl OAuth {
     /// let client = Client::builder().server_name(&server_name).build().await?;
     /// let oauth = client.oauth();
     ///
-    /// if let Err(error) = oauth.provider_metadata().await {
+    /// if let Err(error) = oauth.server_metadata().await {
     ///     if error.is_not_supported() {
     ///         println!("OAuth 2.0 is not supported");
     ///     }
@@ -827,9 +826,9 @@ impl OAuth {
         &self,
         client_metadata: &Raw<ClientMetadata>,
     ) -> Result<ClientRegistrationResponse, OAuthError> {
-        let provider_metadata = self.provider_metadata().await?;
+        let server_metadata = self.server_metadata().await?;
 
-        let registration_endpoint = provider_metadata
+        let registration_endpoint = server_metadata
             .registration_endpoint
             .as_ref()
             .ok_or(OauthClientRegistrationError::NotSupported)?;
@@ -840,7 +839,7 @@ impl OAuth {
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
-            provider_metadata.issuer,
+            server_metadata.issuer,
             registration_response.client_id.clone(),
         );
 
@@ -1174,8 +1173,8 @@ impl OAuth {
             .remove(&auth_code.state)
             .ok_or(OauthAuthorizationCodeError::InvalidState)?;
 
-        let provider_metadata = self.provider_metadata().await?;
-        let token_uri = TokenUrl::from_url(provider_metadata.token_endpoint);
+        let server_metadata = self.server_metadata().await?;
+        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
 
         let response = OauthClient::new(client_id)
             .set_token_uri(token_uri)
@@ -1227,7 +1226,7 @@ impl OAuth {
 
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
-        let server_metadata = self.provider_metadata().await.map_err(OAuthError::from)?;
+        let server_metadata = self.server_metadata().await.map_err(OAuthError::from)?;
         let device_authorization_url = server_metadata
             .device_authorization_endpoint
             .clone()
@@ -1254,7 +1253,7 @@ impl OAuth {
 
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
-        let server_metadata = self.provider_metadata().await.map_err(OAuthError::from)?;
+        let server_metadata = self.server_metadata().await.map_err(OAuthError::from)?;
         let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
 
         let response = OauthClient::new(client_id)
@@ -1409,7 +1408,7 @@ impl OAuth {
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
         };
 
-        let provider_metadata = match self.provider_metadata().await {
+        let server_metadata = match self.server_metadata().await {
             Ok(metadata) => metadata,
             Err(err) => {
                 warn!("couldn't get authorization server metadata: {err:?}");
@@ -1435,7 +1434,7 @@ impl OAuth {
             match this
                 .refresh_access_token_inner(
                     refresh_token,
-                    provider_metadata.token_endpoint,
+                    server_metadata.token_endpoint,
                     client_id,
                     cross_process_guard,
                 )
@@ -1462,8 +1461,8 @@ impl OAuth {
     pub async fn logout(&self) -> Result<(), OAuthError> {
         let client_id = self.client_id().ok_or(OAuthError::NotAuthenticated)?.clone();
 
-        let provider_metadata = self.provider_metadata().await?;
-        let revocation_url = RevocationUrl::from_url(provider_metadata.revocation_endpoint);
+        let server_metadata = self.server_metadata().await?;
+        let revocation_url = RevocationUrl::from_url(server_metadata.revocation_endpoint);
 
         let tokens = self.client.session_tokens().ok_or(OAuthError::NotAuthenticated)?;
 

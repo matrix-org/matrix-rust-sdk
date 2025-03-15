@@ -525,7 +525,7 @@ async fn test_management_url_cache() {
     let oauth = client.oauth();
 
     // The cache should not contain the entry.
-    assert!(!client.inner.caches.provider_metadata.lock().await.contains("PROVIDER_METADATA"));
+    assert!(!client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
     let management_url = oauth
         .account_management_url(Some(AccountManagementActionFull::Profile))
@@ -534,8 +534,8 @@ async fn test_management_url_cache() {
 
     assert!(management_url.is_some());
 
-    // Check that the provider metadata has been inserted into the cache.
-    assert!(client.inner.caches.provider_metadata.lock().await.contains("PROVIDER_METADATA"));
+    // Check that the server metadata has been inserted into the cache.
+    assert!(client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
     // Another parameter doesn't make another request for the metadata.
     let management_url = oauth
@@ -547,14 +547,14 @@ async fn test_management_url_cache() {
 }
 
 #[async_test]
-async fn test_provider_metadata() {
+async fn test_server_metadata() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().unlogged().build().await;
     let oauth = client.oauth();
     let issuer = server.server().uri();
 
     // The endpoint is not mocked so it is not supported.
-    let error = oauth.provider_metadata().await.unwrap_err();
+    let error = oauth.server_metadata().await.unwrap_err();
     assert!(error.is_not_supported());
 
     // Mock the `GET /auth_issuer` fallback endpoint.
@@ -573,11 +573,11 @@ async fn test_provider_metadata() {
         .named("openid-configuration")
         .mount(server.server())
         .await;
-    oauth.provider_metadata().await.unwrap();
+    oauth.server_metadata().await.unwrap();
 
     // Mock the `GET /auth_metadata` endpoint.
     let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1).named("auth_metadata").mount().await;
 
-    oauth.provider_metadata().await.unwrap();
+    oauth.server_metadata().await.unwrap();
 }
