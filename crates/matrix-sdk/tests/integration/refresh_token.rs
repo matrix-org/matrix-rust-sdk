@@ -646,13 +646,13 @@ async fn test_oauth_refresh_token_handled_failure() {
     // The request fails with a refresh token error.
     let res = client.whoami().await;
     assert_let!(
-        Err(HttpError::RefreshToken(RefreshTokenError::OAuth(oidc_err))) = res,
+        Err(HttpError::RefreshToken(RefreshTokenError::OAuth(oauth_err))) = res,
         "The request should fail with a refresh token error from the OAuth 2.0 API"
     );
     assert_matches!(
-        *oidc_err,
+        *oauth_err,
         OAuthError::RefreshToken(_),
-        "The OIDC error should be a refresh token error"
+        "The OAuth 2.0 error should be a refresh token error"
     );
 
     // We get notified once that the token is invalid.

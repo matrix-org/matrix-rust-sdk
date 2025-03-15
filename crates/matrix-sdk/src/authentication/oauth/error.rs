@@ -250,7 +250,8 @@ pub enum OauthClientRegistrationError {
     #[error("failed to serialize client metadata: {0}")]
     IntoJson(serde_json::Error),
 
-    /// An error occurred when making a request to the OpenID Connect provider.
+    /// An error occurred when making a request to the OAuth 2.0 authorization
+    /// server.
     #[error(transparent)]
     Oauth(#[from] OauthRequestError<ClientRegistrationErrorResponseType>),
 
