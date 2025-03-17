@@ -282,34 +282,39 @@ pub enum Tweak {
 }
 
 impl TryFrom<SdkTweak> for Tweak {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: SdkTweak) -> Result<Self, Self::Error> {
         Ok(match value {
             SdkTweak::Sound(sound) => Self::Sound { value: sound },
             SdkTweak::Highlight(highlight) => Self::Highlight { value: highlight },
             SdkTweak::Custom { name, value } => {
-                let json_string = serde_json::to_string(&value).unwrap();
+                let json_string = serde_json::to_string(&value)
+                    .map_err(|e| format!("Failed to serialize custom tweak value: {}", e))?;
 
                 Self::Custom { name, value: json_string }
             }
-            _ => return Err(()),
+            _ => return Err("Unsupported tweak type".to_owned()),
         })
     }
 }
 
-impl From<Tweak> for SdkTweak {
-    fn from(value: Tweak) -> Self {
-        match value {
+impl TryFrom<Tweak> for SdkTweak {
+    type Error = String;
+
+    fn try_from(value: Tweak) -> Result<Self, Self::Error> {
+        Ok(match value {
             Tweak::Sound { value } => Self::Sound(value),
             Tweak::Highlight { value } => Self::Highlight(value),
             Tweak::Custom { name, value } => {
-                let json_value: serde_json::Value = serde_json::from_str(&value).unwrap();
-                let value = serde_json::from_value(json_value).unwrap();
+                let json_value: serde_json::Value = serde_json::from_str(&value)
+                    .map_err(|e| format!("Failed to deserialize custom tweak value: {}", e))?;
+                let value = serde_json::from_value(json_value)
+                    .map_err(|e| format!("Failed to convert JSON value: {}", e))?;
 
                 Self::Custom { name, value }
             }
-        }
+        })
     }
 }
 
@@ -323,23 +328,29 @@ pub enum Action {
 }
 
 impl TryFrom<SdkAction> for Action {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: SdkAction) -> Result<Self, Self::Error> {
         Ok(match value {
             SdkAction::Notify => Self::Notify,
-            SdkAction::SetTweak(tweak) => Self::SetTweak { value: tweak.try_into().unwrap() },
-            _ => return Err(()),
+            SdkAction::SetTweak(tweak) => Self::SetTweak {
+                value: tweak.try_into().map_err(|e| format!("Failed to convert tweak: {}", e))?,
+            },
+            _ => return Err("Unsupported action type".to_owned()),
         })
     }
 }
 
-impl From<Action> for SdkAction {
-    fn from(value: Action) -> Self {
-        match value {
+impl TryFrom<Action> for SdkAction {
+    type Error = String;
+
+    fn try_from(value: Action) -> Result<Self, Self::Error> {
+        Ok(match value {
             Action::Notify => Self::Notify,
-            Action::SetTweak { value } => Self::SetTweak(value.into()),
-        }
+            Action::SetTweak { value } => Self::SetTweak(
+                value.try_into().map_err(|e| format!("Failed to convert tweak: {}", e))?,
+            ),
+        })
     }
 }
 
@@ -721,7 +732,9 @@ impl NotificationSettings {
         conditions: Vec<PushCondition>,
     ) -> Result<(), NotificationSettingsError> {
         let notification_settings = self.sdk_notification_settings.read().await;
-        let actions = actions.into_iter().map(|action| action.into()).collect();
+        let actions: Result<Vec<_>, _> =
+            actions.into_iter().map(|action| action.try_into()).collect();
+        let actions = actions.map_err(|e| NotificationSettingsError::Generic { msg: e })?;
 
         notification_settings
             .create_custom_conditional_push_rule(
