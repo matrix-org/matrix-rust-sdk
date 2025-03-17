@@ -140,6 +140,7 @@ use crate::{
     attachment::{AttachmentConfig, AttachmentInfo},
     client::WeakClient,
     config::RequestConfig,
+    encryption::futures::ShareRoomHistory,
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
@@ -1749,6 +1750,20 @@ impl Room {
         }
 
         Ok(())
+    }
+
+    /// Share any shareable E2EE history in this room with the given recipient,
+    /// as per [MSC4268].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the OlmMachine hasn't been set up on the client.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    #[instrument(skip_all, fields(room_id = ?self.room_id(), ?user_id))]
+    pub(crate) fn share_history<'a>(&'a self, user_id: &UserId) -> ShareRoomHistory<'a> {
+        ShareRoomHistory::new(self, user_id.to_owned())
     }
 
     /// Wait for the room to be fully synced.
