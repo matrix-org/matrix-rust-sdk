@@ -158,7 +158,10 @@ use crate::{
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
-use crate::{crypto::types::events::CryptoContextInfo, encryption::backups::BackupState};
+use crate::{
+    crypto::types::events::CryptoContextInfo, encryption::backups::BackupState,
+    room::shared_room_history::share_room_history,
+};
 
 pub mod edit;
 pub mod futures;
@@ -172,6 +175,9 @@ pub mod reply;
 
 /// Contains all the functionality for modifying the privacy settings in a room.
 pub mod privacy_settings;
+
+#[cfg(feature = "e2e-encryption")]
+mod shared_room_history;
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -1798,6 +1804,21 @@ impl Room {
         }
 
         Ok(())
+    }
+
+    /// Share any shareable E2EE history in this room with the given recipient,
+    /// as per [MSC4268].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    ///
+    /// This is temporarily exposed for integration testing as part of
+    /// experimental work on history sharing. In future, it will be combined
+    /// with sending an invite.
+    #[cfg(feature = "e2e-encryption")]
+    #[doc(hidden)]
+    #[instrument(skip_all, fields(room_id = ?self.room_id(), ?user_id))]
+    pub async fn share_history<'a>(&'a self, user_id: &UserId) -> Result<()> {
+        share_room_history(self, user_id.to_owned()).await
     }
 
     /// Wait for the room to be fully synced.
