@@ -49,6 +49,7 @@ pub mod events;
 mod one_time_keys;
 pub mod qr_login;
 pub mod requests;
+pub mod room_history;
 
 pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
 use crate::store::BackupDecryptionKey;
