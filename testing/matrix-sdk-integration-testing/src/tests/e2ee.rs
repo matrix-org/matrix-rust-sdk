@@ -19,7 +19,7 @@ use matrix_sdk::{
         BackupDownloadStrategy, EncryptionSettings, LocalTrust,
     },
     ruma::{
-        api::client::room::create_room::v3::Request as CreateRoomRequest,
+        api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             key::verification::{request::ToDeviceKeyVerificationRequestEvent, VerificationMethod},
             room::message::{
@@ -39,7 +39,7 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
 };
 use similar_asserts::assert_eq;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
@@ -1172,6 +1172,46 @@ async fn test_recovery_disabling_deletes_secret_storage_secrets() -> Result<()> 
             "The known secret {event_type} should have been deleted from the server"
         );
     }
+
+    Ok(())
+}
+
+/// When we invite another user to a room with "joined" history visibility, we
+/// share the encryption history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_history_share_on_invite() -> Result<()> {
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new("alice").encryption_settings(encryption_settings).build().await?,
+    );
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::new("bob").encryption_settings(encryption_settings).build().await?,
+    );
+
+    // Alice creates a room ...
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            preset: Some(RoomPreset::PublicChat),
+        }))
+        .await?;
+    alice_room.enable_encryption().await?;
+    alice.sync_once().await?;
+
+    info!(room_id = ?alice_room.room_id(), "Alice has created and enabled encryption in the room");
+
+    // ... and sends a message
+    alice_room
+        .send(RoomMessageEventContent::text_plain("Hello Bob"))
+        .await
+        .expect("We should be able to send a message to the room");
+
+    // Alice invites Bob to the room
+    // TODO: invite Bob rather than just call `share_history`
+    alice_room.test_share_history(bob.user_id().unwrap()).await?;
+
+    // TODO: ensure Bob can decrypt the content
 
     Ok(())
 }

@@ -1766,6 +1766,14 @@ impl Room {
         ShareRoomHistory::new(self, user_id.to_owned())
     }
 
+    /// Wrapper for [`share_history`] for the benefit of the integration test
+    ///
+    /// TODO: remove this once the integ test uses a higher-level API
+    #[cfg(all(feature = "e2e-encryption", feature = "testing"))]
+    pub fn test_share_history<'a>(&'a self, user_id: &UserId) -> ShareRoomHistory<'a> {
+        self.share_history(user_id)
+    }
+
     /// Wait for the room to be fully synced.
     ///
     /// This method makes sure the room that was returned when joining a room
