@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose new method `Room::share_history` for sharing encrypted history with
+  new room members.
+  ([#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
 - `Room::load_or_fetch_event()` is a new method that will find an event in the event cache (if
   enabled), or using network like `Room::event()` does.
   ([#4837](https://github.com/matrix-org/matrix-rust-sdk/pull/4837))
