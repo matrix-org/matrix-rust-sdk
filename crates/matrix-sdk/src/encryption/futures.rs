@@ -23,9 +23,12 @@ use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
 use matrix_sdk_common::boxed_into_future;
-use ruma::events::room::{EncryptedFile, EncryptedFileInit};
+use ruma::{
+    events::room::{EncryptedFile, EncryptedFileInit},
+    OwnedUserId,
+};
 
-use crate::{config::RequestConfig, Client, Media, Result, TransmissionProgress};
+use crate::{config::RequestConfig, Client, Media, Result, Room, TransmissionProgress};
 
 /// Future returned by [`Client::upload_encrypted_file`].
 #[allow(missing_debug_implementations)]
@@ -118,6 +121,67 @@ where
             };
 
             Ok(file)
+        })
+    }
+}
+
+/// Future returned by [`Room::share_history`].
+#[derive(Debug)]
+pub struct ShareRoomHistory<'a> {
+    /// The room whose history should be shared.
+    room: &'a Room,
+
+    /// The recipient of the shared history.
+    user_id: OwnedUserId,
+}
+
+impl<'a> ShareRoomHistory<'a> {
+    pub(crate) fn new(room: &'a Room, user_id: OwnedUserId) -> Self {
+        Self { room, user_id }
+    }
+}
+
+impl<'a> IntoFuture for ShareRoomHistory<'a> {
+    type Output = Result<()>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self { room, user_id } = self;
+        Box::pin(async move {
+            tracing::info!("Sharing message history in {} with {}", room.room_id(), user_id);
+
+            // 1. Construct the key bundle
+            let bundle = {
+                let olm_machine = room.client.olm_machine().await;
+                let olm_machine = olm_machine
+                    .as_ref()
+                    .expect("This should only be called once we have an OlmMachine");
+                olm_machine.store().build_room_key_bundle(room.room_id()).await?
+            };
+
+            if bundle.is_empty() {
+                tracing::info!("No keys to share");
+                return Ok(());
+            }
+
+            // 2. Upload to the server as an encrypted file
+            let json = serde_json::to_vec(&bundle)?;
+            let upload = room
+                .client
+                .upload_encrypted_file(&mime::APPLICATION_JSON, &mut (json.as_slice()))
+                .await?;
+
+            tracing::info!(
+                media_url = ?upload.url,
+                shared_keys = bundle.room_keys.len(),
+                withheld_keys = bundle.withheld.len(),
+                "Uploaded encrypted key blob"
+            );
+
+            // 3. Send to-device messages to the recipient to share the keys.
+            // TODO
+
+            Ok(())
         })
     }
 }

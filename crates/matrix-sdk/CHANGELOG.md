@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose new method `Room::share_history` for sharing encrypted history with
+  new room members.
+  ([#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
 - `Room::load_or_fetch_event()` is a new method that will find an event in the event cache (if
   enabled), or using network like `Room::event()` does.
   ([#4837](https://github.com/matrix-org/matrix-rust-sdk/pull/4837))
@@ -197,7 +200,7 @@ simpler methods:
   - `OAuthError::MissingDeviceId` was removed, it cannot occur anymore.
 - [**breaking**] `OidcRegistrations` was renamed to `OAuthRegistrationStore`.
   ([#4814](https://github.com/matrix-org/matrix-rust-sdk/pull/4814))
-  - `OidcRegistrationsError` was renamed to `OAuthRegistrationStoreError`. 
+  - `OidcRegistrationsError` was renamed to `OAuthRegistrationStoreError`.
   - The `registrations` module was renamed and is now private.
     `OAuthRegistrationStore` and `ClientId` are exported from `oauth`, and
     `OAuthRegistrationStoreError` is exported from `oauth::error`.
