@@ -49,6 +49,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
+mod decryption;
 mod echo;
 mod edit;
 mod focus_event;

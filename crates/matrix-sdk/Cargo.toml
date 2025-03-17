@@ -47,12 +47,8 @@ uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 experimental-oidc = [
     "ruma/unstable-msc2967",
     "ruma/unstable-msc4108",
-    "dep:chrono",
     "dep:language-tags",
-    "dep:mas-oidc-client",
-    "dep:rand",
     "dep:sha2",
-    "dep:tower",
     "dep:oauth2",
 ]
 experimental-widgets = ["dep:language-tags", "dep:uuid"]
@@ -71,7 +67,6 @@ async-trait = { workspace = true }
 axum = { version = "0.8.1", optional = true }
 bytes = "1.9.0"
 bytesize = "1.3.0"
-chrono = { workspace = true, optional = true }
 event-listener = "5.4.0"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
@@ -84,7 +79,6 @@ imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { version = "0.11.0", default-features = false, optional = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-ffi-macros = { workspace = true, optional = true }

@@ -348,14 +348,65 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
     filters.join(",")
 }
 
+/// Sets up logs and the tokio runtime for the current application.
+///
+/// If `use_lightweight_tokio_runtime` is set to true, this will set up a
+/// lightweight tokio runtime, for processes that have memory limitations (like
+/// the NSE process on iOS). Otherwise, this can remain false, in which case a
+/// multithreaded tokio runtime will be set up.
 #[matrix_sdk_ffi_macros::export]
-pub fn setup_tracing(config: TracingConfiguration) {
+pub fn init_platform(config: TracingConfiguration, use_lightweight_tokio_runtime: bool) {
     log_panics();
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(build_tracing_filter(&config)))
         .with(text_layers(config))
         .init();
+
+    if use_lightweight_tokio_runtime {
+        setup_lightweight_tokio_runtime();
+    } else {
+        setup_multithreaded_tokio_runtime();
+    }
+}
+
+fn setup_multithreaded_tokio_runtime() {
+    async_compat::set_runtime_builder(Box::new(|| {
+        eprintln!("spawning a multithreaded tokio runtime");
+
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.enable_all();
+        builder
+    }));
+}
+
+fn setup_lightweight_tokio_runtime() {
+    async_compat::set_runtime_builder(Box::new(|| {
+        eprintln!("spawning a lightweight tokio runtime");
+
+        // Get the number of available cores through the system, if possible.
+        let num_available_cores =
+            std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+
+        // The number of worker threads will be either that or 4, whichever is smaller.
+        let num_worker_threads = num_available_cores.min(4);
+
+        // Chosen by a fair dice roll.
+        let num_blocking_threads = 2;
+
+        // 1 MiB of memory per worker thread. Should be enough for everyone™.
+        let max_memory_bytes = 1024 * 1024;
+
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+
+        builder
+            .enable_all()
+            .worker_threads(num_worker_threads)
+            .thread_stack_size(max_memory_bytes)
+            .max_blocking_threads(num_blocking_threads);
+
+        builder
+    }));
 }
 
 #[cfg(test)]

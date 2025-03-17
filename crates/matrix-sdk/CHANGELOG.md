@@ -21,7 +21,6 @@ simpler methods:
   this URI is not desirable, the `Oidc::fetch_account_management_url` method
   can be used.
   ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
-
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
@@ -29,9 +28,27 @@ simpler methods:
   [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
   ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
 - Add `Room::report_room` api. ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
-- `Client::notification_client` will create a copy of the existing `Client`, but now it'll make sure 
-  it doesn't handle any verification events to avoid an issue with these events being received and 
-  processed twice if `NotificationProcessSetup` was `SingleSetup`.
+- `Client::notification_client` will create a copy of the existing `Client`,
+  but now it'll make sure  it doesn't handle any verification events to
+  avoid an issue with these events being received and  processed twice if
+  `NotificationProcessSetup` was `SingleSetup`.
+- [**breaking**] `Room::is_encrypted` is replaced by
+  `Room::latest_encryption_state` which returns a value of the new
+  `EncryptionState` enum; another `Room::encryption_state` non-async and
+  infallible method is added to get the `EncryptionState` without calling
+  `Room::request_encryption_state`. This latter method is also now public.
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777)). One can
+  safely replace:
+
+  ```rust
+  room.is_encrypted().await?
+  ```
+
+  by
+
+  ```rust
+  room.latest_encryption_state().await?.is_encrypted()
+  ```
 
 ### Bug Fixes
 
@@ -98,9 +115,10 @@ simpler methods:
   - `Oidc::restore_registered_client()` doesn't take a `VerifiedClientMetadata`
     anymore.
   - `Oidc::latest_id_token()` and `Oidc::client_metadata()` were removed.
-- [**breaking**]: The `Oidc` API makes use of the oauth2 crate rather than
-  mas-oidc-client.
+- [**breaking**]: The `Oidc` API makes use of the oauth2 and ruma crates rather
+  than mas-oidc-client.
   ([#4761](https://github.com/matrix-org/matrix-rust-sdk/pull/4761))
+  ([#4789](https://github.com/matrix-org/matrix-rust-sdk/pull/4789))
   - `ClientId` is a different type reexported from the oauth2 crate.
   - The error types that were in the `oidc` module have been moved to the
     `oidc::error` module.
@@ -113,6 +131,25 @@ simpler methods:
     `CsrfToken`.
   - The `error` field of `AuthorizationError` uses an error type from the oauth2
     crate rather than one from mas-oidc-client.
+  - The `types` and `requests` modules are gone and the necessary types are
+    exported from the `oidc` module or available from `ruma`.
+  - `AccountManagementUrlFull` now takes an `OwnedDeviceId` when a device ID is
+    required.
+  - `(Verified)ProviderMetadata` was replaced by `AuthorizationServerMetadata`.
+  - The `issuer` is now a `Url`.
+  - `Oidc::register()` doesn't accept a software statement anymore.
+  - `(Verified)ClientMetadata` was replaced by the opinionated `ClientMetadata`.
+- [**breaking**]: `OidcSessionTokens` and `MatrixSessionTokens` have been merged
+  into `SessionTokens`. Methods to get and watch session tokens are now
+  available directly on `Client`.
+  `(MatrixAuth/Oidc)::session_tokens_stream()`, can be replaced by
+  `Client::subscribe_to_session_changes()` and then calling
+  `Client::session_tokens()` on a `SessionChange::TokenRefreshed`.
+- [**breaking**] `Oidc::url_for_oidc()` doesn't take the `VerifiedClientMetadata`
+  to register as an argument, the one in `OidcRegistrations` is used instead.
+  However it now takes the redirect URI to use, instead of always using the
+  first one in the client metadata.
+  ([#4771](https://github.com/matrix-org/matrix-rust-sdk/pull/4771))
 
 ## [0.10.0] - 2025-02-04
 

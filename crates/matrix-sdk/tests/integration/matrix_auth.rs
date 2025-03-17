@@ -2,10 +2,10 @@ use std::{collections::BTreeMap, sync::Mutex};
 
 use assert_matches::assert_matches;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    authentication::matrix::MatrixSession,
     config::RequestConfig,
     test_utils::{logged_in_client_with_server, no_retry_test_client_with_server},
-    AuthApi, AuthSession, Client, RumaApiError,
+    AuthApi, AuthSession, Client, RumaApiError, SessionTokens,
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
@@ -335,7 +335,7 @@ fn test_serialize_session() {
             user_id: user_id!("@user:localhost").to_owned(),
             device_id: device_id!("EFGHIJ").to_owned(),
         },
-        tokens: MatrixSessionTokens { access_token: "abcd".to_owned(), refresh_token: None },
+        tokens: SessionTokens { access_token: "abcd".to_owned(), refresh_token: None },
     };
     assert_eq!(
         to_json_value(session.clone()).unwrap(),

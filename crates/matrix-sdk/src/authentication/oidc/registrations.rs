@@ -28,12 +28,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mas_oidc_client::types::registration::{
-    ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
-};
 pub use oauth2::ClientId;
+use ruma::serde::Raw;
 use serde::{Deserialize, Serialize};
 use url::Url;
+
+use super::ClientMetadata;
 
 /// Errors related to persisting OIDC registrations.
 #[derive(Debug, thiserror::Error)]
@@ -51,51 +51,22 @@ pub enum OidcRegistrationsError {
 pub struct OidcRegistrations {
     /// The path of the file where the registrations are stored.
     file_path: PathBuf,
-    /// The hash for the metadata used to register the client.
+    /// The metadata used to register the client.
     /// This is used to check if the client needs to be re-registered.
-    verified_metadata: VerifiedClientMetadata,
+    pub(super) metadata: Raw<ClientMetadata>,
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
     static_registrations: HashMap<Url, ClientId>,
 }
 
 /// The underlying data serialized into the registration file.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct FrozenRegistrationData {
-    /// The hash for the metadata used to register the client.
-    metadata: VerifiedClientMetadata,
+    /// The metadata used to register the client.
+    metadata: Raw<ClientMetadata>,
     /// All of the registrations this client has made as a HashMap of issuer URL
     /// (as a string) to client ID (as a string).
     dynamic_registrations: HashMap<Url, ClientId>,
-}
-
-/// The deserialize data from the registration file. This data needs to be
-/// validated before it can be used.
-#[derive(Debug, Deserialize)]
-struct UnvalidatedRegistrationData {
-    /// The hash for the metadata used to register the client.
-    metadata: ClientMetadata,
-    /// All of the registrations this client has made as a HashMap of issuer URL
-    /// (as a string) to client ID (as a string).
-    dynamic_registrations: HashMap<Url, ClientId>,
-}
-
-impl UnvalidatedRegistrationData {
-    /// Validates the registration data, returning a `FrozenRegistrationData`.
-    fn validate(&self) -> Result<FrozenRegistrationData, ClientMetadataVerificationError> {
-        let verified_metadata = match self.metadata.clone().validate() {
-            Ok(metadata) => metadata,
-            Err(e) => {
-                tracing::warn!("Failed to validate stored metadata.");
-                return Err(e);
-            }
-        };
-
-        Ok(FrozenRegistrationData {
-            metadata: verified_metadata,
-            dynamic_registrations: self.dynamic_registrations.clone(),
-        })
-    }
 }
 
 /// Manages the storage of OIDC registrations.
@@ -116,7 +87,7 @@ impl OidcRegistrations {
     ///   issuers that don't support dynamic client registration.
     pub fn new(
         registrations_file: &Path,
-        metadata: VerifiedClientMetadata,
+        metadata: Raw<ClientMetadata>,
         static_registrations: HashMap<Url, ClientId>,
     ) -> Result<Self, OidcRegistrationsError> {
         let parent = registrations_file.parent().ok_or(OidcRegistrationsError::InvalidFilePath)?;
@@ -124,7 +95,7 @@ impl OidcRegistrations {
 
         Ok(OidcRegistrations {
             file_path: registrations_file.to_owned(),
-            verified_metadata: metadata,
+            metadata,
             static_registrations,
         })
     }
@@ -166,20 +137,13 @@ impl OidcRegistrations {
                     .ok()?,
             );
 
-            let registration_data: UnvalidatedRegistrationData = serde_json::from_reader(reader)
+            let registration_data: FrozenRegistrationData = serde_json::from_reader(reader)
                 .map_err(|error| {
                     tracing::warn!("Failed to deserialize registrations file: {error}");
                 })
                 .ok()?;
 
-            let registration_data = registration_data
-                .validate()
-                .map_err(|error| {
-                    tracing::warn!("Failed to validate registration data: {error}");
-                })
-                .ok()?;
-
-            if registration_data.metadata != self.verified_metadata {
+            if registration_data.metadata.json().get() != self.metadata.json().get() {
                 tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
                 return None;
             }
@@ -190,7 +154,7 @@ impl OidcRegistrations {
         try_read_previous().unwrap_or_else(|| {
             tracing::warn!("Generating new registration data");
             FrozenRegistrationData {
-                metadata: self.verified_metadata.clone(),
+                metadata: self.metadata.clone(),
                 dynamic_registrations: Default::default(),
             }
         })
@@ -199,10 +163,10 @@ impl OidcRegistrations {
 
 #[cfg(test)]
 mod tests {
-    use mas_oidc_client::types::registration::Localized;
     use tempfile::tempdir;
 
     use super::*;
+    use crate::authentication::oidc::registration::{ApplicationType, Localized, OauthGrantType};
 
     #[test]
     fn test_oidc_registrations() {
@@ -275,16 +239,17 @@ mod tests {
         assert_eq!(registrations.client_id(&static_url), Some(static_id));
     }
 
-    fn mock_metadata(client_name: String) -> VerifiedClientMetadata {
+    fn mock_metadata(client_name: String) -> Raw<ClientMetadata> {
         let callback_url = Url::parse("https://example.org/login/callback").unwrap();
-        let client_name = Some(Localized::new(client_name, None));
+        let client_uri = Url::parse("https://example.org/").unwrap();
 
-        ClientMetadata {
-            redirect_uris: Some(vec![callback_url]),
-            client_name,
-            ..Default::default()
-        }
-        .validate()
-        .unwrap()
+        let mut metadata = ClientMetadata::new(
+            ApplicationType::Web,
+            vec![OauthGrantType::AuthorizationCode { redirect_uris: vec![callback_url] }],
+            Localized::new(client_uri, None),
+        );
+        metadata.client_name = Some(Localized::new(client_name, None));
+
+        Raw::new(&metadata).unwrap()
     }
 }

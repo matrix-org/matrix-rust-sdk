@@ -40,6 +40,8 @@ use super::{
     BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SenderData, SenderDataType,
     SessionCreationError, SessionKey,
 };
+#[cfg(doc)]
+use crate::types::{events::room_key::RoomKeyContent, room_history::HistoricRoomKey};
 use crate::{
     error::{EventError, MegolmResult},
     types::{
@@ -107,6 +109,60 @@ pub(crate) struct SessionCreatorInfo {
 /// access of the vodozemac type.
 ///
 /// [vodozemac]: https://matrix-org.github.io/vodozemac/vodozemac/index.html
+///
+/// ## Structures representing serialised versions of an `InboundGroupSession`
+///
+/// This crate contains a number of structures which are used for exporting or
+/// sharing `InboundGroupSession` between users or devices, in different
+/// circumstances. The following is an attempt to catalogue them.
+///
+/// 1. First, we have the contents of an `m.room_key` to-device message (i.e., a
+///    [`RoomKeyContent`]. `RoomKeyContent` is unusual in that it can be created
+///    only by the original creator of the session (i.e., someone in possession
+///    of the corresponding [`OutboundGroupSession`]), since the embedded
+///    `session_key` is self-signed.
+///
+///    `RoomKeyContent` does **not** include any information about the creator
+///    of the session (such as the creator's public device keys), since it is
+///    assumed that the original creator of the session is the same as the
+///    device sending the to-device message; it is therefore implied by the Olm
+///    channel used to send the message.
+///
+///    All the other structs in this list include a `sender_key` field which
+///    contains the Curve25519 key belonging to the device which created the
+///    Megolm session (at least, according to the creator of the struct); they
+///    also include the Ed25519 key, though the exact serialisation mechanism
+///    varies.
+///
+/// 2. Next, we have the contents of an `m.forwarded_room_key` message (i.e. a
+///    [`ForwardedRoomKeyContent`]). This modifies `RoomKeyContent` by (a) using
+///    a `session_key` which is not self-signed, (b) adding a `sender_key` field
+///    as mentioned above, (c) adding a `sender_claimed_ed25519_key` field
+///    containing the original sender's Ed25519 key; (d) adding a
+///    `forwarding_curve25519_key_chain` field, which is intended to be used
+///    when the key is re-forwarded, but in practice is of little use.
+///
+/// 3. [`ExportedRoomKey`] is very similar to `ForwardedRoomKeyContent`. The
+///    only difference is that the original sender's Ed25519 key is embedded in
+///    a `sender_claimed_keys` map rather than a top-level
+///    `sender_claimed_ed25519_key` field.
+///
+/// 4. [`BackedUpRoomKey`] is essentially the same as `ExportedRoomKey`, but
+///    lacks explicit `room_id` and `session_id` (since those are implied by
+///    other parts of the key backup structure).
+///
+/// 5. [`HistoricRoomKey`] is also similar to `ExportedRoomKey`, but omits
+///    `forwarding_curve25519_key_chain` (since it has not been useful in
+///    practice) and `shared_history` (because any key being shared via that
+///    mechanism is inherently suitable for sharing with other users).
+///
+/// | Type     | Self-signed room key | `room_id`, `session_id` | `sender_key` | Sender's Ed25519 key | `forwarding _curve25519 _key _chain` | `shared _history` |
+/// |----------|----------------------|-------------------------|--------------|----------------------|------------------------------------|------------------|
+/// | [`RoomKeyContent`]          | ✅ | ✅                       | ❌            | ❌                    | ❌                                  | ✅                |
+/// | [`ForwardedRoomKeyContent`] | ❌ | ✅                       | ✅            | `sender_claimed_ed25519_key` | ✅                          | ✅                |
+/// | [`ExportedRoomKey`]         | ❌ | ✅                       | ✅            | `sender_claimed_keys` | ✅                                 | ✅                |
+/// | [`BackedUpRoomKey`]         | ❌ | ❌                       | ✅            | `sender_claimed_keys` | ✅                                 | ✅                |
+/// | [`HistoricRoomKey`]         | ❌ | ✅                       | ✅            | `sender_claimed_keys` | ❌                                 | ❌                |
 #[derive(Clone)]
 pub struct InboundGroupSession {
     inner: Arc<Mutex<InnerSession>>,

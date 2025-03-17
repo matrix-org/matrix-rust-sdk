@@ -467,7 +467,8 @@ impl EventTimelineItem {
             EventTimelineItemKind::Remote(remote_event) => match remote_event.origin {
                 RemoteEventOrigin::Sync => Some(EventItemOrigin::Sync),
                 RemoteEventOrigin::Pagination => Some(EventItemOrigin::Pagination),
-                _ => None,
+                RemoteEventOrigin::Cache => Some(EventItemOrigin::Cache),
+                RemoteEventOrigin::Unknown => None,
             },
         }
     }
@@ -722,6 +723,8 @@ pub enum EventItemOrigin {
     Sync,
     /// The event came from pagination.
     Pagination,
+    /// The event came from a cache.
+    Cache,
 }
 
 /// What's the status of a reaction?
@@ -801,7 +804,7 @@ mod tests {
     use matrix_sdk::test_utils::logged_in_client;
     use matrix_sdk_base::{
         deserialized_responses::TimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
-        OriginalMinimalStateEvent,
+        OriginalMinimalStateEvent, RequestedRequiredStates,
     };
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, sync_state_event, sync_timeline_event,
@@ -888,7 +891,10 @@ mod tests {
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room);
-        client.process_sliding_sync_test_helper(&response).await.unwrap();
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
 
         // When we construct a timeline event from it
         let event = TimelineEvent::new(raw_event.cast());
@@ -1037,7 +1043,10 @@ mod tests {
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room);
-        client.process_sliding_sync_test_helper(&response).await.unwrap();
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
 
         // When we construct a timeline event from it
         let timeline_item =
@@ -1081,7 +1090,10 @@ mod tests {
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room);
-        client.process_sliding_sync_test_helper(&response).await.unwrap();
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .unwrap();
 
         // When we construct a timeline event from it
         let timeline_item = EventTimelineItem::from_latest_event(

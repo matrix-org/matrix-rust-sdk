@@ -1760,13 +1760,12 @@ mod tests {
         time::Duration,
     };
 
-    use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
         async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use ruma::{
-        device_id, event_id,
+        event_id,
         events::{reaction::ReactionEventContent, relation::Annotation},
         user_id,
     };
@@ -1778,10 +1777,11 @@ mod tests {
 
     use crate::{
         assert_next_matches_with_timeout,
-        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
         encryption::VerificationState,
-        test_utils::{logged_in_client, no_retry_test_client, set_client_session},
+        test_utils::{
+            client::mock_matrix_session, logged_in_client, no_retry_test_client, set_client_session,
+        },
         Client,
     };
 
@@ -1822,7 +1822,11 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
-        assert!(room.is_encrypted().await.expect("Getting encryption state"));
+        assert!(room
+            .latest_encryption_state()
+            .await
+            .expect("Getting encryption state")
+            .is_encrypted());
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));
@@ -1906,13 +1910,7 @@ mod tests {
     async fn test_generation_counter_invalidates_olm_machine() {
         // Create two clients using the same sqlite database.
         let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
-        let session = MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        };
+        let session = mock_matrix_session();
 
         let client1 = Client::builder()
             .homeserver_url("http://localhost:1234")
@@ -2014,13 +2012,7 @@ mod tests {
         // Create two clients using the same sqlite database.
         let sqlite_path =
             std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
-        let session = MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        };
+        let session = mock_matrix_session();
 
         let client = Client::builder()
             .homeserver_url("http://localhost:1234")

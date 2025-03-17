@@ -40,7 +40,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{error, trace, warn};
+use tracing::{error, instrument, trace, warn};
 
 use super::{
     deduplicator::DeduplicationOutcome, AllEventsCache, AutoShrinkChannelPayload, EventsOrigin,
@@ -239,7 +239,7 @@ impl RoomEventCache {
         // Notify observers about the update.
         let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
+            origin: EventsOrigin::Cache,
         });
 
         Ok(())
@@ -381,6 +381,7 @@ impl RoomEventCacheInner {
         }
     }
 
+    #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_joined_room_update(
         &self,
         has_storage: bool,
@@ -417,6 +418,7 @@ impl RoomEventCacheInner {
                 timeline.prev_batch,
                 ephemeral_events,
                 ambiguity_changes,
+                EventsOrigin::Sync,
             )
             .await?;
         } else {
@@ -447,6 +449,7 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
+    #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_left_room_update(
         &self,
         has_storage: bool,
@@ -465,6 +468,7 @@ impl RoomEventCacheInner {
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        events_origin: EventsOrigin,
     ) -> Result<()> {
         // Acquire the lock.
         let mut state = self.state.write().await;
@@ -475,7 +479,7 @@ impl RoomEventCacheInner {
         // Propagate to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
+            origin: events_origin,
         });
 
         // Push the new events.
@@ -1208,8 +1212,8 @@ mod private {
             let diff_updates = self.events.updates_as_vector_diffs();
 
             // Ensure the contract defined in the doc comment is true:
-            assert_eq!(diff_updates.len(), 1);
-            assert!(matches!(diff_updates[0], VectorDiff::Clear));
+            debug_assert_eq!(diff_updates.len(), 1);
+            debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
 
             Ok(diff_updates)
         }

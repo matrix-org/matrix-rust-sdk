@@ -18,7 +18,7 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    authentication::matrix::MatrixSession,
     config::RequestConfig,
     crypto::{
         olm::{InboundGroupSession, SenderData, SessionCreationError},
@@ -30,17 +30,20 @@ use matrix_sdk::{
         secret_storage::SecretStore,
         BackupDownloadStrategy, EncryptionSettings,
     },
-    test_utils::{no_retry_test_client_with_server, test_client_builder_with_server},
-    Client,
+    test_utils::{
+        client::mock_session_tokens, no_retry_test_client_with_server,
+        test_client_builder_with_server,
+    },
+    Client, SessionMeta,
 };
-use matrix_sdk_base::{crypto::olm::OutboundGroupSession, SessionMeta};
+use matrix_sdk_base::crypto::olm::OutboundGroupSession;
 use matrix_sdk_common::timeout::timeout;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
     assign, device_id, event_id,
     events::room::message::{RoomMessageEvent, RoomMessageEventContent},
-    room_id, user_id, EventId, RoomId, TransactionId,
+    owned_device_id, owned_user_id, room_id, user_id, EventId, RoomId, TransactionId,
 };
 use serde_json::{json, Value};
 use tempfile::tempdir;
@@ -72,6 +75,26 @@ const ROOM_KEY: &[u8] = b"\
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
+fn matrix_session_example() -> MatrixSession {
+    MatrixSession {
+        meta: SessionMeta {
+            user_id: owned_user_id!("@example:morpheus.localhost"),
+            device_id: owned_device_id!("DEVICEID"),
+        },
+        tokens: mock_session_tokens(),
+    }
+}
+
+fn matrix_session_example2() -> MatrixSession {
+    MatrixSession {
+        meta: SessionMeta {
+            user_id: owned_user_id!("@example2:morpheus.localhost"),
+            device_id: owned_device_id!("DEVICEID"),
+        },
+        tokens: mock_session_tokens(),
+    }
+}
+
 async fn mount_and_assert_called_once(
     server: &wiremock::MockServer,
     method_argument: &str,
@@ -89,12 +112,7 @@ async fn mount_and_assert_called_once(
 
 #[async_test]
 async fn test_create() {
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
 
     let (client, server) = no_retry_test_client_with_server().await;
 
@@ -165,12 +183,7 @@ async fn test_create() {
 
 #[async_test]
 async fn test_creation_failure() {
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
@@ -246,12 +259,7 @@ async fn test_creation_failure() {
 
 #[async_test]
 async fn test_disabling() {
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
@@ -333,12 +341,7 @@ async fn test_disabling() {
 
 #[async_test]
 async fn test_disable_if_only_enabled_remotely() {
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
@@ -369,8 +372,6 @@ async fn test_backup_resumption() {
 
     let dir = tempdir().unwrap();
 
-    let user_id = user_id!("@example:morpheus.localhost");
-
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -379,10 +380,7 @@ async fn test_backup_resumption() {
         .await
         .unwrap();
 
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
 
     Mock::given(method("POST"))
         .and(path("_matrix/client/unstable/room_keys/version"))
@@ -459,12 +457,7 @@ async fn setup_backups(client: &Client, server: &wiremock::MockServer) {
 
 #[async_test]
 async fn test_steady_state_waiting() {
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
@@ -643,12 +636,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
 /// device event as well.
 #[async_test]
 async fn test_incremental_upload_of_keys() -> Result<()> {
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
@@ -681,7 +669,7 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 
     alice_room.enable_encryption().await?;
 
-    assert!(alice_room.is_encrypted().await?, "room should be encrypted");
+    assert!(alice_room.latest_encryption_state().await?.is_encrypted(), "room should be encrypted");
 
     // Send a message to create an outbound session that should be uploaded to
     // backup
@@ -717,12 +705,7 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
     use tokio::task::spawn_blocking;
 
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
     let server = wiremock::MockServer::start().await;
     let builder = Client::builder()
         .homeserver_url(server.uri())
@@ -766,7 +749,7 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
 
     alice_room.enable_encryption().await?;
 
-    assert!(alice_room.is_encrypted().await?, "room should be encrypted");
+    assert!(alice_room.latest_encryption_state().await?.is_encrypted(), "room should be encrypted");
 
     // Send a message to create an outbound session that should be uploaded to
     // backup
@@ -837,12 +820,7 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
 
 #[async_test]
 async fn test_steady_state_waiting_errors() {
-    let user_id = user_id!("@example:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
@@ -926,10 +904,7 @@ async fn test_enable_from_secret_storage() {
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
 
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
@@ -1062,12 +1037,7 @@ async fn test_enable_from_secret_storage() {
 
 #[async_test]
 async fn test_enable_from_secret_storage_no_existing_backup() {
-    let user_id = user_id!("@example2:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
@@ -1105,12 +1075,7 @@ async fn test_enable_from_secret_storage_no_existing_backup() {
 
 #[async_test]
 async fn test_enable_from_secret_storage_mismatched_key() {
-    let user_id = user_id!("@example2:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
@@ -1157,12 +1122,7 @@ async fn test_enable_from_secret_storage_mismatched_key() {
 
 #[async_test]
 async fn test_enable_from_secret_storage_manual_download() {
-    let user_id = user_id!("@example2:morpheus.localhost");
-
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let client =
         builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
@@ -1188,13 +1148,9 @@ async fn test_enable_from_secret_storage_manual_download() {
 
 #[async_test]
 async fn test_enable_from_secret_storage_and_manual_download() {
-    let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
 
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::Manual,
@@ -1309,14 +1265,10 @@ async fn test_enable_from_secret_storage_and_manual_download() {
 
 #[async_test]
 async fn test_enable_from_secret_storage_and_download_after_utd() {
-    let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
 
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
@@ -1424,14 +1376,10 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
 /// download if the UTD message has a lower megolm ratchet index than we have.
 #[async_test]
 async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message_index() {
-    let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
 
-    let session = MatrixSession {
-        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-    };
+    let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,

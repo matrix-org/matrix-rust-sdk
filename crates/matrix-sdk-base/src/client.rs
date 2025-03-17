@@ -38,7 +38,7 @@ use ruma::events::{
 #[cfg(doc)]
 use ruma::DeviceId;
 use ruma::{
-    api::client as api,
+    api::client::{self as api, sync::sync_events::v5},
     events::{
         ignored_user_list::IgnoredUserListEvent,
         marked_unread::MarkedUnreadEventContent,
@@ -148,11 +148,22 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     ///   previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
+        let store = Store::new(config.state_store);
+
+        // Create the channel to receive `RoomInfoNotableUpdate`.
+        //
+        // Let's consider the channel will receive 5 updates for 100 rooms maximum. This
+        // is unrealistic in practise, as the sync mechanism is pretty unlikely to
+        // trigger such amount of updates, it's a safe value.
+        //
+        // Also, note that it must not be
+        // zero, because (i) it will panic, (ii) a new user has no room, but can create
+        // rooms; remember that the channel's capacity is immutable.
         let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
-            broadcast::channel(u16::MAX as usize);
+            broadcast::channel(500);
 
         BaseClient {
-            store: Store::new(config.state_store),
+            store,
             event_cache_store: config.event_cache_store,
             #[cfg(feature = "e2e-encryption")]
             crypto_store: config.crypto_store,
@@ -950,6 +961,25 @@ impl BaseClient {
         &self,
         response: api::sync::sync_events::v3::Response,
     ) -> Result<SyncResponse> {
+        self.receive_sync_response_with_requested_required_states(
+            response,
+            &RequestedRequiredStates::default(),
+        )
+        .await
+    }
+
+    /// Receive a response from a sync call, with the requested required state
+    /// events.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The response that we received after a successful sync.
+    /// * `requested_required_states` - The requested required state events.
+    pub async fn receive_sync_response_with_requested_required_states(
+        &self,
+        response: api::sync::sync_events::v3::Response,
+        requested_required_states: &RequestedRequiredStates,
+    ) -> Result<SyncResponse> {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
         // do.
@@ -1008,6 +1038,7 @@ impl BaseClient {
             room_info.update_from_ruma_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
             room_info.mark_state_fully_synced();
+            room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
             let state_events = Self::deserialize_state_events(&new_info.state.events);
             let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
@@ -1081,9 +1112,9 @@ impl BaseClient {
             let mut room_info = changes.room_infos.get(&room_id).unwrap().clone();
 
             #[cfg(feature = "e2e-encryption")]
-            if room_info.is_encrypted() {
+            if room_info.encryption_state().is_encrypted() {
                 if let Some(o) = self.olm_machine().await.as_ref() {
-                    if !room.is_encrypted() {
+                    if !room.encryption_state().is_encrypted() {
                         // The room turned on encryption in this sync, we need
                         // to also get all the existing users and mark them for
                         // tracking.
@@ -1126,6 +1157,7 @@ impl BaseClient {
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
             room_info.mark_state_partially_synced();
+            room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
             let state_events = Self::deserialize_state_events(&new_info.state.events);
             let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
@@ -1254,9 +1286,10 @@ impl BaseClient {
 
         {
             let _sync_lock = self.sync_lock().lock().await;
+            let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
             self.store.save_changes(&changes).await?;
             *self.store.sync_token.write().await = Some(response.next_batch.clone());
-            self.apply_changes(&changes, room_info_notable_updates);
+            self.apply_changes(&changes, room_info_notable_updates, prev_ignored_user_list);
         }
 
         // Now that all the rooms information have been saved, update the display name
@@ -1286,10 +1319,17 @@ impl BaseClient {
         Ok(response)
     }
 
+    pub(crate) async fn load_previous_ignored_user_list(
+        &self,
+    ) -> Option<Raw<IgnoredUserListEvent>> {
+        self.store().get_account_data_event_static().await.ok().flatten()
+    }
+
     pub(crate) fn apply_changes(
         &self,
         changes: &StateChanges,
         room_info_notable_updates: BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
+        prev_ignored_user_list: Option<Raw<IgnoredUserListEvent>>,
     ) {
         if let Some(event) = changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
         {
@@ -1298,8 +1338,27 @@ impl BaseClient {
                     let user_ids: Vec<String> =
                         event.content.ignored_users.keys().map(|id| id.to_string()).collect();
 
-                    self.ignore_user_list_changes.set(user_ids);
+                    // Try to only trigger the observable if the ignored user list has changed,
+                    // from the previous time we've seen it. If we couldn't load the previous event
+                    // for any reason, always trigger.
+                    if let Some(prev_user_ids) =
+                        prev_ignored_user_list.and_then(|raw| raw.deserialize().ok()).map(|event| {
+                            event
+                                .content
+                                .ignored_users
+                                .keys()
+                                .map(|id| id.to_string())
+                                .collect::<Vec<_>>()
+                        })
+                    {
+                        if user_ids != prev_user_ids {
+                            self.ignore_user_list_changes.set(user_ids);
+                        }
+                    } else {
+                        self.ignore_user_list_changes.set(user_ids);
+                    }
                 }
+
                 Err(error) => {
                     error!("Failed to deserialize ignored user list event: {error}")
                 }
@@ -1406,7 +1465,7 @@ impl BaseClient {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        if room.is_encrypted() {
+        if room.encryption_state().is_encrypted() {
             if let Some(o) = self.olm_machine().await.as_ref() {
                 o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
             }
@@ -1419,8 +1478,9 @@ impl BaseClient {
         room_info.mark_members_synced();
         changes.add_room(room_info);
 
+        let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes, Default::default());
+        self.apply_changes(&changes, Default::default(), prev_ignored_user_list);
 
         let _ = room.room_member_updates_sender.send(RoomMembersUpdate::FullReload);
 
@@ -1756,24 +1816,243 @@ fn handle_room_member_event_for_profiles(
     }
 }
 
+/// Represent the `required_state` values sent by a sync request.
+///
+/// This is useful to track what state events have been requested when handling
+/// a response.
+///
+/// For example, if a sync requests the `m.room.encryption` state event, and the
+/// server replies with nothing, if means the room **is not** encrypted. Without
+/// knowing which state event was required by the sync, it is impossible to
+/// interpret the absence of state event from the server as _the room's
+/// encryption state is **not encrypted**_ or _the room's encryption state is
+/// **unknown**_.
+#[derive(Debug, Default)]
+pub struct RequestedRequiredStates {
+    default: Vec<(StateEventType, String)>,
+    for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+}
+
+impl RequestedRequiredStates {
+    /// Create a new `RequestedRequiredStates`.
+    ///
+    /// `default` represents the `required_state` value for all rooms.
+    /// `for_rooms` is the `required_state` per room.
+    pub fn new(
+        default: Vec<(StateEventType, String)>,
+        for_rooms: HashMap<OwnedRoomId, Vec<(StateEventType, String)>>,
+    ) -> Self {
+        Self { default, for_rooms }
+    }
+
+    /// Get the `required_state` value for a specific room.
+    pub fn for_room(&self, room_id: &RoomId) -> &[(StateEventType, String)] {
+        self.for_rooms.get(room_id).unwrap_or(&self.default)
+    }
+}
+
+impl From<&v5::Request> for RequestedRequiredStates {
+    fn from(request: &v5::Request) -> Self {
+        // The following information is missing in the MSC4186 at the time of writing
+        // (2025-03-12) but: the `required_state`s from all lists and from all room
+        // subscriptions are combined by doing an union.
+        //
+        // Thus, we can do the same here, put the union in `default` and keep
+        // `for_rooms` empty. The `Self::for_room` will automatically do the fallback.
+        let mut default = BTreeSet::new();
+
+        for list in request.lists.values() {
+            default.extend(BTreeSet::from_iter(list.room_details.required_state.iter().cloned()));
+        }
+
+        for room_subscription in request.room_subscriptions.values() {
+            default.extend(BTreeSet::from_iter(room_subscription.required_state.iter().cloned()));
+        }
+
+        Self { default: default.into_iter().collect(), for_rooms: HashMap::new() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use assert_matches2::assert_let;
+    use futures_util::FutureExt as _;
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, ruma_response_from_json, InvitedRoomBuilder,
-        LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
+        LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, BOB,
     };
     use ruma::{
-        api::client as api, event_id, events::room::member::MembershipState, room_id, serde::Raw,
+        api::client::{self as api, sync::sync_events::v5},
+        event_id,
+        events::{room::member::MembershipState, StateEventType},
+        room_id,
+        serde::Raw,
         user_id,
     };
     use serde_json::{json, value::to_raw_value};
 
-    use super::BaseClient;
+    use super::{BaseClient, RequestedRequiredStates};
     use crate::{
         store::{StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
         RoomDisplayName, RoomState, SessionMeta,
     };
+
+    #[test]
+    fn test_requested_required_states() {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+
+        let requested_required_states = RequestedRequiredStates::new(
+            vec![(StateEventType::RoomAvatar, "".to_owned())],
+            HashMap::from([(
+                room_id_0.to_owned(),
+                vec![
+                    (StateEventType::RoomMember, "foo".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                ],
+            )]),
+        );
+
+        // A special set of state events exists for `room_id_0`.
+        assert_eq!(
+            requested_required_states.for_room(room_id_0),
+            &[
+                (StateEventType::RoomMember, "foo".to_owned()),
+                (StateEventType::RoomEncryption, "".to_owned()),
+            ]
+        );
+
+        // No special list for `room_id_1`, it should return the defaults.
+        assert_eq!(
+            requested_required_states.for_room(room_id_1),
+            &[(StateEventType::RoomAvatar, "".to_owned()),]
+        );
+    }
+
+    #[test]
+    fn test_requested_required_states_from_sync_v5_request() {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+
+        // Empty request.
+        let mut request = v5::Request::new();
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            assert!(requested_required_states.default.is_empty());
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // One list.
+        request.lists.insert("foo".to_owned(), {
+            let mut list = v5::request::List::default();
+            list.room_details.required_state = vec![
+                (StateEventType::RoomAvatar, "".to_owned()),
+                (StateEventType::RoomEncryption, "".to_owned()),
+            ];
+
+            list
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned())
+                ]
+            );
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // Two lists.
+        request.lists.insert("bar".to_owned(), {
+            let mut list = v5::request::List::default();
+            list.room_details.required_state = vec![
+                (StateEventType::RoomEncryption, "".to_owned()),
+                (StateEventType::RoomName, "".to_owned()),
+            ];
+
+            list
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            // Union of the state events.
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                    (StateEventType::RoomName, "".to_owned()),
+                ]
+            );
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // One room subscription.
+        request.room_subscriptions.insert(room_id_0.to_owned(), {
+            let mut room_subscription = v5::request::RoomSubscription::default();
+
+            room_subscription.required_state = vec![
+                (StateEventType::RoomJoinRules, "".to_owned()),
+                (StateEventType::RoomEncryption, "".to_owned()),
+            ];
+
+            room_subscription
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            // Union of state events, all in `default`, still nothing in `for_rooms`.
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                    (StateEventType::RoomJoinRules, "".to_owned()),
+                    (StateEventType::RoomName, "".to_owned()),
+                ]
+            );
+            assert!(requested_required_states.for_rooms.is_empty());
+        }
+
+        // Two room subscriptions.
+        request.room_subscriptions.insert(room_id_1.to_owned(), {
+            let mut room_subscription = v5::request::RoomSubscription::default();
+
+            room_subscription.required_state = vec![
+                (StateEventType::RoomName, "".to_owned()),
+                (StateEventType::RoomTopic, "".to_owned()),
+            ];
+
+            room_subscription
+        });
+
+        {
+            let requested_required_states = RequestedRequiredStates::from(&request);
+
+            // Union of state events, all in `default`, still nothing in `for_rooms`.
+            assert_eq!(
+                requested_required_states.default,
+                &[
+                    (StateEventType::RoomAvatar, "".to_owned()),
+                    (StateEventType::RoomEncryption, "".to_owned()),
+                    (StateEventType::RoomJoinRules, "".to_owned()),
+                    (StateEventType::RoomName, "".to_owned()),
+                    (StateEventType::RoomTopic, "".to_owned()),
+                ]
+            );
+        }
+    }
 
     #[async_test]
     async fn test_invite_after_leaving() {
@@ -2151,5 +2430,76 @@ mod tests {
         assert_eq!(member.user_id(), user_id);
         assert_eq!(member.display_name().unwrap(), "Invited Alice");
         assert_eq!(member.avatar_url().unwrap().to_string(), "mxc://localhost/fewjilfewjil42");
+    }
+
+    #[async_test]
+    async fn test_ignored_user_list_changes() {
+        let user_id = user_id!("@alice:example.org");
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
+        client
+            .set_session_meta(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client.subscribe_to_ignore_user_list_changes();
+        assert!(subscriber.next().now_or_never().is_none());
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_global_account_data_event(matrix_sdk_test::GlobalAccountDataTestEvent::Custom(
+                json!({
+                    "content": {
+                        "ignored_users": {
+                            *BOB: {}
+                        }
+                    },
+                    "type": "m.ignored_user_list",
+                }),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_let!(Some(ignored) = subscriber.next().await);
+        assert_eq!(ignored, [BOB.to_string()]);
+
+        // Receive the same response.
+        let response = sync_builder
+            .add_global_account_data_event(matrix_sdk_test::GlobalAccountDataTestEvent::Custom(
+                json!({
+                    "content": {
+                        "ignored_users": {
+                            *BOB: {}
+                        }
+                    },
+                    "type": "m.ignored_user_list",
+                }),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // No changes in the ignored list.
+        assert!(subscriber.next().now_or_never().is_none());
+
+        // Now remove Bob from the ignored list.
+        let response = sync_builder
+            .add_global_account_data_event(matrix_sdk_test::GlobalAccountDataTestEvent::Custom(
+                json!({
+                    "content": {
+                        "ignored_users": {}
+                    },
+                    "type": "m.ignored_user_list",
+                }),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_let!(Some(ignored) = subscriber.next().await);
+        assert!(ignored.is_empty());
     }
 }

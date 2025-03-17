@@ -12,8 +12,8 @@ use std::{
 use bitflags::bitflags;
 pub use members::RoomMember;
 pub use normal::{
-    apply_redaction, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
-    RoomMembersUpdate, RoomState, RoomStateFilter,
+    apply_redaction, EncryptionState, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate,
+    RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState, RoomStateFilter,
 };
 use regex::Regex;
 use ruma::{

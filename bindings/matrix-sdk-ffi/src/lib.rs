@@ -34,7 +34,6 @@ mod tracing;
 mod utils;
 mod widget;
 
-use async_compat::TOKIO1 as RUNTIME;
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 
 use self::{

@@ -14,16 +14,26 @@
 
 //! Error types used in the [`Oidc`](super::Oidc) API.
 
-pub use mas_oidc_client::error::*;
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;
 pub use oauth2::{
-    basic::{BasicErrorResponse, BasicErrorResponseType, BasicRequestTokenError},
-    HttpClientError, RequestTokenError, StandardErrorResponse,
+    basic::{
+        BasicErrorResponse, BasicErrorResponseType, BasicRequestTokenError,
+        BasicRevocationErrorResponse,
+    },
+    ConfigurationError, HttpClientError, RequestTokenError, RevocationErrorResponseType,
+    StandardErrorResponse,
 };
-use ruma::serde::{PartialEqAsRefStr, StringEnum};
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadataUrlError,
+    serde::{PartialEqAsRefStr, StringEnum},
+};
 
 pub use super::cross_process::CrossProcessRefreshLockError;
+
+/// An error when interacting with the OAuth 2.0 authorization server.
+pub type OauthRequestError<T> =
+    RequestTokenError<HttpClientError<reqwest::Error>, StandardErrorResponse<T>>;
 
 /// An error when trying to parse the query of a redirect URI.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -42,27 +52,18 @@ pub enum RedirectUriQueryParseError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum OidcError {
-    /// An error occurred when interacting with the provider.
-    #[error(transparent)]
-    Oidc(Error),
-
     /// An error occurred when discovering the authorization server's issuer.
     #[error("authorization server discovery failed: {0}")]
     Discovery(#[from] OauthDiscoveryError),
 
-    /// The OpenID Connect Provider doesn't support dynamic client registration.
-    ///
-    /// The provider probably offers another way to register clients.
-    #[error("no dynamic registration support")]
-    NoRegistrationSupport,
+    /// An error occurred when registering the client with the authorization
+    /// server.
+    #[error("client registration failed: {0}")]
+    ClientRegistration(#[from] OauthClientRegistrationError),
 
     /// The client has not registered while the operation requires it.
     #[error("client not registered")]
     NotRegistered,
-
-    /// The supplied redirect URIs are missing or empty.
-    #[error("missing or empty redirect URIs")]
-    MissingRedirectUri,
 
     /// The device ID was not returned by the homeserver after login.
     #[error("missing device ID in response")]
@@ -79,20 +80,15 @@ pub enum OidcError {
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while refreshing the access token.
     #[error("failed to refresh token: {0}")]
-    RefreshToken(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
+    RefreshToken(OauthRequestError<BasicErrorResponseType>),
 
-    /// The OpenID Connect Provider doesn't support token revocation, aka
-    /// logging out.
-    #[error("no token revocation support")]
-    NoRevocationSupport,
+    /// An error occurred revoking an OAuth 2.0 access token.
+    #[error("failed to log out: {0}")]
+    Logout(#[from] OauthTokenRevocationError),
 
-    /// An error occurred generating a random value.
-    #[error(transparent)]
-    Rand(rand::Error),
-
-    /// An error occurred parsing a URL.
-    #[error(transparent)]
-    Url(url::ParseError),
+    /// An error occurred building the account management URL.
+    #[error("failed to build account management URL: {0}")]
+    AccountManagementUrl(serde_html_form::ser::Error),
 
     /// An error occurred caused by the cross-process locks.
     #[error(transparent)]
@@ -101,15 +97,6 @@ pub enum OidcError {
     /// An unknown error occurred.
     #[error("unknown error")]
     UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
-}
-
-impl<E> From<E> for OidcError
-where
-    E: Into<Error>,
-{
-    fn from(value: E) -> Self {
-        Self::Oidc(value.into())
-    }
 }
 
 /// All errors that can occur when discovering the OAuth 2.0 server metadata.
@@ -128,9 +115,18 @@ pub enum OauthDiscoveryError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 
+    /// The server metadata URLs are insecure.
+    #[error(transparent)]
+    Validation(#[from] AuthorizationServerMetadataUrlError),
+
+    /// An error occurred when building the OpenID Connect provider
+    /// configuration URL.
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+
     /// An error occurred when making a request to the OpenID Connect provider.
     #[error(transparent)]
-    Oidc(#[from] DiscoveryError),
+    Oidc(#[from] OauthRequestError<BasicErrorResponseType>),
 }
 
 impl OauthDiscoveryError {
@@ -167,7 +163,7 @@ pub enum OauthAuthorizationCodeError {
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while exchanging the authorization code for an access token.
     #[error("failed to request token: {0}")]
-    RequestToken(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
+    RequestToken(OauthRequestError<BasicErrorResponseType>),
 }
 
 impl From<StandardErrorResponse<AuthorizationCodeErrorResponseType>>
@@ -224,3 +220,70 @@ pub enum AuthorizationCodeErrorResponseType {
 }
 
 impl ErrorResponseType for AuthorizationCodeErrorResponseType {}
+
+/// All errors that can occur when revoking an OAuth 2.0 token.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OauthTokenRevocationError {
+    /// The revocation endpoint URL is insecure.
+    #[error(transparent)]
+    Url(ConfigurationError),
+
+    /// An error occurred interacting with the OAuth 2.0 authorization server
+    /// while revoking the token.
+    #[error("failed to revoke token: {0}")]
+    Revoke(OauthRequestError<RevocationErrorResponseType>),
+}
+
+/// All errors that can occur when registering a client with an OAuth 2.0
+/// authorization server.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OauthClientRegistrationError {
+    /// The authorization server doesn't support dynamic client registration.
+    ///
+    /// The server probably offers another way to register clients.
+    #[error("dynamic client registration is not supported")]
+    NotSupported,
+
+    /// Serialization of the client metadata failed.
+    #[error("failed to serialize client metadata: {0}")]
+    IntoJson(serde_json::Error),
+
+    /// An error occurred when making a request to the OpenID Connect provider.
+    #[error(transparent)]
+    Oauth(#[from] OauthRequestError<ClientRegistrationErrorResponseType>),
+
+    /// Deserialization of the registration response failed.
+    #[error("failed to deserialize registration response: {0}")]
+    FromJson(serde_json::Error),
+}
+
+/// Error response returned by server after requesting an authorization code.
+///
+/// The variant of this enum are defined in [Section 3.2.2 of RFC 7591].
+///
+/// [Section 3.2.2 of RFC 7591]: https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.2
+#[derive(Clone, StringEnum, PartialEqAsRefStr, Eq)]
+#[ruma_enum(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ClientRegistrationErrorResponseType {
+    /// The value of one or more redirection URIs is invalid.
+    InvalidRedirectUri,
+
+    /// The value of one of the client metadata fields is invalid and the server
+    /// has rejected this request.
+    InvalidClientMetadata,
+
+    /// The software statement presented is invalid.
+    InvalidSoftwareStatement,
+
+    /// The software statement presented is not approved for use by this
+    /// authorization server.
+    UnapprovedSoftwareStatement,
+
+    #[doc(hidden)]
+    _Custom(PrivOwnedStr),
+}
+
+impl ErrorResponseType for ClientRegistrationErrorResponseType {}

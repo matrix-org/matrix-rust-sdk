@@ -16,14 +16,13 @@ use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use mas_oidc_client::types::registration::VerifiedClientMetadata;
 use matrix_sdk_base::{
     boxed_into_future,
     crypto::types::qr_login::{QrCodeData, QrCodeMode},
     SessionMeta,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
-use ruma::OwnedDeviceId;
+use ruma::{serde::Raw, OwnedDeviceId};
 use tracing::trace;
 use vodozemac::{ecies::CheckCode, Curve25519PublicKey};
 
@@ -34,7 +33,7 @@ use super::{
 };
 #[cfg(doc)]
 use crate::authentication::oidc::Oidc;
-use crate::Client;
+use crate::{authentication::oidc::ClientMetadata, Client};
 
 async fn send_unexpected_message_error(
     channel: &mut EstablishedSecureChannel,
@@ -77,7 +76,7 @@ pub enum LoginProgress {
 #[derive(Debug)]
 pub struct LoginWithQrCode<'a> {
     client: &'a Client,
-    client_metadata: VerifiedClientMetadata,
+    client_metadata: Raw<ClientMetadata>,
     qr_code_data: &'a QrCodeData,
     state: SharedObservable<LoginProgress>,
 }
@@ -261,7 +260,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 impl<'a> LoginWithQrCode<'a> {
     pub(crate) fn new(
         client: &'a Client,
-        client_metadata: VerifiedClientMetadata,
+        client_metadata: Raw<ClientMetadata>,
         qr_code_data: &'a QrCodeData,
     ) -> LoginWithQrCode<'a> {
         LoginWithQrCode { client, client_metadata, qr_code_data, state: Default::default() }
@@ -285,7 +284,7 @@ impl<'a> LoginWithQrCode<'a> {
     /// Register the client with the OAuth 2.0 authorization server.
     async fn register_client(&self) -> Result<(), DeviceAuthorizationOauthError> {
         let oidc = self.client.oidc();
-        oidc.register_client(self.client_metadata.clone(), None).await?;
+        oidc.register_client(&self.client_metadata).await?;
         Ok(())
     }
 

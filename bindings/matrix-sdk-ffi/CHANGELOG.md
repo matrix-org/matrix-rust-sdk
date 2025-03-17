@@ -2,6 +2,11 @@
 
 Breaking changes:
 
+- `setup_tracing` has been renamed `init_platform`; in addition to the `TracingConfiguration`
+  parameter it also now takes a boolean indicating whether to spawn a minimal tokio runtime for the
+  application; in general for main app processes this can be set to `false`, and memory-constrained
+  programs can set it to `true`.
+
 - Matrix client API errors coming from API responses will now be mapped to `ClientError::MatrixApi`, containing both the
   original message and the associated error code and kind. 
 
@@ -29,8 +34,29 @@ Breaking changes:
         - There is a new `abortOidcLogin` method that should be called if the webview is dismissed without a callback (
           or fails to present).
         - The rest of `AuthenticationError` is now found in the OidcError type.
+
 - `OidcAuthenticationData` is now called `OidcAuthorizationData`.
+
 - The `get_element_call_required_permissions` function now requires the device_id.
+
+- Some `OidcPrompt` cases have been removed (`None`, `SelectAccount`).
+
+- `Room::is_encrypted` is replaced by `Room::latest_encryption_state`
+  which returns a value of the new `EncryptionState` enum; another
+  `Room::encryption_state` non-async and infallible method is added to get the
+  `EncryptionState` without running a network request.
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777)). One can
+  safely replace:
+
+  ```rust
+  room.is_encrypted().await?
+  ```
+
+  by
+
+  ```rust
+  room.latest_encryption_state().await?.is_encrypted()
+  ```
 
 Additions:
 
@@ -40,3 +66,5 @@ Additions:
 - Add `NotificationSettings::set_custom_push_rule`
 - Expose `withdraw_verification` to `UserIdentity`
 - Expose `report_room` to `Room`
+- Add `RoomInfo::encryption_state`
+  ([#4788](https://github.com/matrix-org/matrix-rust-sdk/pull/4788))

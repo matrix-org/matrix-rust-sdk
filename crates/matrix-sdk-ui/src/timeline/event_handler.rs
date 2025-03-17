@@ -1028,7 +1028,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
                         .unwrap_or_else(|| {
-                            error!("Decryption retried on a local event");
+                            error!("Tried to update a local event");
                             RemoteEventOrigin::Unknown
                         }),
                 };

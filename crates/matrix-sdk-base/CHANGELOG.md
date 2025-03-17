@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] The `Client::subscribe_to_ignore_user_list_changes()` method will now only trigger
+  whenever the ignored user list has changed from what was previously known, instead of triggering
+  every time an ignore-user-list event has been received from sync.
+  ([#4779](https://github.com/matrix-org/matrix-rust-sdk/pull/4779))
 - [**breaking**] The `MediaRetentionPolicy` can now trigger regular cleanups
   with its new `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
@@ -18,6 +22,11 @@ All notable changes to this project will be documented in this file.
 - `BaseClient` now has a `handle_verification_events` field which is `true` by 
   default and can be negated so the `NotificationClient` won't handle received 
   verification events too, causing errors in the `VerificationMachine`.
+- [**breaking**] `Room::is_encryption_state_synced` has been removed
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777))
+- [**breaking**] `Room::is_encrypted` is replaced by `Room::encryption_state`
+  which returns a value of the new `EncryptionState` enum
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777))
 
 ## [0.10.0] - 2025-02-04
 

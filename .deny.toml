@@ -10,7 +10,9 @@ exclude = [
 version = 2
 ignore = [
     { id = "RUSTSEC-2023-0071", reason = "We are not using RSA directly, nor do we depend on the RSA crate directly" },
+    { id = "RUSTSEC-2024-0436", reason = "Unmaintained paste crate, not critical." },
     { id = "RUSTSEC-2024-0384", reason = "Unmaintained backoff crate, not critical. We'll migrate soon." },
+    { id = "RUSTSEC-2025-0012", reason = "Unmaintained backoff crate, not critical. We'll migrate soon." },
 ]
 
 [licenses]
@@ -60,7 +62,7 @@ allow-git = [
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
-    "https://github.com/jplatte/async-compat",
+    "https://github.com/element-hq/async-compat",
     # We can release vodozemac whenever we need but let's not block development
     # on releases.
     "https://github.com/matrix-org/vodozemac",

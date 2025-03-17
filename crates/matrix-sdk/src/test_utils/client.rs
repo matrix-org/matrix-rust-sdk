@@ -18,9 +18,8 @@ use matrix_sdk_base::{store::StoreConfig, SessionMeta};
 use ruma::{api::MatrixVersion, owned_device_id, owned_user_id};
 
 use crate::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
-    config::RequestConfig,
-    Client, ClientBuilder,
+    authentication::matrix::MatrixSession, config::RequestConfig, Client, ClientBuilder,
+    SessionTokens,
 };
 
 /// An augmented [`ClientBuilder`] that also allows for handling session login.
@@ -79,6 +78,12 @@ impl MockClientBuilder {
         self
     }
 
+    /// Handle refreshing access tokens automatically.
+    pub fn handle_refresh_tokens(mut self) -> Self {
+        self.builder = self.builder.handle_refresh_tokens();
+        self
+    }
+
     /// Finish building the client into the final [`Client`] instance.
     pub async fn build(self) -> Client {
         let client = self.builder.build().await.expect("building client failed");
@@ -110,27 +115,21 @@ impl AuthState {
         match self {
             AuthState::None => {}
             AuthState::LoggedInWithMatrixAuth => {
-                client
-                    .matrix_auth()
-                    .restore_session(MatrixSession {
-                        meta: mock_session_meta(),
-                        tokens: MatrixSessionTokens {
-                            access_token: "1234".to_owned(),
-                            refresh_token: None,
-                        },
-                    })
-                    .await
-                    .unwrap();
+                client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
             }
             #[cfg(feature = "experimental-oidc")]
             AuthState::RegisteredWithOauth { issuer } => {
+                let issuer = url::Url::parse(&issuer).unwrap();
                 client.oidc().restore_registered_client(issuer, oauth::mock_client_id());
             }
             #[cfg(feature = "experimental-oidc")]
             AuthState::LoggedInWithOauth { issuer } => {
                 client
                     .oidc()
-                    .restore_session(oauth::mock_session(oauth::mock_session_tokens(), issuer))
+                    .restore_session(oauth::mock_session(
+                        mock_session_tokens_with_refresh(),
+                        issuer,
+                    ))
                     .await
                     .unwrap();
             }
@@ -138,26 +137,53 @@ impl AuthState {
     }
 }
 
-fn mock_session_meta() -> SessionMeta {
+/// A [`SessionMeta`], for unit or integration tests.
+pub fn mock_session_meta() -> SessionMeta {
     SessionMeta {
         user_id: owned_user_id!("@example:localhost"),
         device_id: owned_device_id!("DEVICEID"),
     }
 }
 
+/// A [`SessionTokens`] including only an access token, for unit or integration
+/// tests.
+pub fn mock_session_tokens() -> SessionTokens {
+    SessionTokens { access_token: "1234".to_owned(), refresh_token: None }
+}
+
+/// A [`SessionTokens`] including an access token and a refresh token, for unit
+/// or integration tests.
+pub fn mock_session_tokens_with_refresh() -> SessionTokens {
+    SessionTokens { access_token: "1234".to_owned(), refresh_token: Some("ZYXWV".to_owned()) }
+}
+
+/// Different session tokens than the ones returned by
+/// [`mock_session_tokens_with_refresh()`].
+pub fn mock_prev_session_tokens_with_refresh() -> SessionTokens {
+    SessionTokens {
+        access_token: "prev-access-token".to_owned(),
+        refresh_token: Some("prev-refresh-token".to_owned()),
+    }
+}
+
+/// A [`MatrixSession`], for unit or integration tests.
+pub fn mock_matrix_session() -> MatrixSession {
+    MatrixSession { meta: mock_session_meta(), tokens: mock_session_tokens() }
+}
+
 /// Mock client data for the OAuth 2.0 API.
 #[cfg(feature = "experimental-oidc")]
 pub mod oauth {
-    use mas_oidc_client::types::{
-        iana::oauth::OAuthClientAuthenticationMethod,
-        oidc::ApplicationType,
-        registration::{ClientMetadata, Localized, VerifiedClientMetadata},
-        requests::GrantType,
-    };
+    use ruma::serde::Raw;
     use url::Url;
 
-    use crate::authentication::oidc::{
-        registrations::ClientId, OidcSession, OidcSessionTokens, UserSession,
+    use crate::{
+        authentication::oidc::{
+            registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+            registrations::ClientId,
+            OidcSession, UserSession,
+        },
+        SessionTokens,
     };
 
     /// An OAuth 2.0 `ClientId`, for unit or integration tests.
@@ -165,40 +191,34 @@ pub mod oauth {
         ClientId::new("test_client_id".to_owned())
     }
 
+    /// A redirect URI, for unit or integration tests.
+    pub fn mock_redirect_uri() -> Url {
+        Url::parse("http://127.0.0.1/").expect("redirect URI should be valid")
+    }
+
     /// `VerifiedClientMetadata` that should be valid in most cases, for unit or
     /// integration tests.
-    pub fn mock_client_metadata() -> VerifiedClientMetadata {
-        let redirect_uri = Url::parse("http://127.0.0.1/").expect("redirect URI should be valid");
+    pub fn mock_client_metadata() -> Raw<ClientMetadata> {
         let client_uri = Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
             .expect("client URI should be valid");
 
-        ClientMetadata {
-            application_type: Some(ApplicationType::Native),
-            redirect_uris: Some(vec![redirect_uri]),
-            grant_types: Some(vec![
-                GrantType::AuthorizationCode,
-                GrantType::RefreshToken,
-                GrantType::DeviceCode,
-            ]),
-            token_endpoint_auth_method: Some(OAuthClientAuthenticationMethod::None),
-            client_name: Some(Localized::new("matrix-rust-sdk-test".to_owned(), [])),
-            client_uri: Some(Localized::new(client_uri, [])),
-            ..Default::default()
-        }
-        .validate()
-        .expect("client metadata should pass validation")
-    }
+        let mut metadata = ClientMetadata::new(
+            ApplicationType::Native,
+            vec![
+                OauthGrantType::AuthorizationCode { redirect_uris: vec![mock_redirect_uri()] },
+                OauthGrantType::DeviceCode,
+            ],
+            Localized::new(client_uri, None),
+        );
+        metadata.client_name = Some(Localized::new("matrix-rust-sdk-test".to_owned(), None));
 
-    /// An [`OidcSessionTokens`], for unit or integration tests.
-    pub fn mock_session_tokens() -> OidcSessionTokens {
-        OidcSessionTokens {
-            access_token: "1234".to_owned(),
-            refresh_token: Some("ZYXWV".to_owned()),
-        }
+        Raw::new(&metadata).expect("client metadata should serialize successfully")
     }
 
     /// An [`OidcSession`] to restore, for unit or integration tests.
-    pub fn mock_session(tokens: OidcSessionTokens, issuer: String) -> OidcSession {
+    pub fn mock_session(tokens: SessionTokens, issuer: impl AsRef<str>) -> OidcSession {
+        let issuer = Url::parse(issuer.as_ref()).unwrap();
+
         OidcSession {
             client_id: mock_client_id(),
             user: UserSession { meta: super::mock_session_meta(), tokens, issuer },

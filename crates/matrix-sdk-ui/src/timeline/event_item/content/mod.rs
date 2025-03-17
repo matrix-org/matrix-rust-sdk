@@ -325,6 +325,12 @@ impl TimelineItemContent {
         as_variant!(self, Self::UnableToDecrypt)
     }
 
+    /// Check whether this item's content is a
+    /// [`UnableToDecrypt`][Self::UnableToDecrypt].
+    pub fn is_unable_to_decrypt(&self) -> bool {
+        matches!(self, Self::UnableToDecrypt(_))
+    }
+
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
@@ -549,6 +555,16 @@ impl EncryptedMessage {
                 Self::MegolmV1AesSha2 { sender_key, device_id, session_id, cause }
             }
             _ => Self::Unknown,
+        }
+    }
+
+    /// Return the ID of the Megolm session used to encrypt this message, if it
+    /// was received via a Megolm session.
+    pub(crate) fn session_id(&self) -> Option<&str> {
+        match self {
+            EncryptedMessage::OlmV1Curve25519AesSha2 { .. } => None,
+            EncryptedMessage::MegolmV1AesSha2 { session_id, .. } => Some(session_id),
+            EncryptedMessage::Unknown => None,
         }
     }
 }
