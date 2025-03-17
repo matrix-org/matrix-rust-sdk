@@ -212,8 +212,6 @@ impl WidgetSettings {
             app_prompt: props.app_prompt.unwrap_or(false),
             hide_header: props.hide_header.unwrap_or(true),
             preload: props.preload.unwrap_or(false),
-            analytics_id: props.posthog_user_id.clone(),
-            posthog_user_id: props.posthog_user_id,
             font_scale: props.font_scale,
             font: props.font,
             per_participant_e2ee: props.encryption == EncryptionSystem::PerParticipantKeys,
@@ -222,11 +220,13 @@ impl WidgetSettings {
                 _ => None,
             },
             intent: props.intent,
+            analytics_id: props.posthog_user_id.clone(),
+            posthog_user_id: props.posthog_user_id,
             posthog_api_host: props.posthog_api_host,
             posthog_api_key: props.posthog_api_key,
-            rageshake_submit_url: props.rageshake_submit_url,
             sentry_dsn: props.sentry_dsn,
             sentry_environment: props.sentry_environment,
+            rageshake_submit_url: props.rageshake_submit_url,
             hide_screensharing: props.hide_screensharing,
         };
 
@@ -263,7 +263,7 @@ mod tests {
         rageshake: bool,
         sentry: bool,
     ) -> WidgetSettings {
-        let props = VirtualElementCallWidgetOptions {
+        let mut props = VirtualElementCallWidgetOptions {
             element_call_url: "https://call.element.io".to_owned(),
             widget_id: WIDGET_ID.to_owned(),
             hide_header: Some(true),
@@ -274,33 +274,20 @@ mod tests {
             ..VirtualElementCallWidgetOptions::default()
         };
 
-        let props = if posthog {
-            VirtualElementCallWidgetOptions {
-                posthog_user_id: Some("POSTHOG_USER_ID".to_owned()),
-                posthog_api_host: Some("posthog.element.io".to_owned()),
-                posthog_api_key: Some("POSTHOG_KEY".to_owned()),
-                ..props
-            }
-        } else {
-            props
-        };
-        let props = if rageshake {
-            VirtualElementCallWidgetOptions {
-                rageshake_submit_url: Some("https://rageshake.element.io".to_owned()),
-                ..props
-            }
-        } else {
-            props
-        };
-        let props = if sentry {
-            VirtualElementCallWidgetOptions {
-                sentry_dsn: Some("SENTRY_DSN".to_owned()),
-                sentry_environment: Some("SENTRY_ENV".to_owned()),
-                ..props
-            }
-        } else {
-            props
-        };
+        if posthog {
+            props.posthog_user_id = Some("POSTHOG_USER_ID".to_owned());
+            props.posthog_api_host = Some("posthog.element.io".to_owned());
+            props.posthog_api_key = Some("POSTHOG_KEY".to_owned());
+        }
+
+        if rageshake {
+            props.rageshake_submit_url = Some("https://rageshake.element.io".to_owned());
+        }
+
+        if sentry {
+            props.sentry_dsn = Some("SENTRY_DSN".to_owned());
+            props.sentry_environment = Some("SENTRY_ENV".to_owned());
+        }
 
         WidgetSettings::new_virtual_element_call_widget(props)
             .expect("could not parse virtual element call widget")
