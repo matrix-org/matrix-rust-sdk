@@ -7,7 +7,7 @@ use std::{
 
 use matrix_sdk::{
     authentication::oauth::{
-        error::OauthAuthorizationCodeError,
+        error::OAuthAuthorizationCodeError,
         registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
         registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
         OAuthError as SdkOAuthError,
@@ -210,11 +210,11 @@ impl From<SdkOAuthError> for OidcError {
     fn from(e: SdkOAuthError) -> OidcError {
         match e {
             SdkOAuthError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
-            SdkOAuthError::AuthorizationCode(OauthAuthorizationCodeError::RedirectUri(_))
-            | SdkOAuthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState) => {
+            SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::RedirectUri(_))
+            | SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState) => {
                 OidcError::CallbackUrlInvalid
             }
-            SdkOAuthError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled) => {
+            SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::Cancelled) => {
                 OidcError::Cancelled
             }
             _ => OidcError::Generic { message: e.to_string() },

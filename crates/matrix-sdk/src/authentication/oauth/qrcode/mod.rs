@@ -57,7 +57,7 @@ pub enum QRCodeLoginError {
     /// An error happened while we were communicating with the OAuth 2.0
     /// authorization server.
     #[error(transparent)]
-    Oauth(#[from] DeviceAuthorizationOauthError),
+    OAuth(#[from] DeviceAuthorizationOAuthError),
 
     /// The other device has signaled to us that the login has failed.
     #[error("The login failed, reason: {reason}")]
@@ -109,7 +109,7 @@ pub enum QRCodeLoginError {
 /// Error type describing failures in the interaction between the device
 /// attempting to log in and the OAuth 2.0 authorization server.
 #[derive(Debug, Error)]
-pub enum DeviceAuthorizationOauthError {
+pub enum DeviceAuthorizationOAuthError {
     /// A generic OAuth 2.0 error happened while we were attempting to register
     /// the device with the OAuth 2.0 authorization server.
     #[error(transparent)]
@@ -120,23 +120,23 @@ pub enum DeviceAuthorizationOauthError {
     NoDeviceAuthorizationEndpoint,
 
     /// An error happened while we attempted to request a device authorization
-    /// from the Oauth 2.0 authorization server.
+    /// from the OAuth 2.0 authorization server.
     #[error(transparent)]
     DeviceAuthorization(#[from] BasicRequestTokenError<HttpClientError<reqwest::Error>>),
 
     /// An error happened while waiting for the access token to be issued and
-    /// sent to us by the Oauth 2.0 authorization server.
+    /// sent to us by the OAuth 2.0 authorization server.
     #[error(transparent)]
     RequestToken(
         #[from] RequestTokenError<HttpClientError<reqwest::Error>, DeviceCodeErrorResponse>,
     ),
 }
 
-impl DeviceAuthorizationOauthError {
-    /// If the [`DeviceAuthorizationOauthError`] is of the
+impl DeviceAuthorizationOAuthError {
+    /// If the [`DeviceAuthorizationOAuthError`] is of the
     /// [`DeviceCodeErrorResponseType`] error variant, return it.
     pub fn as_request_token_error(&self) -> Option<&DeviceCodeErrorResponseType> {
-        let error = as_variant!(self, DeviceAuthorizationOauthError::RequestToken)?;
+        let error = as_variant!(self, DeviceAuthorizationOAuthError::RequestToken)?;
         let request_token_error = as_variant!(error, RequestTokenError::ServerResponse)?;
 
         Some(request_token_error.error())

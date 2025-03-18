@@ -29,7 +29,7 @@ use vodozemac::{ecies::CheckCode, Curve25519PublicKey};
 use super::{
     messages::{LoginFailureReason, QrAuthMessage},
     secure_channel::EstablishedSecureChannel,
-    DeviceAuthorizationOauthError, QRCodeLoginError, SecureChannelError,
+    DeviceAuthorizationOAuthError, QRCodeLoginError, SecureChannelError,
 };
 #[cfg(doc)]
 use crate::authentication::oauth::OAuth;
@@ -282,7 +282,7 @@ impl<'a> LoginWithQrCode<'a> {
     }
 
     /// Register the client with the OAuth 2.0 authorization server.
-    async fn register_client(&self) -> Result<(), DeviceAuthorizationOauthError> {
+    async fn register_client(&self) -> Result<(), DeviceAuthorizationOAuthError> {
         let oauth = self.client.oauth();
         oauth.register_client(&self.client_metadata).await?;
         Ok(())
@@ -291,7 +291,7 @@ impl<'a> LoginWithQrCode<'a> {
     async fn request_device_authorization(
         &self,
         device_id: Curve25519PublicKey,
-    ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOauthError> {
+    ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOAuthError> {
         let oauth = self.client.oauth();
         let response =
             oauth.request_device_authorization(Some(device_id.to_base64().into())).await?;
@@ -301,7 +301,7 @@ impl<'a> LoginWithQrCode<'a> {
     async fn wait_for_tokens(
         &self,
         auth_response: &StandardDeviceAuthorizationResponse,
-    ) -> Result<(), DeviceAuthorizationOauthError> {
+    ) -> Result<(), DeviceAuthorizationOAuthError> {
         let oauth = self.client.oauth();
         oauth.exchange_device_code(auth_response).await?;
         Ok(())
@@ -562,7 +562,7 @@ mod test {
     async fn test_qr_login_refused_access_token() {
         let result = test_failure(TokenResponse::AccessDenied, AliceBehaviour::HappyPath).await;
 
-        assert_let!(Err(QRCodeLoginError::Oauth(e)) = result);
+        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::AccessDenied),
@@ -574,7 +574,7 @@ mod test {
     async fn test_qr_login_expired_token() {
         let result = test_failure(TokenResponse::ExpiredToken, AliceBehaviour::HappyPath).await;
 
-        assert_let!(Err(QRCodeLoginError::Oauth(e)) = result);
+        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::ExpiredToken),
@@ -684,7 +684,7 @@ mod test {
 
         assert_matches!(
             error,
-            QRCodeLoginError::Oauth(DeviceAuthorizationOauthError::NoDeviceAuthorizationEndpoint)
+            QRCodeLoginError::OAuth(DeviceAuthorizationOAuthError::NoDeviceAuthorizationEndpoint)
         );
     }
 }

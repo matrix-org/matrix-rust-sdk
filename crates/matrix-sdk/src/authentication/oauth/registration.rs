@@ -31,7 +31,7 @@ use serde::{ser::SerializeMap, Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    error::OauthClientRegistrationError,
+    error::OAuthClientRegistrationError,
     http_client::{check_http_response_json_content_type, check_http_response_status_code},
     OAuthHttpClient,
 };
@@ -57,11 +57,11 @@ pub(super) async fn register_client(
     http_client: &OAuthHttpClient,
     registration_endpoint: &Url,
     client_metadata: &Raw<ClientMetadata>,
-) -> Result<ClientRegistrationResponse, OauthClientRegistrationError> {
+) -> Result<ClientRegistrationResponse, OAuthClientRegistrationError> {
     tracing::debug!("Registering client...");
 
     let body =
-        serde_json::to_vec(client_metadata).map_err(OauthClientRegistrationError::IntoJson)?;
+        serde_json::to_vec(client_metadata).map_err(OAuthClientRegistrationError::IntoJson)?;
     let request = http::Request::post(registration_endpoint.as_str())
         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.to_string())
         .body(body)
@@ -73,7 +73,7 @@ pub(super) async fn register_client(
     check_http_response_json_content_type(&response)?;
 
     let response = serde_json::from_slice(&response.into_body())
-        .map_err(OauthClientRegistrationError::FromJson)?;
+        .map_err(OAuthClientRegistrationError::FromJson)?;
 
     Ok(response)
 }
