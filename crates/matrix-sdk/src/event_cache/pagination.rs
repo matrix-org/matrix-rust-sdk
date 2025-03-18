@@ -152,6 +152,7 @@ impl RoomPagination {
                 // Notify subscribers that pagination ended.
                 status_observable
                     .set(RoomPaginationStatus::Idle { hit_timeline_start: outcome.reached_start });
+
                 Ok(Some(outcome))
             }
 
@@ -315,7 +316,7 @@ impl RoomPagination {
         prev_gap_id: Option<ChunkIdentifier>,
     ) -> Result<BackPaginationOutcome> {
         // If there's no new previous gap, then we've reached the start of the timeline.
-        let reached_start = new_gap.is_none();
+        let network_reached_start = new_gap.is_none();
 
         let (
             DeduplicationOutcome {
@@ -426,12 +427,24 @@ impl RoomPagination {
         // state in priority instead.
         let reached_start = {
             // There are no gaps.
-            !state.events().chunks().any(|chunk| chunk.is_gap()) &&
+            let has_gaps = state.events().chunks().any(|chunk| chunk.is_gap());
+
             // The first chunk has no predecessors.
-            state.events()
-            .chunks()
-            .next()
-            .map_or(reached_start, |chunk| chunk.is_definitive_head())
+            let first_chunk_is_definitive_head =
+                state.events().chunks().next().map(|chunk| chunk.is_definitive_head());
+
+            let reached_start =
+                !has_gaps && first_chunk_is_definitive_head.unwrap_or(network_reached_start);
+
+            trace!(
+                ?network_reached_start,
+                ?has_gaps,
+                ?first_chunk_is_definitive_head,
+                ?reached_start,
+                "finished handling network back-pagination"
+            );
+
+            reached_start
         };
 
         let backpagination_outcome = BackPaginationOutcome { events, reached_start };
