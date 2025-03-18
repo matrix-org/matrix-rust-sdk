@@ -111,7 +111,7 @@ pub struct ClientMetadata {
     /// The grant types that the client will use at the token endpoint.
     ///
     /// This should match the login methods that the client can use.
-    pub grant_types: Vec<OauthGrantType>,
+    pub grant_types: Vec<OAuthGrantType>,
 
     /// URL of the home page of the client.
     pub client_uri: Localized<Url>,
@@ -135,7 +135,7 @@ impl ClientMetadata {
     /// Construct a `ClientMetadata` with only the required fields.
     pub fn new(
         application_type: ApplicationType,
-        grant_types: Vec<OauthGrantType>,
+        grant_types: Vec<OAuthGrantType>,
         client_uri: Localized<Url>,
     ) -> Self {
         Self {
@@ -157,7 +157,7 @@ impl ClientMetadata {
 /// [`OAuth`]: super::OAuth
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum OauthGrantType {
+pub enum OAuthGrantType {
     /// The authorization code grant type, defined in [RFC 6749].
     ///
     /// This grant type is necessary to use the [`OAuth::login()`] and
@@ -270,12 +270,12 @@ impl From<ClientMetadata> for ClientMetadataSerializeHelper {
 
         for oauth_grant_type in oauth_grant_types {
             match oauth_grant_type {
-                OauthGrantType::AuthorizationCode { redirect_uris: uris } => {
+                OAuthGrantType::AuthorizationCode { redirect_uris: uris } => {
                     redirect_uris = Some(uris);
                     response_types = Some(vec![ResponseType::Code]);
                     grant_types.insert(GrantType::AuthorizationCode);
                 }
-                OauthGrantType::DeviceCode => {
+                OAuthGrantType::DeviceCode => {
                     grant_types.insert(GrantType::DeviceCode);
                 }
             }
@@ -360,13 +360,13 @@ mod tests {
     use serde_json::json;
     use url::Url;
 
-    use super::{ApplicationType, ClientMetadata, Localized, OauthGrantType};
+    use super::{ApplicationType, ClientMetadata, Localized, OAuthGrantType};
 
     #[test]
     fn test_serialize_minimal_client_metadata() {
         let metadata = ClientMetadata::new(
             ApplicationType::Native,
-            vec![OauthGrantType::AuthorizationCode {
+            vec![OAuthGrantType::AuthorizationCode {
                 redirect_uris: vec![Url::parse("http://127.0.0.1/").unwrap()],
             }],
             Localized::new(
@@ -396,13 +396,13 @@ mod tests {
         let mut metadata = ClientMetadata::new(
             ApplicationType::Web,
             vec![
-                OauthGrantType::AuthorizationCode {
+                OAuthGrantType::AuthorizationCode {
                     redirect_uris: vec![
                         Url::parse("http://127.0.0.1/").unwrap(),
                         Url::parse("http://[::1]/").unwrap(),
                     ],
                 },
-                OauthGrantType::DeviceCode,
+                OAuthGrantType::DeviceCode,
             ],
             Localized::new(
                 Url::parse("https://example.org/matrix-client").unwrap(),

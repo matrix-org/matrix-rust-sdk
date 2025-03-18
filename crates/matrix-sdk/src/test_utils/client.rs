@@ -179,7 +179,7 @@ pub mod oauth {
 
     use crate::{
         authentication::oauth::{
-            registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+            registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
             registrations::ClientId,
             OAuthSession, UserSession,
         },
@@ -205,8 +205,8 @@ pub mod oauth {
         let mut metadata = ClientMetadata::new(
             ApplicationType::Native,
             vec![
-                OauthGrantType::AuthorizationCode { redirect_uris: vec![mock_redirect_uri()] },
-                OauthGrantType::DeviceCode,
+                OAuthGrantType::AuthorizationCode { redirect_uris: vec![mock_redirect_uri()] },
+                OAuthGrantType::DeviceCode,
             ],
             Localized::new(client_uri, None),
         );
