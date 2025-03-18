@@ -33,7 +33,7 @@ use url::Url;
 use super::{
     error::OauthClientRegistrationError,
     http_client::{check_http_response_json_content_type, check_http_response_status_code},
-    OauthHttpClient,
+    OAuthHttpClient,
 };
 
 /// Register a client with an OAuth 2.0 authorization server.
@@ -54,7 +54,7 @@ use super::{
 /// Returns an error if the request fails or the response is invalid.
 #[tracing::instrument(skip_all, fields(registration_endpoint))]
 pub(super) async fn register_client(
-    http_client: &OauthHttpClient,
+    http_client: &OAuthHttpClient,
     registration_endpoint: &Url,
     client_metadata: &Raw<ClientMetadata>,
 ) -> Result<ClientRegistrationResponse, OauthClientRegistrationError> {

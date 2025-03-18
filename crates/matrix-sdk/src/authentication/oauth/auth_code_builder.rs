@@ -15,7 +15,7 @@
 use std::borrow::Cow;
 
 use oauth2::{
-    basic::BasicClient as OauthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
+    basic::BasicClient as OAuthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
 };
 use ruma::{api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, UserId};
 use tracing::{info, instrument};
@@ -89,7 +89,7 @@ impl OAuthAuthCodeUrlBuilder {
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
         let redirect_uri = RedirectUrl::from_url(redirect_uri);
 
-        let client = OauthClient::new(data.client_id.clone()).set_auth_uri(auth_url);
+        let client = OAuthClient::new(data.client_id.clone()).set_auth_uri(auth_url);
         let mut request = client
             .authorize_url(CsrfToken::new_random)
             .add_scopes(scopes)

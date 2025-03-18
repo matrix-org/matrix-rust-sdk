@@ -149,7 +149,7 @@ use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 pub use oauth2::CsrfToken;
 use oauth2::{
-    basic::BasicClient as OauthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
+    basic::BasicClient as OAuthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
     RevocationUrl, Scope, StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
 };
 use ruma::{
@@ -185,7 +185,7 @@ mod tests;
 use self::{
     account_management_url::build_account_management_url,
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
-    http_client::OauthHttpClient,
+    http_client::OAuthHttpClient,
     oidc_discovery::discover,
     qrcode::LoginWithQrCode,
     registration::{register_client, ClientMetadata, ClientRegistrationResponse},
@@ -246,12 +246,12 @@ pub struct OAuth {
     /// The underlying Matrix API client.
     client: Client,
     /// The HTTP client used for making OAuth 2.0 request.
-    http_client: OauthHttpClient,
+    http_client: OAuthHttpClient,
 }
 
 impl OAuth {
     pub(crate) fn new(client: Client) -> Self {
-        let http_client = OauthHttpClient {
+        let http_client = OAuthHttpClient {
             inner: client.inner.http_client.inner.clone(),
             #[cfg(test)]
             insecure_rewrite_https_to_http: false,
@@ -273,7 +273,7 @@ impl OAuth {
         &self.client.auth_ctx().oauth
     }
 
-    fn http_client(&self) -> &OauthHttpClient {
+    fn http_client(&self) -> &OAuthHttpClient {
         &self.http_client
     }
 
@@ -1155,7 +1155,7 @@ impl OAuth {
         let server_metadata = self.server_metadata().await?;
         let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
 
-        let response = OauthClient::new(client_id)
+        let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_code(oauth2::AuthorizationCode::new(auth_code.code))
             .set_pkce_verifier(validation_data.pkce_verifier)
@@ -1212,7 +1212,7 @@ impl OAuth {
             .map(oauth2::DeviceAuthorizationUrl::from_url)
             .ok_or(qrcode::DeviceAuthorizationOauthError::NoDeviceAuthorizationEndpoint)?;
 
-        let response = OauthClient::new(client_id)
+        let response = OAuthClient::new(client_id)
             .set_device_authorization_url(device_authorization_url)
             .exchange_device_code()
             .add_scopes(scopes)
@@ -1235,7 +1235,7 @@ impl OAuth {
         let server_metadata = self.server_metadata().await.map_err(OAuthError::from)?;
         let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
 
-        let response = OauthClient::new(client_id)
+        let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_device_access_token(device_authorization_response)
             .request_async(self.http_client(), tokio::time::sleep, None)
@@ -1264,7 +1264,7 @@ impl OAuth {
         let token = RefreshToken::new(refresh_token.clone());
         let token_uri = TokenUrl::from_url(token_endpoint);
 
-        let response = OauthClient::new(client_id)
+        let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_refresh_token(&token)
             .request_async(self.http_client())
@@ -1446,7 +1446,7 @@ impl OAuth {
         let tokens = self.client.session_tokens().ok_or(OAuthError::NotAuthenticated)?;
 
         // Revoke the access token, it should revoke both tokens.
-        OauthClient::new(client_id)
+        OAuthClient::new(client_id)
             .set_revocation_url(revocation_url)
             .revoke_token(StandardRevocableToken::AccessToken(AccessToken::new(
                 tokens.access_token,
