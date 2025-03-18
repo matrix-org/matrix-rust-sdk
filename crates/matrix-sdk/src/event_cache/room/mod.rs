@@ -849,6 +849,7 @@ mod private {
             if self.events.events().next().is_some() {
                 // If there's at least one event, this means we've reached the start of the
                 // timeline, since the chunk is fully loaded.
+                trace!("chunk is fully loaded and non-empty: reached_start=true");
                 LoadMoreEventsBackwardsOutcome::StartOfTimeline
             } else if !self.waited_for_initial_prev_token {
                 // There's no events. Since we haven't yet, wait for an initial previous-token.
@@ -946,14 +947,18 @@ mod private {
 
             Ok(match chunk_content {
                 ChunkContent::Gap(gap) => {
+                    trace!("reloaded chunk from disk (gap)");
                     LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
                 }
 
-                ChunkContent::Items(events) => LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
-                },
+                ChunkContent::Items(events) => {
+                    trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+                    LoadMoreEventsBackwardsOutcome::Events {
+                        events,
+                        timeline_event_diffs,
+                        reached_start,
+                    }
+                }
             })
         }
 
@@ -1139,7 +1144,6 @@ mod private {
         }
 
         /// Propagate changes to the underlying storage.
-        #[instrument(skip_all)]
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let updates = self.events.store_updates().take();
             self.send_updates_to_store(updates).await
@@ -1186,7 +1190,7 @@ mod private {
             spawn(async move {
                 let store = store.lock().await?;
 
-                trace!(%room_id, ?updates, "sending linked chunk updates to the store");
+                trace!(?updates, "sending linked chunk updates to the store");
                 store.handle_linked_chunk_updates(&room_id, updates).await?;
                 trace!("linked chunk updates applied");
 
@@ -1272,6 +1276,7 @@ mod private {
         /// writing, all these events are passed to
         /// `Self::maybe_apply_new_redaction`.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        #[instrument(skip_all, fields(room_id = %self.room))]
         pub async fn with_events_mut<F>(
             &mut self,
             func: F,
