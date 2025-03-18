@@ -79,7 +79,7 @@ use crate::{
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        TimelineEventFilterFn,
+        AggregatedTimelineItem, AggregatedTimelineItemKind, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -1340,7 +1340,10 @@ impl TimelineController {
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?
             .clone();
 
-        let TimelineItemContent::Message(message) = item.content().clone() else {
+        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
+            kind: AggregatedTimelineItemKind::Message(message),
+        }) = item.content().clone()
+        else {
             debug!("Event is not a message");
             return Ok(());
         };
@@ -1378,7 +1381,10 @@ impl TimelineController {
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
-        let TimelineItemContent::Message(message) = item.content().clone() else {
+        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
+            kind: AggregatedTimelineItemKind::Message(message),
+        }) = item.content().clone()
+        else {
             info!("Event is no longer a message (redacted?)");
             return Ok(());
         };
@@ -1392,12 +1398,12 @@ impl TimelineController {
         trace!("Updating in-reply-to details");
         let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
-        item.set_content(TimelineItemContent::Message(
-            message.with_in_reply_to(InReplyToDetails {
+        item.set_content(TimelineItemContent::Aggregated(AggregatedTimelineItem {
+            kind: AggregatedTimelineItemKind::Message(message.with_in_reply_to(InReplyToDetails {
                 event_id: in_reply_to.event_id.clone(),
                 event,
-            }),
-        ));
+            })),
+        }));
         state.items.replace(index, TimelineItem::new(item, internal_id));
 
         Ok(())
@@ -1527,7 +1533,9 @@ async fn fetch_replied_to_event(
         event_id: in_reply_to.to_owned(),
         event: TimelineDetails::Pending,
     });
-    let event_item = item.with_content(TimelineItemContent::Message(reply));
+    let event_item = item.with_content(TimelineItemContent::Aggregated(AggregatedTimelineItem {
+        kind: AggregatedTimelineItemKind::Message(reply),
+    }));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
     state.items.replace(index, new_timeline_item);

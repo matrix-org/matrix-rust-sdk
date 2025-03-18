@@ -65,8 +65,9 @@ use super::{
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
-    EventTimelineItem, InReplyToDetails, OtherState, ReactionStatus, RepliedToEvent, Sticker,
-    TimelineDetails, TimelineItem, TimelineItemContent,
+    AggregatedTimelineItem, AggregatedTimelineItemKind, EventTimelineItem, InReplyToDetails,
+    OtherState, ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem,
+    TimelineItemContent,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -413,9 +414,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
                         self.add_item(
-                            TimelineItemContent::Sticker(Sticker {
-                                content,
-                                reactions: Default::default(),
+                            TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                                kind: AggregatedTimelineItemKind::Sticker(Sticker {
+                                    content,
+                                    reactions: Default::default(),
+                                }),
                             }),
                             None,
                         );
@@ -717,7 +720,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::Message(msg) = item.content() else {
+        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
+            kind: AggregatedTimelineItemKind::Message(msg),
+        }) = item.content()
+        else {
             info!(
                 "Edit of message event applies to {:?}, discarding",
                 item.content().debug_string(),
@@ -728,8 +734,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut new_msg = msg.clone();
         new_msg.apply_edit(new_content);
 
-        let mut new_item =
-            item.with_content_and_latest_edit(TimelineItemContent::Message(new_msg), edit_json);
+        let mut new_item = item.with_content_and_latest_edit(
+            TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                kind: AggregatedTimelineItemKind::Message(new_msg),
+            }),
+            edit_json,
+        );
 
         if let Flow::Remote { encryption_info, .. } = &self.ctx.flow {
             new_item = new_item.with_encryption_info(encryption_info.clone());
@@ -817,13 +827,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::Poll(poll_state) = &item.content() else {
+        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
+            kind: AggregatedTimelineItemKind::Poll(poll_state),
+        }) = &item.content()
+        else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
             return None;
         };
 
         let new_content = match poll_state.edit(replacement.new_content) {
-            Some(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
+            Some(edited_poll_state) => TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                kind: AggregatedTimelineItemKind::Poll(edited_poll_state),
+            }),
             None => {
                 info!("Not applying edit to a poll that's already ended");
                 return None;
@@ -869,7 +884,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
-        self.add_item(TimelineItemContent::Poll(poll_state), edit_json);
+        self.add_item(
+            TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                kind: AggregatedTimelineItemKind::Poll(poll_state),
+            }),
+            edit_json,
+        );
     }
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
@@ -1343,8 +1363,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 ))),
             };
 
-            let new_reply_content =
-                TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
+            let new_reply_content = TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                kind: AggregatedTimelineItemKind::Message(message.with_in_reply_to(in_reply_to)),
+            });
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);
         }
@@ -1359,8 +1380,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 /// `old_item` *should* always be a local timeline item usually, but it
 /// can be a remote timeline item.
 fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
-    let TimelineItemContent::Message(msg) = &mut new_item.content else { return };
-    let TimelineItemContent::Message(old_msg) = &old_item.content else { return };
+    let TimelineItemContent::Aggregated(AggregatedTimelineItem {
+        kind: AggregatedTimelineItemKind::Message(msg),
+    }) = &mut new_item.content
+    else {
+        return;
+    };
+    let TimelineItemContent::Aggregated(AggregatedTimelineItem {
+        kind: AggregatedTimelineItemKind::Message(old_msg),
+    }) = &old_item.content
+    else {
+        return;
+    };
 
     let Some(in_reply_to) = &mut msg.in_reply_to else { return };
     let Some(old_in_reply_to) = &old_msg.in_reply_to else { return };

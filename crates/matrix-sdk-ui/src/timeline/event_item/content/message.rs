@@ -46,7 +46,10 @@ use tracing::{debug, error, instrument, trace, warn};
 use super::TimelineItemContent;
 use crate::{
     timeline::{
-        event_item::{EventTimelineItem, Profile, TimelineDetails},
+        event_item::{
+            content::{AggregatedTimelineItem, AggregatedTimelineItemKind},
+            EventTimelineItem, Profile, TimelineDetails,
+        },
         traits::RoomDataProvider,
         EncryptedMessage, Error as TimelineError, PollState, ReactionsByKeyBySender, Sticker,
         TimelineItem,
@@ -377,19 +380,24 @@ impl RepliedToEvent {
                     // include detailed information like reactions.
                     let reactions = ReactionsByKeyBySender::default();
 
-                    TimelineItemContent::Message(Message::from_event(
-                        c,
-                        extract_room_msg_edit_content(event.relations()),
-                        &vector![],
-                        reactions,
-                    ))
+                    TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                        kind: AggregatedTimelineItemKind::Message(Message::from_event(
+                            c,
+                            extract_room_msg_edit_content(event.relations()),
+                            &vector![],
+                            reactions,
+                        )),
+                    })
                 }
 
                 AnyMessageLikeEventContent::Sticker(content) => {
                     // Assume we're not interested in reactions in this context. (See above an
                     // explanation as to why that's the case.)
                     let reactions = ReactionsByKeyBySender::default();
-                    TimelineItemContent::Sticker(Sticker { content, reactions })
+
+                    TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                        kind: AggregatedTimelineItemKind::Sticker(Sticker { content, reactions }),
+                    })
                 }
 
                 AnyMessageLikeEventContent::RoomEncrypted(content) => {
@@ -415,7 +423,9 @@ impl RepliedToEvent {
                     let reactions = ReactionsByKeyBySender::default();
                     // TODO: could we provide the bundled edit here?
                     let poll_state = PollState::new(content, None, reactions);
-                    TimelineItemContent::Poll(poll_state)
+                    TimelineItemContent::Aggregated(AggregatedTimelineItem {
+                        kind: AggregatedTimelineItemKind::Poll(poll_state),
+                    })
                 }
 
                 _ => {
