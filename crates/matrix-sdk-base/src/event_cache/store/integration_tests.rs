@@ -459,6 +459,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // A unique chunk.
             assert_matches!(rchunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 2);
+                assert_eq!(chunk.lazy_previous(), Some(CId::new(1)));
 
                 assert_matches!(chunk.content(), ChunkContent::Items(events) => {
                     assert_eq!(events.len(), 3);
@@ -476,11 +477,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Load the previous chunk: this is a gap.
         {
             let first_chunk = linked_chunk.chunks().next().unwrap().identifier();
-            let mut previous_chunk =
+            let previous_chunk =
                 self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
-
-            // Pretend it's the first chunk.
-            previous_chunk.previous = None;
 
             let _ = lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
@@ -489,6 +487,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // The last chunk.
             assert_matches!(rchunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 2);
+                assert!(chunk.lazy_previous().is_none());
 
                 // Already asserted, but let's be sure nothing breaks.
                 assert_matches!(chunk.content(), ChunkContent::Items(events) => {
@@ -502,6 +501,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // The new chunk.
             assert_matches!(rchunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 1);
+                assert_eq!(chunk.lazy_previous(), Some(CId::new(0)));
 
                 assert_matches!(chunk.content(), ChunkContent::Gap(gap) => {
                     assert_eq!(gap.prev_token, "morbier");
@@ -524,6 +524,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // The last chunk.
             assert_matches!(rchunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 2);
+                assert!(chunk.lazy_previous().is_none());
 
                 // Already asserted, but let's be sure nothing breaks.
                 assert_matches!(chunk.content(), ChunkContent::Items(events) => {
@@ -537,6 +538,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // Its previous chunk.
             assert_matches!(rchunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 1);
+                assert!(chunk.lazy_previous().is_none());
 
                 // Already asserted, but let's be sure nothing breaks.
                 assert_matches!(chunk.content(), ChunkContent::Gap(gap) => {
@@ -547,6 +549,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // The new chunk.
             assert_matches!(rchunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 0);
+                assert!(chunk.lazy_previous().is_none());
 
                 assert_matches!(chunk.content(), ChunkContent::Items(events) => {
                     assert_eq!(events.len(), 2);
@@ -574,6 +577,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // The first chunk.
             assert_matches!(chunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 0);
+                assert!(chunk.lazy_previous().is_none());
 
                 assert_matches!(chunk.content(), ChunkContent::Items(events) => {
                     assert_eq!(events.len(), 2);
@@ -585,6 +589,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // The second chunk.
             assert_matches!(chunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 1);
+                assert!(chunk.lazy_previous().is_none());
 
                 assert_matches!(chunk.content(), ChunkContent::Gap(gap) => {
                     assert_eq!(gap.prev_token, "morbier");
@@ -594,6 +599,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // The third and last chunk.
             assert_matches!(chunks.next(), Some(chunk) => {
                 assert_eq!(chunk.identifier(), 2);
+                assert!(chunk.lazy_previous().is_none());
 
                 assert_matches!(chunk.content(), ChunkContent::Items(events) => {
                     assert_eq!(events.len(), 3);
