@@ -922,6 +922,9 @@ mod private {
 
             // We've reached the start on disk, if and only if, there was no chunk prior to
             // the one we just loaded.
+            //
+            // This value is correct, if and only if, it is used for a chunk content of kind
+            // `Items`.
             let reached_start = new_first_chunk.previous.is_none();
 
             if let Err(err) = self.events.insert_new_chunk_as_first(new_first_chunk) {
