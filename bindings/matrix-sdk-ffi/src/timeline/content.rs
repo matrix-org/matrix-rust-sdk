@@ -15,7 +15,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
-use matrix_sdk_ui::timeline::{PollResult, RoomPinnedEventsChange, TimelineDetails};
+use matrix_sdk_ui::timeline::{
+    AggregatedTimelineItem, AggregatedTimelineItemKind, PollResult, RoomPinnedEventsChange,
+    TimelineDetails,
+};
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent, FullStateEventContent};
 
 use super::ProfileDetails;
@@ -30,7 +33,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
         match value {
-            Content::Message(message) => {
+            Content::Aggregated(AggregatedTimelineItem {
+                kind: AggregatedTimelineItemKind::Message(message),
+            }) => {
                 let msgtype = message.msgtype().msgtype().to_owned();
 
                 match TryInto::<MessageContent>::try_into(message) {
@@ -44,7 +49,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::RedactedMessage => TimelineItemContent::RedactedMessage,
 
-            Content::Sticker(sticker) => {
+            Content::Aggregated(AggregatedTimelineItem {
+                kind: AggregatedTimelineItemKind::Sticker(sticker),
+            }) => {
                 let content = sticker.content();
 
                 let media_source = RumaMediaSource::from(content.source.clone());
@@ -69,7 +76,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                 }
             }
 
-            Content::Poll(poll_state) => TimelineItemContent::from(poll_state.results()),
+            Content::Aggregated(AggregatedTimelineItem {
+                kind: AggregatedTimelineItemKind::Poll(poll_state),
+            }) => TimelineItemContent::from(poll_state.results()),
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
