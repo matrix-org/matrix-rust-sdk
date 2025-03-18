@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
-        registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+        registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
     },
     ruma::serde::Raw,
     Client,
@@ -54,7 +54,7 @@ fn client_metadata() -> Raw<ClientMetadata> {
             // browser).
             ApplicationType::Native,
             // We are going to use the Device Authorization flow.
-            vec![OauthGrantType::DeviceCode],
+            vec![OAuthGrantType::DeviceCode],
             client_uri,
         )
     };

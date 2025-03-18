@@ -8,7 +8,7 @@ use std::{
 use matrix_sdk::{
     authentication::oauth::{
         error::OAuthAuthorizationCodeError,
-        registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+        registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
         registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
         OAuthError as SdkOAuthError,
     },
@@ -156,8 +156,8 @@ impl OidcConfiguration {
             ..ClientMetadata::new(
                 ApplicationType::Native,
                 vec![
-                    OauthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] },
-                    OauthGrantType::DeviceCode,
+                    OAuthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] },
+                    OAuthGrantType::DeviceCode,
                 ],
                 client_uri,
             )

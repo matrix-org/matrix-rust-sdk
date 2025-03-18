@@ -23,7 +23,7 @@ use anyhow::{anyhow, bail};
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
-        registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+        registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
         registrations::ClientId,
         AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, CsrfToken,
         OAuthAuthorizationData, OAuthSession, UserSession,
@@ -726,7 +726,7 @@ fn client_metadata() -> Raw<ClientMetadata> {
             // browser).
             ApplicationType::Native,
             // We are going to use the Authorization Code flow.
-            vec![OauthGrantType::AuthorizationCode {
+            vec![OAuthGrantType::AuthorizationCode {
                 redirect_uris: vec![ipv4_localhost_uri, ipv6_localhost_uri],
             }],
             client_uri,
