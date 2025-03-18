@@ -24,8 +24,8 @@ use super::{
 };
 use crate::{
     authentication::oauth::{
-        error::{AuthorizationCodeErrorResponseType, OauthClientRegistrationError},
-        AccountManagementActionFull, AuthorizationValidationData, OauthAuthorizationCodeError,
+        error::{AuthorizationCodeErrorResponseType, OAuthClientRegistrationError},
+        AccountManagementActionFull, AuthorizationValidationData, OAuthAuthorizationCodeError,
     },
     test_utils::{
         client::{
@@ -202,7 +202,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Then a cancellation error should be thrown.
     assert_matches!(
         error,
-        Error::OAuth(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled))
+        Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::Cancelled))
     );
 
     Ok(())
@@ -229,7 +229,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Then the login should fail by flagging the invalid state.
     assert_matches!(
         error,
-        Error::OAuth(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
+        Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState))
     );
 
     Ok(())
@@ -343,7 +343,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
+        Err(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState))
     );
     assert!(client.session_tokens().is_none());
 
@@ -372,7 +372,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(OAuthError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState))
+        Err(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState))
     );
     assert!(client.session_tokens().is_none());
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state).is_some());
@@ -490,7 +490,7 @@ async fn test_register_client() {
     let result = oauth.register_client(&client_metadata).await;
     assert_matches!(
         result,
-        Err(OAuthError::ClientRegistration(OauthClientRegistrationError::NotSupported))
+        Err(OAuthError::ClientRegistration(OAuthClientRegistrationError::NotSupported))
     );
 
     server.verify_and_reset().await;

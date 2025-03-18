@@ -32,7 +32,7 @@ use ruma::{
 pub use super::cross_process::CrossProcessRefreshLockError;
 
 /// An error when interacting with the OAuth 2.0 authorization server.
-pub type OauthRequestError<T> =
+pub type OAuthRequestError<T> =
     RequestTokenError<HttpClientError<reqwest::Error>, StandardErrorResponse<T>>;
 
 /// An error when trying to parse the query of a redirect URI.
@@ -54,12 +54,12 @@ pub enum RedirectUriQueryParseError {
 pub enum OAuthError {
     /// An error occurred when discovering the authorization server's issuer.
     #[error("authorization server discovery failed: {0}")]
-    Discovery(#[from] OauthDiscoveryError),
+    Discovery(#[from] OAuthDiscoveryError),
 
     /// An error occurred when registering the client with the authorization
     /// server.
     #[error("client registration failed: {0}")]
-    ClientRegistration(#[from] OauthClientRegistrationError),
+    ClientRegistration(#[from] OAuthClientRegistrationError),
 
     /// The client has not registered while the operation requires it.
     #[error("client not registered")]
@@ -75,16 +75,16 @@ pub enum OAuthError {
 
     /// An error occurred using the OAuth 2.0 authorization code grant.
     #[error("authorization code grant failed: {0}")]
-    AuthorizationCode(#[from] OauthAuthorizationCodeError),
+    AuthorizationCode(#[from] OAuthAuthorizationCodeError),
 
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while refreshing the access token.
     #[error("failed to refresh token: {0}")]
-    RefreshToken(OauthRequestError<BasicErrorResponseType>),
+    RefreshToken(OAuthRequestError<BasicErrorResponseType>),
 
     /// An error occurred revoking an OAuth 2.0 access token.
     #[error("failed to log out: {0}")]
-    Logout(#[from] OauthTokenRevocationError),
+    Logout(#[from] OAuthTokenRevocationError),
 
     /// An error occurred building the account management URL.
     #[error("failed to build account management URL: {0}")]
@@ -102,7 +102,7 @@ pub enum OAuthError {
 /// All errors that can occur when discovering the OAuth 2.0 server metadata.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum OauthDiscoveryError {
+pub enum OAuthDiscoveryError {
     /// OAuth 2.0 is not supported by the homeserver.
     #[error("OAuth 2.0 is not supported by the homeserver")]
     NotSupported,
@@ -126,10 +126,10 @@ pub enum OauthDiscoveryError {
 
     /// An error occurred when making a request to the OpenID Connect provider.
     #[error(transparent)]
-    Oidc(#[from] OauthRequestError<BasicErrorResponseType>),
+    Oidc(#[from] OAuthRequestError<BasicErrorResponseType>),
 }
 
-impl OauthDiscoveryError {
+impl OAuthDiscoveryError {
     /// Whether this error occurred because OAuth 2.0 is not supported by the
     /// homeserver.
     pub fn is_not_supported(&self) -> bool {
@@ -141,7 +141,7 @@ impl OauthDiscoveryError {
 /// OAuth 2.0 API.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum OauthAuthorizationCodeError {
+pub enum OAuthAuthorizationCodeError {
     /// The query of the redirect URI doesn't have the expected format.
     #[error(transparent)]
     RedirectUri(#[from] RedirectUriQueryParseError),
@@ -163,11 +163,11 @@ pub enum OauthAuthorizationCodeError {
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while exchanging the authorization code for an access token.
     #[error("failed to request token: {0}")]
-    RequestToken(OauthRequestError<BasicErrorResponseType>),
+    RequestToken(OAuthRequestError<BasicErrorResponseType>),
 }
 
 impl From<StandardErrorResponse<AuthorizationCodeErrorResponseType>>
-    for OauthAuthorizationCodeError
+    for OAuthAuthorizationCodeError
 {
     fn from(value: StandardErrorResponse<AuthorizationCodeErrorResponseType>) -> Self {
         if *value.error() == AuthorizationCodeErrorResponseType::AccessDenied {
@@ -224,7 +224,7 @@ impl ErrorResponseType for AuthorizationCodeErrorResponseType {}
 /// All errors that can occur when revoking an OAuth 2.0 token.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum OauthTokenRevocationError {
+pub enum OAuthTokenRevocationError {
     /// The revocation endpoint URL is insecure.
     #[error(transparent)]
     Url(ConfigurationError),
@@ -232,14 +232,14 @@ pub enum OauthTokenRevocationError {
     /// An error occurred interacting with the OAuth 2.0 authorization server
     /// while revoking the token.
     #[error("failed to revoke token: {0}")]
-    Revoke(OauthRequestError<RevocationErrorResponseType>),
+    Revoke(OAuthRequestError<RevocationErrorResponseType>),
 }
 
 /// All errors that can occur when registering a client with an OAuth 2.0
 /// authorization server.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum OauthClientRegistrationError {
+pub enum OAuthClientRegistrationError {
     /// The authorization server doesn't support dynamic client registration.
     ///
     /// The server probably offers another way to register clients.
@@ -253,7 +253,7 @@ pub enum OauthClientRegistrationError {
     /// An error occurred when making a request to the OAuth 2.0 authorization
     /// server.
     #[error(transparent)]
-    Oauth(#[from] OauthRequestError<ClientRegistrationErrorResponseType>),
+    OAuth(#[from] OAuthRequestError<ClientRegistrationErrorResponseType>),
 
     /// Deserialization of the registration response failed.
     #[error("failed to deserialize registration response: {0}")]

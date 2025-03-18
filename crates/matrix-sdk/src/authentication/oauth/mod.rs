@@ -141,8 +141,8 @@ use std::{
 
 use as_variant::as_variant;
 use error::{
-    CrossProcessRefreshLockError, OauthAuthorizationCodeError, OauthClientRegistrationError,
-    OauthDiscoveryError, OauthTokenRevocationError, RedirectUriQueryParseError,
+    CrossProcessRefreshLockError, OAuthAuthorizationCodeError, OAuthClientRegistrationError,
+    OAuthDiscoveryError, OAuthTokenRevocationError, RedirectUriQueryParseError,
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
@@ -470,13 +470,13 @@ impl OAuth {
         callback_url: Url,
     ) -> Result<()> {
         let response = AuthorizationResponse::parse_uri(&callback_url)
-            .map_err(OauthAuthorizationCodeError::from)
+            .map_err(OAuthAuthorizationCodeError::from)
             .map_err(OAuthError::from)?;
 
         let code = match response {
             AuthorizationResponse::Success(code) => code,
             AuthorizationResponse::Error(err) => {
-                return Err(OAuthError::from(OauthAuthorizationCodeError::from(err.error)).into());
+                return Err(OAuthError::from(OAuthAuthorizationCodeError::from(err.error)).into());
             }
         };
 
@@ -484,7 +484,7 @@ impl OAuth {
         // the client to have called `abort_authorization` which we can't guarantee so
         // lets double check with their supplied authorization data to be safe.
         if code.state != authorization_data.state {
-            return Err(OAuthError::from(OauthAuthorizationCodeError::InvalidState).into());
+            return Err(OAuthError::from(OAuthAuthorizationCodeError::InvalidState).into());
         };
 
         self.finish_authorization(code).await?;
@@ -655,7 +655,7 @@ impl OAuth {
     /// MSC2956: https://github.com/matrix-org/matrix-spec-proposals/pull/2965
     async fn fallback_discover(
         &self,
-    ) -> Result<Raw<AuthorizationServerMetadata>, OauthDiscoveryError> {
+    ) -> Result<Raw<AuthorizationServerMetadata>, OAuthDiscoveryError> {
         #[allow(deprecated)]
         let issuer =
             match self.client.send(get_authentication_issuer::msc2965::Request::new()).await {
@@ -665,7 +665,7 @@ impl OAuth {
                         .as_client_api_error()
                         .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND) =>
                 {
-                    return Err(OauthDiscoveryError::NotSupported);
+                    return Err(OAuthDiscoveryError::NotSupported);
                 }
                 Err(error) => return Err(error.into()),
             };
@@ -679,7 +679,7 @@ impl OAuth {
     /// metadata.
     pub async fn server_metadata(
         &self,
-    ) -> Result<AuthorizationServerMetadata, OauthDiscoveryError> {
+    ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
         let is_endpoint_unsupported = |error: &HttpError| {
             error
                 .as_client_api_error()
@@ -811,7 +811,7 @@ impl OAuth {
         let registration_endpoint = server_metadata
             .registration_endpoint
             .as_ref()
-            .ok_or(OauthClientRegistrationError::NotSupported)?;
+            .ok_or(OAuthClientRegistrationError::NotSupported)?;
 
         let registration_response =
             register_client(self.http_client(), registration_endpoint, client_metadata).await?;
@@ -1150,7 +1150,7 @@ impl OAuth {
             .lock()
             .await
             .remove(&auth_code.state)
-            .ok_or(OauthAuthorizationCodeError::InvalidState)?;
+            .ok_or(OAuthAuthorizationCodeError::InvalidState)?;
 
         let server_metadata = self.server_metadata().await?;
         let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
@@ -1162,7 +1162,7 @@ impl OAuth {
             .set_redirect_uri(Cow::Owned(validation_data.redirect_uri))
             .request_async(self.http_client())
             .await
-            .map_err(OauthAuthorizationCodeError::RequestToken)?;
+            .map_err(OAuthAuthorizationCodeError::RequestToken)?;
 
         self.client.auth_ctx().set_session_tokens(SessionTokens {
             access_token: response.access_token().secret().clone(),
@@ -1199,7 +1199,7 @@ impl OAuth {
     async fn request_device_authorization(
         &self,
         device_id: Option<OwnedDeviceId>,
-    ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOauthError>
+    ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOAuthError>
     {
         let scopes = Self::login_scopes(device_id);
 
@@ -1210,7 +1210,7 @@ impl OAuth {
             .device_authorization_endpoint
             .clone()
             .map(oauth2::DeviceAuthorizationUrl::from_url)
-            .ok_or(qrcode::DeviceAuthorizationOauthError::NoDeviceAuthorizationEndpoint)?;
+            .ok_or(qrcode::DeviceAuthorizationOAuthError::NoDeviceAuthorizationEndpoint)?;
 
         let response = OAuthClient::new(client_id)
             .set_device_authorization_url(device_authorization_url)
@@ -1227,7 +1227,7 @@ impl OAuth {
     async fn exchange_device_code(
         &self,
         device_authorization_response: &oauth2::StandardDeviceAuthorizationResponse,
-    ) -> Result<(), qrcode::DeviceAuthorizationOauthError> {
+    ) -> Result<(), qrcode::DeviceAuthorizationOAuthError> {
         use oauth2::TokenResponse;
 
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
@@ -1451,10 +1451,10 @@ impl OAuth {
             .revoke_token(StandardRevocableToken::AccessToken(AccessToken::new(
                 tokens.access_token,
             )))
-            .map_err(OauthTokenRevocationError::Url)?
+            .map_err(OAuthTokenRevocationError::Url)?
             .request_async(self.http_client())
             .await
-            .map_err(OauthTokenRevocationError::Revoke)?;
+            .map_err(OAuthTokenRevocationError::Revoke)?;
 
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager.on_logout().await?;
