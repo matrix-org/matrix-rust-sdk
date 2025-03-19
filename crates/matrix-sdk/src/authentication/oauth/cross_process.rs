@@ -337,7 +337,7 @@ mod tests {
         client.auth_ctx().set_session_tokens(session_tokens.clone());
 
         // Now, finishing logging will get the user and device ids.
-        oauth.finish_login().await?;
+        oauth.load_session().await?;
 
         let session_meta = client.session_meta().context("should have session meta now")?;
         assert_eq!(

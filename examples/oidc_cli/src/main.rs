@@ -225,20 +225,12 @@ impl OidcCli {
             let authorization_code = match use_auth_url(&url, &state, server_handle).await {
                 Ok(code) => code,
                 Err(err) => {
-                    oauth.abort_authorization(&state).await;
+                    oauth.abort_login(&state).await;
                     return Err(err);
                 }
             };
 
-            let res = oauth.finish_authorization(authorization_code).await;
-
-            if let Err(err) = res {
-                println!("Error: failed to login: {err}");
-                println!("Please try again.\n");
-                continue;
-            }
-
-            match oauth.finish_login().await {
+            match oauth.finish_login(authorization_code).await {
                 Ok(()) => {
                     let user_id = self.client.user_id().expect("Got a user ID");
                     println!("Logged in as {user_id}");
@@ -247,6 +239,7 @@ impl OidcCli {
                 Err(err) => {
                     println!("Error: failed to finish login: {err}");
                     println!("Please try again.\n");
+                    oauth.abort_login(&state).await;
                     continue;
                 }
             }

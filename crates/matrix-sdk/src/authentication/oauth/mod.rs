@@ -62,9 +62,7 @@
 //! provide the URL to present to the user in a web browser. After
 //! authenticating with the server, the user will be redirected to the provided
 //! redirect URI, with a code in the query that will allow to finish the
-//! authorization process by calling [`OAuth::finish_authorization()`].
-//!
-//! When the login is successful, you must then call [`OAuth::finish_login()`].
+//! login process by calling [`OAuth::finish_login()`].
 //!
 //! # Persisting/restoring a session
 //!
@@ -105,8 +103,7 @@
 //!
 //! If refreshing the access token fails, the next step is to try to request a
 //! new login authorization with [`OAuth::login()`], using the device ID from
-//! the session. _Note_ that in this case [`OAuth::finish_login()`] must NOT be
-//! called after [`OAuth::finish_authorization()`].
+//! the session.
 //!
 //! If this fails again, the client should assume to be logged out, and all
 //! local data should be erased.
@@ -481,14 +478,13 @@ impl OAuth {
         };
 
         // This check will also be done in `finish_authorization`, however it requires
-        // the client to have called `abort_authorization` which we can't guarantee so
+        // the client to have called `abort_login` which we can't guarantee so
         // lets double check with their supplied authorization data to be safe.
         if code.state != authorization_data.state {
             return Err(OAuthError::from(OAuthAuthorizationCodeError::InvalidState).into());
         };
 
-        self.finish_authorization(code).await?;
-        self.finish_login().await?;
+        self.finish_login(code).await?;
 
         Ok(())
     }
@@ -982,9 +978,8 @@ impl OAuth {
     /// This should be called after [`OAuth::register_client()`] or
     /// [`OAuth::restore_registered_client()`].
     ///
-    /// If this is a brand new login, [`OAuth::finish_login()`] must be called
-    /// after [`OAuth::finish_authorization()`], to finish loading the user
-    /// session.
+    /// [`OAuth::finish_login()`] must be called once the user has been
+    /// redirected to the `redirect_uri`.
     ///
     /// # Arguments
     ///
@@ -1030,22 +1025,20 @@ impl OAuth {
     ///
     /// let auth_response = AuthorizationResponse::parse_uri(&redirected_to_uri)?;
     ///
-    /// let code = match auth_response {
+    /// let auth_code = match auth_response {
     ///     AuthorizationResponse::Success(code) => code,
     ///     AuthorizationResponse::Error(error) => {
+    ///         oauth.abort_login(&error.state).await;
     ///         return Err(anyhow!("Authorization failed: {:?}", error));
     ///     }
     /// };
     ///
-    /// let _tokens_response = oauth.finish_authorization(code).await?;
+    /// oauth.finish_login(auth_code).await?;
     ///
-    /// // Important! Without this we can't access the full session.
-    /// oauth.finish_login().await?;
+    /// // The session tokens can be persisted from the
+    /// // `Client::session_tokens()` method.
     ///
-    /// // The session tokens can be persisted either from the response, or from
-    /// // the `Client::session_tokens()` method.
-    ///
-    /// // You can now make any request compatible with the requested scope.
+    /// // You can now make requests to the Matrix API.
     /// let _me = client.whoami().await?;
     /// # anyhow::Ok(()) }
     /// ```
@@ -1061,14 +1054,30 @@ impl OAuth {
 
     /// Finish the login process.
     ///
-    /// Must be called after [`OAuth::finish_authorization()`] after logging
-    /// into a brand new session, to load the last part of the user session
-    /// and complete the initialization of the [`Client`].
+    /// This method should be called after the URL returned by
+    /// [`OAuthAuthCodeUrlBuilder::build()`] has been presented and the user has
+    /// been redirected to the redirect URI after a successful authorization.
     ///
-    /// # Panic
+    /// If the authorization has not been successful, [`OAuth::abort_login()`]
+    /// should be used instead to clean up the local data.
     ///
-    /// Panics if the login was already completed.
-    pub async fn finish_login(&self) -> Result<()> {
+    /// # Arguments
+    ///
+    /// * `auth_code` - The response received as part of the redirect URI when
+    ///   the authorization was successful.
+    ///
+    /// Returns an error if a request fails, or if the client was already
+    /// logged in with a different session.
+    pub async fn finish_login(&self, auth_code: AuthorizationCode) -> Result<()> {
+        self.finish_authorization(auth_code).await?;
+        self.load_session().await
+    }
+
+    /// Load the session after login.
+    ///
+    /// Returns an error if the request to get the user ID fails, or if the
+    /// client was already logged in with a different session.
+    pub(crate) async fn load_session(&self) -> Result<()> {
         // Get the user ID.
         let whoami_res = self.client.whoami().await.map_err(crate::Error::from)?;
 
@@ -1128,20 +1137,13 @@ impl OAuth {
     /// [`OAuthAuthCodeUrlBuilder::build()`] has been presented and the user has
     /// been redirected to the redirect URI after a successful authorization.
     ///
-    /// If the authorization has not been successful,
-    /// [`OAuth::abort_authorization()`] should be used instead to clean up the
-    /// local data.
-    ///
     /// # Arguments
     ///
     /// * `auth_code` - The response received as part of the redirect URI when
     ///   the authorization was successful.
     ///
     /// Returns an error if a request fails.
-    pub async fn finish_authorization(
-        &self,
-        auth_code: AuthorizationCode,
-    ) -> Result<(), OAuthError> {
+    async fn finish_authorization(&self, auth_code: AuthorizationCode) -> Result<(), OAuthError> {
         let data = self.data().ok_or(OAuthError::NotAuthenticated)?;
         let client_id = data.client_id.clone();
 
@@ -1172,22 +1174,22 @@ impl OAuth {
         Ok(())
     }
 
-    /// Abort the authorization process.
+    /// Abort the login process.
     ///
     /// This method should be called after the URL returned by
     /// [`OAuthAuthCodeUrlBuilder::build()`] has been presented and the user has
     /// been redirected to the redirect URI after a failed authorization, or if
     /// the authorization should be aborted before it is completed.
     ///
-    /// If the authorization has been successful,
-    /// [`OAuth::finish_authorization()`] should be used instead.
+    /// If the authorization has been successful, [`OAuth::finish_login()`]
+    /// should be used instead.
     ///
     /// # Arguments
     ///
     /// * `state` - The state received as part of the redirect URI when the
     ///   authorization failed, or the one provided in
     ///   [`OAuthAuthorizationData`] after building the authorization URL.
-    pub async fn abort_authorization(&self, state: &CsrfToken) {
+    pub async fn abort_login(&self, state: &CsrfToken) {
         if let Some(data) = self.data() {
             data.authorization_data.lock().await.remove(state);
         }
