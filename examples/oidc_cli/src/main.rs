@@ -24,8 +24,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        registrations::ClientId,
-        AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, CsrfToken,
+        AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, ClientId, CsrfToken,
         OAuthAuthorizationData, OAuthSession, UserSession,
     },
     config::SyncSettings,

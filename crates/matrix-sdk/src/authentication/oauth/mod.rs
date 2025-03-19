@@ -144,11 +144,11 @@ use error::{
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
-pub use oauth2::CsrfToken;
 use oauth2::{
     basic::BasicClient as OAuthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
     RevocationUrl, Scope, StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
 };
+pub use oauth2::{ClientId, CsrfToken};
 use ruma::{
     api::client::discovery::{
         get_authentication_issuer,
@@ -186,7 +186,7 @@ use self::{
     oidc_discovery::discover,
     qrcode::LoginWithQrCode,
     registration::{register_client, ClientMetadata, ClientRegistrationResponse},
-    registrations::{ClientId, OidcRegistrations},
+    registrations::OidcRegistrations,
 };
 pub use self::{
     account_management_url::AccountManagementActionFull,
@@ -764,7 +764,7 @@ impl OAuth {
     ///
     /// ```no_run
     /// use matrix_sdk::{Client, ServerName};
-    /// use matrix_sdk::authentication::oauth::registrations::ClientId;
+    /// # use matrix_sdk::authentication::oauth::ClientId;
     /// # use matrix_sdk::authentication::oauth::registration::ClientMetadata;
     /// # use ruma::serde::Raw;
     /// # let client_metadata = unimplemented!();

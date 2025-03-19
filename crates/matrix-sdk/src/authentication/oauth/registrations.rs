@@ -28,7 +28,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use oauth2::ClientId;
+use oauth2::ClientId;
 use ruma::serde::Raw;
 use serde::{Deserialize, Serialize};
 use url::Url;
