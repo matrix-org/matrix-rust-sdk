@@ -1050,7 +1050,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let is_room_encrypted = self.meta.is_room_encrypted;
 
-        let mut item = EventTimelineItem::new(
+        let item = EventTimelineItem::new(
             sender,
             sender_profile,
             timestamp,
@@ -1071,13 +1071,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote {
                 position: TimelineItemPosition::Start { .. }, event_id, txn_id, ..
             } => {
-                let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
+                let item = Self::recycle_local_or_create_item(
                     self.items,
-                    &mut item,
-                    Some(event_id),
-                    txn_id.as_ref().map(AsRef::as_ref),
+                    self.meta,
+                    item,
+                    event_id,
+                    txn_id.as_deref(),
                 );
-                let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 trace!("Adding new remote timeline item at the start");
 
@@ -1090,13 +1090,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 txn_id,
                 ..
             } => {
-                let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
+                let item = Self::recycle_local_or_create_item(
                     self.items,
-                    &mut item,
-                    Some(event_id),
-                    txn_id.as_ref().map(AsRef::as_ref),
+                    self.meta,
+                    item,
+                    event_id,
+                    txn_id.as_deref(),
                 );
-                let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 let all_remote_events = self.items.all_remote_events();
                 let event_index = *event_index;
@@ -1153,13 +1153,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote {
                 position: TimelineItemPosition::End { .. }, event_id, txn_id, ..
             } => {
-                let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
+                let item = Self::recycle_local_or_create_item(
                     self.items,
-                    &mut item,
-                    Some(event_id),
-                    txn_id.as_ref().map(AsRef::as_ref),
+                    self.meta,
+                    item,
+                    event_id,
+                    txn_id.as_deref(),
                 );
-                let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
 
                 // Local events are always at the bottom. Let's find the latest remote event
                 // and insert after it, otherwise, if there is no remote event, insert at 0.
@@ -1231,17 +1231,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
-    /// Remove the local timeline item matching the `event_id` or the
-    /// `transaction_id` of `new_event_timeline_item` if it exists.
-    // Note: this method doesn't take `&mut self` to avoid a borrow checker
-    // conflict with `TimelineEventHandler::add_item`.
-    // TODO(bnjbvr): refactor
-    fn deduplicate_local_timeline_item(
+    /// Try to recycle a local timeline item for the same event, or create a new
+    /// timeline item for it.
+    ///
+    /// Note: this method doesn't take `&mut self` to avoid a borrow checker
+    /// conflict with `TimelineEventHandler::add_item`.
+    fn recycle_local_or_create_item(
         items: &mut ObservableItemsTransaction<'_>,
-        new_event_timeline_item: &mut EventTimelineItem,
-        event_id: Option<&EventId>,
+        meta: &mut TimelineMetadata,
+        mut new_item: EventTimelineItem,
+        event_id: &EventId,
         transaction_id: Option<&TransactionId>,
-    ) -> Option<Arc<TimelineItem>> {
+    ) -> Arc<TimelineItem> {
         // Detect a local timeline item that matches `event_id` or `transaction_id`.
         if let Some((local_timeline_item_index, local_timeline_item)) = items
             .iter()
@@ -1270,7 +1271,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     return ControlFlow::Break(None);
                 }
 
-                if event_id == event_timeline_item.event_id()
+                if Some(event_id) == event_timeline_item.event_id()
                     || (transaction_id.is_some()
                         && transaction_id == event_timeline_item.transaction_id())
                 {
@@ -1292,13 +1293,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 "Removing local timeline item"
             );
 
-            transfer_details(new_event_timeline_item, local_timeline_item);
+            transfer_details(&mut new_item, local_timeline_item);
 
             // Remove the local timeline item.
-            return Some(items.remove(local_timeline_item_index));
-        };
-
-        None
+            let recycled = items.remove(local_timeline_item_index);
+            TimelineItem::new(new_item, recycled.internal_id.clone())
+        } else {
+            // We haven't found a matching local item to recycle; create a new item.
+            meta.new_timeline_item(new_item)
+        }
     }
 
     /// After updating the timeline item `new_item` which id is
@@ -1364,25 +1367,5 @@ fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineIt
 
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();
-    }
-}
-
-/// Create a new timeline item from an [`EventTimelineItem`].
-///
-/// It is possible that the new timeline item replaces a duplicated timeline
-/// event (see [`TimelineEventHandler::deduplicate_local_timeline_item`]) in
-/// case it replaces a local timeline item.
-fn new_timeline_item(
-    metadata: &mut TimelineMetadata,
-    event_timeline_item: EventTimelineItem,
-    replaced_timeline_item: Option<Arc<TimelineItem>>,
-) -> Arc<TimelineItem> {
-    match replaced_timeline_item {
-        // Reuse the internal ID.
-        Some(to_replace_timeline_item) => {
-            TimelineItem::new(event_timeline_item, to_replace_timeline_item.internal_id.clone())
-        }
-
-        None => metadata.new_timeline_item(event_timeline_item),
     }
 }
