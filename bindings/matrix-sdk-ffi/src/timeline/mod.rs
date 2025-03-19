@@ -974,6 +974,7 @@ impl TimelineItem {
         match self.0.as_virtual()? {
             VItem::DateDivider(ts) => Some(VirtualTimelineItem::DateDivider { ts: (*ts).into() }),
             VItem::ReadMarker => Some(VirtualTimelineItem::ReadMarker),
+            VItem::TimelineStart => Some(VirtualTimelineItem::TimelineStart),
         }
     }
 
@@ -1254,6 +1255,9 @@ pub enum VirtualTimelineItem {
 
     /// The user's own read marker.
     ReadMarker,
+
+    /// The timeline start, that is, the *oldest* event in time for that room.
+    TimelineStart,
 }
 
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
