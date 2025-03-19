@@ -407,7 +407,7 @@ impl Client {
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
-        let registrations = oidc_configuration.registrations()?;
+        let registrations = oidc_configuration.registrations().await?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
         let data = self

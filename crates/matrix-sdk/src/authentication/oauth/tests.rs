@@ -56,7 +56,9 @@ async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, OAu
     let registrations_path =
         tempdir().unwrap().path().join("matrix-sdk-oauth").join("registrations.json");
     let registrations =
-        OAuthRegistrationStore::new(&registrations_path, client_metadata, HashMap::new()).unwrap();
+        OAuthRegistrationStore::new(registrations_path, client_metadata, HashMap::new())
+            .await
+            .unwrap();
 
     Ok((client.oauth(), server, mock_redirect_uri(), registrations))
 }
