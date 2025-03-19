@@ -175,7 +175,7 @@ mod oidc_discovery;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registration;
-mod registrations;
+mod registration_store;
 #[cfg(test)]
 mod tests;
 
@@ -191,7 +191,7 @@ pub use self::{
     account_management_url::AccountManagementActionFull,
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
     error::OAuthError,
-    registrations::OidcRegistrations,
+    registration_store::OAuthRegistrationStore,
 };
 use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
@@ -439,7 +439,7 @@ impl OAuth {
     ///   account.
     pub async fn url_for_oidc(
         &self,
-        registrations: OidcRegistrations,
+        registrations: OAuthRegistrationStore,
         redirect_uri: Url,
         prompt: Option<Prompt>,
     ) -> Result<OAuthAuthorizationData, OAuthError> {
@@ -494,7 +494,7 @@ impl OAuth {
     async fn configure(
         &self,
         issuer: Url,
-        registrations: OidcRegistrations,
+        registrations: OAuthRegistrationStore,
     ) -> std::result::Result<(), OAuthError> {
         if self.client_id().is_some() {
             tracing::info!("OAuth 2.0 is already configured.");
@@ -520,7 +520,7 @@ impl OAuth {
     /// re-used if we ever log in via the same issuer again.
     fn store_client_registration(
         &self,
-        registrations: &OidcRegistrations,
+        registrations: &OAuthRegistrationStore,
     ) -> std::result::Result<(), OAuthError> {
         let issuer = self.issuer().expect("issuer should be set after registration").to_owned();
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.to_owned();
@@ -536,7 +536,11 @@ impl OAuth {
     /// given issuer.
     ///
     /// Returns `true` if an existing registration was found and `false` if not.
-    fn load_client_registration(&self, issuer: Url, registrations: &OidcRegistrations) -> bool {
+    fn load_client_registration(
+        &self,
+        issuer: Url,
+        registrations: &OAuthRegistrationStore,
+    ) -> bool {
         let Some(client_id) = registrations.client_id(&issuer) else {
             return false;
         };

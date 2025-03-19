@@ -30,7 +30,7 @@ use ruma::{
 };
 
 pub use super::{
-    cross_process::CrossProcessRefreshLockError, registrations::OidcRegistrationsError,
+    cross_process::CrossProcessRefreshLockError, registration_store::OAuthRegistrationStoreError,
 };
 
 /// An error when interacting with the OAuth 2.0 authorization server.
