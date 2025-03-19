@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Timeline::send_thread_reply` for clients that need to start threads
+  themselves.
+  ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
+
 ### Refactor
 
 - [**breaking**] Reactions on a given timeline item have been moved from

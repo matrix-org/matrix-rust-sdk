@@ -67,3 +67,6 @@ Additions:
 - Expose `report_room` to `Room`
 - Add `RoomInfo::encryption_state`
   ([#4788](https://github.com/matrix-org/matrix-rust-sdk/pull/4788))
+- Add `Timeline::send_thread_reply` for clients that need to start threads
+  themselves.
+  ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
