@@ -256,10 +256,14 @@ impl Timeline {
             .await
             .context("can't subscribe to the back-pagination status on a focused timeline")?;
 
-        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            // Send the current state even if it hasn't changed right away.
-            listener.on_update(initial);
+        // Send the current state even if it hasn't changed right away.
+        //
+        // Note: don't do it in the spawned function, so that the caller is immediately
+        // aware of the current state, and this doesn't depend on the async runtime
+        // having an available worker
+        listener.on_update(initial);
 
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(status) = subscriber.next().await {
                 listener.on_update(status);
             }
