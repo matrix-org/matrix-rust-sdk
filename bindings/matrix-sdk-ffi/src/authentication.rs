@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{self, Debug},
-    path::Path,
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -165,10 +165,10 @@ impl OidcConfiguration {
         Raw::new(&metadata).map_err(|_| OidcError::MetadataInvalid)
     }
 
-    pub fn registrations(&self) -> Result<OAuthRegistrationStore, OidcError> {
+    pub async fn registrations(&self) -> Result<OAuthRegistrationStore, OidcError> {
         let client_metadata = self.client_metadata()?;
 
-        let registrations_file = Path::new(&self.dynamic_registrations_file);
+        let registrations_file = PathBuf::from(&self.dynamic_registrations_file);
         let static_registrations = self
             .static_registrations
             .iter()
@@ -181,7 +181,8 @@ impl OidcConfiguration {
             })
             .collect();
 
-        Ok(OAuthRegistrationStore::new(registrations_file, client_metadata, static_registrations)?)
+        Ok(OAuthRegistrationStore::new(registrations_file, client_metadata, static_registrations)
+            .await?)
     }
 }
 

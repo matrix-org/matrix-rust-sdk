@@ -504,6 +504,7 @@ impl OAuth {
 
         if self
             .load_client_registration(issuer, &registrations)
+            .await
             .map_err(OAuthClientRegistrationError::from)?
         {
             tracing::info!("OAuth 2.0 configuration loaded from disk.");
@@ -515,6 +516,7 @@ impl OAuth {
 
         tracing::info!("Persisting OAuth 2.0 registration data.");
         self.store_client_registration(response.client_id, &registrations)
+            .await
             .map_err(OAuthClientRegistrationError::from)?;
 
         Ok(())
@@ -522,14 +524,14 @@ impl OAuth {
 
     /// Stores the current OAuth 2.0 dynamic client registration so it can be
     /// re-used if we ever log in via the same issuer again.
-    fn store_client_registration(
+    async fn store_client_registration(
         &self,
         client_id: ClientId,
         registrations: &OAuthRegistrationStore,
     ) -> std::result::Result<(), OAuthRegistrationStoreError> {
         let issuer = self.issuer().expect("issuer should be set after registration").to_owned();
 
-        registrations.set_and_write_client_id(client_id, issuer)?;
+        registrations.set_and_write_client_id(client_id, issuer).await?;
 
         Ok(())
     }
@@ -538,12 +540,12 @@ impl OAuth {
     /// given issuer.
     ///
     /// Returns `true` if an existing registration was found and `false` if not.
-    fn load_client_registration(
+    async fn load_client_registration(
         &self,
         issuer: Url,
         registrations: &OAuthRegistrationStore,
     ) -> Result<bool, OAuthRegistrationStoreError> {
-        let Some(client_id) = registrations.client_id(&issuer)? else {
+        let Some(client_id) = registrations.client_id(&issuer).await? else {
             return Ok(false);
         };
 

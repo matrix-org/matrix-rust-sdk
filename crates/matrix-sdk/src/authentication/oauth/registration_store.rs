@@ -25,12 +25,13 @@ use std::{
     fs,
     fs::File,
     io::{BufReader, BufWriter, ErrorKind},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use oauth2::ClientId;
 use ruma::serde::Raw;
 use serde::{Deserialize, Serialize};
+use tokio::task::spawn_blocking;
 use url::Url;
 
 use super::ClientMetadata;
@@ -104,15 +105,19 @@ impl OAuthRegistrationStore {
     ///
     /// * `static_registrations` - Pre-configured registrations for use with
     ///   servers that don't support dynamic client registration.
-    pub fn new(
-        file: &Path,
+    pub async fn new(
+        file: PathBuf,
         metadata: Raw<ClientMetadata>,
         static_registrations: HashMap<Url, ClientId>,
     ) -> Result<Self, OAuthRegistrationStoreError> {
-        let parent = file.parent().ok_or(OAuthRegistrationStoreError::NotAFilePath)?;
-        fs::create_dir_all(parent)?;
+        spawn_blocking(move || {
+            let parent = file.parent().ok_or(OAuthRegistrationStoreError::NotAFilePath)?;
+            fs::create_dir_all(parent)?;
 
-        Ok(OAuthRegistrationStore { file_path: file.to_owned(), metadata, static_registrations })
+            Ok(OAuthRegistrationStore { file_path: file, metadata, static_registrations })
+        })
+        .await
+        .expect("Task join error")
     }
 
     /// Returns the client ID registered for a particular issuer or `None` if a
@@ -126,12 +131,15 @@ impl OAuthRegistrationStore {
     ///
     /// Returns an error if the file could not be read, or if the data in the
     /// file could not be deserialized.
-    pub fn client_id(&self, issuer: &Url) -> Result<Option<ClientId>, OAuthRegistrationStoreError> {
+    pub async fn client_id(
+        &self,
+        issuer: &Url,
+    ) -> Result<Option<ClientId>, OAuthRegistrationStoreError> {
         if let Some(client_id) = self.static_registrations.get(issuer) {
             return Ok(Some(client_id.clone()));
         }
 
-        let data = self.read_registration_data()?;
+        let data = self.read_registration_data().await?;
         Ok(data.and_then(|mut data| data.dynamic_registrations.remove(issuer)))
     }
 
@@ -150,12 +158,12 @@ impl OAuthRegistrationStore {
     ///
     /// Returns an error if the file could not be read from or written to, or if
     /// the data in the file could not be (de)serialized.
-    pub fn set_and_write_client_id(
+    pub async fn set_and_write_client_id(
         &self,
         client_id: ClientId,
         issuer: Url,
     ) -> Result<(), OAuthRegistrationStoreError> {
-        let mut data = self.read_registration_data()?.unwrap_or_else(|| {
+        let mut data = self.read_registration_data().await?.unwrap_or_else(|| {
             tracing::info!("Generating new OAuth 2.0 client registration data");
             FrozenRegistrationData {
                 metadata: self.metadata.clone(),
@@ -164,8 +172,14 @@ impl OAuthRegistrationStore {
         });
         data.dynamic_registrations.insert(issuer, client_id);
 
-        let writer = BufWriter::new(File::create(&self.file_path)?);
-        serde_json::to_writer(writer, &data).map_err(OAuthRegistrationStoreError::IntoJson)
+        let file_path = self.file_path.clone();
+
+        spawn_blocking(move || {
+            let writer = BufWriter::new(File::create(&file_path)?);
+            serde_json::to_writer(writer, &data).map_err(OAuthRegistrationStoreError::IntoJson)
+        })
+        .await
+        .expect("Task join error")
     }
 
     /// The persisted registration data.
@@ -174,44 +188,56 @@ impl OAuthRegistrationStore {
     ///
     /// Returns an error if the file could not be read, or if the data in the
     /// file could not be deserialized.
-    fn read_registration_data(
+    async fn read_registration_data(
         &self,
     ) -> Result<Option<FrozenRegistrationData>, OAuthRegistrationStoreError> {
-        let file = match File::open(&self.file_path) {
-            Ok(file) => file,
-            Err(error) => {
-                if error.kind() == ErrorKind::NotFound {
-                    // The file doesn't exist so there is no data.
-                    return Ok(None);
+        let file_path = self.file_path.clone();
+
+        let registration_data = spawn_blocking(move || {
+            let file = match File::open(&file_path) {
+                Ok(file) => file,
+                Err(error) => {
+                    if error.kind() == ErrorKind::NotFound {
+                        // The file doesn't exist so there is no data.
+                        return Ok::<_, OAuthRegistrationStoreError>(None);
+                    }
+
+                    // Forward the error.
+                    return Err(error.into());
                 }
+            };
 
-                // Forward the error.
-                return Err(error.into());
+            let registration_data: FrozenRegistrationData =
+                serde_json::from_reader(BufReader::new(file))
+                    .map_err(OAuthRegistrationStoreError::FromJson)?;
+
+            Ok(Some(registration_data))
+        })
+        .await
+        .expect("Task join error")?;
+
+        Ok(registration_data.filter(|registration_data| {
+            let changed = registration_data.metadata.json().get() != self.metadata.json().get();
+
+            if changed {
+                tracing::info!("Metadata mismatch, ignoring any stored registrations.");
             }
-        };
 
-        let registration_data: FrozenRegistrationData =
-            serde_json::from_reader(BufReader::new(file))
-                .map_err(OAuthRegistrationStoreError::FromJson)?;
-
-        if registration_data.metadata.json().get() != self.metadata.json().get() {
-            tracing::info!("Metadata mismatch, ignoring any stored registrations.");
-            return Ok(None);
-        }
-
-        Ok(Some(registration_data))
+            !changed
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk_test::async_test;
     use tempfile::tempdir;
 
     use super::*;
     use crate::authentication::oauth::registration::{ApplicationType, Localized, OAuthGrantType};
 
-    #[test]
-    fn test_oauth_registration_store() {
+    #[async_test]
+    async fn test_oauth_registration_store() {
         // Given a fresh registration store with a single static registration.
         let dir = tempdir().unwrap();
         let registrations_file = dir.path().join("oauth").join("registrations.json");
@@ -227,23 +253,27 @@ mod tests {
         let oidc_metadata = mock_metadata("Example".to_owned());
 
         let registrations =
-            OAuthRegistrationStore::new(&registrations_file, oidc_metadata, static_registrations)
+            OAuthRegistrationStore::new(registrations_file, oidc_metadata, static_registrations)
+                .await
                 .unwrap();
 
-        assert_eq!(registrations.client_id(&static_url).unwrap(), Some(static_id.clone()));
-        assert_eq!(registrations.client_id(&dynamic_url).unwrap(), None);
+        assert_eq!(registrations.client_id(&static_url).await.unwrap(), Some(static_id.clone()));
+        assert_eq!(registrations.client_id(&dynamic_url).await.unwrap(), None);
 
         // When a dynamic registration is added.
-        registrations.set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone()).unwrap();
+        registrations
+            .set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone())
+            .await
+            .unwrap();
 
         // Then the dynamic registration should be stored and the static registration
         // should be unaffected.
-        assert_eq!(registrations.client_id(&static_url).unwrap(), Some(static_id));
-        assert_eq!(registrations.client_id(&dynamic_url).unwrap(), Some(dynamic_id));
+        assert_eq!(registrations.client_id(&static_url).await.unwrap(), Some(static_id));
+        assert_eq!(registrations.client_id(&dynamic_url).await.unwrap(), Some(dynamic_id));
     }
 
-    #[test]
-    fn test_change_of_metadata() {
+    #[async_test]
+    async fn test_change_of_metadata() {
         // Given a single registration with an example app name.
         let dir = tempdir().unwrap();
         let registrations_file = dir.path().join("oidc").join("registrations.json");
@@ -259,29 +289,34 @@ mod tests {
         static_registrations.insert(static_url.clone(), static_id.clone());
 
         let registrations = OAuthRegistrationStore::new(
-            &registrations_file,
+            registrations_file.clone(),
             oidc_metadata,
             static_registrations.clone(),
         )
+        .await
         .unwrap();
-        registrations.set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone()).unwrap();
+        registrations
+            .set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone())
+            .await
+            .unwrap();
 
-        assert_eq!(registrations.client_id(&static_url).unwrap(), Some(static_id.clone()));
-        assert_eq!(registrations.client_id(&dynamic_url).unwrap(), Some(dynamic_id));
+        assert_eq!(registrations.client_id(&static_url).await.unwrap(), Some(static_id.clone()));
+        assert_eq!(registrations.client_id(&dynamic_url).await.unwrap(), Some(dynamic_id));
 
         // When the app name changes.
         let new_oidc_metadata = mock_metadata("New App".to_owned());
 
         let registrations = OAuthRegistrationStore::new(
-            &registrations_file,
+            registrations_file,
             new_oidc_metadata,
             static_registrations,
         )
+        .await
         .unwrap();
 
         // Then the dynamic registrations are cleared.
-        assert_eq!(registrations.client_id(&dynamic_url).unwrap(), None);
-        assert_eq!(registrations.client_id(&static_url).unwrap(), Some(static_id));
+        assert_eq!(registrations.client_id(&dynamic_url).await.unwrap(), None);
+        assert_eq!(registrations.client_id(&static_url).await.unwrap(), Some(static_id));
     }
 
     fn mock_metadata(client_name: String) -> Raw<ClientMetadata> {
