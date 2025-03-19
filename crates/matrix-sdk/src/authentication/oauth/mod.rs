@@ -1081,25 +1081,31 @@ impl OAuth {
         // Get the user ID.
         let whoami_res = self.client.whoami().await.map_err(crate::Error::from)?;
 
-        let session = SessionMeta {
+        let new_session = SessionMeta {
             user_id: whoami_res.user_id,
             device_id: whoami_res.device_id.ok_or(OAuthError::MissingDeviceId)?,
         };
 
-        self.client
-            .set_session_meta(
-                session,
-                #[cfg(feature = "e2e-encryption")]
-                None,
-            )
-            .await?;
-        // At this point the Olm machine has been set up.
+        if let Some(current_session) = self.client.session_meta() {
+            if new_session != *current_session {
+                return Err(OAuthError::SessionMismatch.into());
+            }
+        } else {
+            self.client
+                .set_session_meta(
+                    new_session,
+                    #[cfg(feature = "e2e-encryption")]
+                    None,
+                )
+                .await?;
+            // At this point the Olm machine has been set up.
 
-        // Enable the cross-process lock for refreshes, if needs be.
-        self.enable_cross_process_lock().await.map_err(OAuthError::from)?;
+            // Enable the cross-process lock for refreshes, if needs be.
+            self.enable_cross_process_lock().await.map_err(OAuthError::from)?;
 
-        #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().spawn_initialization_task(None);
+            #[cfg(feature = "e2e-encryption")]
+            self.client.encryption().spawn_initialization_task(None);
+        }
 
         Ok(())
     }

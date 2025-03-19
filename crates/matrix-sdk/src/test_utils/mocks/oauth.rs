@@ -295,12 +295,17 @@ impl<'a> MockEndpoint<'a, DeviceAuthorizationEndpoint> {
 pub struct TokenEndpoint;
 
 impl<'a> MockEndpoint<'a, TokenEndpoint> {
-    /// Returns a successful token response.
+    /// Returns a successful token response with the default tokens.
     pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_with_tokens("1234", "ZYXWV")
+    }
+
+    /// Returns a successful token response with custom tokens.
+    pub fn ok_with_tokens(self, access_token: &str, refresh_token: &str) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "access_token": "1234",
+            "access_token": access_token,
             "expires_in": 300,
-            "refresh_token": "ZYXWV",
+            "refresh_token":  refresh_token,
             "token_type": "Bearer"
         })))
     }

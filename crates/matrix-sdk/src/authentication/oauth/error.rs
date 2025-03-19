@@ -94,6 +94,14 @@ pub enum OAuthError {
     #[error(transparent)]
     LockError(#[from] CrossProcessRefreshLockError),
 
+    /// The user logged into a session that is different than the one the client
+    /// is already using.
+    ///
+    /// This only happens if the session was already restored, and the user logs
+    /// into a new session that is different than the old one.
+    #[error("new logged-in session is different than current client session")]
+    SessionMismatch,
+
     /// An unknown error occurred.
     #[error("unknown error")]
     UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
