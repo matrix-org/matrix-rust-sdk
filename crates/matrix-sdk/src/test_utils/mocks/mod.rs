@@ -147,10 +147,10 @@ impl MatrixMockServer {
         &self.server
     }
 
-    /// Get an `OauthMockServer` that uses the same mock server as this one.
+    /// Get an `OAuthMockServer` that uses the same mock server as this one.
     #[cfg(feature = "experimental-oidc")]
-    pub fn oauth(&self) -> oauth::OauthMockServer<'_> {
-        oauth::OauthMockServer::new(self)
+    pub fn oauth(&self) -> oauth::OAuthMockServer<'_> {
+        oauth::OAuthMockServer::new(self)
     }
 
     /// Mock the given endpoint.

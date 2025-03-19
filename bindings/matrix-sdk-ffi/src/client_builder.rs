@@ -3,7 +3,7 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::oidc::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
+    authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
     crypto::{
         types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
         CollectStrategy, TrustRequirement,
@@ -104,7 +104,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 _ => HumanQrLoginError::Unknown,
             },
 
-            QRCodeLoginError::Oauth(e) => {
+            QRCodeLoginError::OAuth(e) => {
                 if let Some(e) = e.as_request_token_error() {
                     match e {
                         DeviceCodeErrorResponseType::AccessDenied => HumanQrLoginError::Declined,
@@ -692,8 +692,8 @@ impl ClientBuilder {
             .client_metadata()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
-        let oidc = client.inner.oidc();
-        let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
+        let oauth = client.inner.oauth();
+        let login = oauth.login_with_qr_code(&qr_code_data.inner, client_metadata);
 
         let mut progress = login.subscribe_to_progress();
 

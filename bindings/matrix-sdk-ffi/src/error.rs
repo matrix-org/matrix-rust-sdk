@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt, fmt::Display, time::SystemTime};
 
 use matrix_sdk::{
-    authentication::oidc::OidcError, encryption::CryptoStoreError, event_cache::EventCacheError,
+    authentication::oauth::OAuthError, encryption::CryptoStoreError, event_cache::EventCacheError,
     reqwest, room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,
@@ -137,8 +137,8 @@ impl From<sync_service::Error> for ClientError {
     }
 }
 
-impl From<OidcError> for ClientError {
-    fn from(e: OidcError) -> Self {
+impl From<OAuthError> for ClientError {
+    fn from(e: OAuthError) -> Self {
         Self::new(e)
     }
 }

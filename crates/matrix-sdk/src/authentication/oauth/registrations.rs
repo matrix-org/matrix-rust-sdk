@@ -166,7 +166,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::authentication::oidc::registration::{ApplicationType, Localized, OauthGrantType};
+    use crate::authentication::oauth::registration::{ApplicationType, Localized, OAuthGrantType};
 
     #[test]
     fn test_oidc_registrations() {
@@ -245,7 +245,7 @@ mod tests {
 
         let mut metadata = ClientMetadata::new(
             ApplicationType::Web,
-            vec![OauthGrantType::AuthorizationCode { redirect_uris: vec![callback_url] }],
+            vec![OAuthGrantType::AuthorizationCode { redirect_uris: vec![callback_url] }],
             Localized::new(client_uri, None),
         );
         metadata.client_name = Some(Localized::new(client_name, None));

@@ -24,17 +24,17 @@ use ruma::{
 use url::Url;
 
 use super::{
-    error::OauthDiscoveryError,
+    error::OAuthDiscoveryError,
     http_client::{check_http_response_json_content_type, check_http_response_status_code},
-    OauthHttpClient,
+    OAuthHttpClient,
 };
 
 /// Fetch the OpenID Connect provider metadata.
 pub(super) async fn discover(
-    http_client: &OauthHttpClient,
+    http_client: &OAuthHttpClient,
     issuer: &str,
-) -> Result<Raw<AuthorizationServerMetadata>, OauthDiscoveryError> {
-    tracing::debug!("Fetching provider metadata...");
+) -> Result<Raw<AuthorizationServerMetadata>, OAuthDiscoveryError> {
+    tracing::debug!("Fetching OpenID Connect provider metadata...");
 
     let mut url = Url::parse(issuer)?;
 

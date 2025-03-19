@@ -49,6 +49,10 @@ simpler methods:
   ```rust
   room.latest_encryption_state().await?.is_encrypted()
   ```
+- `LocalServerBuilder`, behind the `local-server` feature, can be used to spawn
+  a server when the end-user needs to be redirected to an address on localhost.
+  It was used for `SsoLoginBuilder` and can now be used in other cases, like for
+  login with the OAuth 2.0 API.
 
 ### Bug Fixes
 
@@ -90,7 +94,7 @@ simpler methods:
   - `Oidc::fetch_authentication_issuer()` was removed. To check if the
     homeserver supports OAuth 2.0, use `Oidc::provider_metadata()`. To get the
     issuer, use `VerifiedProviderMetadata::issuer()`.
-  - `Oidc::provider_metadata()` returns an `OauthDiscoveryError`. It has a
+  - `Oidc::provider_metadata()` returns an `OAuthDiscoveryError`. It has a
     `NotSupported` variant and an `is_not_supported()` method to check if the
     error is due to the server not supporting OAuth 2.0.
   - `OidcError::MissingAuthenticationIssuer` was removed.
@@ -150,6 +154,22 @@ simpler methods:
   However it now takes the redirect URI to use, instead of always using the
   first one in the client metadata.
   ([#4771](https://github.com/matrix-org/matrix-rust-sdk/pull/4771))
+- [**breaking**] The `server_url` and `server_response` methods of
+  `SsoLoginBuilder` are replaced by `server_builder()`, which allows more
+  fine-grained settings for the server.
+- [**breaking**]: Rename the `Oidc` API to `OAuth`, since it's using almost
+  exclusively OAuth 2.0 rather than OpenID Connect.
+  ([#4805](https://github.com/matrix-org/matrix-rust-sdk/pull/4805))
+  - The `oidc` module was renamed to `oauth`.
+  - `Client::oidc()` was renamed to `Client::oauth()` and the `AuthApi::Oidc`
+    variant was renamed to `AuthApi::OAuth`.
+  - `OidcSession` was renamed to `OAuthSession` and the `AuthSession::Oidc`
+    variant was renamed to `AuthSession::OAuth`.
+  - `OidcAuthCodeUrlBuilder` and `OidcAuthorizationData` were renamed to
+    `OAuthAuthCodeUrlBuilder` and `OAuthAuthorizationData`.
+  - `OidcError` was renamed to `OAuthError` and the `RefreshTokenError::Oidc`
+    variant was renamed to `RefreshTokenError::OAuth`.
+  - `Oidc::provider_metadata()` was renamed to `OAuth::server_metadata()`.
 
 ## [0.10.0] - 2025-02-04
 

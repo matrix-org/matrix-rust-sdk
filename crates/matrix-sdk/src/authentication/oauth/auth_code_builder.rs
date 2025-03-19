@@ -15,31 +15,31 @@
 use std::borrow::Cow;
 
 use oauth2::{
-    basic::BasicClient as OauthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
+    basic::BasicClient as OAuthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
 };
 use ruma::{api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, UserId};
 use tracing::{info, instrument};
 use url::Url;
 
-use super::{Oidc, OidcError};
-use crate::{authentication::oidc::AuthorizationValidationData, Result};
+use super::{OAuth, OAuthError};
+use crate::{authentication::oauth::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
-/// OpenID Connect Provider via the Authorization Code flow.
+/// OAuth 2.0 authorization server via the Authorization Code flow.
 ///
-/// Created with [`Oidc::login()`]. Finalized with [`Self::build()`].
+/// Created with [`OAuth::login()`]. Finalized with [`Self::build()`].
 #[allow(missing_debug_implementations)]
-pub struct OidcAuthCodeUrlBuilder {
-    oidc: Oidc,
+pub struct OAuthAuthCodeUrlBuilder {
+    oauth: OAuth,
     scopes: Vec<Scope>,
     redirect_uri: Url,
     prompt: Option<Vec<Prompt>>,
     login_hint: Option<String>,
 }
 
-impl OidcAuthCodeUrlBuilder {
-    pub(super) fn new(oidc: Oidc, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
-        Self { oidc, scopes, redirect_uri, prompt: None, login_hint: None }
+impl OAuthAuthCodeUrlBuilder {
+    pub(super) fn new(oauth: OAuth, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
+        Self { oauth, scopes, redirect_uri, prompt: None, login_hint: None }
     }
 
     /// Set the [`Prompt`] of the authorization URL.
@@ -68,28 +68,28 @@ impl OidcAuthCodeUrlBuilder {
     ///
     /// This URL should be presented to the user and once they are redirected to
     /// the `redirect_uri`, the authorization can be completed by calling
-    /// [`Oidc::finish_authorization()`].
+    /// [`OAuth::finish_authorization()`].
     ///
     /// Returns an error if the client registration was not restored, or if a
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
-    pub async fn build(self) -> Result<OidcAuthorizationData, OidcError> {
-        let Self { oidc, scopes, redirect_uri, prompt, login_hint } = self;
+    pub async fn build(self) -> Result<OAuthAuthorizationData, OAuthError> {
+        let Self { oauth, scopes, redirect_uri, prompt, login_hint } = self;
 
-        let data = oidc.data().ok_or(OidcError::NotAuthenticated)?;
+        let data = oauth.data().ok_or(OAuthError::NotAuthenticated)?;
         info!(
             issuer = data.issuer.as_str(),
             ?scopes,
-            "Authorizing scope via the OpenID Connect Authorization Code flow"
+            "Authorizing scope via the OAuth 2.0 Authorization Code flow"
         );
 
-        let provider_metadata = oidc.provider_metadata().await?;
-        let auth_url = AuthUrl::from_url(provider_metadata.authorization_endpoint);
+        let server_metadata = oauth.server_metadata().await?;
+        let auth_url = AuthUrl::from_url(server_metadata.authorization_endpoint);
 
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
         let redirect_uri = RedirectUrl::from_url(redirect_uri);
 
-        let client = OauthClient::new(data.client_id.clone()).set_auth_uri(auth_url);
+        let client = OAuthClient::new(data.client_id.clone()).set_auth_uri(auth_url);
         let mut request = client
             .authorize_url(CsrfToken::new_random)
             .add_scopes(scopes)
@@ -113,14 +113,14 @@ impl OidcAuthCodeUrlBuilder {
             .await
             .insert(state.clone(), AuthorizationValidationData { redirect_uri, pkce_verifier });
 
-        Ok(OidcAuthorizationData { url, state })
+        Ok(OAuthAuthorizationData { url, state })
     }
 }
 
-/// The data needed to perform authorization using OpenID Connect.
+/// The data needed to perform authorization using OAuth 2.0.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
-pub struct OidcAuthorizationData {
+pub struct OAuthAuthorizationData {
     /// The URL that should be presented.
     pub url: Url,
     /// A unique identifier for the request, used to ensure the response
@@ -130,7 +130,7 @@ pub struct OidcAuthorizationData {
 
 #[cfg(feature = "uniffi")]
 #[matrix_sdk_ffi_macros::export]
-impl OidcAuthorizationData {
+impl OAuthAuthorizationData {
     /// The login URL to use for authorization.
     pub fn login_url(&self) -> String {
         self.url.to_string()

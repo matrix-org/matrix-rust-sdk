@@ -275,7 +275,7 @@ impl CrossSigningResetHandle {
     }
 
     /// Continue the cross-signing reset by either waiting for the
-    /// authentication to be done on the side of the OIDC issuer or by
+    /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
     pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
         let mut upload_request = self.upload_request.clone();
@@ -308,9 +308,9 @@ impl CrossSigningResetHandle {
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
     Uiaa(UiaaInfo),
-    /// OIDC is used for authentication and the user needs to open a URL to
+    /// OAuth 2.0 is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
-    Oidc(OidcCrossSigningResetInfo),
+    OAuth(OAuthCrossSigningResetInfo),
 }
 
 impl CrossSigningResetAuthType {
@@ -321,9 +321,9 @@ impl CrossSigningResetAuthType {
     ) -> Result<Option<Self>> {
         if let Some(auth_info) = error.as_uiaa_response() {
             #[cfg(feature = "experimental-oidc")]
-            if client.oidc().issuer().is_some() {
-                OidcCrossSigningResetInfo::from_auth_info(client, auth_info)
-                    .map(|t| Some(CrossSigningResetAuthType::Oidc(t)))
+            if client.oauth().issuer().is_some() {
+                OAuthCrossSigningResetInfo::from_auth_info(client, auth_info)
+                    .map(|t| Some(CrossSigningResetAuthType::OAuth(t)))
             } else {
                 Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
             }
@@ -336,25 +336,25 @@ impl CrossSigningResetAuthType {
     }
 }
 
-/// OIDC specific information about the required authentication for the upload
-/// of cross-signing keys.
+/// OAuth 2.0 specific information about the required authentication for the
+/// upload of cross-signing keys.
 #[derive(Debug, Clone, Deserialize)]
-pub struct OidcCrossSigningResetInfo {
+pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: Url,
 }
 
-impl OidcCrossSigningResetInfo {
+impl OAuthCrossSigningResetInfo {
     #[cfg(feature = "experimental-oidc")]
     fn from_auth_info(
-        // This is used if the OIDC feature is enabled.
+        // This is used if the OAuth 2.0 feature is enabled.
         #[allow(unused_variables)] client: &Client,
         auth_info: &UiaaInfo,
     ) -> Result<Self> {
         let parameters =
-            serde_json::from_str::<OidcCrossSigningResetUiaaParameters>(auth_info.params.get())?;
+            serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(auth_info.params.get())?;
 
-        Ok(OidcCrossSigningResetInfo { approval_url: parameters.reset.url })
+        Ok(OAuthCrossSigningResetInfo { approval_url: parameters.reset.url })
     }
 }
 
@@ -362,17 +362,17 @@ impl OidcCrossSigningResetInfo {
 /// response
 #[cfg(feature = "experimental-oidc")]
 #[derive(Debug, Deserialize)]
-struct OidcCrossSigningResetUiaaParameters {
+struct OAuthCrossSigningResetUiaaParameters {
     /// The URL where the user can approve the reset of the cross-signing keys.
     #[serde(rename = "org.matrix.cross_signing_reset")]
-    reset: OidcCrossSigningResetUiaaResetParameter,
+    reset: OAuthCrossSigningResetUiaaResetParameter,
 }
 
 /// The `org.matrix.cross_signing_reset` part of the Uiaa response `parameters``
 /// dictionary.
 #[cfg(feature = "experimental-oidc")]
 #[derive(Debug, Deserialize)]
-struct OidcCrossSigningResetUiaaResetParameter {
+struct OAuthCrossSigningResetUiaaResetParameter {
     /// The URL where the user can approve the reset of the cross-signing keys.
     url: Url,
 }
@@ -1176,7 +1176,7 @@ impl Encryption {
     ///
     ///             handle.auth(Some(uiaa::AuthData::Password(password))).await?;
     ///         }
-    ///         CrossSigningResetAuthType::Oidc(o) => {
+    ///         CrossSigningResetAuthType::OAuth(o) => {
     ///             println!(
     ///                 "To reset your end-to-end encryption cross-signing identity, \
     ///                 you first need to approve it at {}",

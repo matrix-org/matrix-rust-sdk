@@ -53,14 +53,14 @@ impl MockClientBuilder {
     /// The client is registered with the OAuth 2.0 API.
     #[cfg(feature = "experimental-oidc")]
     pub fn registered_with_oauth(mut self, issuer: impl Into<String>) -> Self {
-        self.auth_state = AuthState::RegisteredWithOauth { issuer: issuer.into() };
+        self.auth_state = AuthState::RegisteredWithOAuth { issuer: issuer.into() };
         self
     }
 
     /// The user is already logged in with the OAuth 2.0 API.
     #[cfg(feature = "experimental-oidc")]
     pub fn logged_in_with_oauth(mut self, issuer: impl Into<String>) -> Self {
-        self.auth_state = AuthState::LoggedInWithOauth { issuer: issuer.into() };
+        self.auth_state = AuthState::LoggedInWithOAuth { issuer: issuer.into() };
         self
     }
 
@@ -102,10 +102,10 @@ enum AuthState {
     LoggedInWithMatrixAuth,
     /// The client is registered with the OAuth 2.0 API.
     #[cfg(feature = "experimental-oidc")]
-    RegisteredWithOauth { issuer: String },
+    RegisteredWithOAuth { issuer: String },
     /// The client is logged in with the OAuth 2.0 API.
     #[cfg(feature = "experimental-oidc")]
-    LoggedInWithOauth { issuer: String },
+    LoggedInWithOAuth { issuer: String },
 }
 
 impl AuthState {
@@ -118,14 +118,14 @@ impl AuthState {
                 client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
             }
             #[cfg(feature = "experimental-oidc")]
-            AuthState::RegisteredWithOauth { issuer } => {
+            AuthState::RegisteredWithOAuth { issuer } => {
                 let issuer = url::Url::parse(&issuer).unwrap();
-                client.oidc().restore_registered_client(issuer, oauth::mock_client_id());
+                client.oauth().restore_registered_client(issuer, oauth::mock_client_id());
             }
             #[cfg(feature = "experimental-oidc")]
-            AuthState::LoggedInWithOauth { issuer } => {
+            AuthState::LoggedInWithOAuth { issuer } => {
                 client
-                    .oidc()
+                    .oauth()
                     .restore_session(oauth::mock_session(
                         mock_session_tokens_with_refresh(),
                         issuer,
@@ -178,10 +178,10 @@ pub mod oauth {
     use url::Url;
 
     use crate::{
-        authentication::oidc::{
-            registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+        authentication::oauth::{
+            registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
             registrations::ClientId,
-            OidcSession, UserSession,
+            OAuthSession, UserSession,
         },
         SessionTokens,
     };
@@ -205,8 +205,8 @@ pub mod oauth {
         let mut metadata = ClientMetadata::new(
             ApplicationType::Native,
             vec![
-                OauthGrantType::AuthorizationCode { redirect_uris: vec![mock_redirect_uri()] },
-                OauthGrantType::DeviceCode,
+                OAuthGrantType::AuthorizationCode { redirect_uris: vec![mock_redirect_uri()] },
+                OAuthGrantType::DeviceCode,
             ],
             Localized::new(client_uri, None),
         );
@@ -215,11 +215,11 @@ pub mod oauth {
         Raw::new(&metadata).expect("client metadata should serialize successfully")
     }
 
-    /// An [`OidcSession`] to restore, for unit or integration tests.
-    pub fn mock_session(tokens: SessionTokens, issuer: impl AsRef<str>) -> OidcSession {
+    /// An [`OAuthSession`] to restore, for unit or integration tests.
+    pub fn mock_session(tokens: SessionTokens, issuer: impl AsRef<str>) -> OAuthSession {
         let issuer = Url::parse(issuer.as_ref()).unwrap();
 
-        OidcSession {
+        OAuthSession {
             client_id: mock_client_id(),
             user: UserSession { meta: super::mock_session_meta(), tokens, issuer },
         }

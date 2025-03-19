@@ -4,9 +4,9 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::oidc::{
+    authentication::oauth::{
         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
-        registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+        registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
     },
     ruma::serde::Raw,
     Client,
@@ -54,7 +54,7 @@ fn client_metadata() -> Raw<ClientMetadata> {
             // browser).
             ApplicationType::Native,
             // We are going to use the Device Authorization flow.
-            vec![OauthGrantType::DeviceCode],
+            vec![OAuthGrantType::DeviceCode],
             client_uri,
         )
     };
@@ -118,9 +118,9 @@ async fn login(proxy: Option<Url>) -> Result<()> {
     let client = client.build().await?;
 
     let metadata = client_metadata();
-    let oidc = client.oidc();
+    let oauth = client.oauth();
 
-    let login_client = oidc.login_with_qr_code(&data, metadata);
+    let login_client = oauth.login_with_qr_code(&data, metadata);
     let mut subscriber = login_client.subscribe_to_progress();
 
     let task = tokio::spawn(async move {

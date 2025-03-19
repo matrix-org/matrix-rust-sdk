@@ -7,8 +7,8 @@ use std::{
 use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
-    authentication::oidc::{
-        registrations::ClientId, AccountManagementActionFull, OidcAuthorizationData, OidcSession,
+    authentication::oauth::{
+        registrations::ClientId, AccountManagementActionFull, OAuthAuthorizationData, OAuthSession,
     },
     event_cache::EventCacheError,
     media::{
@@ -245,7 +245,7 @@ impl Client {
 
             client
                 .inner
-                .oidc()
+                .oauth()
                 .enable_cross_process_refresh_lock(cross_process_store_locks_holder_name)
                 .await?;
         }
@@ -278,8 +278,8 @@ impl Client {
 impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
-        let oidc = self.inner.oidc();
-        let (supports_oidc_login, supported_oidc_prompts) = match oidc.provider_metadata().await {
+        let oauth = self.inner.oauth();
+        let (supports_oidc_login, supported_oidc_prompts) = match oauth.server_metadata().await {
             Ok(metadata) => {
                 let prompts =
                     metadata.prompt_values_supported.into_iter().map(Into::into).collect();
@@ -406,13 +406,13 @@ impl Client {
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
-    ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
+    ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registrations = oidc_configuration.registrations()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
         let data = self
             .inner
-            .oidc()
+            .oauth()
             .url_for_oidc(registrations, redirect_uri, prompt.map(Into::into))
             .await?;
 
@@ -421,19 +421,19 @@ impl Client {
 
     /// Aborts an existing OIDC login operation that might have been cancelled,
     /// failed etc.
-    pub async fn abort_oidc_auth(&self, authorization_data: Arc<OidcAuthorizationData>) {
-        self.inner.oidc().abort_authorization(&authorization_data.state).await;
+    pub async fn abort_oidc_auth(&self, authorization_data: Arc<OAuthAuthorizationData>) {
+        self.inner.oauth().abort_authorization(&authorization_data.state).await;
     }
 
     /// Completes the OIDC login process.
     pub async fn login_with_oidc_callback(
         &self,
-        authorization_data: Arc<OidcAuthorizationData>,
+        authorization_data: Arc<OAuthAuthorizationData>,
         callback_url: String,
     ) -> Result<(), OidcError> {
         let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
 
-        self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await?;
+        self.inner.oauth().login_with_oidc_callback(&authorization_data, url).await?;
 
         Ok(())
     }
@@ -604,11 +604,11 @@ impl Client {
         &self,
         action: Option<AccountManagementAction>,
     ) -> Result<Option<String>, ClientError> {
-        if !matches!(self.inner.auth_api(), Some(AuthApi::Oidc(..))) {
+        if !matches!(self.inner.auth_api(), Some(AuthApi::OAuth(..))) {
             return Ok(None);
         }
 
-        match self.inner.oidc().account_management_url(action.map(Into::into)).await {
+        match self.inner.oauth().account_management_url(action.map(Into::into)).await {
             Ok(url) => Ok(url.map(|u| u.to_string())),
             Err(e) => {
                 tracing::error!("Failed retrieving account management URL: {e}");
@@ -802,8 +802,8 @@ impl Client {
                 Ok(())
             }
 
-            AuthApi::Oidc(api) => {
-                tracing::info!("Logging out via OIDC.");
+            AuthApi::OAuth(api) => {
+                tracing::info!("Logging out via OAuth 2.0.");
                 api.logout().await?;
                 Ok(())
             }
@@ -1602,8 +1602,8 @@ impl Session {
                 })
             }
             // Build the session from the OIDC UserSession.
-            AuthApi::Oidc(api) => {
-                let matrix_sdk::authentication::oidc::UserSession {
+            AuthApi::OAuth(api) => {
+                let matrix_sdk::authentication::oauth::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                     issuer,
@@ -1648,7 +1648,7 @@ impl TryFrom<Session> for AuthSession {
             // Create an OidcSession.
             let oidc_data = serde_json::from_str::<OidcSessionData>(&oidc_data)?;
 
-            let user_session = matrix_sdk::authentication::oidc::UserSession {
+            let user_session = matrix_sdk::authentication::oauth::UserSession {
                 meta: matrix_sdk::SessionMeta {
                     user_id: user_id.try_into()?,
                     device_id: device_id.into(),
@@ -1657,9 +1657,9 @@ impl TryFrom<Session> for AuthSession {
                 issuer: oidc_data.issuer,
             };
 
-            let session = OidcSession { client_id: oidc_data.client_id, user: user_session };
+            let session = OAuthSession { client_id: oidc_data.client_id, user: user_session };
 
-            Ok(AuthSession::Oidc(session.into()))
+            Ok(AuthSession::OAuth(session.into()))
         } else {
             // Create a regular Matrix Session.
             let session = matrix_sdk::authentication::matrix::MatrixSession {

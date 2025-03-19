@@ -29,7 +29,7 @@ use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "experimental-oidc")]
-use crate::authentication::oidc::OidcCtx;
+use crate::authentication::oauth::OAuthCtx;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
@@ -158,8 +158,8 @@ impl ClientBuilder {
     }
 
     /// Set the server name to discover the homeserver from, assuming an HTTP
-    /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
-    /// HTTP schemes.
+    /// (not secured) scheme. This also relaxes OAuth 2.0 discovery checks to
+    /// allow HTTP schemes.
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
@@ -509,7 +509,7 @@ impl ClientBuilder {
         };
 
         #[cfg(feature = "experimental-oidc")]
-        let allow_insecure_oidc = homeserver.scheme() == "http";
+        let allow_insecure_oauth = homeserver.scheme() == "http";
 
         let auth_ctx = Arc::new(AuthCtx {
             handle_refresh_tokens: self.handle_refresh_tokens,
@@ -520,7 +520,7 @@ impl ClientBuilder {
             reload_session_callback: OnceCell::default(),
             save_session_callback: OnceCell::default(),
             #[cfg(feature = "experimental-oidc")]
-            oidc: OidcCtx::new(allow_insecure_oidc),
+            oauth: OAuthCtx::new(allow_insecure_oauth),
         });
 
         // Enable the send queue by default.

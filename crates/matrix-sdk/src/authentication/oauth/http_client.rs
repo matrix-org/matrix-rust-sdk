@@ -22,7 +22,7 @@ use oauth2::{
 
 /// An HTTP client for making OAuth 2.0 requests.
 #[derive(Debug, Clone)]
-pub(super) struct OauthHttpClient {
+pub(super) struct OAuthHttpClient {
     pub(super) inner: reqwest::Client,
     /// Rewrite HTTPS requests to use HTTP instead.
     ///
@@ -32,7 +32,7 @@ pub(super) struct OauthHttpClient {
     pub(super) insecure_rewrite_https_to_http: bool,
 }
 
-impl<'c> AsyncHttpClient<'c> for OauthHttpClient {
+impl<'c> AsyncHttpClient<'c> for OAuthHttpClient {
     type Error = HttpClientError<reqwest::Error>;
 
     type Future =

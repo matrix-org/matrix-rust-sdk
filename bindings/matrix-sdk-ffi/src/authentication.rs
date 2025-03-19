@@ -6,11 +6,11 @@ use std::{
 };
 
 use matrix_sdk::{
-    authentication::oidc::{
-        error::OauthAuthorizationCodeError,
-        registration::{ApplicationType, ClientMetadata, Localized, OauthGrantType},
+    authentication::oauth::{
+        error::OAuthAuthorizationCodeError,
+        registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
         registrations::{ClientId, OidcRegistrations, OidcRegistrationsError},
-        OidcError as SdkOidcError,
+        OAuthError as SdkOAuthError,
     },
     Error,
 };
@@ -156,8 +156,8 @@ impl OidcConfiguration {
             ..ClientMetadata::new(
                 ApplicationType::Native,
                 vec![
-                    OauthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] },
-                    OauthGrantType::DeviceCode,
+                    OAuthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] },
+                    OAuthGrantType::DeviceCode,
                 ],
                 client_uri,
             )
@@ -206,15 +206,15 @@ pub enum OidcError {
     Generic { message: String },
 }
 
-impl From<SdkOidcError> for OidcError {
-    fn from(e: SdkOidcError) -> OidcError {
+impl From<SdkOAuthError> for OidcError {
+    fn from(e: SdkOAuthError) -> OidcError {
         match e {
-            SdkOidcError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
-            SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::RedirectUri(_))
-            | SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::InvalidState) => {
+            SdkOAuthError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
+            SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::RedirectUri(_))
+            | SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState) => {
                 OidcError::CallbackUrlInvalid
             }
-            SdkOidcError::AuthorizationCode(OauthAuthorizationCodeError::Cancelled) => {
+            SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::Cancelled) => {
                 OidcError::Cancelled
             }
             _ => OidcError::Generic { message: e.to_string() },
@@ -234,7 +234,7 @@ impl From<OidcRegistrationsError> for OidcError {
 impl From<Error> for OidcError {
     fn from(e: Error) -> OidcError {
         match e {
-            Error::Oidc(e) => e.into(),
+            Error::OAuth(e) => e.into(),
             _ => OidcError::Generic { message: e.to_string() },
         }
     }

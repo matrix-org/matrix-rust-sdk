@@ -53,11 +53,11 @@ use super::{MatrixMock, MatrixMockServer, MockEndpoint};
 ///   mostly defers its implementations to [`wiremock::Mock`] under the hood.
 ///
 /// [`MockServer`]: wiremock::MockServer
-pub struct OauthMockServer<'a> {
+pub struct OAuthMockServer<'a> {
     server: &'a MatrixMockServer,
 }
 
-impl<'a> OauthMockServer<'a> {
+impl<'a> OAuthMockServer<'a> {
     pub(super) fn new(server: &'a MatrixMockServer) -> Self {
         Self { server }
     }
@@ -69,11 +69,11 @@ impl<'a> OauthMockServer<'a> {
 }
 
 // Specific mount endpoints.
-impl OauthMockServer<'_> {
+impl OAuthMockServer<'_> {
     /// Creates a prebuilt mock for the Matrix endpoint used to query the
     /// authorization server's metadata.
     ///
-    /// Contrary to all the other endpoints of [`OauthMockServer`], this is an
+    /// Contrary to all the other endpoints of [`OAuthMockServer`], this is an
     /// endpoint from the Matrix API, but it is only used in the context of the
     /// OAuth 2.0 API, which is why it is mocked here rather than on
     /// [`MatrixMockServer`].

@@ -31,9 +31,9 @@ use serde::{ser::SerializeMap, Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    error::OauthClientRegistrationError,
+    error::OAuthClientRegistrationError,
     http_client::{check_http_response_json_content_type, check_http_response_status_code},
-    OauthHttpClient,
+    OAuthHttpClient,
 };
 
 /// Register a client with an OAuth 2.0 authorization server.
@@ -54,14 +54,14 @@ use super::{
 /// Returns an error if the request fails or the response is invalid.
 #[tracing::instrument(skip_all, fields(registration_endpoint))]
 pub(super) async fn register_client(
-    http_client: &OauthHttpClient,
+    http_client: &OAuthHttpClient,
     registration_endpoint: &Url,
     client_metadata: &Raw<ClientMetadata>,
-) -> Result<ClientRegistrationResponse, OauthClientRegistrationError> {
+) -> Result<ClientRegistrationResponse, OAuthClientRegistrationError> {
     tracing::debug!("Registering client...");
 
     let body =
-        serde_json::to_vec(client_metadata).map_err(OauthClientRegistrationError::IntoJson)?;
+        serde_json::to_vec(client_metadata).map_err(OAuthClientRegistrationError::IntoJson)?;
     let request = http::Request::post(registration_endpoint.as_str())
         .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.to_string())
         .body(body)
@@ -73,7 +73,7 @@ pub(super) async fn register_client(
     check_http_response_json_content_type(&response)?;
 
     let response = serde_json::from_slice(&response.into_body())
-        .map_err(OauthClientRegistrationError::FromJson)?;
+        .map_err(OAuthClientRegistrationError::FromJson)?;
 
     Ok(response)
 }
@@ -111,7 +111,7 @@ pub struct ClientMetadata {
     /// The grant types that the client will use at the token endpoint.
     ///
     /// This should match the login methods that the client can use.
-    pub grant_types: Vec<OauthGrantType>,
+    pub grant_types: Vec<OAuthGrantType>,
 
     /// URL of the home page of the client.
     pub client_uri: Localized<Url>,
@@ -135,7 +135,7 @@ impl ClientMetadata {
     /// Construct a `ClientMetadata` with only the required fields.
     pub fn new(
         application_type: ApplicationType,
-        grant_types: Vec<OauthGrantType>,
+        grant_types: Vec<OAuthGrantType>,
         client_uri: Localized<Url>,
     ) -> Self {
         Self {
@@ -152,20 +152,20 @@ impl ClientMetadata {
 
 /// The grant types that the user will use at the token endpoint.
 ///
-/// The available variants match the methods supported by the [`Oidc`] API.
+/// The available variants match the methods supported by the [`OAuth`] API.
 ///
-/// [`Oidc`]: super::Oidc
+/// [`OAuth`]: super::OAuth
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum OauthGrantType {
+pub enum OAuthGrantType {
     /// The authorization code grant type, defined in [RFC 6749].
     ///
-    /// This grant type is necessary to use the [`Oidc::login()`] and
-    /// [`Oidc::url_for_oidc()`] methods.
+    /// This grant type is necessary to use the [`OAuth::login()`] and
+    /// [`OAuth::url_for_oidc()`] methods.
     ///
     /// [RFC 6749]: https://datatracker.ietf.org/doc/html/rfc6749
-    /// [`Oidc::login()`]: super::Oidc::login
-    /// [`Oidc::url_for_oidc()`]: super::Oidc::url_for_oidc
+    /// [`OAuth::login()`]: super::OAuth::login
+    /// [`OAuth::url_for_oidc()`]: super::OAuth::url_for_oidc
     AuthorizationCode {
         /// Redirection URIs for the authorization endpoint.
         redirect_uris: Vec<Url>,
@@ -173,10 +173,10 @@ pub enum OauthGrantType {
 
     /// The device authorization grant, defined in [RFC 8628].
     ///
-    /// This grant type is necessary to use [`Oidc::login_with_qr_code()`].
+    /// This grant type is necessary to use [`OAuth::login_with_qr_code()`].
     ///
     /// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
-    /// [`Oidc::login_with_qr_code()`]: super::Oidc::login_with_qr_code
+    /// [`OAuth::login_with_qr_code()`]: super::OAuth::login_with_qr_code
     DeviceCode,
 }
 
@@ -270,12 +270,12 @@ impl From<ClientMetadata> for ClientMetadataSerializeHelper {
 
         for oauth_grant_type in oauth_grant_types {
             match oauth_grant_type {
-                OauthGrantType::AuthorizationCode { redirect_uris: uris } => {
+                OAuthGrantType::AuthorizationCode { redirect_uris: uris } => {
                     redirect_uris = Some(uris);
                     response_types = Some(vec![ResponseType::Code]);
                     grant_types.insert(GrantType::AuthorizationCode);
                 }
-                OauthGrantType::DeviceCode => {
+                OAuthGrantType::DeviceCode => {
                     grant_types.insert(GrantType::DeviceCode);
                 }
             }
@@ -360,13 +360,13 @@ mod tests {
     use serde_json::json;
     use url::Url;
 
-    use super::{ApplicationType, ClientMetadata, Localized, OauthGrantType};
+    use super::{ApplicationType, ClientMetadata, Localized, OAuthGrantType};
 
     #[test]
     fn test_serialize_minimal_client_metadata() {
         let metadata = ClientMetadata::new(
             ApplicationType::Native,
-            vec![OauthGrantType::AuthorizationCode {
+            vec![OAuthGrantType::AuthorizationCode {
                 redirect_uris: vec![Url::parse("http://127.0.0.1/").unwrap()],
             }],
             Localized::new(
@@ -396,13 +396,13 @@ mod tests {
         let mut metadata = ClientMetadata::new(
             ApplicationType::Web,
             vec![
-                OauthGrantType::AuthorizationCode {
+                OAuthGrantType::AuthorizationCode {
                     redirect_uris: vec![
                         Url::parse("http://127.0.0.1/").unwrap(),
                         Url::parse("http://[::1]/").unwrap(),
                     ],
                 },
-                OauthGrantType::DeviceCode,
+                OAuthGrantType::DeviceCode,
             ],
             Localized::new(
                 Url::parse("https://example.org/matrix-client").unwrap(),
