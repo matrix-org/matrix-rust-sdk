@@ -1128,7 +1128,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                             (!timeline_item.as_event()?.is_local_echo())
                                 .then_some(timeline_item_index + 1)
                         })
-                        .unwrap_or(0)
+                        .unwrap_or_else(|| {
+                            // We don't have any local echo, so we could insert at 0. However, in
+                            // the case of an insertion caused by a pagination, we
+                            // may have already pushed the start of the timeline item, so we need
+                            // to check if the first item is that, and insert after it otherwise.
+                            if self.items.get(0).is_some_and(|item| item.is_timeline_start()) {
+                                1
+                            } else {
+                                0
+                            }
+                        })
                 });
 
                 trace!(
@@ -1225,6 +1235,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// `transaction_id` of `new_event_timeline_item` if it exists.
     // Note: this method doesn't take `&mut self` to avoid a borrow checker
     // conflict with `TimelineEventHandler::add_item`.
+    // TODO(bnjbvr): refactor
     fn deduplicate_local_timeline_item(
         items: &mut ObservableItemsTransaction<'_>,
         new_event_timeline_item: &mut EventTimelineItem,

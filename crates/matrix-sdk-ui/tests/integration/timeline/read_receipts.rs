@@ -1198,18 +1198,20 @@ async fn test_no_duplicate_receipt_after_backpagination() {
         .mount()
         .await;
 
-    timeline.paginate_backwards(42).await.unwrap();
+    let reached_start = timeline.paginate_backwards(42).await.unwrap();
+    assert!(reached_start);
 
     yield_now().await;
 
     // Check that the receipts are at the correct place.
     let timeline_items = timeline.items().await;
-    assert_eq!(timeline_items.len(), 3);
+    assert_eq!(timeline_items.len(), 4);
 
-    assert!(timeline_items[0].is_date_divider());
+    assert!(timeline_items[0].is_timeline_start());
+    assert!(timeline_items[1].is_date_divider());
 
     {
-        let event1 = timeline_items[1].as_event().unwrap();
+        let event1 = timeline_items[2].as_event().unwrap();
         // Sanity check: this is the edited event from Alice.
         assert_eq!(event1.event_id().unwrap(), eid1);
 
@@ -1232,7 +1234,7 @@ async fn test_no_duplicate_receipt_after_backpagination() {
     }
 
     {
-        let event2 = timeline_items[2].as_event().unwrap();
+        let event2 = timeline_items[3].as_event().unwrap();
 
         // Sanity check: this is Bob's event.
         assert_eq!(event2.event_id().unwrap(), eid2);

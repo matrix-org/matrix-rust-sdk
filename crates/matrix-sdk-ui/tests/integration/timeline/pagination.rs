@@ -158,6 +158,14 @@ async fn test_back_pagination() {
         RoomPaginationStatus::Idle { hit_timeline_start: true }
     );
 
+    // Timeline start is inserted.
+    {
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 1);
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
+        assert!(value.is_timeline_start());
+    }
+
     assert_pending!(timeline_stream);
 }
 
@@ -493,9 +501,9 @@ async fn test_timeline_reset_while_paginating() {
     // field.
     assert!(hit_start);
 
-    // No events in back-pagination responses, date divider + event from latest
-    // sync is present
-    assert_eq!(timeline.items().await.len(), 2);
+    // No events in back-pagination responses, start of timeline + date divider +
+    // event from latest sync is present
+    assert_eq!(timeline.items().await.len(), 3);
 
     // Make sure both pagination mocks were called
     server.verify().await;
@@ -781,14 +789,20 @@ async fn test_until_num_items_with_empty_chunk() {
         assert!(date_divider.is_date_divider());
     }
 
-    timeline.paginate_backwards(10).await.unwrap();
+    let reached_start = timeline.paginate_backwards(10).await.unwrap();
+    assert!(reached_start);
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
+    assert!(value.is_timeline_start());
 
     // `m.room.name`: “hello room then”
     {
-        assert_let!(VectorDiff::Insert { index, value: message } = &timeline_updates[0]);
-        assert_eq!(*index, 1);
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 1);
+
+        assert_let!(VectorDiff::Insert { index: 2, value: message } = &timeline_updates[0]);
         assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello room then");
@@ -1073,13 +1087,21 @@ async fn test_lazy_back_pagination() {
 
         assert!(hit_end_of_timeline);
 
-        // Receive 3 new items.
-        //
-        // They are inserted after the date divider, hence the indices 1 and 2.
+        // The start of the timeline is inserted as its own timeline update.
         assert_timeline_stream! {
             [timeline_stream]
-            insert[1] "$ev201";
-            insert[2] "$ev200";
+            prepend --- timeline start ---;
+        };
+
+        // Receive 3 new items.
+        //
+        // They are inserted after the date divider and start of timeline, hence the
+        // indices 2 and 3.
+
+        assert_timeline_stream! {
+            [timeline_stream]
+            insert[2] "$ev201";
+            insert[3] "$ev200";
         };
         // So cool.
         assert_pending!(timeline_stream);
