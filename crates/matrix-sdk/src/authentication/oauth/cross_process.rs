@@ -336,8 +336,8 @@ mod tests {
         let session_tokens = mock_session_tokens_with_refresh();
         client.auth_ctx().set_session_tokens(session_tokens.clone());
 
-        // Now, finishing logging will get the user and device ids.
-        oauth.load_session().await?;
+        // Now, finishing logging will get the user ID.
+        oauth.load_session(owned_device_id!("D3V1C31D")).await?;
 
         let session_meta = client.session_meta().context("should have session meta now")?;
         assert_eq!(

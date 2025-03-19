@@ -17,7 +17,10 @@ use std::borrow::Cow;
 use oauth2::{
     basic::BasicClient as OAuthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
 };
-use ruma::{api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, UserId};
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, OwnedDeviceId,
+    UserId,
+};
 use tracing::{info, instrument};
 use url::Url;
 
@@ -32,14 +35,20 @@ use crate::{authentication::oauth::AuthorizationValidationData, Result};
 pub struct OAuthAuthCodeUrlBuilder {
     oauth: OAuth,
     scopes: Vec<Scope>,
+    device_id: OwnedDeviceId,
     redirect_uri: Url,
     prompt: Option<Vec<Prompt>>,
     login_hint: Option<String>,
 }
 
 impl OAuthAuthCodeUrlBuilder {
-    pub(super) fn new(oauth: OAuth, scopes: Vec<Scope>, redirect_uri: Url) -> Self {
-        Self { oauth, scopes, redirect_uri, prompt: None, login_hint: None }
+    pub(super) fn new(
+        oauth: OAuth,
+        scopes: Vec<Scope>,
+        device_id: OwnedDeviceId,
+        redirect_uri: Url,
+    ) -> Self {
+        Self { oauth, scopes, device_id, redirect_uri, prompt: None, login_hint: None }
     }
 
     /// Set the [`Prompt`] of the authorization URL.
@@ -74,7 +83,7 @@ impl OAuthAuthCodeUrlBuilder {
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OAuthAuthorizationData, OAuthError> {
-        let Self { oauth, scopes, redirect_uri, prompt, login_hint } = self;
+        let Self { oauth, scopes, device_id, redirect_uri, prompt, login_hint } = self;
 
         let data = oauth.data().ok_or(OAuthError::NotAuthenticated)?;
         info!(
@@ -108,10 +117,10 @@ impl OAuthAuthCodeUrlBuilder {
 
         let (url, state) = request.url();
 
-        data.authorization_data
-            .lock()
-            .await
-            .insert(state.clone(), AuthorizationValidationData { redirect_uri, pkce_verifier });
+        data.authorization_data.lock().await.insert(
+            state.clone(),
+            AuthorizationValidationData { device_id, redirect_uri, pkce_verifier },
+        );
 
         Ok(OAuthAuthorizationData { url, state })
     }

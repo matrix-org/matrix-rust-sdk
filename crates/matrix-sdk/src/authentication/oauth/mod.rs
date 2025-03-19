@@ -956,8 +956,8 @@ impl OAuth {
         Ok(())
     }
 
-    /// The scopes to request for logging in.
-    fn login_scopes(device_id: Option<OwnedDeviceId>) -> [Scope; 2] {
+    /// The scopes to request for logging in and the corresponding device ID.
+    fn login_scopes(device_id: Option<OwnedDeviceId>) -> ([Scope; 2], OwnedDeviceId) {
         /// Scope to grand full access to the client-server API.
         const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
             "urn:matrix:org.matrix.msc2967.client:api:*";
@@ -967,10 +967,13 @@ impl OAuth {
         // Generate the device ID if it is not provided.
         let device_id = device_id.unwrap_or_else(DeviceId::new);
 
-        [
-            Scope::new(SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS.to_owned()),
-            Scope::new(format!("{SCOPE_MATRIX_DEVICE_ID_PREFIX}{device_id}")),
-        ]
+        (
+            [
+                Scope::new(SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS.to_owned()),
+                Scope::new(format!("{SCOPE_MATRIX_DEVICE_ID_PREFIX}{device_id}")),
+            ],
+            device_id,
+        )
     }
 
     /// Login via OAuth 2.0 with the Authorization Code flow.
@@ -1047,9 +1050,9 @@ impl OAuth {
         redirect_uri: Url,
         device_id: Option<OwnedDeviceId>,
     ) -> Result<OAuthAuthCodeUrlBuilder, OAuthError> {
-        let scopes = Self::login_scopes(device_id).to_vec();
+        let (scopes, device_id) = Self::login_scopes(device_id);
 
-        Ok(OAuthAuthCodeUrlBuilder::new(self.clone(), scopes, redirect_uri))
+        Ok(OAuthAuthCodeUrlBuilder::new(self.clone(), scopes.to_vec(), device_id, redirect_uri))
     }
 
     /// Finish the login process.
@@ -1069,22 +1072,19 @@ impl OAuth {
     /// Returns an error if a request fails, or if the client was already
     /// logged in with a different session.
     pub async fn finish_login(&self, auth_code: AuthorizationCode) -> Result<()> {
-        self.finish_authorization(auth_code).await?;
-        self.load_session().await
+        let device_id = self.finish_authorization(auth_code).await?;
+        self.load_session(device_id).await
     }
 
     /// Load the session after login.
     ///
     /// Returns an error if the request to get the user ID fails, or if the
     /// client was already logged in with a different session.
-    pub(crate) async fn load_session(&self) -> Result<()> {
+    pub(crate) async fn load_session(&self, device_id: OwnedDeviceId) -> Result<()> {
         // Get the user ID.
         let whoami_res = self.client.whoami().await.map_err(crate::Error::from)?;
 
-        let new_session = SessionMeta {
-            user_id: whoami_res.user_id,
-            device_id: whoami_res.device_id.ok_or(OAuthError::MissingDeviceId)?,
-        };
+        let new_session = SessionMeta { user_id: whoami_res.user_id, device_id };
 
         if let Some(current_session) = self.client.session_meta() {
             if new_session != *current_session {
@@ -1148,8 +1148,12 @@ impl OAuth {
     /// * `auth_code` - The response received as part of the redirect URI when
     ///   the authorization was successful.
     ///
+    /// Returns the device ID used in the authorized scope if it succeeds.
     /// Returns an error if a request fails.
-    async fn finish_authorization(&self, auth_code: AuthorizationCode) -> Result<(), OAuthError> {
+    async fn finish_authorization(
+        &self,
+        auth_code: AuthorizationCode,
+    ) -> Result<OwnedDeviceId, OAuthError> {
         let data = self.data().ok_or(OAuthError::NotAuthenticated)?;
         let client_id = data.client_id.clone();
 
@@ -1177,7 +1181,7 @@ impl OAuth {
             refresh_token: response.refresh_token().map(RefreshToken::secret).cloned(),
         });
 
-        Ok(())
+        Ok(validation_data.device_id)
     }
 
     /// Abort the login process.
@@ -1209,7 +1213,7 @@ impl OAuth {
         device_id: Option<OwnedDeviceId>,
     ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOAuthError>
     {
-        let scopes = Self::login_scopes(device_id);
+        let (scopes, _) = Self::login_scopes(device_id);
 
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
@@ -1501,6 +1505,9 @@ pub struct UserSession {
 /// Authorization Code flow.
 #[derive(Debug)]
 struct AuthorizationValidationData {
+    /// The device ID used in the scope.
+    device_id: OwnedDeviceId,
+
     /// The URI where the end-user will be redirected after authorization.
     redirect_uri: RedirectUrl,
 
