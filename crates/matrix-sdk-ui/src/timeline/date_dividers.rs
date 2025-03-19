@@ -402,16 +402,21 @@ impl DateDividerAdjuster {
         };
 
         // Assert invariants.
-        // 1. The timeline starts with a date divider.
-        if let Some(item) = items.get(0) {
-            if item.is_read_marker() {
-                if let Some(next_item) = items.get(1) {
-                    if !next_item.is_date_divider() {
-                        report.errors.push(DateDividerInsertError::FirstItemNotDateDivider);
+        // 1. The timeline starts with a date divider, if it's not only virtual items.
+        {
+            let mut i = 0;
+            while let Some(item) = items.get(i) {
+                if let Some(virt) = item.as_virtual() {
+                    if matches!(virt, VirtualTimelineItem::DateDivider(_)) {
+                        // We found a date divider among the first virtual items: stop here.
+                        break;
                     }
+                } else {
+                    // We found an event, but we didn't have a date divider: report an error.
+                    report.errors.push(DateDividerInsertError::FirstItemNotDateDivider);
+                    break;
                 }
-            } else if !item.is_date_divider() {
-                report.errors.push(DateDividerInsertError::FirstItemNotDateDivider);
+                i += 1;
             }
         }
 
