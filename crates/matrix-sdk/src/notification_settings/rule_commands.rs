@@ -1,7 +1,7 @@
 use ruma::{
     push::{
-        Action, PredefinedContentRuleId, PredefinedOverrideRuleId, RemovePushRuleError, RuleKind,
-        Ruleset,
+        Action, NewPushRule, PredefinedContentRuleId, PredefinedOverrideRuleId,
+        RemovePushRuleError, RuleKind, Ruleset,
     },
     RoomId,
 };
@@ -57,6 +57,19 @@ impl RuleCommands {
         let command = Command::SetKeywordPushRule { keyword };
 
         self.rules.insert(command.to_push_rule()?, None, None)?;
+        self.commands.push(command);
+
+        Ok(())
+    }
+
+    /// Insert a new custom rule
+    pub(crate) fn insert_custom_rule(
+        &mut self,
+        rule: NewPushRule,
+    ) -> Result<(), NotificationSettingsError> {
+        let command = Command::SetCustomPushRule { rule: rule.clone() };
+
+        self.rules.insert(rule, None, None)?;
         self.commands.push(command);
 
         Ok(())
