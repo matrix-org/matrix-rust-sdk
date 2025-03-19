@@ -175,7 +175,7 @@ mod oidc_discovery;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registration;
-pub mod registrations;
+mod registrations;
 #[cfg(test)]
 mod tests;
 
@@ -186,12 +186,12 @@ use self::{
     oidc_discovery::discover,
     qrcode::LoginWithQrCode,
     registration::{register_client, ClientMetadata, ClientRegistrationResponse},
-    registrations::OidcRegistrations,
 };
 pub use self::{
     account_management_url::AccountManagementActionFull,
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
     error::OAuthError,
+    registrations::OidcRegistrations,
 };
 use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
