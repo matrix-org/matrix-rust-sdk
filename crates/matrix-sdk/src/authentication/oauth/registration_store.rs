@@ -38,12 +38,15 @@ use super::ClientMetadata;
 /// Errors that can occur when using the [`OAuthRegistrationStore`].
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthRegistrationStoreError {
-    /// The supplied registrations file path is invalid.
-    #[error("Failed to use the supplied registrations file path.")]
-    InvalidFilePath,
-    /// An error occurred whilst saving the registration data.
-    #[error("Failed to save the registration data {0}.")]
-    SaveFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The supplied path is not a file path.
+    #[error("supplied registrations path is not a file path")]
+    NotAFilePath,
+    /// An error occurred when reading from or writing to the file.
+    #[error(transparent)]
+    File(#[from] std::io::Error),
+    /// An error occurred when serializing the registration data.
+    #[error("failed to serialize registration data: {0}")]
+    IntoJson(serde_json::Error),
 }
 
 /// An API to store and restore OAuth 2.0 client registrations.
@@ -84,6 +87,8 @@ struct FrozenRegistrationData {
 impl OAuthRegistrationStore {
     /// Creates a new registration store.
     ///
+    /// This method creates the `file`'s parent directory if it doesn't exist.
+    ///
     /// # Arguments
     ///
     /// * `file` - A file path where the registrations will be stored. This
@@ -101,8 +106,8 @@ impl OAuthRegistrationStore {
         metadata: Raw<ClientMetadata>,
         static_registrations: HashMap<Url, ClientId>,
     ) -> Result<Self, OAuthRegistrationStoreError> {
-        let parent = file.parent().ok_or(OAuthRegistrationStoreError::InvalidFilePath)?;
-        fs::create_dir_all(parent).map_err(|_| OAuthRegistrationStoreError::InvalidFilePath)?;
+        let parent = file.parent().ok_or(OAuthRegistrationStoreError::NotAFilePath)?;
+        fs::create_dir_all(parent)?;
 
         Ok(OAuthRegistrationStore { file_path: file.to_owned(), metadata, static_registrations })
     }
@@ -136,12 +141,8 @@ impl OAuthRegistrationStore {
         });
         data.dynamic_registrations.insert(issuer, client_id);
 
-        let writer = BufWriter::new(
-            File::create(&self.file_path)
-                .map_err(|e| OAuthRegistrationStoreError::SaveFailure(Box::new(e)))?,
-        );
-        serde_json::to_writer(writer, &data)
-            .map_err(|e| OAuthRegistrationStoreError::SaveFailure(Box::new(e)))
+        let writer = BufWriter::new(File::create(&self.file_path)?);
+        serde_json::to_writer(writer, &data).map_err(OAuthRegistrationStoreError::IntoJson)
     }
 
     /// Returns the persisted registration data.

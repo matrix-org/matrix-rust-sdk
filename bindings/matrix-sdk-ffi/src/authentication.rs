@@ -224,7 +224,9 @@ impl From<SdkOAuthError> for OidcError {
 impl From<OAuthRegistrationStoreError> for OidcError {
     fn from(e: OAuthRegistrationStoreError) -> OidcError {
         match e {
-            OAuthRegistrationStoreError::InvalidFilePath => OidcError::RegistrationsPathInvalid,
+            OAuthRegistrationStoreError::NotAFilePath | OAuthRegistrationStoreError::File(_) => {
+                OidcError::RegistrationsPathInvalid
+            }
             _ => OidcError::Generic { message: e.to_string() },
         }
     }
