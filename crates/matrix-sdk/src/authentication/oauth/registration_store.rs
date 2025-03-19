@@ -110,9 +110,12 @@ impl OAuthRegistrationStore {
     /// Returns the client ID registered for a particular issuer or `None` if a
     /// registration hasn't been made.
     pub fn client_id(&self, issuer: &Url) -> Option<ClientId> {
-        let mut data = self.read_or_generate_registration_data();
-        data.dynamic_registrations.extend(self.static_registrations.clone());
-        data.dynamic_registrations.get(issuer).cloned()
+        if let Some(client_id) = self.static_registrations.get(issuer) {
+            return Some(client_id.clone());
+        }
+
+        let mut data = self.read_registration_data()?;
+        data.dynamic_registrations.remove(issuer)
     }
 
     /// Stores a new client ID registration for a particular issuer.
@@ -124,7 +127,13 @@ impl OAuthRegistrationStore {
         client_id: ClientId,
         issuer: Url,
     ) -> Result<(), OAuthRegistrationStoreError> {
-        let mut data = self.read_or_generate_registration_data();
+        let mut data = self.read_registration_data().unwrap_or_else(|| {
+            tracing::info!("Generating new OAuth 2.0 client registration data");
+            FrozenRegistrationData {
+                metadata: self.metadata.clone(),
+                dynamic_registrations: Default::default(),
+            }
+        });
         data.dynamic_registrations.insert(issuer, client_id);
 
         let writer = BufWriter::new(
@@ -135,38 +144,28 @@ impl OAuthRegistrationStore {
             .map_err(|e| OAuthRegistrationStoreError::SaveFailure(Box::new(e)))
     }
 
-    /// Returns the underlying registration data, or generates a new one.
-    fn read_or_generate_registration_data(&self) -> FrozenRegistrationData {
-        let try_read_previous = || {
-            let reader = BufReader::new(
-                File::open(&self.file_path)
-                    .map_err(|error| {
-                        tracing::warn!("Failed to load registrations file: {error}");
-                    })
-                    .ok()?,
-            );
-
-            let registration_data: FrozenRegistrationData = serde_json::from_reader(reader)
+    /// Returns the persisted registration data.
+    fn read_registration_data(&self) -> Option<FrozenRegistrationData> {
+        let reader = BufReader::new(
+            File::open(&self.file_path)
                 .map_err(|error| {
-                    tracing::warn!("Failed to deserialize registrations file: {error}");
+                    tracing::warn!("Failed to load registrations file: {error}");
                 })
-                .ok()?;
+                .ok()?,
+        );
 
-            if registration_data.metadata.json().get() != self.metadata.json().get() {
-                tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
-                return None;
-            }
+        let registration_data: FrozenRegistrationData = serde_json::from_reader(reader)
+            .map_err(|error| {
+                tracing::warn!("Failed to deserialize registrations file: {error}");
+            })
+            .ok()?;
 
-            Some(registration_data)
-        };
+        if registration_data.metadata.json().get() != self.metadata.json().get() {
+            tracing::warn!("Metadata mismatch, ignoring any stored registrations.");
+            return None;
+        }
 
-        try_read_previous().unwrap_or_else(|| {
-            tracing::warn!("Generating new registration data");
-            FrozenRegistrationData {
-                metadata: self.metadata.clone(),
-                dynamic_registrations: Default::default(),
-            }
-        })
+        Some(registration_data)
     }
 }
 
