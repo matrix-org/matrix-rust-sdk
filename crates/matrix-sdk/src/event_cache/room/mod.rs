@@ -1097,7 +1097,7 @@ mod private {
             in_store_events: Vec<(OwnedEventId, Position)>,
         ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
             // In-store events.
-            {
+            if !in_store_events.is_empty() {
                 let mut positions = in_store_events
                     .into_iter()
                     .map(|(_event_id, position)| position)
@@ -1115,8 +1115,8 @@ mod private {
             }
 
             // In-memory events.
-            let timeline_event_diffs = self
-                .with_events_mut(|room_events| {
+            let timeline_event_diffs = if !in_memory_events.is_empty() {
+                self.with_events_mut(|room_events| {
                     // `remove_events_by_position` sorts the positions by itself.
                     room_events
                         .remove_events_by_position(
@@ -1129,7 +1129,10 @@ mod private {
 
                     vec![]
                 })
-                .await?;
+                .await?
+            } else {
+                Vec::new()
+            };
 
             Ok(timeline_event_diffs)
         }
