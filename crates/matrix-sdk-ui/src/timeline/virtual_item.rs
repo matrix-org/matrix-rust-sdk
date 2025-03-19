@@ -26,4 +26,8 @@ pub enum VirtualTimelineItem {
 
     /// The user's own read marker.
     ReadMarker,
+
+    /// The timeline start, that is, an indication that we've seen all the
+    /// events for that timeline.
+    TimelineStart,
 }
