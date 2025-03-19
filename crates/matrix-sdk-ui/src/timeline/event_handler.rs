@@ -1074,7 +1074,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
                     self.items,
                     &mut item,
-                    Some(event_id),
+                    event_id,
                     txn_id.as_ref().map(AsRef::as_ref),
                 );
                 let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
@@ -1093,7 +1093,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
                     self.items,
                     &mut item,
-                    Some(event_id),
+                    event_id,
                     txn_id.as_ref().map(AsRef::as_ref),
                 );
                 let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
@@ -1156,7 +1156,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
                     self.items,
                     &mut item,
-                    Some(event_id),
+                    event_id,
                     txn_id.as_ref().map(AsRef::as_ref),
                 );
                 let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
@@ -1235,11 +1235,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// `transaction_id` of `new_event_timeline_item` if it exists.
     // Note: this method doesn't take `&mut self` to avoid a borrow checker
     // conflict with `TimelineEventHandler::add_item`.
-    // TODO(bnjbvr): refactor
     fn deduplicate_local_timeline_item(
         items: &mut ObservableItemsTransaction<'_>,
         new_event_timeline_item: &mut EventTimelineItem,
-        event_id: Option<&EventId>,
+        event_id: &EventId,
         transaction_id: Option<&TransactionId>,
     ) -> Option<Arc<TimelineItem>> {
         // Detect a local timeline item that matches `event_id` or `transaction_id`.
@@ -1270,7 +1269,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     return ControlFlow::Break(None);
                 }
 
-                if event_id == event_timeline_item.event_id()
+                if Some(event_id) == event_timeline_item.event_id()
                     || (transaction_id.is_some()
                         && transaction_id == event_timeline_item.transaction_id())
                 {
