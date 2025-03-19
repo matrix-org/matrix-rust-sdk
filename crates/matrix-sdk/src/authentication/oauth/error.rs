@@ -29,7 +29,9 @@ use ruma::{
     serde::{PartialEqAsRefStr, StringEnum},
 };
 
-pub use super::cross_process::CrossProcessRefreshLockError;
+pub use super::{
+    cross_process::CrossProcessRefreshLockError, registrations::OidcRegistrationsError,
+};
 
 /// An error when interacting with the OAuth 2.0 authorization server.
 pub type OAuthRequestError<T> =

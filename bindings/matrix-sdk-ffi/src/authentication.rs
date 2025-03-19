@@ -7,10 +7,9 @@ use std::{
 
 use matrix_sdk::{
     authentication::oauth::{
-        error::OAuthAuthorizationCodeError,
+        error::{OAuthAuthorizationCodeError, OidcRegistrationsError},
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        registrations::{OidcRegistrations, OidcRegistrationsError},
-        ClientId, OAuthError as SdkOAuthError,
+        ClientId, OAuthError as SdkOAuthError, OidcRegistrations,
     },
     Error,
 };
