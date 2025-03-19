@@ -22,7 +22,10 @@ use matrix_sdk::{
     executor::spawn, ruma::MilliSecondsSinceUnixEpoch, test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
-use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent};
+use matrix_sdk_ui::timeline::{
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EventSendState, RoomExt,
+    TimelineItemContent,
+};
 use ruma::{
     event_id,
     events::room::message::{MessageType, RoomMessageEventContent},
@@ -69,7 +72,12 @@ async fn test_echo() {
     assert_let!(VectorDiff::PushBack { value: local_echo } = &timeline_updates[0]);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
-    assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_let!(
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(msg),
+            ..
+        }) = item.content()
+    );
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "Hello, World!");
     assert!(item.event_id().is_none());

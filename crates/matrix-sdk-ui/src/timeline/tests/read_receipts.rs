@@ -29,7 +29,10 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider};
-use crate::timeline::{controller::TimelineSettings, tests::TestTimelineBuilder};
+use crate::timeline::{
+    controller::TimelineSettings, tests::TestTimelineBuilder, AggregatedTimelineItemContent,
+    AggregatedTimelineItemContentKind,
+};
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -451,7 +454,13 @@ async fn test_read_receipts_updates_on_message_decryption() {
     // The first event only has Carol's receipt.
     let clear_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let clear_event = clear_item.as_event().unwrap();
-    assert_matches!(clear_event.content(), TimelineItemContent::Message(_));
+    assert_matches!(
+        clear_event.content(),
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(_),
+            ..
+        })
+    );
     assert_eq!(clear_event.read_receipts().len(), 1);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
 
@@ -490,7 +499,13 @@ async fn test_read_receipts_updates_on_message_decryption() {
     let clear_item =
         assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
     let clear_event = clear_item.as_event().unwrap();
-    assert_matches!(clear_event.content(), TimelineItemContent::Message(_));
+    assert_matches!(
+        clear_event.content(),
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(_),
+            ..
+        })
+    );
     assert_eq!(clear_event.read_receipts().len(), 2);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
     assert!(clear_event.read_receipts().get(*BOB).is_some());

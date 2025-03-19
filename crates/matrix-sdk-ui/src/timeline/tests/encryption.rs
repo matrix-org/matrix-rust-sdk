@@ -53,7 +53,8 @@ use super::TestTimeline;
 use crate::{
     timeline::{
         tests::{TestRoomDataProvider, TestTimelineBuilder},
-        EncryptedMessage, TimelineDetails, TimelineItemContent,
+        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EncryptedMessage,
+        TimelineDetails, TimelineItemContent,
     },
     unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
@@ -166,7 +167,12 @@ async fn test_retry_message_decryption() {
     );
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
-    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_let!(
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
+        }) = event.content()
+    );
     assert_eq!(message.body(), "It's a secret to everybody");
     assert!(!event.is_highlighted());
 
@@ -368,7 +374,12 @@ async fn test_retry_edit_decryption() {
 
     assert_matches!(item.encryption_info(), Some(_));
     assert_matches!(item.latest_edit_json(), Some(_));
-    assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_let!(
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(msg),
+            ..
+        }) = item.content()
+    );
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "This is Error");
 
@@ -592,7 +603,12 @@ async fn test_retry_message_decryption_highlighted() {
         assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
-    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_let!(
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
+        }) = event.content()
+    );
     assert_eq!(message.body(), "A secret to everybody but Alice");
     assert!(event.is_highlighted());
 }
@@ -887,7 +903,12 @@ async fn test_retry_decryption_updates_response() {
     {
         let event = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
         assert_matches!(event.encryption_info(), Some(_));
-        assert_let!(TimelineItemContent::Message(message) = event.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = event.content()
+        );
         assert_eq!(message.body(), "It's a secret to everybody");
         assert!(!event.is_highlighted());
     }
