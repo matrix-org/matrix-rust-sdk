@@ -70,8 +70,9 @@ use super::{
     subscriber::TimelineSubscriber,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
-    PaginationError, Profile, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus,
-    TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    PaginationError, Profile, ReactionsByKeyBySender, RepliedToEvent, TimelineDetails,
+    TimelineEventItemId, TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
+    VirtualTimelineItem,
 };
 use crate::{
     timeline::{
@@ -79,7 +80,7 @@ use crate::{
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        AggregatedTimelineItem, AggregatedTimelineItemKind, TimelineEventFilterFn,
+        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -1340,8 +1341,9 @@ impl TimelineController {
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?
             .clone();
 
-        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message),
+        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            reactions,
         }) = item.content().clone()
         else {
             debug!("Event is not a message");
@@ -1368,6 +1370,7 @@ impl TimelineController {
             &item,
             internal_id,
             &message,
+            &reactions,
             &in_reply_to.event_id,
             self.room(),
         )
@@ -1381,8 +1384,9 @@ impl TimelineController {
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
-        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message),
+        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            reactions,
         }) = item.content().clone()
         else {
             info!("Event is no longer a message (redacted?)");
@@ -1398,11 +1402,11 @@ impl TimelineController {
         trace!("Updating in-reply-to details");
         let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
-        item.set_content(TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message.with_in_reply_to(InReplyToDetails {
-                event_id: in_reply_to.event_id.clone(),
-                event,
-            })),
+        item.set_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message.with_in_reply_to(
+                InReplyToDetails { event_id: in_reply_to.event_id.clone(), event },
+            )),
+            reactions,
         }));
         state.items.replace(index, TimelineItem::new(item, internal_id));
 
@@ -1517,6 +1521,7 @@ async fn fetch_replied_to_event(
     item: &EventTimelineItem,
     internal_id: TimelineUniqueId,
     message: &Message,
+    reactions: &ReactionsByKeyBySender,
     in_reply_to: &EventId,
     room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
@@ -1533,9 +1538,11 @@ async fn fetch_replied_to_event(
         event_id: in_reply_to.to_owned(),
         event: TimelineDetails::Pending,
     });
-    let event_item = item.with_content(TimelineItemContent::Aggregated(AggregatedTimelineItem {
-        kind: AggregatedTimelineItemKind::Message(reply),
-    }));
+    let event_item =
+        item.with_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(reply),
+            reactions: reactions.clone(),
+        }));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
     state.items.replace(index, new_timeline_item);

@@ -16,8 +16,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{
-    AggregatedTimelineItem, AggregatedTimelineItemKind, PollResult, RoomPinnedEventsChange,
-    TimelineDetails,
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, PollResult,
+    RoomPinnedEventsChange, TimelineDetails,
 };
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent, FullStateEventContent};
 
@@ -33,8 +33,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
         match value {
-            Content::Aggregated(AggregatedTimelineItem {
-                kind: AggregatedTimelineItemKind::Message(message),
+            Content::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
             }) => {
                 let msgtype = message.msgtype().msgtype().to_owned();
 
@@ -49,8 +50,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::RedactedMessage => TimelineItemContent::RedactedMessage,
 
-            Content::Aggregated(AggregatedTimelineItem {
-                kind: AggregatedTimelineItemKind::Sticker(sticker),
+            Content::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Sticker(sticker),
+                ..
             }) => {
                 let content = sticker.content();
 
@@ -76,8 +78,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                 }
             }
 
-            Content::Aggregated(AggregatedTimelineItem {
-                kind: AggregatedTimelineItemKind::Poll(poll_state),
+            Content::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+                ..
             }) => TimelineItemContent::from(poll_state.results()),
 
             Content::CallInvite => TimelineItemContent::CallInvite,

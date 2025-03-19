@@ -32,7 +32,9 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
-use crate::timeline::{AggregatedTimelineItem, AggregatedTimelineItemKind, TimelineItemContent};
+use crate::timeline::{
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, TimelineItemContent,
+};
 
 #[async_test]
 async fn test_live_redacted() {
@@ -75,8 +77,9 @@ async fn test_live_sanitized() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = first_event.content()
     );
     assert_let!(MessageType::Text(text) = message.msgtype());
@@ -104,8 +107,9 @@ async fn test_live_sanitized() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let first_event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = first_event.content()
     );
     assert_let!(MessageType::Text(text) = message.msgtype());
@@ -153,8 +157,9 @@ async fn test_aggregated_sanitized() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = first_event.content()
     );
     assert_let!(MessageType::Text(text) = message.msgtype());
@@ -209,8 +214,9 @@ async fn test_edit_updates_encryption_info() {
     );
 
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = first_event.content()
     );
     assert_let!(MessageType::Text(text) = message.msgtype());
@@ -242,8 +248,9 @@ async fn test_edit_updates_encryption_info() {
     );
 
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = first_event.content()
     );
     assert_let!(MessageType::Text(text) = message.msgtype());

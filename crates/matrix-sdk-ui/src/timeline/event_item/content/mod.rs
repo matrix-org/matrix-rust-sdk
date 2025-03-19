@@ -79,7 +79,7 @@ pub use self::{
 use super::ReactionsByKeyBySender;
 
 #[derive(Clone, Debug)]
-pub enum AggregatedTimelineItemKind {
+pub enum AggregatedTimelineItemContentKind {
     /// An `m.room.message` event or extensible event, including edits.
     Message(Message),
 
@@ -90,18 +90,22 @@ pub enum AggregatedTimelineItemKind {
     Poll(PollState),
 }
 
+/// A special kind of [`TimelineItemContent`] that groups together
+/// different room message types with their respective reactions and thread
+/// information.
 #[derive(Clone, Debug)]
-pub struct AggregatedTimelineItem {
-    pub kind: AggregatedTimelineItemKind,
+pub struct AggregatedTimelineItemContent {
+    pub kind: AggregatedTimelineItemContentKind,
+    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
 }
 
-impl AggregatedTimelineItem {
+impl AggregatedTimelineItemContent {
     #[cfg(not(tarpaulin_include))] // debug-logging functionality
     pub(crate) fn debug_string(&self) -> &'static str {
         match self.kind {
-            AggregatedTimelineItemKind::Message(_) => "a message",
-            AggregatedTimelineItemKind::Sticker(_) => "a sticker",
-            AggregatedTimelineItemKind::Poll(_) => "a poll",
+            AggregatedTimelineItemContentKind::Message(_) => "a message",
+            AggregatedTimelineItemContentKind::Sticker(_) => "a sticker",
+            AggregatedTimelineItemContentKind::Poll(_) => "a poll",
         }
     }
 }
@@ -109,7 +113,7 @@ impl AggregatedTimelineItem {
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
 pub enum TimelineItemContent {
-    Aggregated(AggregatedTimelineItem),
+    Aggregated(AggregatedTimelineItemContent),
 
     /// A redacted message.
     RedactedMessage,
@@ -234,13 +238,13 @@ impl TimelineItemContent {
                 let timeline_items = Vector::new();
                 let reactions = Default::default();
 
-                let aggregated = AggregatedTimelineItem {
-                    kind: AggregatedTimelineItemKind::Message(Message::from_event(
+                let aggregated = AggregatedTimelineItemContent {
+                    kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
                         event_content,
                         edit,
                         &timeline_items,
-                        reactions,
                     )),
+                    reactions,
                 };
 
                 TimelineItemContent::Aggregated(aggregated)
@@ -276,11 +280,11 @@ impl TimelineItemContent {
                 // Grab the content of this event
                 let event_content = event.content.clone();
 
-                let aggregated = AggregatedTimelineItem {
-                    kind: AggregatedTimelineItemKind::Sticker(Sticker {
+                let aggregated = AggregatedTimelineItemContent {
+                    kind: AggregatedTimelineItemContentKind::Sticker(Sticker {
                         content: event_content,
-                        reactions: Default::default(),
                     }),
+                    reactions: Default::default(),
                 };
 
                 TimelineItemContent::Aggregated(aggregated)
@@ -313,12 +317,12 @@ impl TimelineItemContent {
         // We're not interested in reactions for the latest preview item.
         let reactions = Default::default();
 
-        let aggregated = AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Poll(PollState::new(
+        let aggregated = AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Poll(PollState::new(
                 NewUnstablePollStartEventContent::new(event.content.poll_start().clone()),
                 edit,
-                reactions,
             )),
+            reactions,
         };
 
         TimelineItemContent::Aggregated(aggregated)
@@ -342,11 +346,18 @@ impl TimelineItemContent {
         }
     }
 
+    pub fn as_aggregated(&self) -> Option<&AggregatedTimelineItemContent> {
+        match self {
+            TimelineItemContent::Aggregated(content) => Some(content),
+            _ => None,
+        }
+    }
+
     /// If `self` is of the [`Message`][Self::Message] variant, return the inner
     /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
         let aggregated = as_variant!(self, Self::Aggregated)
-            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemKind::Message));
+            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemContentKind::Message));
 
         aggregated.unwrap_or(None)
     }
@@ -355,7 +366,7 @@ impl TimelineItemContent {
     /// inner [`PollState`].
     pub fn as_poll(&self) -> Option<&PollState> {
         let aggregated = as_variant!(self, Self::Aggregated)
-            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemKind::Poll));
+            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemContentKind::Poll));
 
         aggregated.unwrap_or(None)
     }
@@ -380,13 +391,13 @@ impl TimelineItemContent {
         timeline_items: &Vector<Arc<TimelineItem>>,
         reactions: ReactionsByKeyBySender,
     ) -> Self {
-        Self::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(Message::from_event(
+        Self::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
                 c,
                 edit,
                 timeline_items,
-                reactions,
             )),
+            reactions,
         })
     }
 
@@ -496,12 +507,7 @@ impl TimelineItemContent {
     /// return `None`.
     pub fn reactions(&self) -> ReactionsByKeyBySender {
         match self {
-            TimelineItemContent::Aggregated(aggregated) => match &aggregated.kind {
-                AggregatedTimelineItemKind::Message(message) => message.reactions.clone(),
-                AggregatedTimelineItemKind::Sticker(sticker) => sticker.reactions.clone(),
-                AggregatedTimelineItemKind::Poll(poll_state) => poll_state.reactions.clone(),
-            },
-
+            TimelineItemContent::Aggregated(aggregated) => aggregated.reactions.clone(),
             TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
                 // No reactions for redacted messages or UTDs.
                 Default::default()
@@ -525,11 +531,7 @@ impl TimelineItemContent {
     /// See also [`Self::reactions()`] to explain the optional return type.
     pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
         match self {
-            TimelineItemContent::Aggregated(aggregated) => match &mut aggregated.kind {
-                AggregatedTimelineItemKind::Message(message) => Some(&mut message.reactions),
-                AggregatedTimelineItemKind::Sticker(sticker) => Some(&mut sticker.reactions),
-                AggregatedTimelineItemKind::Poll(poll_state) => Some(&mut poll_state.reactions),
-            },
+            TimelineItemContent::Aggregated(aggregated) => Some(&mut aggregated.reactions),
 
             TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
                 // No reactions for redacted messages or UTDs.
@@ -621,7 +623,6 @@ impl EncryptedMessage {
 #[derive(Clone, Debug)]
 pub struct Sticker {
     pub(in crate::timeline) content: StickerEventContent,
-    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
 }
 
 impl Sticker {

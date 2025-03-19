@@ -51,10 +51,10 @@ pub(super) use self::{
 };
 pub use self::{
     content::{
-        AggregatedTimelineItem, AggregatedTimelineItemKind, AnyOtherFullStateEventContent,
-        EncryptedMessage, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, PollResult, PollState, RepliedToEvent, RoomMembershipChange,
-        RoomPinnedEventsChange, Sticker, TimelineItemContent,
+        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
+        AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
+        MembershipChange, Message, OtherState, PollResult, PollState, RepliedToEvent,
+        RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineItemContent,
     },
     local::EventSendState,
 };
@@ -357,7 +357,7 @@ impl EventTimelineItem {
 
         match self.content() {
             TimelineItemContent::Aggregated(aggregated) => match &aggregated.kind {
-                AggregatedTimelineItemKind::Message(message) => {
+                AggregatedTimelineItemContentKind::Message(message) => {
                     matches!(
                         message.msgtype(),
                         MessageType::Text(_)
@@ -368,7 +368,7 @@ impl EventTimelineItem {
                             | MessageType::Video(_)
                     )
                 }
-                AggregatedTimelineItemKind::Poll(poll) => {
+                AggregatedTimelineItemContentKind::Poll(poll) => {
                     poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
                 }
                 // Other aggregated timeline items can't be edited at the moment.
@@ -429,8 +429,9 @@ impl EventTimelineItem {
         // This must be in sync with the early returns of `Timeline::send_reply`
         if self.event_id().is_none() {
             false
-        } else if let TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(_),
+        } else if let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(_),
+            ..
         }) = self.content()
         {
             true
@@ -591,7 +592,7 @@ impl EventTimelineItem {
     pub fn contains_only_emojis(&self) -> bool {
         let body = match self.content() {
             TimelineItemContent::Aggregated(aggregated) => match &aggregated.kind {
-                AggregatedTimelineItemKind::Message(message) => match &message.msgtype {
+                AggregatedTimelineItemContentKind::Message(message) => match &message.msgtype {
                     MessageType::Text(text) => Some(text.body.as_str()),
                     MessageType::Audio(audio) => audio.caption(),
                     MessageType::File(file) => file.caption(),
@@ -599,9 +600,8 @@ impl EventTimelineItem {
                     MessageType::Video(video) => video.caption(),
                     _ => None,
                 },
-                AggregatedTimelineItemKind::Sticker(_) | AggregatedTimelineItemKind::Poll(_) => {
-                    None
-                }
+                AggregatedTimelineItemContentKind::Sticker(_)
+                | AggregatedTimelineItemContentKind::Poll(_) => None,
             },
             TimelineItemContent::RedactedMessage
             | TimelineItemContent::UnableToDecrypt(_)

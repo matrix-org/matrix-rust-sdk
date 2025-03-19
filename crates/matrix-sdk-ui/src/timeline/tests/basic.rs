@@ -40,8 +40,8 @@ use crate::timeline::{
     controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
-    AggregatedTimelineItem, AggregatedTimelineItemKind, MembershipChange, TimelineDetails,
-    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, MembershipChange,
+    TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
 #[async_test]
@@ -152,8 +152,9 @@ async fn test_sticker() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_matches!(
         item.content(),
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Sticker(_),
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Sticker(_),
+            ..
         })
     );
 }
@@ -351,8 +352,9 @@ async fn test_sanitized() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = event.content()
     );
     assert_let!(MessageType::Text(text) = message.msgtype());
@@ -410,8 +412,9 @@ async fn test_reply() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = item.as_event().unwrap().content()
     );
 
@@ -450,8 +453,9 @@ async fn test_thread() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(message)
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
         }) = item.as_event().unwrap().content()
     );
 

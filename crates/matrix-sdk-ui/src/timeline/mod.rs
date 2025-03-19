@@ -87,11 +87,12 @@ pub use self::{
     controller::default_event_filter,
     error::*,
     event_item::{
-        AggregatedTimelineItem, AggregatedTimelineItemKind, AnyOtherFullStateEventContent,
-        EncryptedMessage, EventItemOrigin, EventSendState, EventTimelineItem, InReplyToDetails,
-        MemberProfileChange, MembershipChange, Message, OtherState, PollResult, PollState, Profile,
-        ReactionInfo, ReactionStatus, ReactionsByKeyBySender, RepliedToEvent, RoomMembershipChange,
-        RoomPinnedEventsChange, Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
+        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
+        AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
+        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
+        OtherState, PollResult, PollState, Profile, ReactionInfo, ReactionStatus,
+        ReactionsByKeyBySender, RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange,
+        Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
@@ -518,8 +519,9 @@ impl Timeline {
                     EditedContent::RoomMessage(message) => {
                         if matches!(
                             item.content,
-                            TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                                kind: AggregatedTimelineItemKind::Message(_)
+                            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                                kind: AggregatedTimelineItemContentKind::Message(_),
+                                ..
                             })
                         ) {
                             AnyMessageLikeEventContent::RoomMessage(message.into())
@@ -535,8 +537,9 @@ impl Timeline {
                     EditedContent::PollStart { new_content, .. } => {
                         if matches!(
                             item.content,
-                            TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                                kind: AggregatedTimelineItemKind::Poll(_)
+                            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                                kind: AggregatedTimelineItemContentKind::Poll(_),
+                                ..
                             })
                         ) {
                             AnyMessageLikeEventContent::UnstablePollStart(

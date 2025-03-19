@@ -47,7 +47,7 @@ use super::TimelineItemContent;
 use crate::{
     timeline::{
         event_item::{
-            content::{AggregatedTimelineItem, AggregatedTimelineItemKind},
+            content::{AggregatedTimelineItemContent, AggregatedTimelineItemContentKind},
             EventTimelineItem, Profile, TimelineDetails,
         },
         traits::RoomDataProvider,
@@ -66,7 +66,6 @@ pub struct Message {
     pub(in crate::timeline) thread_root: Option<OwnedEventId>,
     pub(in crate::timeline) edited: bool,
     pub(in crate::timeline) mentions: Option<Mentions>,
-    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
 }
 
 impl Message {
@@ -75,7 +74,6 @@ impl Message {
         c: RoomMessageEventContent,
         edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
-        reactions: ReactionsByKeyBySender,
     ) -> Self {
         let mut thread_root = None;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
@@ -97,14 +95,8 @@ impl Message {
         let mut msgtype = c.msgtype;
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
 
-        let mut ret = Self {
-            msgtype,
-            in_reply_to,
-            thread_root,
-            edited: false,
-            mentions: c.mentions,
-            reactions,
-        };
+        let mut ret =
+            Self { msgtype, in_reply_to, thread_root, edited: false, mentions: c.mentions };
 
         if let Some(edit) = edit {
             ret.apply_edit(edit);
@@ -270,7 +262,7 @@ fn make_relates_to(
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, thread_root, edited, reactions: _, mentions: _ } = self;
+        let Self { msgtype: _, in_reply_to, thread_root, edited, mentions: _ } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message")
@@ -380,13 +372,13 @@ impl RepliedToEvent {
                     // include detailed information like reactions.
                     let reactions = ReactionsByKeyBySender::default();
 
-                    TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                        kind: AggregatedTimelineItemKind::Message(Message::from_event(
+                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                        kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
                             c,
                             extract_room_msg_edit_content(event.relations()),
                             &vector![],
-                            reactions,
                         )),
+                        reactions,
                     })
                 }
 
@@ -395,8 +387,9 @@ impl RepliedToEvent {
                     // explanation as to why that's the case.)
                     let reactions = ReactionsByKeyBySender::default();
 
-                    TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                        kind: AggregatedTimelineItemKind::Sticker(Sticker { content, reactions }),
+                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                        kind: AggregatedTimelineItemContentKind::Sticker(Sticker { content }),
+                        reactions,
                     })
                 }
 
@@ -422,9 +415,10 @@ impl RepliedToEvent {
                     // explanation as to why that's the case.)
                     let reactions = ReactionsByKeyBySender::default();
                     // TODO: could we provide the bundled edit here?
-                    let poll_state = PollState::new(content, None, reactions);
-                    TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                        kind: AggregatedTimelineItemKind::Poll(poll_state),
+                    let poll_state = PollState::new(content, None);
+                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                        kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+                        reactions,
                     })
                 }
 

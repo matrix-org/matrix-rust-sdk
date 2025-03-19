@@ -10,8 +10,8 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
-    EnforceThread, Error as TimelineError, EventSendState, RoomExt, TimelineDetails,
-    TimelineItemContent,
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EnforceThread,
+    Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
 };
 use ruma::{
     event_id,
@@ -85,12 +85,23 @@ async fn test_in_reply_to_details() {
 
         // We get the original message.
         assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-        assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
+        assert_matches!(
+            first.as_event().unwrap().content(),
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                ..
+            })
+        );
 
         // We get the reply.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[1]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = second_event.content()
+        );
         let in_reply_to = message.in_reply_to().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
         assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
@@ -120,7 +131,12 @@ async fn test_in_reply_to_details() {
 
         assert_let!(VectorDiff::PushBack { value: third } = &timeline_updates[1]);
         let third_event = third.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = third_event.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = third_event.content()
+        );
         let in_reply_to = message.in_reply_to().unwrap();
         assert_eq!(in_reply_to.event_id, eid2);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
@@ -149,13 +165,23 @@ async fn test_in_reply_to_details() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = third.as_event().unwrap().content()
+        );
         assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
         assert_eq!(*third.unique_id(), third_unique_id);
 
         // …then it's marked as an error when the request fails.
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = third.as_event().unwrap().content()
+        );
         assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
         assert_eq!(*third.unique_id(), third_unique_id);
     }
@@ -183,13 +209,23 @@ async fn test_in_reply_to_details() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = third.as_event().unwrap().content()
+        );
         assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
         assert_eq!(*third.unique_id(), third_unique_id);
 
         // …then it's filled when the request succeeds.
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = third.as_event().unwrap().content()
+        );
         assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
         assert_eq!(*third.unique_id(), third_unique_id);
 
@@ -263,7 +299,12 @@ async fn test_fetch_details_utd() {
         // We get the reply, but with no details.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = second_event.content()
+        );
         let in_reply_to = message.in_reply_to().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
@@ -282,12 +323,22 @@ async fn test_fetch_details_utd() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = value.as_event().unwrap().content()
+        );
         assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is a UTD.
         let in_reply_to = message.in_reply_to().unwrap();
@@ -351,7 +402,12 @@ async fn test_fetch_details_poll() {
         // We get the reply, but with no details.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = second_event.content()
+        );
         let in_reply_to = message.in_reply_to().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
@@ -370,18 +426,33 @@ async fn test_fetch_details_poll() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = value.as_event().unwrap().content()
+        );
         assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is the poll.
         let in_reply_to = message.in_reply_to().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(TimelineItemContent::Poll(poll_state) = replied_to.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+                ..
+            }) = replied_to.content()
+        );
         assert_eq!(
             poll_state.fallback_text().unwrap(),
             "What is the best color? A. Red, B. Blue, C. Green"
@@ -444,7 +515,12 @@ async fn test_fetch_details_sticker() {
         // We get the reply.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = second_event.content()
+        );
         let in_reply_to = message.in_reply_to().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
@@ -463,18 +539,33 @@ async fn test_fetch_details_sticker() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = value.as_event().unwrap().content()
+        );
         assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is a sticker.
         let in_reply_to = message.in_reply_to().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(TimelineItemContent::Sticker(sticker) = replied_to.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Sticker(sticker),
+                ..
+            }) = replied_to.content()
+        );
         assert_eq!(sticker.content().body, "sticker!");
         assert_matches!(&sticker.content().source, StickerMediaSource::Plain(src) => {
             assert_eq!(*src, media_src);

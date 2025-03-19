@@ -65,9 +65,9 @@ use super::{
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
-    AggregatedTimelineItem, AggregatedTimelineItemKind, EventTimelineItem, InReplyToDetails,
-    OtherState, ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem,
-    TimelineItemContent,
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EventTimelineItem,
+    InReplyToDetails, OtherState, ReactionStatus, RepliedToEvent, Sticker, TimelineDetails,
+    TimelineItem, TimelineItemContent,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -414,11 +414,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
                         self.add_item(
-                            TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                                kind: AggregatedTimelineItemKind::Sticker(Sticker {
+                            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                                kind: AggregatedTimelineItemContentKind::Sticker(Sticker {
                                     content,
-                                    reactions: Default::default(),
                                 }),
+                                reactions: Default::default(),
                             }),
                             None,
                         );
@@ -720,8 +720,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Message(msg),
+        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(msg),
+            reactions,
         }) = item.content()
         else {
             info!(
@@ -735,8 +736,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         new_msg.apply_edit(new_content);
 
         let mut new_item = item.with_content_and_latest_edit(
-            TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                kind: AggregatedTimelineItemKind::Message(new_msg),
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(new_msg),
+                reactions: reactions.clone(),
             }),
             edit_json,
         );
@@ -827,8 +829,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::Aggregated(AggregatedTimelineItem {
-            kind: AggregatedTimelineItemKind::Poll(poll_state),
+        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+            reactions,
         }) = &item.content()
         else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
@@ -836,9 +839,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         let new_content = match poll_state.edit(replacement.new_content) {
-            Some(edited_poll_state) => TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                kind: AggregatedTimelineItemKind::Poll(edited_poll_state),
-            }),
+            Some(edited_poll_state) => {
+                TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                    kind: AggregatedTimelineItemContentKind::Poll(edited_poll_state),
+                    reactions: reactions.clone(),
+                })
+            }
             None => {
                 info!("Not applying edit to a poll that's already ended");
                 return None;
@@ -880,13 +886,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .or(pending_edit)
             .unzip();
 
-        let poll_state = PollState::new(c, edit_content, Default::default());
+        let poll_state = PollState::new(c, edit_content);
 
         let edit_json = edit_json.flatten();
 
         self.add_item(
-            TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                kind: AggregatedTimelineItemKind::Poll(poll_state),
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+                reactions: Default::default(),
             }),
             edit_json,
         );
@@ -1352,6 +1359,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             };
 
             let Some(event_item) = item.as_event() else { continue };
+            let Some(aggregated) = event_item.content.as_aggregated() else { continue };
             let Some(message) = event_item.content.as_message() else { continue };
             let Some(in_reply_to) = message.in_reply_to() else { continue };
 
@@ -1363,9 +1371,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 ))),
             };
 
-            let new_reply_content = TimelineItemContent::Aggregated(AggregatedTimelineItem {
-                kind: AggregatedTimelineItemKind::Message(message.with_in_reply_to(in_reply_to)),
-            });
+            let new_reply_content =
+                TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                    kind: AggregatedTimelineItemContentKind::Message(
+                        message.with_in_reply_to(in_reply_to),
+                    ),
+                    reactions: aggregated.reactions.clone(),
+                });
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);
         }
@@ -1380,14 +1392,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 /// `old_item` *should* always be a local timeline item usually, but it
 /// can be a remote timeline item.
 fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
-    let TimelineItemContent::Aggregated(AggregatedTimelineItem {
-        kind: AggregatedTimelineItemKind::Message(msg),
+    let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+        kind: AggregatedTimelineItemContentKind::Message(msg),
+        ..
     }) = &mut new_item.content
     else {
         return;
     };
-    let TimelineItemContent::Aggregated(AggregatedTimelineItem {
-        kind: AggregatedTimelineItemKind::Message(old_msg),
+    let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+        kind: AggregatedTimelineItemContentKind::Message(old_msg),
+        ..
     }) = &old_item.content
     else {
         return;
