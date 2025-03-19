@@ -19,8 +19,8 @@ use wiremock::{
 };
 
 use super::{
-    registrations::OidcRegistrations, AuthorizationCode, AuthorizationError, AuthorizationResponse,
-    OAuth, OAuthAuthorizationData, OAuthError, RedirectUriQueryParseError,
+    registration_store::OAuthRegistrationStore, AuthorizationCode, AuthorizationError,
+    AuthorizationResponse, OAuth, OAuthAuthorizationData, OAuthError, RedirectUriQueryParseError,
 };
 use crate::{
     authentication::oauth::{
@@ -40,7 +40,8 @@ use crate::{
 
 const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oauth/callback";
 
-async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, OidcRegistrations)> {
+async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, OAuthRegistrationStore)>
+{
     let server = MatrixMockServer::new().await;
     server.mock_who_am_i().ok().named("whoami").mount().await;
 
@@ -55,7 +56,7 @@ async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, Oid
     let registrations_path =
         tempdir().unwrap().path().join("matrix-sdk-oauth").join("registrations.json");
     let registrations =
-        OidcRegistrations::new(&registrations_path, client_metadata, HashMap::new()).unwrap();
+        OAuthRegistrationStore::new(&registrations_path, client_metadata, HashMap::new()).unwrap();
 
     Ok((client.oauth(), server, mock_redirect_uri(), registrations))
 }

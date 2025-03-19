@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! OpenID Connect client registration management.
+//! OAuth 2.0 client registration store.
 //!
-//! This module provides a way to persist OIDC client registrations outside of
-//! the state store. This is useful when using a `Client` with an in-memory
+//! This module provides a way to persist OAuth 2.0 client registrations outside
+//! of the state store. This is useful when using a `Client` with an in-memory
 //! store or when different store paths are used for multi-account support
-//! within the same app, and those accounts need to share the same OIDC client
-//! registration.
+//! within the same app, and those accounts need to share the same OAuth 2.0
+//! client registration.
 
 use std::{
     collections::HashMap,
@@ -35,9 +35,9 @@ use url::Url;
 
 use super::ClientMetadata;
 
-/// Errors related to persisting OIDC registrations.
+/// Errors that can occur when using the [`OAuthRegistrationStore`].
 #[derive(Debug, thiserror::Error)]
-pub enum OidcRegistrationsError {
+pub enum OAuthRegistrationStoreError {
     /// The supplied registrations file path is invalid.
     #[error("Failed to use the supplied registrations file path.")]
     InvalidFilePath,
@@ -46,9 +46,21 @@ pub enum OidcRegistrationsError {
     SaveFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// The data needed to restore an OpenID Connect session.
+/// An API to store and restore OAuth 2.0 client registrations.
+///
+/// This stores dynamic client registrations in a file, and accepts "static"
+/// client registrations, for servers that don't support dynamic client
+/// registration.
+///
+/// If the client metadata passed to this API changes, the previous
+/// registrations that were stored in the file are invalidated, allowing to
+/// re-register with the new metadata.
+///
+/// The purpose of storing client IDs outside of the state store or separate
+/// from the user's session is that it allows to reuse the same client ID
+/// between user sessions on the same server.
 #[derive(Debug)]
-pub struct OidcRegistrations {
+pub struct OAuthRegistrationStore {
     /// The path of the file where the registrations are stored.
     file_path: PathBuf,
     /// The metadata used to register the client.
@@ -65,42 +77,37 @@ struct FrozenRegistrationData {
     /// The metadata used to register the client.
     metadata: Raw<ClientMetadata>,
     /// All of the registrations this client has made as a HashMap of issuer URL
-    /// (as a string) to client ID (as a string).
+    /// to client ID.
     dynamic_registrations: HashMap<Url, ClientId>,
 }
 
-/// Manages the storage of OIDC registrations.
-impl OidcRegistrations {
+impl OAuthRegistrationStore {
     /// Creates a new registration store.
     ///
     /// # Arguments
     ///
-    /// * `registrations_file` - A file path where the registrations will be
-    ///   stored. This previously took a directory and stored the registrations
-    ///   with the path `supplied_directory/oidc/registrations.json`.
+    /// * `file` - A file path where the registrations will be stored. This
+    ///   previously took a directory and stored the registrations with the path
+    ///   `supplied_directory/oidc/registrations.json`.
     ///
-    /// * `metadata` - The metadata used to register the client. If this
-    ///   changes, any stored registrations will be lost so the client can
-    ///   re-register with the new data.
+    /// * `metadata` - The metadata used to register the client. If this changes
+    ///   compared to the value stored in the file, any stored registrations
+    ///   will be invalidated so the client can re-register with the new data.
     ///
     /// * `static_registrations` - Pre-configured registrations for use with
-    ///   issuers that don't support dynamic client registration.
+    ///   servers that don't support dynamic client registration.
     pub fn new(
-        registrations_file: &Path,
+        file: &Path,
         metadata: Raw<ClientMetadata>,
         static_registrations: HashMap<Url, ClientId>,
-    ) -> Result<Self, OidcRegistrationsError> {
-        let parent = registrations_file.parent().ok_or(OidcRegistrationsError::InvalidFilePath)?;
-        fs::create_dir_all(parent).map_err(|_| OidcRegistrationsError::InvalidFilePath)?;
+    ) -> Result<Self, OAuthRegistrationStoreError> {
+        let parent = file.parent().ok_or(OAuthRegistrationStoreError::InvalidFilePath)?;
+        fs::create_dir_all(parent).map_err(|_| OAuthRegistrationStoreError::InvalidFilePath)?;
 
-        Ok(OidcRegistrations {
-            file_path: registrations_file.to_owned(),
-            metadata,
-            static_registrations,
-        })
+        Ok(OAuthRegistrationStore { file_path: file.to_owned(), metadata, static_registrations })
     }
 
-    /// Returns the client ID registered for a particular issuer or None if a
+    /// Returns the client ID registered for a particular issuer or `None` if a
     /// registration hasn't been made.
     pub fn client_id(&self, issuer: &Url) -> Option<ClientId> {
         let mut data = self.read_or_generate_registration_data();
@@ -108,22 +115,24 @@ impl OidcRegistrations {
         data.dynamic_registrations.get(issuer).cloned()
     }
 
-    /// Stores a new client ID registration for a particular issuer. If a client
-    /// ID has already been stored, this will overwrite the old value.
+    /// Stores a new client ID registration for a particular issuer.
+    ///
+    /// If a client ID has already been stored for the given issuer, this will
+    /// overwrite the old value.
     pub fn set_and_write_client_id(
         &self,
         client_id: ClientId,
         issuer: Url,
-    ) -> Result<(), OidcRegistrationsError> {
+    ) -> Result<(), OAuthRegistrationStoreError> {
         let mut data = self.read_or_generate_registration_data();
         data.dynamic_registrations.insert(issuer, client_id);
 
         let writer = BufWriter::new(
             File::create(&self.file_path)
-                .map_err(|e| OidcRegistrationsError::SaveFailure(Box::new(e)))?,
+                .map_err(|e| OAuthRegistrationStoreError::SaveFailure(Box::new(e)))?,
         );
         serde_json::to_writer(writer, &data)
-            .map_err(|e| OidcRegistrationsError::SaveFailure(Box::new(e)))
+            .map_err(|e| OAuthRegistrationStoreError::SaveFailure(Box::new(e)))
     }
 
     /// Returns the underlying registration data, or generates a new one.
@@ -169,10 +178,10 @@ mod tests {
     use crate::authentication::oauth::registration::{ApplicationType, Localized, OAuthGrantType};
 
     #[test]
-    fn test_oidc_registrations() {
+    fn test_oauth_registration_store() {
         // Given a fresh registration store with a single static registration.
         let dir = tempdir().unwrap();
-        let registrations_file = dir.path().join("oidc").join("registrations.json");
+        let registrations_file = dir.path().join("oauth").join("registrations.json");
 
         let static_url = Url::parse("https://example.com").unwrap();
         let static_id = ClientId::new("static_client_id".to_owned());
@@ -185,7 +194,7 @@ mod tests {
         let oidc_metadata = mock_metadata("Example".to_owned());
 
         let registrations =
-            OidcRegistrations::new(&registrations_file, oidc_metadata, static_registrations)
+            OAuthRegistrationStore::new(&registrations_file, oidc_metadata, static_registrations)
                 .unwrap();
 
         assert_eq!(registrations.client_id(&static_url), Some(static_id.clone()));
@@ -216,7 +225,7 @@ mod tests {
         let mut static_registrations = HashMap::new();
         static_registrations.insert(static_url.clone(), static_id.clone());
 
-        let registrations = OidcRegistrations::new(
+        let registrations = OAuthRegistrationStore::new(
             &registrations_file,
             oidc_metadata,
             static_registrations.clone(),
@@ -230,9 +239,12 @@ mod tests {
         // When the app name changes.
         let new_oidc_metadata = mock_metadata("New App".to_owned());
 
-        let registrations =
-            OidcRegistrations::new(&registrations_file, new_oidc_metadata, static_registrations)
-                .unwrap();
+        let registrations = OAuthRegistrationStore::new(
+            &registrations_file,
+            new_oidc_metadata,
+            static_registrations,
+        )
+        .unwrap();
 
         // Then the dynamic registrations are cleared.
         assert_eq!(registrations.client_id(&dynamic_url), None);

@@ -7,9 +7,9 @@ use std::{
 
 use matrix_sdk::{
     authentication::oauth::{
-        error::{OAuthAuthorizationCodeError, OidcRegistrationsError},
+        error::{OAuthAuthorizationCodeError, OAuthRegistrationStoreError},
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        ClientId, OAuthError as SdkOAuthError, OidcRegistrations,
+        ClientId, OAuthError as SdkOAuthError, OAuthRegistrationStore,
     },
     Error,
 };
@@ -165,7 +165,7 @@ impl OidcConfiguration {
         Raw::new(&metadata).map_err(|_| OidcError::MetadataInvalid)
     }
 
-    pub fn registrations(&self) -> Result<OidcRegistrations, OidcError> {
+    pub fn registrations(&self) -> Result<OAuthRegistrationStore, OidcError> {
         let client_metadata = self.client_metadata()?;
 
         let registrations_file = Path::new(&self.dynamic_registrations_file);
@@ -181,7 +181,7 @@ impl OidcConfiguration {
             })
             .collect();
 
-        Ok(OidcRegistrations::new(registrations_file, client_metadata, static_registrations)?)
+        Ok(OAuthRegistrationStore::new(registrations_file, client_metadata, static_registrations)?)
     }
 }
 
@@ -221,10 +221,10 @@ impl From<SdkOAuthError> for OidcError {
     }
 }
 
-impl From<OidcRegistrationsError> for OidcError {
-    fn from(e: OidcRegistrationsError) -> OidcError {
+impl From<OAuthRegistrationStoreError> for OidcError {
+    fn from(e: OAuthRegistrationStoreError) -> OidcError {
         match e {
-            OidcRegistrationsError::InvalidFilePath => OidcError::RegistrationsPathInvalid,
+            OAuthRegistrationStoreError::InvalidFilePath => OidcError::RegistrationsPathInvalid,
             _ => OidcError::Generic { message: e.to_string() },
         }
     }
