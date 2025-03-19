@@ -502,7 +502,10 @@ impl OAuth {
             return Ok(());
         };
 
-        if self.load_client_registration(issuer, &registrations) {
+        if self
+            .load_client_registration(issuer, &registrations)
+            .map_err(OAuthClientRegistrationError::from)?
+        {
             tracing::info!("OAuth 2.0 configuration loaded from disk.");
             return Ok(());
         }
@@ -539,14 +542,14 @@ impl OAuth {
         &self,
         issuer: Url,
         registrations: &OAuthRegistrationStore,
-    ) -> bool {
-        let Some(client_id) = registrations.client_id(&issuer) else {
-            return false;
+    ) -> Result<bool, OAuthRegistrationStoreError> {
+        let Some(client_id) = registrations.client_id(&issuer)? else {
+            return Ok(false);
         };
 
         self.restore_registered_client(issuer, client_id);
 
-        true
+        Ok(true)
     }
 
     /// The OAuth 2.0 authorization server used for authorization.
