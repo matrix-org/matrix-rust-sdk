@@ -1091,6 +1091,7 @@ mod private {
         /// This method is purposely isolated because it must ensure that
         /// positions are sorted appropriately or it can be disastrous.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        #[instrument(skip_all)]
         pub(crate) async fn remove_events(
             &mut self,
             in_memory_events: Vec<(OwnedEventId, Position)>,
