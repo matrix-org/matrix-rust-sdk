@@ -153,7 +153,8 @@ impl DateDividerAdjuster {
                     latest_event_ts = Some(ts);
                 }
 
-                TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker) => {
+                TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker)
+                | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart) => {
                     // Nothing to do.
                 }
             }
@@ -242,8 +243,9 @@ impl DateDividerAdjuster {
                 return true;
             }
 
-            TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker) => {
-                // Nothing to do for read markers.
+            TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker)
+            | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart) => {
+                // Nothing to do.
             }
         }
 
@@ -304,7 +306,8 @@ impl DateDividerAdjuster {
                 }
             }
 
-            TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker) => {
+            TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker)
+            | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart) => {
                 // Nothing to do.
             }
         }
