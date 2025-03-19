@@ -139,7 +139,8 @@ use std::{
 use as_variant::as_variant;
 use error::{
     CrossProcessRefreshLockError, OAuthAuthorizationCodeError, OAuthClientRegistrationError,
-    OAuthDiscoveryError, OAuthTokenRevocationError, RedirectUriQueryParseError,
+    OAuthDiscoveryError, OAuthRegistrationStoreError, OAuthTokenRevocationError,
+    RedirectUriQueryParseError,
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
@@ -511,7 +512,7 @@ impl OAuth {
 
         tracing::info!("Persisting OAuth 2.0 registration data.");
         self.store_client_registration(response.client_id, &registrations)
-            .map_err(|e| OAuthError::UnknownError(Box::new(e)))?;
+            .map_err(OAuthClientRegistrationError::from)?;
 
         Ok(())
     }
@@ -522,12 +523,10 @@ impl OAuth {
         &self,
         client_id: ClientId,
         registrations: &OAuthRegistrationStore,
-    ) -> std::result::Result<(), OAuthError> {
+    ) -> std::result::Result<(), OAuthRegistrationStoreError> {
         let issuer = self.issuer().expect("issuer should be set after registration").to_owned();
 
-        registrations
-            .set_and_write_client_id(client_id, issuer)
-            .map_err(|e| OAuthError::UnknownError(Box::new(e)))?;
+        registrations.set_and_write_client_id(client_id, issuer)?;
 
         Ok(())
     }

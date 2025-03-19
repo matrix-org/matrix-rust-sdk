@@ -99,10 +99,6 @@ pub enum OAuthError {
     /// into a new session that is different than the old one.
     #[error("new logged-in session is different than current client session")]
     SessionMismatch,
-
-    /// An unknown error occurred.
-    #[error("unknown error")]
-    UnknownError(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// All errors that can occur when discovering the OAuth 2.0 server metadata.
@@ -264,6 +260,10 @@ pub enum OAuthClientRegistrationError {
     /// Deserialization of the registration response failed.
     #[error("failed to deserialize registration response: {0}")]
     FromJson(serde_json::Error),
+
+    /// Failed to access or store the registration in the store.
+    #[error("failed to use registration store: {0}")]
+    Store(#[from] OAuthRegistrationStoreError),
 }
 
 /// Error response returned by server after requesting an authorization code.
