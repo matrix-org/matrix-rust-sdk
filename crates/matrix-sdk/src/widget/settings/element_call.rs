@@ -38,29 +38,38 @@ struct ElementCallParams {
     base_url: String,
     // Non template parameters
     parent_url: String,
-    skip_lobby: bool,
     confine_to_room: bool,
     app_prompt: bool,
     hide_header: bool,
     preload: bool,
+    /// The same as `posthog_user_id` used for backwards compatibility.
     analytics_id: Option<String>,
+    posthog_user_id: Option<String>,
     font_scale: Option<f64>,
     font: Option<String>,
     #[serde(rename = "perParticipantE2EE")]
     per_participant_e2ee: bool,
     password: Option<String>,
+    intent: Option<Intent>,
+    posthog_api_host: Option<String>,
+    posthog_api_key: Option<String>,
+    rageshake_submit_url: Option<String>,
+    sentry_dsn: Option<String>,
+    sentry_environment: Option<String>,
+    hide_screensharing: bool,
 }
 
 /// Defines if a call is encrypted and which encryption system should be used.
 ///
 /// This controls the url parameters: `perParticipantE2EE`, `password`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub enum EncryptionSystem {
     /// Equivalent to the element call url parameter: `perParticipantE2EE=false`
     /// and no password.
     Unencrypted,
     /// Equivalent to the element call url parameters:
     /// `perParticipantE2EE=true`
+    #[default]
     PerParticipantKeys,
     /// Equivalent to the element call url parameters:
     /// `password={secret}`
@@ -70,12 +79,25 @@ pub enum EncryptionSystem {
     },
 }
 
+/// Defines the intent of showing the call.
+///
+/// This controls whether to show or skip the lobby.
+#[derive(Debug, PartialEq, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Intent {
+    #[default]
+    /// The user wants to start a call.
+    StartCall,
+    /// The user wants to join an existing call.
+    JoinExisting,
+}
+
 /// Properties to create a new virtual Element Call widget.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VirtualElementCallWidgetOptions {
     /// The url to the app.
     ///
-    /// E.g. <https://call.element.io>, <https://call.element.dev>
+    /// E.g. <https://call.element.io>, <https://call.element.dev>, <https://call.element.dev/room>
     pub element_call_url: String,
 
     /// The widget id.
@@ -118,11 +140,6 @@ pub struct VirtualElementCallWidgetOptions {
     /// Default: `false`
     pub app_prompt: Option<bool>,
 
-    /// Don't show the lobby and join the call immediately.
-    ///
-    /// Default: `false`
-    pub skip_lobby: Option<bool>,
-
     /// Make it not possible to get to the calls list in the webview.
     ///
     /// Default: `true`
@@ -131,13 +148,33 @@ pub struct VirtualElementCallWidgetOptions {
     /// The font to use, to adapt to the system font.
     pub font: Option<String>,
 
-    /// Can be used to pass a PostHog id to element call.
-    pub analytics_id: Option<String>,
-
     /// The encryption system to use.
     ///
     /// Use `EncryptionSystem::Unencrypted` to disable encryption.
     pub encryption: EncryptionSystem,
+
+    /// The intent of showing the call.
+    /// If the user wants to start a call or join an existing one.
+    /// Controls if the lobby is skipped or not.
+    pub intent: Option<Intent>,
+
+    /// Do not show the screenshare button.
+    pub hide_screensharing: bool,
+
+    /// Can be used to pass a PostHog id to element call.
+    pub posthog_user_id: Option<String>,
+    /// The host of the posthog api.
+    pub posthog_api_host: Option<String>,
+    /// The key for the posthog api.
+    pub posthog_api_key: Option<String>,
+
+    /// The url to use for submitting rageshakes.
+    pub rageshake_submit_url: Option<String>,
+
+    /// Sentry [DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/)
+    pub sentry_dsn: Option<String>,
+    /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
+    pub sentry_environment: Option<String>,
 }
 
 impl WidgetSettings {
@@ -157,7 +194,7 @@ impl WidgetSettings {
     pub fn new_virtual_element_call_widget(
         props: VirtualElementCallWidgetOptions,
     ) -> Result<Self, url::ParseError> {
-        let mut raw_url: Url = Url::parse(&format!("{}/room", props.element_call_url))?;
+        let mut raw_url: Url = Url::parse(&props.element_call_url)?;
 
         let query_params = ElementCallParams {
             user_id: url_params::USER_ID.to_owned(),
@@ -171,12 +208,10 @@ impl WidgetSettings {
             base_url: url_params::HOMESERVER_URL.to_owned(),
 
             parent_url: props.parent_url.unwrap_or(props.element_call_url.clone()),
-            skip_lobby: props.skip_lobby.unwrap_or(false),
             confine_to_room: props.confine_to_room.unwrap_or(true),
             app_prompt: props.app_prompt.unwrap_or(false),
             hide_header: props.hide_header.unwrap_or(true),
             preload: props.preload.unwrap_or(false),
-            analytics_id: props.analytics_id,
             font_scale: props.font_scale,
             font: props.font,
             per_participant_e2ee: props.encryption == EncryptionSystem::PerParticipantKeys,
@@ -184,6 +219,15 @@ impl WidgetSettings {
                 EncryptionSystem::SharedSecret { secret } => Some(secret),
                 _ => None,
             },
+            intent: props.intent,
+            analytics_id: props.posthog_user_id.clone(),
+            posthog_user_id: props.posthog_user_id,
+            posthog_api_host: props.posthog_api_host,
+            posthog_api_key: props.posthog_api_key,
+            sentry_dsn: props.sentry_dsn,
+            sentry_environment: props.sentry_environment,
+            rageshake_submit_url: props.rageshake_submit_url,
+            hide_screensharing: props.hide_screensharing,
         };
 
         let query =
@@ -213,22 +257,40 @@ mod tests {
 
     const WIDGET_ID: &str = "1/@#w23";
 
-    fn get_widget_settings(encryption: Option<EncryptionSystem>) -> WidgetSettings {
-        WidgetSettings::new_virtual_element_call_widget(VirtualElementCallWidgetOptions {
+    fn get_widget_settings(
+        encryption: Option<EncryptionSystem>,
+        posthog: bool,
+        rageshake: bool,
+        sentry: bool,
+    ) -> WidgetSettings {
+        let mut props = VirtualElementCallWidgetOptions {
             element_call_url: "https://call.element.io".to_owned(),
             widget_id: WIDGET_ID.to_owned(),
-            parent_url: None,
             hide_header: Some(true),
             preload: Some(true),
-            font_scale: None,
             app_prompt: Some(true),
-            skip_lobby: Some(false),
             confine_to_room: Some(true),
-            font: None,
-            analytics_id: None,
             encryption: encryption.unwrap_or(EncryptionSystem::PerParticipantKeys),
-        })
-        .expect("could not parse virtual element call widget")
+            ..VirtualElementCallWidgetOptions::default()
+        };
+
+        if posthog {
+            props.posthog_user_id = Some("POSTHOG_USER_ID".to_owned());
+            props.posthog_api_host = Some("posthog.element.io".to_owned());
+            props.posthog_api_key = Some("POSTHOG_KEY".to_owned());
+        }
+
+        if rageshake {
+            props.rageshake_submit_url = Some("https://rageshake.element.io".to_owned());
+        }
+
+        if sentry {
+            props.sentry_dsn = Some("SENTRY_DSN".to_owned());
+            props.sentry_environment = Some("SENTRY_ENV".to_owned());
+        }
+
+        WidgetSettings::new_virtual_element_call_widget(props)
+            .expect("could not parse virtual element call widget")
     }
 
     trait FragmentQuery {
@@ -257,14 +319,14 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_base_url() {
-        let widget_settings = get_widget_settings(None);
+        let widget_settings = get_widget_settings(None, false, false, false);
         assert_eq!(widget_settings.base_url().unwrap().as_str(), "https://call.element.io/");
     }
 
     #[test]
     fn new_virtual_element_call_widget_raw_url() {
         const CONVERTED_URL: &str = "
-            https://call.element.io/room#\
+            https://call.element.io#\
                 ?userId=$matrix_user_id\
                 &roomId=$matrix_room_id\
                 &widgetId=$matrix_widget_id\
@@ -275,15 +337,15 @@ mod tests {
                 &deviceId=$org.matrix.msc2873.matrix_device_id\
                 &baseUrl=$org.matrix.msc4039.matrix_base_url\
                 &parentUrl=https%3A%2F%2Fcall.element.io\
-                &skipLobby=false\
                 &confineToRoom=true\
                 &appPrompt=true\
                 &hideHeader=true\
                 &preload=true\
                 &perParticipantE2EE=true\
+                &hideScreensharing=false\
         ";
 
-        let mut url = get_widget_settings(None).raw_url().clone();
+        let mut url = get_widget_settings(None, false, false, false).raw_url().clone();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
         assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
         url.set_fragment(None);
@@ -295,7 +357,7 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_id() {
-        assert_eq!(get_widget_settings(None).widget_id(), WIDGET_ID);
+        assert_eq!(get_widget_settings(None, false, false, false).widget_id(), WIDGET_ID);
     }
 
     fn build_url_from_widget_settings(settings: WidgetSettings) -> String {
@@ -319,7 +381,7 @@ mod tests {
     #[test]
     fn new_virtual_element_call_widget_webview_url() {
         const CONVERTED_URL: &str = "
-            https://call.element.io/room#\
+            https://call.element.io#\
                 ?parentUrl=https%3A%2F%2Fcall.element.io\
                 &widgetId=1/@#w23\
                 &userId=%40test%3Auser.org&deviceId=ABCDEFG\
@@ -328,15 +390,52 @@ mod tests {
                 &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F\
                 &hideHeader=true\
                 &preload=true\
-                &skipLobby=false\
                 &confineToRoom=true\
                 &displayName=hello\
                 &appPrompt=true\
                 &clientId=io.my_matrix.client\
                 &perParticipantE2EE=true\
+                &hideScreensharing=false\
         ";
+        let gen = build_url_from_widget_settings(get_widget_settings(None, false, false, false));
 
-        let gen = build_url_from_widget_settings(get_widget_settings(None));
+        let mut url = Url::parse(&gen).unwrap();
+        let mut gen = Url::parse(CONVERTED_URL).unwrap();
+        assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
+        url.set_fragment(None);
+        url.set_query(None);
+        gen.set_fragment(None);
+        gen.set_query(None);
+        assert_eq!(url, gen);
+    }
+
+    #[test]
+    fn new_virtual_element_call_widget_webview_url_with_posthog_rageshake_sentry() {
+        const CONVERTED_URL: &str = "
+            https://call.element.io#\
+                ?parentUrl=https%3A%2F%2Fcall.element.io\
+                &widgetId=1/@#w23\
+                &userId=%40test%3Auser.org&deviceId=ABCDEFG\
+                &roomId=%21room_id%3Aroom.org\
+                &lang=en-US&theme=light\
+                &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F\
+                &hideHeader=true\
+                &preload=true\
+                &confineToRoom=true\
+                &displayName=hello\
+                &appPrompt=true\
+                &clientId=io.my_matrix.client\
+                &perParticipantE2EE=true\
+                &hideScreensharing=false\
+                &posthogApiHost=posthog.element.io\
+                &posthogApiKey=POSTHOG_KEY\
+                &analyticsId=POSTHOG_USER_ID\
+                &posthogUserId=POSTHOG_USER_ID\
+                &rageshakeSubmitUrl=https%3A%2F%2Frageshake.element.io\
+                &sentryDsn=SENTRY_DSN\
+                &sentryEnvironment=SENTRY_ENV\
+        ";
+        let gen = build_url_from_widget_settings(get_widget_settings(None, true, true, true));
 
         let mut url = Url::parse(&gen).unwrap();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
@@ -352,9 +451,12 @@ mod tests {
     fn password_url_props_from_widget_settings() {
         {
             // PerParticipantKeys
-            let url = build_url_from_widget_settings(get_widget_settings(Some(
-                EncryptionSystem::PerParticipantKeys,
-            )));
+            let url = build_url_from_widget_settings(get_widget_settings(
+                Some(EncryptionSystem::PerParticipantKeys),
+                false,
+                false,
+                false,
+            ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = [("perParticipantE2EE".to_owned(), "true".to_owned())];
             for e in expected_elements {
@@ -368,9 +470,12 @@ mod tests {
         }
         {
             // Unencrypted
-            let url = build_url_from_widget_settings(get_widget_settings(Some(
-                EncryptionSystem::Unencrypted,
-            )));
+            let url = build_url_from_widget_settings(get_widget_settings(
+                Some(EncryptionSystem::Unencrypted),
+                false,
+                false,
+                false,
+            ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = ("perParticipantE2EE".to_owned(), "false".to_owned());
             assert!(
@@ -382,9 +487,12 @@ mod tests {
         }
         {
             // SharedSecret
-            let url = build_url_from_widget_settings(get_widget_settings(Some(
-                EncryptionSystem::SharedSecret { secret: "this_surely_is_save".to_owned() },
-            )));
+            let url = build_url_from_widget_settings(get_widget_settings(
+                Some(EncryptionSystem::SharedSecret { secret: "this_surely_is_save".to_owned() }),
+                false,
+                false,
+                false,
+            ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = [("password".to_owned(), "this_surely_is_save".to_owned())];
             for e in expected_elements {
