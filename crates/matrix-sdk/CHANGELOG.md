@@ -181,6 +181,12 @@ simpler methods:
   - `OidcError` was renamed to `OAuthError` and the `RefreshTokenError::Oidc`
     variant was renamed to `RefreshTokenError::OAuth`.
   - `Oidc::provider_metadata()` was renamed to `OAuth::server_metadata()`.
+- [**breaking**]: `OAuth::finish_login()` must always be called, instead of `OAuth::finish_authorization()`
+  ([#4817](https://github.com/matrix-org/matrix-rust-sdk/pull/4817))
+  - `OAuth::abort_authorization()` was renamed to `OAuth::abort_login()`.
+  - `OAuth::finish_login()` can be called several times for the same session,
+    but it will return an error if it is called with a new session.
+  - `OAuthError::MissingDeviceId` was removed, it cannot occur anymore.
 
 ## [0.10.0] - 2025-02-04
 
