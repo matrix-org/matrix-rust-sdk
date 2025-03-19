@@ -463,8 +463,9 @@ impl Timeline {
 
     /// Send a reply.
     ///
-    /// If the replied to event has a thread relation, it is forwarded on the reply
-    /// so that clients that support threads can render the reply inside the thread.
+    /// If the replied to event has a thread relation, it is forwarded on the
+    /// reply so that clients that support threads can render the reply
+    /// inside the thread.
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
@@ -486,8 +487,8 @@ impl Timeline {
 
     /// Send a message on a thread.
     ///
-    /// If the replied to event does not have a thread relation, it becomes the root
-    /// of a new thread.
+    /// If the replied to event does not have a thread relation, it becomes the
+    /// root of a new thread.
     pub async fn send_thread_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,

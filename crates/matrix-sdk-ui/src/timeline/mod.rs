@@ -373,8 +373,9 @@ impl Timeline {
 
     /// Send a message on a thread.
     ///
-    /// If the message is also a reply, the sender will be added to the mentions of the reply if
-    /// and only if the event has not been written by the sender.
+    /// If the message is also a reply, the sender will be added to the mentions
+    /// of the reply if and only if the event has not been written by the
+    /// sender.
     ///
     /// # Arguments
     ///

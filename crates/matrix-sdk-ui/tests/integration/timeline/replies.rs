@@ -21,7 +21,9 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            message::{ForwardThread, Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+            message::{
+                ForwardThread, Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation,
+            },
             ImageInfo,
         },
         sticker::{StickerEventContent, StickerMediaSource},
@@ -949,7 +951,6 @@ async fn test_send_thread_reply() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-                
             assert_matches!(reply_event.relates_to, Some(Relation::Thread(thread)) => {
                 assert_eq!(thread.event_id, event_id_from_bob);
                 assert_eq!(thread.in_reply_to.unwrap().event_id, event_id_from_bob);
