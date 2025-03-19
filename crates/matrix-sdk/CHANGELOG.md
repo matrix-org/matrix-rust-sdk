@@ -187,6 +187,19 @@ simpler methods:
   - `OAuth::finish_login()` can be called several times for the same session,
     but it will return an error if it is called with a new session.
   - `OAuthError::MissingDeviceId` was removed, it cannot occur anymore.
+- [**breaking**] `OidcRegistrations` was renamed to `OAuthRegistrationStore`.
+  ([#4814](https://github.com/matrix-org/matrix-rust-sdk/pull/4814))
+  - `OidcRegistrationsError` was renamed to `OAuthRegistrationStoreError`. 
+  - The `registrations` module was renamed and is now private.
+    `OAuthRegistrationStore` and `ClientId` are exported from `oauth`, and
+    `OAuthRegistrationStoreError` is exported from `oauth::error`.
+  - All the methods of `OAuthRegistrationStore` are now `async` and return a
+    `Result`: errors when reading the file are no longer ignored, and blocking
+    I/O is performed in a separate thread.
+  - `OAuthRegistrationStore::new()` takes a `PathBuf` instead of a `Path`.
+  - `OAuthRegistrationStore::new()` no longer takes a `static_registrations`
+    parameter. It should be provided if needed with
+    `OAuthRegistrationStore::with_static_registrations()`.
 
 ## [0.10.0] - 2025-02-04
 
