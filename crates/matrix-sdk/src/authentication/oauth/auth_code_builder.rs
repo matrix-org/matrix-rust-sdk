@@ -67,8 +67,8 @@ impl OAuthAuthCodeUrlBuilder {
     /// flow.
     ///
     /// This URL should be presented to the user and once they are redirected to
-    /// the `redirect_uri`, the authorization can be completed by calling
-    /// [`OAuth::finish_authorization()`].
+    /// the `redirect_uri`, the login can be completed by calling
+    /// [`OAuth::finish_login()`].
     ///
     /// Returns an error if the client registration was not restored, or if a
     /// request fails.

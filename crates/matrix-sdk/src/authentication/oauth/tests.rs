@@ -323,10 +323,11 @@ fn test_authorization_response() -> anyhow::Result<()> {
 }
 
 #[async_test]
-async fn test_finish_authorization() -> anyhow::Result<()> {
+async fn test_finish_login() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
-    let oauth_server = server.oauth();
+    server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
 
+    let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
     oauth_server.mock_token().ok().expect(1).named("token").mount().await;
 
@@ -335,7 +336,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     // If the state is missing, then any attempt to finish authorizing will fail.
     let res = oauth
-        .finish_authorization(AuthorizationCode {
+        .finish_login(AuthorizationCode {
             code: "42".to_owned(),
             state: CsrfToken::new("none".to_owned()),
         })
@@ -343,11 +344,12 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState))
+        Err(Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState)))
     );
     assert!(client.session_tokens().is_none());
+    assert!(client.session_meta().is_none());
 
-    // Assuming a non-empty state "123"...
+    // Assuming a non-empty state...
     let state = CsrfToken::new("state".to_owned());
     let redirect_uri = REDIRECT_URI_STRING;
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -364,7 +366,7 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     // Finishing the authorization for another state won't work.
     let res = oauth
-        .finish_authorization(AuthorizationCode {
+        .finish_login(AuthorizationCode {
             code: "1337".to_owned(),
             state: CsrfToken::new("none".to_owned()),
         })
@@ -372,17 +374,16 @@ async fn test_finish_authorization() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState))
+        Err(Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState)))
     );
     assert!(client.session_tokens().is_none());
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state).is_some());
 
     // Finishing the authorization for the expected state will work.
-    oauth
-        .finish_authorization(AuthorizationCode { code: "1337".to_owned(), state: state.clone() })
-        .await?;
+    oauth.finish_login(AuthorizationCode { code: "1337".to_owned(), state: state.clone() }).await?;
 
     assert!(client.session_tokens().is_some());
+    assert!(client.session_meta().is_some());
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state).is_none());
 
     Ok(())

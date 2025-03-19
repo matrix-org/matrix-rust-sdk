@@ -422,7 +422,7 @@ impl Client {
     /// Aborts an existing OIDC login operation that might have been cancelled,
     /// failed etc.
     pub async fn abort_oidc_auth(&self, authorization_data: Arc<OAuthAuthorizationData>) {
-        self.inner.oauth().abort_authorization(&authorization_data.state).await;
+        self.inner.oauth().abort_login(&authorization_data.state).await;
     }
 
     /// Completes the OIDC login process.
