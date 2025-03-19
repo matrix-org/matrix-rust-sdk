@@ -180,8 +180,7 @@ pub mod oauth {
     use crate::{
         authentication::oauth::{
             registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-            registrations::ClientId,
-            OAuthSession, UserSession,
+            ClientId, OAuthSession, UserSession,
         },
         SessionTokens,
     };

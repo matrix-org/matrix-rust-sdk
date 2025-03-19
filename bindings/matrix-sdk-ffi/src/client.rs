@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oauth::{
-        registrations::ClientId, AccountManagementActionFull, OAuthAuthorizationData, OAuthSession,
+        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
     event_cache::EventCacheError,
     media::{
