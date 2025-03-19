@@ -75,6 +75,9 @@ impl super::Timeline {
                     // As an exceptional contract, restart the back-pagination if we received an
                     // empty chunk.
                     if outcome.reached_start || !outcome.events.is_empty() {
+                        if outcome.reached_start {
+                            self.controller.insert_timeline_start_if_missing().await;
+                        }
                         return Ok(outcome.reached_start);
                     }
                 }
@@ -111,10 +114,22 @@ impl super::Timeline {
 
         let current_value = status.next_now();
 
+        let controller = self.controller.clone();
         let stream = Box::pin(stream! {
             let status_stream = status.dedup();
+
             pin_mut!(status_stream);
+
             while let Some(state) = status_stream.next().await {
+                match state {
+                    RoomPaginationStatus::Idle { hit_timeline_start } => {
+                        if hit_timeline_start {
+                            controller.insert_timeline_start_if_missing().await;
+                        }
+                    }
+                    RoomPaginationStatus::Paginating => {}
+                }
+
                 yield state;
             }
         });

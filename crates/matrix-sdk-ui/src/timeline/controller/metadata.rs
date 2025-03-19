@@ -41,7 +41,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// This value is constant over the lifetime of the metadata.
     internal_id_prefix: Option<String>,
 
-    /// The `count` value for the `Skip higher-order stream used by the
+    /// The `count` value for the `Skip` higher-order stream used by the
     /// `TimelineSubscriber`. See its documentation to learn more.
     pub(super) subscriber_skip_count: SkipCount,
 

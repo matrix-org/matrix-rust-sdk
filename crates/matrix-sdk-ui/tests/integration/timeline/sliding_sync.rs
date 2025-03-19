@@ -145,6 +145,32 @@ macro_rules! assert_timeline_stream {
         )
     };
 
+
+    // `prepend --- timeline start ---`
+    ( @_ [ $iterator:ident ] [ prepend --- timeline start --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_timeline_stream!(
+            @_
+            [ $iterator ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $iterator .next(),
+                        Some(eyeball_im::VectorDiff::PushFront { value }) => {
+                            assert_matches!(
+                                &**value,
+                                matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
+                                    matrix_sdk_ui::timeline::VirtualTimelineItem::TimelineStart
+                                ) => {}
+                            );
+                        }
+                    );
+                }
+            ]
+        )
+    };
+
     // `prepend "$event_id"`
     ( @_ [ $iterator:ident ] [ prepend $event_id:literal ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(

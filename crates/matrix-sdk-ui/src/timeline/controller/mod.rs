@@ -71,7 +71,7 @@ use super::{
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
     PaginationError, Profile, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus,
-    TimelineItem, TimelineItemContent, TimelineItemKind,
+    TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use crate::{
     timeline::{
@@ -1308,6 +1308,20 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 info!(txn_id = %related_to, "some media for a media event has been uploaded");
             }
         }
+    }
+
+    /// Insert a timeline start item at the beginning of the room, if it's
+    /// missing.
+    pub async fn insert_timeline_start_if_missing(&self) {
+        let mut state = self.state.write().await;
+        let mut txn = state.transaction();
+        for item in txn.items.iter() {
+            if item.is_timeline_start() {
+                return;
+            }
+        }
+        txn.items.push_front(txn.meta.new_timeline_item(VirtualTimelineItem::TimelineStart), None);
+        txn.commit();
     }
 }
 
