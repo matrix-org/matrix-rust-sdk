@@ -41,7 +41,7 @@ pub use self::{
     capabilities::{Capabilities, CapabilitiesProvider},
     filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
     settings::{
-        ClientProperties, EncryptionSystem, Intent, VirtualElementCallWidgetOptions, WidgetSettings,
+        ClientProperties, EncryptionSystem, VirtualElementCallWidgetOptions, WidgetSettings,
     },
 };
 
