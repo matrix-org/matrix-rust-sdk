@@ -6,8 +6,8 @@ use assert_matches2::assert_let;
 use matrix_sdk_test::async_test;
 use oauth2::{CsrfToken, PkceCodeChallenge, RedirectUrl};
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, owned_device_id,
-    user_id, DeviceId, ServerName,
+    api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, device_id,
+    owned_device_id, user_id, DeviceId, ServerName,
 };
 use serde_json::json;
 use tempfile::tempdir;
@@ -325,11 +325,9 @@ fn test_authorization_response() -> anyhow::Result<()> {
 #[async_test]
 async fn test_finish_login() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
-    server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
 
     let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
-    oauth_server.mock_token().ok().expect(1).named("token").mount().await;
 
     let client = server.client_builder().registered_with_oauth(server.server().uri()).build().await;
     let oauth = client.oauth();
@@ -350,7 +348,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     assert!(client.session_meta().is_none());
 
     // Assuming a non-empty state...
-    let state = CsrfToken::new("state".to_owned());
+    let state1 = CsrfToken::new("state1".to_owned());
     let redirect_uri = REDIRECT_URI_STRING;
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let auth_validation_data = AuthorizationValidationData {
@@ -360,7 +358,8 @@ async fn test_finish_login() -> anyhow::Result<()> {
 
     {
         let data = oauth.data().context("missing data")?;
-        let prev = data.authorization_data.lock().await.insert(state.clone(), auth_validation_data);
+        let prev =
+            data.authorization_data.lock().await.insert(state1.clone(), auth_validation_data);
         assert!(prev.is_none());
     }
 
@@ -377,14 +376,117 @@ async fn test_finish_login() -> anyhow::Result<()> {
         Err(Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState)))
     );
     assert!(client.session_tokens().is_none());
-    assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state).is_some());
+    assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state1).is_some());
 
     // Finishing the authorization for the expected state will work.
-    oauth.finish_login(AuthorizationCode { code: "1337".to_owned(), state: state.clone() }).await?;
+    oauth_server
+        .mock_token()
+        .ok_with_tokens("AT1", "RT1")
+        .mock_once()
+        .named("token_1")
+        .mount()
+        .await;
+    server
+        .mock_who_am_i()
+        .expect_access_token("AT1")
+        .ok()
+        .mock_once()
+        .named("whoami_1")
+        .mount()
+        .await;
 
-    assert!(client.session_tokens().is_some());
+    oauth
+        .finish_login(AuthorizationCode { code: "1337".to_owned(), state: state1.clone() })
+        .await?;
+
+    let session_tokens = client.session_tokens().unwrap();
+    assert_eq!(session_tokens.access_token, "AT1");
+    assert_eq!(session_tokens.refresh_token.as_deref(), Some("RT1"));
     assert!(client.session_meta().is_some());
-    assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state).is_none());
+    assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state1).is_none());
+
+    // Try to log in again, with the same session.
+    let state2 = CsrfToken::new("state2".to_owned());
+    let redirect_uri = REDIRECT_URI_STRING;
+    let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+    let auth_validation_data = AuthorizationValidationData {
+        redirect_uri: RedirectUrl::new(redirect_uri.to_owned())?,
+        pkce_verifier,
+    };
+
+    {
+        let data = oauth.data().context("missing data")?;
+        let prev =
+            data.authorization_data.lock().await.insert(state2.clone(), auth_validation_data);
+        assert!(prev.is_none());
+    }
+
+    // Finishing the login with the same session will work again.
+    oauth_server
+        .mock_token()
+        .ok_with_tokens("AT2", "RT2")
+        .mock_once()
+        .named("token_2")
+        .mount()
+        .await;
+    server
+        .mock_who_am_i()
+        .expect_access_token("AT2")
+        .ok()
+        .mock_once()
+        .named("whoami_2")
+        .mount()
+        .await;
+
+    oauth
+        .finish_login(AuthorizationCode { code: "1337".to_owned(), state: state2.clone() })
+        .await?;
+
+    let session_tokens = client.session_tokens().unwrap();
+    assert_eq!(session_tokens.access_token, "AT2");
+    assert_eq!(session_tokens.refresh_token.as_deref(), Some("RT2"));
+    assert!(client.session_meta().is_some());
+    assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state2).is_none());
+
+    // Try to log in again, with a different session
+    let state3 = CsrfToken::new("state3".to_owned());
+    let redirect_uri = REDIRECT_URI_STRING;
+    let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+    let auth_validation_data = AuthorizationValidationData {
+        redirect_uri: RedirectUrl::new(redirect_uri.to_owned())?,
+        pkce_verifier,
+    };
+
+    {
+        let data = oauth.data().context("missing data")?;
+        let prev =
+            data.authorization_data.lock().await.insert(state3.clone(), auth_validation_data);
+        assert!(prev.is_none());
+    }
+
+    // Finishing the login with a different session will error.
+    oauth_server
+        .mock_token()
+        .ok_with_tokens("AT3", "RT3")
+        .mock_once()
+        .named("token_3")
+        .mount()
+        .await;
+    server
+        .mock_who_am_i()
+        .expect_access_token("AT3")
+        .ok_with_device_id(device_id!("WR0NG"))
+        .mock_once()
+        .named("whoami_3")
+        .mount()
+        .await;
+
+    let res = oauth
+        .finish_login(AuthorizationCode { code: "1337".to_owned(), state: state3.clone() })
+        .await;
+
+    assert_matches!(res, Err(Error::OAuth(OAuthError::SessionMismatch)));
+    assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state3).is_none());
 
     Ok(())
 }

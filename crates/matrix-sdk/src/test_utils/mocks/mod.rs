@@ -30,6 +30,7 @@ use matrix_sdk_test::{
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
     api::client::room::Visibility,
+    device_id,
     directory::PublicRoomsChunk,
     events::{
         room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, MessageLikeEventType,
@@ -37,7 +38,7 @@ use ruma::{
     },
     serde::Raw,
     time::Duration,
-    MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName,
+    DeviceId, MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -2410,11 +2411,16 @@ impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
 pub struct WhoAmIEndpoint;
 
 impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
-    /// Returns a successful response with a user ID and device ID.
+    /// Returns a successful response with the default device ID.
     pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_with_device_id(device_id!("D3V1C31D"))
+    }
+
+    /// Returns a successful response with the given device ID.
+    pub fn ok_with_device_id(self, device_id: &DeviceId) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "user_id": "@joe:example.org",
-            "device_id": "D3V1C31D",
+            "device_id": device_id,
         })))
     }
 
