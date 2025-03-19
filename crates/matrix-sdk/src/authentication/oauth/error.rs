@@ -65,10 +65,6 @@ pub enum OAuthError {
     #[error("client not registered")]
     NotRegistered,
 
-    /// The device ID was not returned by the homeserver after login.
-    #[error("missing device ID in response")]
-    MissingDeviceId,
-
     /// The client is not authenticated while the request requires it.
     #[error("client not authenticated")]
     NotAuthenticated,
