@@ -507,10 +507,10 @@ impl OAuth {
         }
 
         tracing::info!("Registering this client for OAuth 2.0.");
-        self.register_client(&registrations.metadata).await?;
+        let response = self.register_client(&registrations.metadata).await?;
 
         tracing::info!("Persisting OAuth 2.0 registration data.");
-        self.store_client_registration(&registrations)
+        self.store_client_registration(response.client_id, &registrations)
             .map_err(|e| OAuthError::UnknownError(Box::new(e)))?;
 
         Ok(())
@@ -520,10 +520,10 @@ impl OAuth {
     /// re-used if we ever log in via the same issuer again.
     fn store_client_registration(
         &self,
+        client_id: ClientId,
         registrations: &OAuthRegistrationStore,
     ) -> std::result::Result<(), OAuthError> {
         let issuer = self.issuer().expect("issuer should be set after registration").to_owned();
-        let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.to_owned();
 
         registrations
             .set_and_write_client_id(client_id, issuer)
