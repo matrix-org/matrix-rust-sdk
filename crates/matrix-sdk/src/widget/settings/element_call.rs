@@ -41,15 +41,15 @@ struct ElementCallParams {
     base_url: String,
     // Non template parameters
     parent_url: String,
-    /// Deprecated since Element Call v0.8.0. Included for backwards compatibility.
-    /// Set to `true` if intent is `Intent::StartCall`.
+    /// Deprecated since Element Call v0.8.0. Included for backwards
+    /// compatibility. Set to `true` if intent is `Intent::StartCall`.
     skip_lobby: Option<bool>,
     confine_to_room: bool,
     app_prompt: bool,
     hide_header: bool,
     preload: bool,
-    /// Deprecated since Element Call v0.9.0. Included for backwards compatibility.
-    /// Set to the same as `posthog_user_id`.
+    /// Deprecated since Element Call v0.9.0. Included for backwards
+    /// compatibility. Set to the same as `posthog_user_id`.
     analytics_id: Option<String>,
     /// Supported since Element Call v0.9.0.
     posthog_user_id: Option<String>,
