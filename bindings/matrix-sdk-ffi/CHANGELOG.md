@@ -19,6 +19,8 @@ Breaking changes:
 
 Additions:
 
+- Support for adding a Sentry layer to the FFI bindings has been added. Only `tracing` statements with
+  the field `sentry=true` will be forwarded to Sentry, in addition to default Sentry filters.
 - Add room topic string to `StateEventContent`
 - Add `UploadSource` for representing upload data - this is analogous to `matrix_sdk_ui::timeline::AttachmentSource`
 - Add `Client::observe_account_data_event` and `Client::observe_room_account_data_event` to
