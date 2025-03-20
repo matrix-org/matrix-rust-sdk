@@ -263,3 +263,81 @@ impl AttachmentConfig {
         self
     }
 }
+
+/// Configuration for sending a gallery.
+#[derive(Debug, Default)]
+pub struct GalleryConfig {
+    pub(crate) txn_id: Option<OwnedTransactionId>,
+    pub(crate) caption: Option<String>,
+    pub(crate) formatted_caption: Option<FormattedBody>,
+    pub(crate) mentions: Option<Mentions>,
+}
+
+impl GalleryConfig {
+    /// Create a new empty `GalleryConfig`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the transaction ID to send.
+    ///
+    /// # Arguments
+    ///
+    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent` held
+    ///   in its unsigned field as `transaction_id`. If not given, one is
+    ///   created for the message.
+    #[must_use]
+    pub fn txn_id(mut self, txn_id: &TransactionId) -> Self {
+        self.txn_id = Some(txn_id.to_owned());
+        self
+    }
+
+    /// Set the optional caption
+    ///
+    /// # Arguments
+    ///
+    /// * `caption` - The optional caption
+    pub fn caption(mut self, caption: Option<String>) -> Self {
+        self.caption = caption;
+        self
+    }
+
+    /// Set the optional formatted caption
+    ///
+    /// # Arguments
+    ///
+    /// * `formatted_caption` - The optional formatted caption
+    pub fn formatted_caption(mut self, formatted_caption: Option<FormattedBody>) -> Self {
+        self.formatted_caption = formatted_caption;
+        self
+    }
+
+    /// Set the mentions of the message.
+    ///
+    /// # Arguments
+    ///
+    /// * `mentions` - The mentions of the message
+    pub fn mentions(mut self, mentions: Option<Mentions>) -> Self {
+        self.mentions = mentions;
+        self
+    }
+}
+
+#[derive(Debug)]
+/// Metadata for a gallery item
+pub struct GalleryItemInfo {
+    /// The filename
+    pub filename: String,
+    /// The mime type
+    pub content_type: mime::Mime,
+    /// The binary data
+    pub data: Vec<u8>,
+    /// The attachment info
+    pub attachment_info: AttachmentInfo,
+    /// The caption
+    pub caption: Option<String>,
+    /// The formatted caption
+    pub formatted_caption: Option<FormattedBody>,
+    /// The thumbnail
+    pub thumbnail: Option<Thumbnail>,
+}

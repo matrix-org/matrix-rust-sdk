@@ -244,6 +244,33 @@ pub enum DependentQueuedRequestKind {
         /// Information about the thumbnail, if present.
         thumbnail_info: Option<FinishUploadThumbnailInfo>,
     },
+
+    /// Finish a gallery item upload by updating references to the media cache
+    /// and holding the info needed to send the final media event with the
+    /// remote MXC URIs.
+    FinishGalleryItemUpload {
+        /// The inner data
+        inner: FinishGalleryItemUploadInner,
+    },
+
+    /// Finish a gallery upload.
+    FinishGallery {
+        /// The inner data
+        inner: FinishGalleryInner,
+    },
+}
+
+impl DependentQueuedRequestKind {
+    /// Converts self into the inner data (cloned) if self is
+    /// `FinishGalleryItemUpload`
+    pub fn as_finish_gallery_item_upload(&self) -> Option<FinishGalleryItemUploadInner> {
+        as_variant!(self, Self::FinishGalleryItemUpload { inner } => inner.clone())
+    }
+
+    /// Converts self into the inner data (cloned) if self is `FinishGallery`
+    pub fn as_finish_gallery(&self) -> Option<FinishGalleryInner> {
+        as_variant!(self, Self::FinishGallery { inner } => inner.clone())
+    }
 }
 
 /// Detailed record about a thumbnail used when finishing a media upload.
@@ -261,6 +288,35 @@ pub struct FinishUploadThumbnailInfo {
     /// Used previously, kept for backwards compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<UInt>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Inner data for FinishGalleryItemUpload.
+pub struct FinishGalleryItemUploadInner {
+    /// Transaction id for the event itself.
+    pub send_event: OwnedTransactionId,
+    /// Transaction id for the file upload.
+    pub file_upload: OwnedTransactionId,
+    /// Information about the thumbnail, if present.
+    pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Inner data for FinishGallery.
+pub struct FinishGalleryInner {
+    /// Local echo for the event (containing the local MXC URIs).
+    pub local_echo: RoomMessageEventContent,
+    /// Metadata about the gallery items.
+    pub item_infos: Vec<FinishGalleryItemInfo>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Metadata for a gallery item on FinishGallery.
+pub struct FinishGalleryItemInfo {
+    /// Transaction id for the file upload.
+    pub file_upload: OwnedTransactionId,
+    /// Information about the thumbnail, if present.
+    pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
 }
 
 /// A transaction id identifying a [`DependentQueuedRequest`] rather than its
@@ -388,13 +444,18 @@ impl DependentQueuedRequest {
             DependentQueuedRequestKind::EditEvent { .. }
             | DependentQueuedRequestKind::RedactEvent
             | DependentQueuedRequestKind::ReactEvent { .. }
-            | DependentQueuedRequestKind::UploadFileWithThumbnail { .. } => {
+            | DependentQueuedRequestKind::UploadFileWithThumbnail { .. }
+            | DependentQueuedRequestKind::FinishGalleryItemUpload { .. } => {
                 // These are all aggregated events, or non-visible items (file upload producing
                 // a new MXC ID).
                 false
             }
             DependentQueuedRequestKind::FinishUpload { .. } => {
                 // This one graduates into a new media event.
+                true
+            }
+            DependentQueuedRequestKind::FinishGallery { .. } => {
+                // This one graduates into a new gallery event.
                 true
             }
         }

@@ -298,6 +298,11 @@ pub(crate) fn update_media_caption(
             event.formatted = formatted_caption;
             true
         }
+        MessageType::Gallery(event) => {
+            event.body = caption.unwrap_or_default();
+            event.formatted = formatted_caption;
+            true
+        }
         MessageType::Image(event) => {
             set_caption!(event, caption);
             event.formatted = formatted_caption;

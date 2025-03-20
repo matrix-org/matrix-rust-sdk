@@ -21,10 +21,11 @@ use std::{fs, path::PathBuf, sync::Arc};
 use algorithms::rfind_event_by_item_id;
 use event_item::{extract_room_msg_edit_content, TimelineItemHandle};
 use eyeball_im::VectorDiff;
+use futures::SendGallery;
 use futures_core::Stream;
 use imbl::Vector;
 use matrix_sdk::{
-    attachment::AttachmentConfig,
+    attachment::{AttachmentConfig, AttachmentInfo, GalleryConfig, Thumbnail},
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
@@ -43,8 +44,8 @@ use ruma::{
         room::{
             encrypted::Relation as EncryptedRelation,
             message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, Relation, ReplyWithinThread,
-                RoomMessageEventContentWithoutRelation,
+                AddMentions, FormattedBody, ForwardThread, OriginalRoomMessageEvent, Relation,
+                ReplyWithinThread, RoomMessageEventContentWithoutRelation,
             },
             pinned_events::RoomPinnedEventsEventContent,
         },
@@ -628,6 +629,16 @@ impl Timeline {
         SendAttachment::new(self, source.into(), mime_type, config)
     }
 
+    /// Sends a gallery to the room.
+    #[instrument(skip_all)]
+    pub fn send_gallery(
+        &self,
+        item_infos: Vec<GalleryItemInfo>,
+        config: GalleryConfig,
+    ) -> SendGallery<'_> {
+        SendGallery::new(self, item_infos, config)
+    }
+
     /// Redact an event given its [`TimelineEventItemId`] and an optional
     /// reason.
     pub async fn redact(
@@ -977,5 +988,38 @@ where
 {
     fn from(value: P) -> Self {
         Self::File(value.into())
+    }
+}
+
+#[derive(Debug)]
+pub struct GalleryItemInfo {
+    /// The item's attachment source
+    pub source: AttachmentSource,
+    /// The item's attachment info
+    pub attachment_info: AttachmentInfo,
+    /// The caption
+    pub caption: Option<String>,
+    /// The formatted caption
+    pub formatted_caption: Option<FormattedBody>,
+    /// The item's thumbnail
+    pub thumbnail: Option<Thumbnail>,
+    /// The item's mimetype
+    pub mime_type: Mime,
+}
+
+impl TryInto<matrix_sdk::attachment::GalleryItemInfo> for GalleryItemInfo {
+    type Error = Error;
+
+    fn try_into(self) -> std::result::Result<matrix_sdk::attachment::GalleryItemInfo, Self::Error> {
+        let (data, filename) = self.source.try_into_bytes_and_filename()?;
+        Ok(matrix_sdk::attachment::GalleryItemInfo {
+            content_type: self.mime_type,
+            data: data,
+            filename: filename,
+            attachment_info: self.attachment_info,
+            caption: self.caption,
+            formatted_caption: self.formatted_caption,
+            thumbnail: self.thumbnail,
+        })
     }
 }
