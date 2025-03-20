@@ -607,29 +607,28 @@ impl Room {
         })))
     }
 
-    pub fn subscribe_to_identity_status_changes(
+    pub async fn subscribe_to_identity_status_changes(
         &self,
         listener: Box<dyn IdentityStatusChangeListener>,
-    ) -> Arc<TaskHandle> {
+    ) -> Result<Arc<TaskHandle>, ClientError> {
         let room = self.inner.clone();
-        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            let status_changes = room.subscribe_to_identity_status_changes().await;
-            if let Ok(status_changes) = status_changes {
-                // TODO: what to do with failures?
-                let mut status_changes = pin!(status_changes);
-                while let Some(identity_status_changes) = status_changes.next().await {
-                    listener.call(
-                        identity_status_changes
-                            .into_iter()
-                            .map(|change| {
-                                let user_id = change.user_id.to_string();
-                                IdentityStatusChange { user_id, changed_to: change.changed_to }
-                            })
-                            .collect(),
-                    );
-                }
+
+        let status_changes = room.subscribe_to_identity_status_changes().await?;
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let mut status_changes = pin!(status_changes);
+            while let Some(identity_status_changes) = status_changes.next().await {
+                listener.call(
+                    identity_status_changes
+                        .into_iter()
+                        .map(|change| {
+                            let user_id = change.user_id.to_string();
+                            IdentityStatusChange { user_id, changed_to: change.changed_to }
+                        })
+                        .collect(),
+                );
             }
-        })))
+        }))))
     }
 
     /// Set (or unset) a flag on the room to indicate that the user has
@@ -1032,7 +1031,7 @@ impl Room {
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             let subscription = room.observe_live_location_shares();
-            let mut stream = subscription.subscribe();
+            let stream = subscription.subscribe();
             let mut pinned_stream = pin!(stream);
 
             while let Some(event) = pinned_stream.next().await {
