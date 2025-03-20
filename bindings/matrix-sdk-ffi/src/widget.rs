@@ -141,12 +141,31 @@ impl From<EncryptionSystem> for matrix_sdk::widget::EncryptionSystem {
     }
 }
 
+/// Defines the intent of showing the call.
+///
+/// This controls whether to show or skip the lobby.
+#[derive(uniffi::Enum, Clone)]
+pub enum Intent {
+    /// The user wants to start a call.
+    StartCall,
+    /// The user wants to join an existing call.
+    JoinExisting,
+}
+impl From<Intent> for matrix_sdk::widget::Intent {
+    fn from(value: Intent) -> Self {
+        match value {
+            Intent::StartCall => Self::StartCall,
+            Intent::JoinExisting => Self::JoinExisting,
+        }
+    }
+}
+
 /// Properties to create a new virtual Element Call widget.
 #[derive(uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
-    /// The url to the app.
+    /// The url to the Element Call app including any `/room` path if required.
     ///
-    /// E.g. <https://call.element.io>, <https://call.element.dev>
+    /// E.g. <https://call.element.io>, <https://call.element.dev>, <https://call.element.dev/room>
     pub element_call_url: String,
 
     /// The widget id.
@@ -189,11 +208,6 @@ pub struct VirtualElementCallWidgetOptions {
     /// Default: `false`
     pub app_prompt: Option<bool>,
 
-    /// Don't show the lobby and join the call immediately.
-    ///
-    /// Default: `false`
-    pub skip_lobby: Option<bool>,
-
     /// Make it not possible to get to the calls list in the webview.
     ///
     /// Default: `true`
@@ -202,13 +216,38 @@ pub struct VirtualElementCallWidgetOptions {
     /// The font to use, to adapt to the system font.
     pub font: Option<String>,
 
-    /// Can be used to pass a PostHog id to element call.
-    pub analytics_id: Option<String>,
-
     /// The encryption system to use.
     ///
     /// Use `EncryptionSystem::Unencrypted` to disable encryption.
     pub encryption: EncryptionSystem,
+
+    /// The intent of showing the call.
+    /// If the user wants to start a call or join an existing one.
+    /// Controls if the lobby is skipped or not.
+    pub intent: Option<Intent>,
+
+    /// Do not show the screenshare button.
+    pub hide_screensharing: bool,
+
+    /// Can be used to pass a PostHog id to element call.
+    pub posthog_user_id: Option<String>,
+    /// The host of the posthog api.
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
+    pub posthog_api_host: Option<String>,
+    /// The key for the posthog api.
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
+    pub posthog_api_key: Option<String>,
+
+    /// The url to use for submitting rageshakes.
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
+    pub rageshake_submit_url: Option<String>,
+
+    /// Sentry [DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/)
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
+    pub sentry_dsn: Option<String>,
+    /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
+    pub sentry_environment: Option<String>,
 }
 
 impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
@@ -221,11 +260,17 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             preload: value.preload,
             font_scale: value.font_scale,
             app_prompt: value.app_prompt,
-            skip_lobby: value.skip_lobby,
             confine_to_room: value.confine_to_room,
             font: value.font,
-            analytics_id: value.analytics_id,
+            posthog_user_id: value.posthog_user_id,
             encryption: value.encryption.into(),
+            intent: value.intent.map(Into::into),
+            hide_screensharing: value.hide_screensharing,
+            posthog_api_host: value.posthog_api_host,
+            posthog_api_key: value.posthog_api_key,
+            rageshake_submit_url: value.rageshake_submit_url,
+            sentry_dsn: value.sentry_dsn,
+            sentry_environment: value.sentry_environment,
         }
     }
 }
