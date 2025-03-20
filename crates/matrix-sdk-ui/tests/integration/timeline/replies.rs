@@ -578,8 +578,7 @@ async fn test_send_reply() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -598,7 +597,7 @@ async fn test_send_reply() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
     let replied_to_info = event_from_bob.replied_to_info().unwrap();
@@ -682,8 +681,7 @@ async fn test_send_reply_to_self() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by the current user.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -699,7 +697,7 @@ async fn test_send_reply_to_self() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
     let replied_to_info = event_from_self.replied_to_info().unwrap();
@@ -849,8 +847,7 @@ async fn test_send_reply_with_event_id() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -869,7 +866,7 @@ async fn test_send_reply_with_event_id() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
     // Since we assume we can't use the timeline item directly in this use case, the
@@ -942,8 +939,7 @@ async fn test_send_thread_reply() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -960,7 +956,7 @@ async fn test_send_thread_reply() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
     let replied_to_info = event_from_bob.replied_to_info().unwrap();
@@ -1045,8 +1041,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -1065,7 +1060,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
     // Since we assume we can't use the timeline item directly in this use case, the
