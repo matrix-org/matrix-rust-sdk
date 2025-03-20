@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
   - And replaced:
     - `analytics_id` -> `posthog_user_id` (The widget URL query parameters will include `analytics_id` & `posthog_user_id`
     for backward compatibility)
-    - `skip_lobby` -> `intent` (`Intent.StartCall`, `Intent.JoinCall`)
+    - `skip_lobby` -> `intent` (`Intent.StartCall`, `Intent.JoinExisting`. The widget URL query parameters will include `skip_lobby` if `intent` is `Intent.StartCall` for backward compatibility)
   - `VirtualElementCallWidgetOptions` now implements `Default`.
 - [**breaking**]: The `RoomPagination::run_backwards` method has been removed and replaced by two
 simpler methods:
