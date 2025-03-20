@@ -285,13 +285,13 @@ async fn test_login_url() -> anyhow::Result<()> {
 
     // No extra parameters.
     let authorization_data =
-        oauth.login(redirect_uri.clone(), Some(device_id.clone()))?.build().await?;
+        oauth.login(redirect_uri.clone(), Some(device_id.clone())).build().await?;
     check_authorization_url(&authorization_data, &oauth, &issuer, Some(&device_id), None, None)
         .await;
 
     // With prompt parameter.
     let authorization_data = oauth
-        .login(redirect_uri.clone(), Some(device_id.clone()))?
+        .login(redirect_uri.clone(), Some(device_id.clone()))
         .prompt(vec![Prompt::Create])
         .build()
         .await?;
@@ -307,7 +307,7 @@ async fn test_login_url() -> anyhow::Result<()> {
 
     // With user_id_hint parameter.
     let authorization_data = oauth
-        .login(redirect_uri.clone(), Some(device_id.clone()))?
+        .login(redirect_uri.clone(), Some(device_id.clone()))
         .user_id_hint(user_id!("@joe:example.org"))
         .build()
         .await?;

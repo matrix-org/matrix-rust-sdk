@@ -448,7 +448,7 @@ impl OAuth {
 
         self.configure(server_metadata.issuer, registrations).await?;
 
-        let mut data_builder = self.login(redirect_uri, None)?;
+        let mut data_builder = self.login(redirect_uri, None);
 
         if let Some(prompt) = prompt {
             data_builder = data_builder.prompt(vec![prompt]);
@@ -1003,10 +1003,6 @@ impl OAuth {
     ///   device ID from a previous login call. Note that this should be done
     ///   only if the client also holds the corresponding encryption keys.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if the device ID is not valid.
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -1029,7 +1025,7 @@ impl OAuth {
     ///     client_id,
     /// );
     ///
-    /// let auth_data = oauth.login(redirect_uri, None)?.build().await?;
+    /// let auth_data = oauth.login(redirect_uri, None).build().await?;
     ///
     /// // Open auth_data.url and wait for response at the redirect URI.
     /// let redirected_to_uri = open_uri_and_wait_for_redirect(auth_data.url).await;
@@ -1057,10 +1053,10 @@ impl OAuth {
         &self,
         redirect_uri: Url,
         device_id: Option<OwnedDeviceId>,
-    ) -> Result<OAuthAuthCodeUrlBuilder, OAuthError> {
+    ) -> OAuthAuthCodeUrlBuilder {
         let (scopes, device_id) = Self::login_scopes(device_id);
 
-        Ok(OAuthAuthCodeUrlBuilder::new(self.clone(), scopes.to_vec(), device_id, redirect_uri))
+        OAuthAuthCodeUrlBuilder::new(self.clone(), scopes.to_vec(), device_id, redirect_uri)
     }
 
     /// Finish the login process.

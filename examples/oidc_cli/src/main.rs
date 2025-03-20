@@ -219,7 +219,7 @@ impl OidcCli {
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OAuthAuthorizationData { url, state } =
-                oauth.login(redirect_uri, None)?.build().await?;
+                oauth.login(redirect_uri, None).build().await?;
 
             let authorization_code = match use_auth_url(&url, &state, server_handle).await {
                 Ok(code) => code,
