@@ -139,8 +139,7 @@ use std::{
 use as_variant::as_variant;
 use error::{
     CrossProcessRefreshLockError, OAuthAuthorizationCodeError, OAuthClientRegistrationError,
-    OAuthDiscoveryError, OAuthRegistrationStoreError, OAuthTokenRevocationError,
-    RedirectUriQueryParseError,
+    OAuthDiscoveryError, OAuthTokenRevocationError, RedirectUriQueryParseError,
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
@@ -502,56 +501,25 @@ impl OAuth {
             return Ok(());
         };
 
-        if self
-            .load_client_registration(issuer, &registrations)
-            .await
-            .map_err(OAuthClientRegistrationError::from)?
+        if let Some(client_id) =
+            registrations.client_id(&issuer).await.map_err(OAuthClientRegistrationError::from)?
         {
+            self.restore_registered_client(issuer, client_id);
+
             tracing::info!("OAuth 2.0 configuration loaded from disk.");
             return Ok(());
-        }
+        };
 
         tracing::info!("Registering this client for OAuth 2.0.");
         let response = self.register_client(&registrations.metadata).await?;
 
         tracing::info!("Persisting OAuth 2.0 registration data.");
-        self.store_client_registration(response.client_id, &registrations)
+        registrations
+            .set_and_write_client_id(response.client_id, issuer)
             .await
             .map_err(OAuthClientRegistrationError::from)?;
 
         Ok(())
-    }
-
-    /// Stores the current OAuth 2.0 dynamic client registration so it can be
-    /// re-used if we ever log in via the same issuer again.
-    async fn store_client_registration(
-        &self,
-        client_id: ClientId,
-        registrations: &OAuthRegistrationStore,
-    ) -> std::result::Result<(), OAuthRegistrationStoreError> {
-        let issuer = self.issuer().expect("issuer should be set after registration").to_owned();
-
-        registrations.set_and_write_client_id(client_id, issuer).await?;
-
-        Ok(())
-    }
-
-    /// Attempts to load an existing OAuth 2.0 dynamic client registration for a
-    /// given issuer.
-    ///
-    /// Returns `true` if an existing registration was found and `false` if not.
-    async fn load_client_registration(
-        &self,
-        issuer: Url,
-        registrations: &OAuthRegistrationStore,
-    ) -> Result<bool, OAuthRegistrationStoreError> {
-        let Some(client_id) = registrations.client_id(&issuer).await? else {
-            return Ok(false);
-        };
-
-        self.restore_registered_client(issuer, client_id);
-
-        Ok(true)
     }
 
     /// The OAuth 2.0 authorization server used for authorization.
