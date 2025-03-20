@@ -980,14 +980,6 @@ async fn test_send_reply_enforce_thread() {
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
-    // Right now, we don't pass along the replied-to event to the event handler,
-    // so it's not available if the timeline got cleared. Not critical, but
-    // there's notable room for improvement here.
-    //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
-    // assert_eq!(replied_to_event.sender(), *BOB);
-
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
@@ -997,11 +989,6 @@ async fn test_send_reply_enforce_thread() {
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
-    // Same as above.
-    //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) =>
-    // ev); assert_eq!(replied_to_event.sender(), *BOB);
 }
 
 #[async_test]
