@@ -10,7 +10,8 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
-    EnforceThread, Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent
+    EnforceThread, Error as TimelineError, EventSendState, RoomExt, TimelineDetails,
+    TimelineItemContent,
 };
 use ruma::{
     event_id,
@@ -939,7 +940,8 @@ async fn test_send_reply_enforce_thread() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -1026,7 +1028,8 @@ async fn test_send_reply_enforce_thread_is_reply() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
