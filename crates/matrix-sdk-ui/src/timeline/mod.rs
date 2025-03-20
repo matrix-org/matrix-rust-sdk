@@ -137,6 +137,19 @@ pub enum ReplyContent {
     Raw(Raw<AnySyncTimelineEvent>),
 }
 
+/// Whether or not to enforce a [`Relation::Thread`] when sending a reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::exhaustive_enums)]
+pub enum EnforceThread {
+    /// A thread relation is enforced. If the original message does not have a
+    /// thread relation itself, a new thread is started.
+    Yes(ReplyWithinThread),
+
+    /// A thread relation is not enforced. If the original message has a thread
+    /// relation, it is optionally forwarded.
+    No(ForwardThread),
+}
+
 /// A high-level view into a regular¹ room's contents.
 ///
 /// ¹ This type is meant to be used in the context of rooms without a
@@ -320,18 +333,14 @@ impl Timeline {
     /// * `replied_to_info` - A wrapper that contains the event ID, sender,
     ///   content and timestamp of the event to reply to
     ///
-    /// * `forward_thread` - Usually `Yes`, unless you explicitly want to the
-    ///   reply to show up in the main timeline even though the `reply_item` is
-    ///   part of a thread
+    /// * `enforce_thread` - Whether to enforce a thread relation on the reply
     #[instrument(skip(self, content, replied_to_info))]
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
         replied_to_info: RepliedToInfo,
-        forward_thread: ForwardThread,
+        enforce_thread: EnforceThread,
     ) -> Result<(), RoomSendQueueError> {
-        let event_id = replied_to_info.event_id;
-
         // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
         //
         // > Users should not add their own Matrix ID to the `m.mentions` property as
@@ -348,123 +357,77 @@ impl Timeline {
         let content = match replied_to_info.content {
             ReplyContent::Message(msg) => {
                 let event = OriginalRoomMessageEvent {
-                    event_id: event_id.to_owned(),
+                    event_id: replied_to_info.event_id,
                     sender: replied_to_info.sender,
                     origin_server_ts: replied_to_info.timestamp,
                     room_id: self.room().room_id().to_owned(),
                     content: msg.to_content(),
                     unsigned: Default::default(),
                 };
-                content.make_reply_to(&event, forward_thread, mention_the_sender)
-            }
-            ReplyContent::Raw(raw_event) => content.make_reply_to_raw(
-                &raw_event,
-                event_id.to_owned(),
-                self.room().room_id(),
-                forward_thread,
-                mention_the_sender,
-            ),
-        };
 
-        self.send(content.into()).await?;
-
-        Ok(())
-    }
-
-    /// Send a message on a thread.
-    ///
-    /// If the message is also a reply, the sender will be added to the mentions
-    /// of the reply if and only if the event has not been written by the
-    /// sender.
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content of the message
-    ///
-    /// * `replied_to_info` - A wrapper that contains the event ID, sender,
-    ///   content and timestamp of the event to reply to
-    ///
-    /// * `is_reply` - Whether or not the message is a reply inside a thread
-    #[instrument(skip(self, content, replied_to_info))]
-    pub async fn send_thread_reply(
-        &self,
-        content: RoomMessageEventContentWithoutRelation,
-        replied_to_info: RepliedToInfo,
-        is_reply: ReplyWithinThread,
-    ) -> Result<(), RoomSendQueueError> {
-        let event_id = replied_to_info.event_id;
-
-        // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
-        //
-        // > Users should not add their own Matrix ID to the `m.mentions` property as
-        // > outgoing messages cannot self-notify.
-        //
-        // If the replied to event has been written by the current user, let's toggle to
-        // `AddMentions::No`.
-        let mention_the_sender = if self.room().own_user_id() == replied_to_info.sender {
-            AddMentions::No
-        } else {
-            AddMentions::Yes
-        };
-
-        let content = match replied_to_info.content {
-            ReplyContent::Message(msg) => {
-                let event = OriginalRoomMessageEvent {
-                    event_id: event_id.to_owned(),
-                    sender: replied_to_info.sender,
-                    origin_server_ts: replied_to_info.timestamp,
-                    room_id: self.room().room_id().to_owned(),
-                    content: msg.to_content(),
-                    unsigned: Default::default(),
-                };
-                content.make_for_thread(&event, is_reply, mention_the_sender)
+                match enforce_thread {
+                    EnforceThread::Yes(is_reply) => {
+                        content.make_for_thread(&event, is_reply, mention_the_sender)
+                    }
+                    EnforceThread::No(forward_thread) => {
+                        content.make_reply_to(&event, forward_thread, mention_the_sender)
+                    }
+                }
             }
             ReplyContent::Raw(raw_event) => {
-                // Some of the code below technically belongs into ruma. However,
-                // reply fallbacks have been removed in Matrix 1.13 which means
-                // both match arms can use the successor of make_for_thread in
-                // the next ruma release.
-                #[derive(Deserialize)]
-                struct ContentDeHelper {
-                    #[serde(rename = "m.relates_to")]
-                    relates_to: Option<ruma::events::room::encrypted::Relation>,
-                }
+                match enforce_thread {
+                    EnforceThread::Yes(is_reply) => {
+                        // Some of the code below technically belongs into ruma. However,
+                        // reply fallbacks have been removed in Matrix 1.13 which means
+                        // both match arms can use the successor of make_for_thread in
+                        // the next ruma release.
+                        #[derive(Deserialize)]
+                        struct ContentDeHelper {
+                            #[serde(rename = "m.relates_to")]
+                            relates_to: Option<ruma::events::room::encrypted::Relation>,
+                        }
 
-                let previous_content =
-                    raw_event.get_field::<ContentDeHelper>("content").ok().flatten();
-                let relates_to = previous_content.as_ref().and_then(|c| c.relates_to.as_ref());
+                        let previous_content =
+                            raw_event.get_field::<ContentDeHelper>("content").ok().flatten();
 
-                let mut content = if is_reply == ReplyWithinThread::Yes {
-                    content.make_reply_to_raw(
+                        let mut content = if is_reply == ReplyWithinThread::Yes {
+                            content.make_reply_to_raw(
+                                &raw_event,
+                                replied_to_info.event_id.to_owned(),
+                                self.room().room_id(),
+                                ForwardThread::No,
+                                mention_the_sender,
+                            )
+                        } else {
+                            content.into()
+                        };
+
+                        let thread_root =
+                            if let Some(ruma::events::room::encrypted::Relation::Thread(thread)) =
+                                previous_content.as_ref().and_then(|c| c.relates_to.as_ref())
+                            {
+                                thread.event_id.to_owned()
+                            } else {
+                                replied_to_info.event_id.to_owned()
+                            };
+
+                        let thread = if is_reply == ReplyWithinThread::Yes {
+                            Thread::reply(thread_root, replied_to_info.event_id)
+                        } else {
+                            Thread::plain(thread_root, replied_to_info.event_id)
+                        };
+
+                        content.relates_to = Some(Relation::Thread(thread));
+                        content
+                    }
+                    EnforceThread::No(forward_thread) => content.make_reply_to_raw(
                         &raw_event,
-                        event_id.to_owned(),
+                        replied_to_info.event_id,
                         self.room().room_id(),
-                        ForwardThread::No,
+                        forward_thread,
                         mention_the_sender,
-                    )
-                } else {
-                    content.into()
-                };
-
-                let thread_root =
-                    if let Some(ruma::events::room::encrypted::Relation::Thread(Thread {
-                        event_id,
-                        ..
-                    })) = &relates_to
-                    {
-                        event_id.to_owned()
-                    } else {
-                        event_id.to_owned()
-                    };
-
-                let thread = if is_reply == ReplyWithinThread::Yes {
-                    Thread::reply(thread_root, event_id.to_owned())
-                } else {
-                    Thread::plain(thread_root, event_id.to_owned())
-                };
-
-                content.relates_to = Some(Relation::Thread(thread));
-                content
+                    ),
+                }
             }
         };
 

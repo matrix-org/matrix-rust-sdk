@@ -10,7 +10,7 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
-    Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
+    EnforceThread, Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent
 };
 use ruma::{
     event_id,
@@ -605,7 +605,7 @@ async fn test_send_reply() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            ForwardThread::Yes,
+            EnforceThread::No(ForwardThread::Yes),
         )
         .await
         .unwrap();
@@ -705,7 +705,7 @@ async fn test_send_reply_to_self() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
             replied_to_info,
-            ForwardThread::Yes,
+            EnforceThread::No(ForwardThread::Yes),
         )
         .await
         .unwrap();
@@ -771,7 +771,7 @@ async fn test_send_reply_to_threaded() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
             replied_to_info,
-            ForwardThread::Yes,
+            EnforceThread::No(ForwardThread::Yes),
         )
         .await
         .unwrap();
@@ -879,7 +879,7 @@ async fn test_send_reply_with_event_id() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            ForwardThread::Yes,
+            EnforceThread::No(ForwardThread::Yes),
         )
         .await
         .unwrap();
@@ -906,7 +906,7 @@ async fn test_send_reply_with_event_id() {
 }
 
 #[async_test]
-async fn test_send_thread_reply() {
+async fn test_send_reply_enforce_thread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -961,10 +961,10 @@ async fn test_send_thread_reply() {
 
     let replied_to_info = event_from_bob.replied_to_info().unwrap();
     timeline
-        .send_thread_reply(
+        .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            ReplyWithinThread::No,
+            EnforceThread::Yes(ReplyWithinThread::No),
         )
         .await
         .unwrap();
@@ -1074,7 +1074,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            ForwardThread::Yes,
+            EnforceThread::No(ForwardThread::Yes),
         )
         .await
         .unwrap();

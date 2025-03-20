@@ -479,7 +479,11 @@ impl Timeline {
             .map_err(|err| anyhow::anyhow!(err))?;
 
         self.inner
-            .send_reply((*msg).clone(), replied_to_info, ForwardThread::Yes)
+            .send_reply(
+                (*msg).clone(),
+                replied_to_info,
+                timeline::EnforceThread::No(ForwardThread::Yes),
+            )
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -502,7 +506,11 @@ impl Timeline {
             .map_err(|err| anyhow::anyhow!(err))?;
 
         self.inner
-            .send_thread_reply((*msg).clone(), replied_to_info, ReplyWithinThread::No)
+            .send_reply(
+                (*msg).clone(),
+                replied_to_info,
+                timeline::EnforceThread::Yes(ReplyWithinThread::No),
+            )
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
