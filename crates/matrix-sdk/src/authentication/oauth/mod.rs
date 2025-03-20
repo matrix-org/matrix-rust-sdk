@@ -445,7 +445,7 @@ impl OAuth {
     ) -> Result<OAuthAuthorizationData, OAuthError> {
         let server_metadata = self.server_metadata().await?;
 
-        self.configure(server_metadata.issuer, registrations).await?;
+        self.restore_or_register_client(server_metadata.issuer, registrations).await?;
 
         let mut data_builder = self.login(redirect_uri, None);
 
@@ -489,9 +489,17 @@ impl OAuth {
         Ok(())
     }
 
-    /// Higher level wrapper that restores the OAuth 2.0 client with automatic
-    /// static/dynamic client registration.
-    async fn configure(
+    /// Restore or register the OAuth 2.0 client for the given issuer with the
+    /// given [`OAuthRegistrationStore`].
+    ///
+    /// If there is a client ID in the store, it is used to restore the client.
+    /// Otherwise, the client is registered with the metadata in the store.
+    ///
+    /// If we already have a client ID, this is a noop.
+    ///
+    /// Returns an error if there is an error while accessing the store, or
+    /// while registering the client.
+    async fn restore_or_register_client(
         &self,
         issuer: Url,
         registrations: OAuthRegistrationStore,
