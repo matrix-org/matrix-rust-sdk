@@ -26,6 +26,9 @@ use super::{url_params, WidgetSettings};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+
+/// Parameters for the Element Call widget.
+/// These are documented at https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md
 struct ElementCallParams {
     user_id: String,
     room_id: String,
@@ -38,23 +41,34 @@ struct ElementCallParams {
     base_url: String,
     // Non template parameters
     parent_url: String,
+    /// Deprecated since Element Call v0.8.0. Included for backwards compatibility.
+    /// Set to `true` if intent is `Intent::StartCall`.
+    skip_lobby: Option<bool>,
     confine_to_room: bool,
     app_prompt: bool,
     hide_header: bool,
     preload: bool,
-    /// The same as `posthog_user_id` used for backwards compatibility.
+    /// Deprecated since Element Call v0.9.0. Included for backwards compatibility.
+    /// Set to the same as `posthog_user_id`.
     analytics_id: Option<String>,
+    /// Supported since Element Call v0.9.0.
     posthog_user_id: Option<String>,
     font_scale: Option<f64>,
     font: Option<String>,
     #[serde(rename = "perParticipantE2EE")]
     per_participant_e2ee: bool,
     password: Option<String>,
+    /// Supported since Element Call v0.8.0.
     intent: Option<Intent>,
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     posthog_api_host: Option<String>,
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     posthog_api_key: Option<String>,
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     rageshake_submit_url: Option<String>,
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     sentry_dsn: Option<String>,
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     sentry_environment: Option<String>,
     hide_screensharing: bool,
 }
@@ -164,16 +178,21 @@ pub struct VirtualElementCallWidgetOptions {
     /// Can be used to pass a PostHog id to element call.
     pub posthog_user_id: Option<String>,
     /// The host of the posthog api.
+    /// This is only used by the embedded package of Element Call.
     pub posthog_api_host: Option<String>,
     /// The key for the posthog api.
+    /// This is only used by the embedded package of Element Call.
     pub posthog_api_key: Option<String>,
 
     /// The url to use for submitting rageshakes.
+    /// This is only used by the embedded package of Element Call.
     pub rageshake_submit_url: Option<String>,
 
     /// Sentry [DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/)
+    /// This is only used by the embedded package of Element Call.
     pub sentry_dsn: Option<String>,
     /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
+    /// This is only used by the embedded package of Element Call.
     pub sentry_environment: Option<String>,
 }
 
@@ -195,6 +214,12 @@ impl WidgetSettings {
         props: VirtualElementCallWidgetOptions,
     ) -> Result<Self, url::ParseError> {
         let mut raw_url: Url = Url::parse(&props.element_call_url)?;
+
+        let skip_lobby = if props.intent.as_ref().is_some_and(|x| x == &Intent::StartCall) {
+            Some(true)
+        } else {
+            None
+        };
 
         let query_params = ElementCallParams {
             user_id: url_params::USER_ID.to_owned(),
@@ -220,6 +245,7 @@ impl WidgetSettings {
                 _ => None,
             },
             intent: props.intent,
+            skip_lobby: skip_lobby,
             analytics_id: props.posthog_user_id.clone(),
             posthog_user_id: props.posthog_user_id,
             posthog_api_host: props.posthog_api_host,
@@ -253,7 +279,7 @@ mod tests {
     use ruma::api::client::profile::get_profile;
     use url::Url;
 
-    use crate::widget::{ClientProperties, WidgetSettings};
+    use crate::widget::{ClientProperties, Intent, WidgetSettings};
 
     const WIDGET_ID: &str = "1/@#w23";
 
@@ -262,6 +288,7 @@ mod tests {
         posthog: bool,
         rageshake: bool,
         sentry: bool,
+        intent: Option<Intent>,
     ) -> WidgetSettings {
         let mut props = VirtualElementCallWidgetOptions {
             element_call_url: "https://call.element.io".to_owned(),
@@ -271,6 +298,7 @@ mod tests {
             app_prompt: Some(true),
             confine_to_room: Some(true),
             encryption: encryption.unwrap_or(EncryptionSystem::PerParticipantKeys),
+            intent,
             ..VirtualElementCallWidgetOptions::default()
         };
 
@@ -319,7 +347,7 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_base_url() {
-        let widget_settings = get_widget_settings(None, false, false, false);
+        let widget_settings = get_widget_settings(None, false, false, false, None);
         assert_eq!(widget_settings.base_url().unwrap().as_str(), "https://call.element.io/");
     }
 
@@ -345,7 +373,7 @@ mod tests {
                 &hideScreensharing=false\
         ";
 
-        let mut url = get_widget_settings(None, false, false, false).raw_url().clone();
+        let mut url = get_widget_settings(None, false, false, false, None).raw_url().clone();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
         assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
         url.set_fragment(None);
@@ -357,7 +385,7 @@ mod tests {
 
     #[test]
     fn new_virtual_element_call_widget_id() {
-        assert_eq!(get_widget_settings(None, false, false, false).widget_id(), WIDGET_ID);
+        assert_eq!(get_widget_settings(None, false, false, false, None).widget_id(), WIDGET_ID);
     }
 
     fn build_url_from_widget_settings(settings: WidgetSettings) -> String {
@@ -397,7 +425,8 @@ mod tests {
                 &perParticipantE2EE=true\
                 &hideScreensharing=false\
         ";
-        let gen = build_url_from_widget_settings(get_widget_settings(None, false, false, false));
+        let gen =
+            build_url_from_widget_settings(get_widget_settings(None, false, false, false, None));
 
         let mut url = Url::parse(&gen).unwrap();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
@@ -435,7 +464,7 @@ mod tests {
                 &sentryDsn=SENTRY_DSN\
                 &sentryEnvironment=SENTRY_ENV\
         ";
-        let gen = build_url_from_widget_settings(get_widget_settings(None, true, true, true));
+        let gen = build_url_from_widget_settings(get_widget_settings(None, true, true, true, None));
 
         let mut url = Url::parse(&gen).unwrap();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
@@ -456,6 +485,7 @@ mod tests {
                 false,
                 false,
                 false,
+                None,
             ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = [("perParticipantE2EE".to_owned(), "true".to_owned())];
@@ -475,6 +505,7 @@ mod tests {
                 false,
                 false,
                 false,
+                None,
             ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = ("perParticipantE2EE".to_owned(), "false".to_owned());
@@ -492,9 +523,86 @@ mod tests {
                 false,
                 false,
                 false,
+                None,
             ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             let expected_elements = [("password".to_owned(), "this_surely_is_save".to_owned())];
+            for e in expected_elements {
+                assert!(
+                    query_set.contains(&e),
+                    "The query elements: \n{:?}\nDid not contain: \n{:?}",
+                    query_set,
+                    e
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn intent_url_props_from_widget_settings() {
+        {
+            // no intent
+            let url = build_url_from_widget_settings(get_widget_settings(
+                None, false, false, false, None,
+            ));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+
+            let expected_unset_elements = ["intent".to_owned(), "skipLobby".to_owned()];
+
+            for e in expected_unset_elements {
+                assert!(
+                    query_set.iter().find(|x| x.0 == e).is_none(),
+                    "The query elements: \n{:?}\nShould not have contained: \n{:?}",
+                    query_set,
+                    e
+                );
+            }
+        }
+        {
+            // Intent::JoinExisting
+            let url = build_url_from_widget_settings(get_widget_settings(
+                None,
+                false,
+                false,
+                false,
+                Some(Intent::JoinExisting),
+            ));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+            let expected_elements = ("intent".to_owned(), "join_existing".to_owned());
+            assert!(
+                query_set.contains(&expected_elements),
+                "The url query elements for an unencrypted call: \n{:?}\nDid not contain: \n{:?}",
+                query_set,
+                expected_elements
+            );
+
+            let expected_unset_elements = ["skipLobby".to_owned()];
+
+            for e in expected_unset_elements {
+                assert!(
+                    query_set.iter().find(|x| x.0 == e).is_none(),
+                    "The query elements: \n{:?}\nShould not have contained: \n{:?}",
+                    query_set,
+                    e
+                );
+            }
+        }
+        {
+            // Intent::StartCall
+            let url = build_url_from_widget_settings(get_widget_settings(
+                None,
+                false,
+                false,
+                false,
+                Some(Intent::StartCall),
+            ));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+
+            // skipLobby should be set for compatibility with versions < 0.8.0
+            let expected_elements = [
+                ("intent".to_owned(), "start_call".to_owned()),
+                ("skipLobby".to_owned(), "true".to_owned()),
+            ];
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),

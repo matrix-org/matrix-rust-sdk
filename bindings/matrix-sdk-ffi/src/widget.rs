@@ -163,7 +163,7 @@ impl From<Intent> for matrix_sdk::widget::Intent {
 /// Properties to create a new virtual Element Call widget.
 #[derive(uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
-    /// The url to the app.
+    /// The url to the Element Call app including any `/room` path if required.
     ///
     /// E.g. <https://call.element.io>, <https://call.element.dev>, <https://call.element.dev/room>
     pub element_call_url: String,
@@ -232,16 +232,21 @@ pub struct VirtualElementCallWidgetOptions {
     /// Can be used to pass a PostHog id to element call.
     pub posthog_user_id: Option<String>,
     /// The host of the posthog api.
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub posthog_api_host: Option<String>,
     /// The key for the posthog api.
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub posthog_api_key: Option<String>,
 
     /// The url to use for submitting rageshakes.
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub rageshake_submit_url: Option<String>,
 
     /// Sentry [DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/)
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub sentry_dsn: Option<String>,
     /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
+    /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub sentry_environment: Option<String>,
 }
 
