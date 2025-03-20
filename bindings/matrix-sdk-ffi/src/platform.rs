@@ -410,10 +410,15 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
 pub fn init_platform(config: TracingConfiguration, use_lightweight_tokio_runtime: bool) {
     log_panics();
 
+    let env_filter = build_tracing_filter(&config);
+
     tracing_subscriber::registry()
-        .with(EnvFilter::new(build_tracing_filter(&config)))
+        .with(EnvFilter::new(&env_filter))
         .with(text_layers(config))
         .init();
+
+    // Log the log levels 🧠.
+    tracing::info!(env_filter, "Logging has been set up");
 
     if use_lightweight_tokio_runtime {
         setup_lightweight_tokio_runtime();
