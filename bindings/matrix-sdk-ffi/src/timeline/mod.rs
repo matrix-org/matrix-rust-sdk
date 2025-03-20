@@ -214,18 +214,18 @@ impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe().await;
 
+        // It's important that the initial items are passed *before* we forward the
+        // stream updates, with a guaranteed ordering. Otherwise, it could
+        // be that the listener be called before the initial items have been
+        // handled by the caller. See #3535 for details.
+
+        // First, pass all the items as a reset update.
+        listener.on_update(vec![Arc::new(TimelineDiff::new(VectorDiff::Reset {
+            values: timeline_items,
+        }))]);
+
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(timeline_stream);
-
-            // It's important that the initial items are passed *before* we forward the
-            // stream updates, with a guaranteed ordering. Otherwise, it could
-            // be that the listener be called before the initial items have been
-            // handled by the caller. See #3535 for details.
-
-            // First, pass all the items as a reset update.
-            listener.on_update(vec![Arc::new(TimelineDiff::new(VectorDiff::Reset {
-                values: timeline_items,
-            }))]);
 
             // Then forward new items.
             while let Some(diffs) = timeline_stream.next().await {
@@ -445,7 +445,7 @@ impl Timeline {
         Ok(())
     }
 
-    pub fn end_poll(
+    pub async fn end_poll(
         self: Arc<Self>,
         poll_start_event_id: String,
         text: String,
@@ -455,11 +455,9 @@ impl Timeline {
         let poll_end_event_content = UnstablePollEndEventContent::new(text, poll_start_event_id);
         let event_content = AnyMessageLikeEventContent::UnstablePollEnd(poll_end_event_content);
 
-        get_runtime_handle().spawn(async move {
-            if let Err(err) = self.inner.send(event_content).await {
-                error!("unable to end poll: {err}");
-            }
-        });
+        if let Err(err) = self.inner.send(event_content).await {
+            error!("unable to end poll: {err}");
+        }
 
         Ok(())
     }
