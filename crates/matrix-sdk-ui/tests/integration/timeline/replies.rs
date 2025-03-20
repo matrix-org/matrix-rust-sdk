@@ -979,6 +979,7 @@ async fn test_send_reply_enforce_thread() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
@@ -988,6 +989,7 @@ async fn test_send_reply_enforce_thread() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
 
 }
 
