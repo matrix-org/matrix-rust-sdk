@@ -214,11 +214,7 @@ impl WidgetSettings {
     ) -> Result<Self, url::ParseError> {
         let mut raw_url: Url = Url::parse(&props.element_call_url)?;
 
-        let skip_lobby = if props.intent.as_ref().is_some_and(|x| x == &Intent::StartCall) {
-            Some(true)
-        } else {
-            None
-        };
+        let skip_lobby = props.intent.as_ref().map(|intent| *intent == Intent::StartCall);
 
         let query_params = ElementCallParams {
             user_id: url_params::USER_ID.to_owned(),
