@@ -1,3 +1,6 @@
+use std::sync::{atomic::AtomicBool, Arc, OnceLock};
+
+use tracing::warn;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_core::Subscriber;
 use tracing_subscriber::{
@@ -8,19 +11,13 @@ use tracing_subscriber::{
         time::FormatTime,
         FormatEvent, FormatFields, FormattedFields,
     },
-    layer::SubscriberExt,
+    layer::SubscriberExt as _,
     registry::LookupSpan,
-    util::SubscriberInitExt,
-    EnvFilter, Layer,
+    util::SubscriberInitExt as _,
+    Layer,
 };
 
-use crate::tracing::LogLevel;
-
-pub fn log_panics() {
-    std::env::set_var("RUST_BACKTRACE", "1");
-
-    log_panics::init();
-}
+use crate::{error::ClientError, tracing::LogLevel};
 
 fn text_layers<S>(config: TracingConfiguration) -> impl Layer<S>
 where
@@ -343,6 +340,20 @@ impl TraceLogPacks {
     }
 }
 
+struct SentryLoggingCtx {
+    /// The Sentry client guard, which keeps the Sentry context alive.
+    _guard: sentry::ClientInitGuard,
+
+    /// Whether the Sentry layer is enabled or not, at a global level.
+    enabled: Arc<AtomicBool>,
+}
+
+struct LoggingCtx {
+    sentry: Option<SentryLoggingCtx>,
+}
+
+static LOGGING: OnceLock<LoggingCtx> = OnceLock::new();
+
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
     /// The desired log level.
@@ -363,6 +374,89 @@ pub struct TracingConfiguration {
 
     /// If set, configures rotated log files where to write additional logs.
     write_to_files: Option<TracingFileConfiguration>,
+
+    /// If set, the Sentry DSN to use for error reporting.
+    sentry_dsn: Option<String>,
+}
+
+impl TracingConfiguration {
+    /// Sets up the tracing configuration and return a [`Logger`] instance
+    /// holding onto it.
+    fn build(mut self) -> LoggingCtx {
+        // Show full backtraces, if we run into panics.
+        std::env::set_var("RUST_BACKTRACE", "1");
+
+        // Log panics.
+        log_panics::init();
+
+        // Prepare the Sentry layer, if a DSN is provided.
+        let (sentry_layer, sentry_logging_ctx) = if let Some(sentry_dsn) = self.sentry_dsn.take() {
+            // Initialize the Sentry client with the given options.
+            let sentry_guard = sentry::init((
+                sentry_dsn,
+                sentry::ClientOptions {
+                    traces_sample_rate: 0.0,
+                    attach_stacktrace: true,
+                    ..sentry::ClientOptions::default()
+                },
+            ));
+
+            let sentry_enabled = Arc::new(AtomicBool::new(true));
+
+            // Add a Sentry layer to the tracing subscriber.
+            //
+            // Pass custom event and span filters, which will ignore anything, if the Sentry
+            // support has been globally disabled, or if the statement doesn't include a
+            // `sentry` field set to `true`.
+            let sentry_layer = sentry_tracing::layer()
+                .event_filter({
+                    let enabled = sentry_enabled.clone();
+
+                    move |metadata| {
+                        if enabled.load(std::sync::atomic::Ordering::SeqCst)
+                            && metadata.fields().field("sentry").is_some()
+                        {
+                            sentry_tracing::default_event_filter(metadata)
+                        } else {
+                            // Ignore the event.
+                            sentry_tracing::EventFilter::Ignore
+                        }
+                    }
+                })
+                .span_filter({
+                    let enabled = sentry_enabled.clone();
+
+                    move |metadata| {
+                        if enabled.load(std::sync::atomic::Ordering::SeqCst) {
+                            sentry_tracing::default_span_filter(metadata)
+                        } else {
+                            // Ignore, if sentry is globally disabled.
+                            false
+                        }
+                    }
+                });
+
+            (
+                Some(sentry_layer),
+                Some(SentryLoggingCtx { _guard: sentry_guard, enabled: sentry_enabled }),
+            )
+        } else {
+            (None, None)
+        };
+
+        let env_filter = build_tracing_filter(&self);
+
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::new(&env_filter))
+            .with(crate::platform::text_layers(self))
+            .with(sentry_layer)
+            .init();
+
+        // Log the log levels 🧠.
+        tracing::info!(env_filter, "Logging has been set up");
+
+        LoggingCtx { sentry: sentry_logging_ctx }
+    }
 }
 
 fn build_tracing_filter(config: &TracingConfiguration) -> String {
@@ -407,24 +501,38 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
 /// the NSE process on iOS). Otherwise, this can remain false, in which case a
 /// multithreaded tokio runtime will be set up.
 #[matrix_sdk_ffi_macros::export]
-pub fn init_platform(config: TracingConfiguration, use_lightweight_tokio_runtime: bool) {
-    log_panics();
-
-    let env_filter = build_tracing_filter(&config);
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(&env_filter))
-        .with(text_layers(config))
-        .init();
-
-    // Log the log levels 🧠.
-    tracing::info!(env_filter, "Logging has been set up");
+pub fn init_platform(
+    config: TracingConfiguration,
+    use_lightweight_tokio_runtime: bool,
+) -> Result<(), ClientError> {
+    LOGGING.set(config.build()).map_err(|_| ClientError::Generic {
+        msg: "logger already initialized".to_owned(),
+        details: None,
+    })?;
 
     if use_lightweight_tokio_runtime {
         setup_lightweight_tokio_runtime();
     } else {
         setup_multithreaded_tokio_runtime();
     }
+
+    Ok(())
+}
+
+/// Set the global enablement level for the Sentry layer (after the logs have
+/// been set up).
+#[matrix_sdk_ffi_macros::export]
+pub fn enable_sentry_logging(enabled: bool) {
+    if let Some(ctx) = LOGGING.get() {
+        if let Some(sentry_ctx) = &ctx.sentry {
+            sentry_ctx.enabled.store(enabled, std::sync::atomic::Ordering::SeqCst);
+        } else {
+            warn!("Sentry logging is not enabled");
+        }
+    } else {
+        // Can't use log statements here, since logging hasn't been enabled yet 🧠
+        eprintln!("Logging hasn't been enabled yet");
+    };
 }
 
 fn setup_multithreaded_tokio_runtime() {
@@ -479,6 +587,7 @@ mod tests {
             extra_targets: vec!["super_duper_app".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
+            sentry_dsn: None,
         };
 
         let filter = build_tracing_filter(&config);
@@ -515,6 +624,7 @@ mod tests {
             extra_targets: vec!["super_duper_app".to_owned(), "some_other_span".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
+            sentry_dsn: None,
         };
 
         let filter = build_tracing_filter(&config);
@@ -552,6 +662,7 @@ mod tests {
             extra_targets: vec!["super_duper_app".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
+            sentry_dsn: None,
         };
 
         let filter = build_tracing_filter(&config);
