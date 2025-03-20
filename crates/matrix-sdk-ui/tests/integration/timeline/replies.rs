@@ -990,7 +990,96 @@ async fn test_send_reply_enforce_thread() {
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
     assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
+}
 
+#[async_test]
+async fn test_send_reply_enforce_thread_is_reply() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let event_id_from_bob = event_id!("$event_from_bob");
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob),
+            ),
+        )
+        .await;
+
+    let event_from_bob =
+        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    // Clear the timeline to make sure the old item does not need to be
+    // available in it for the reply to work.
+    timeline.clear().await;
+    assert_next_matches!(timeline_stream, VectorDiff::Clear);
+
+    // Now, let's reply to a message sent by `BOB`.
+    server.mock_room_send()
+        .respond_with(move |req: &Request| {
+            use ruma::events::room::message::RoomMessageEventContent;
+
+            let reply_event = req
+                .body_json::<RoomMessageEventContent>()
+                .expect("Failed to deserialize the event");
+
+            assert_matches!(reply_event.relates_to, Some(Relation::Thread(thread)) => {
+                assert_eq!(thread.event_id, event_id_from_bob);
+                assert_eq!(thread.in_reply_to.unwrap().event_id, event_id_from_bob);
+            });
+            assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
+                assert_eq!(user_ids.len(), 1);
+                assert!(user_ids.contains(*BOB));
+            });
+
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
+        })
+        .expect(1)
+        .mount()
+        .await;
+
+    let replied_to_info = event_from_bob.replied_to_info().unwrap();
+    timeline
+        .send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
+            replied_to_info,
+            EnforceThread::Yes(ReplyWithinThread::Yes),
+        )
+        .await
+        .unwrap();
+
+    // Let the send queue handle the event.
+    yield_now().await;
+
+    let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let reply_message = reply_item.content().as_message().unwrap();
+    assert_eq!(reply_message.body(), "Replying to Bob");
+    let in_reply_to = reply_message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
+
+    let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
+    assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
+
+    assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    assert_eq!(reply_message.body(), "Replying to Bob");
+    let in_reply_to = reply_message.in_reply_to().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
 }
 
 #[async_test]
