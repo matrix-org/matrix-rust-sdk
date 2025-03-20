@@ -2,6 +2,10 @@
 
 Breaking changes:
 
+- `TracingConfiguration` now includes a new field `trace_log_packs`, which gives a convenient way
+  to set the TRACE log level for multiple targets related to a given feature.
+  ([#4824](https://github.com/matrix-org/matrix-rust-sdk/pull/4824))
+
 - `setup_tracing` has been renamed `init_platform`; in addition to the `TracingConfiguration`
   parameter it also now takes a boolean indicating whether to spawn a minimal tokio runtime for the
   application; in general for main app processes this can be set to `false`, and memory-constrained

@@ -233,23 +233,34 @@ pub struct TracingFileConfiguration {
 
 #[derive(PartialEq, PartialOrd)]
 enum LogTarget {
+    // External crates.
     Hyper,
+
+    // FFI modules.
     MatrixSdkFfi,
+
+    // SDK base modules.
+    MatrixSdkBaseEventCache,
+    MatrixSdkBaseSlidingSync,
+    MatrixSdkBaseStoreAmbiguityMap,
+
+    // SDK common modules.
+    MatrixSdkCommonStoreLocks,
+
+    // SDK modules.
     MatrixSdk,
     MatrixSdkClient,
     MatrixSdkCrypto,
     MatrixSdkCryptoAccount,
-    MatrixSdkOidc,
-    MatrixSdkHttpClient,
-    MatrixSdkSlidingSync,
-    MatrixSdkBaseSlidingSync,
-    MatrixSdkUiTimeline,
     MatrixSdkEventCache,
-    MatrixSdkBaseEventCache,
     MatrixSdkEventCacheStore,
+    MatrixSdkHttpClient,
+    MatrixSdkOidc,
+    MatrixSdkSendQueue,
+    MatrixSdkSlidingSync,
 
-    MatrixSdkCommonStoreLocks,
-    MatrixSdkBaseStoreAmbiguityMap,
+    // SDK UI modules.
+    MatrixSdkUiTimeline,
 }
 
 impl LogTarget {
@@ -257,6 +268,10 @@ impl LogTarget {
         match self {
             LogTarget::Hyper => "hyper",
             LogTarget::MatrixSdkFfi => "matrix_sdk_ffi",
+            LogTarget::MatrixSdkBaseEventCache => "matrix_sdk_base::event_cache",
+            LogTarget::MatrixSdkBaseSlidingSync => "matrix_sdk_base::sliding_sync",
+            LogTarget::MatrixSdkBaseStoreAmbiguityMap => "matrix_sdk_base::store::ambiguity_map",
+            LogTarget::MatrixSdkCommonStoreLocks => "matrix_sdk_common::store_locks",
             LogTarget::MatrixSdk => "matrix_sdk",
             LogTarget::MatrixSdkClient => "matrix_sdk::client",
             LogTarget::MatrixSdkCrypto => "matrix_sdk_crypto",
@@ -264,14 +279,10 @@ impl LogTarget {
             LogTarget::MatrixSdkOidc => "matrix_sdk::oidc",
             LogTarget::MatrixSdkHttpClient => "matrix_sdk::http_client",
             LogTarget::MatrixSdkSlidingSync => "matrix_sdk::sliding_sync",
-            LogTarget::MatrixSdkBaseSlidingSync => "matrix_sdk_base::sliding_sync",
-            LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
             LogTarget::MatrixSdkEventCache => "matrix_sdk::event_cache",
-            LogTarget::MatrixSdkBaseEventCache => "matrix_sdk_base::event_cache",
+            LogTarget::MatrixSdkSendQueue => "matrix_sdk::send_queue",
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
-
-            LogTarget::MatrixSdkCommonStoreLocks => "matrix_sdk_common::store_locks",
-            LogTarget::MatrixSdkBaseStoreAmbiguityMap => "matrix_sdk_base::store::ambiguity_map",
+            LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
         }
     }
 }
@@ -288,6 +299,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkSlidingSync, LogLevel::Info),
     (LogTarget::MatrixSdkBaseSlidingSync, LogLevel::Info),
     (LogTarget::MatrixSdkUiTimeline, LogLevel::Info),
+    (LogTarget::MatrixSdkSendQueue, LogLevel::Info),
     (LogTarget::MatrixSdkEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
@@ -295,7 +307,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
 ];
 
-const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[
+const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
     LogTarget::Hyper,                          // Too verbose
     LogTarget::MatrixSdk,                      // Too generic
     LogTarget::MatrixSdkFfi,                   // Too verbose
@@ -303,14 +315,48 @@ const IMMUTABLE_TARGET_LOG_LEVELS: &[LogTarget] = &[
     LogTarget::MatrixSdkBaseStoreAmbiguityMap, // Too verbose
 ];
 
+/// A log pack can be used to set the trace log level for a group of multiple
+/// log targets at once, for debugging purposes.
+#[derive(uniffi::Enum)]
+pub enum TraceLogPacks {
+    /// Enables all the logs relevant to the event cache.
+    EventCache,
+    /// Enables all the logs relevant to the send queue.
+    SendQueue,
+    /// Enables all the logs relevant to the timeline.
+    Timeline,
+}
+
+impl TraceLogPacks {
+    // Note: all the log targets returned here must be part of
+    // `DEFAULT_TARGET_LOG_LEVELS`.
+    fn targets(&self) -> &[LogTarget] {
+        match self {
+            TraceLogPacks::EventCache => &[
+                LogTarget::MatrixSdkEventCache,
+                LogTarget::MatrixSdkBaseEventCache,
+                LogTarget::MatrixSdkEventCacheStore,
+            ],
+            TraceLogPacks::SendQueue => &[LogTarget::MatrixSdkSendQueue],
+            TraceLogPacks::Timeline => &[LogTarget::MatrixSdkUiTimeline],
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
-    /// The desired log level
+    /// The desired log level.
     log_level: LogLevel,
 
-    /// Additional targets that the FFI client would like to use e.g.
-    /// the target names for created [`crate::tracing::Span`]
-    extra_targets: Option<Vec<String>>,
+    /// All the log packs, that will be set to `TRACE` when they're enabled.
+    trace_log_packs: Vec<TraceLogPacks>,
+
+    /// Additional targets that the FFI client would like to use.
+    ///
+    /// This can include, for instance, the target names for created
+    /// [`crate::tracing::Span`]. These targets will use the global log level by
+    /// default.
+    extra_targets: Vec<String>,
 
     /// Whether to log to stdout, or in the logcat on Android.
     write_to_stdout_or_system: bool,
@@ -326,23 +372,29 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
     // On 2025-01-08, `log_panics` uses the `panic` target, at the error log level.
     let mut filters = vec!["panic=error".to_owned()];
 
-    DEFAULT_TARGET_LOG_LEVELS.iter().for_each(|(target, level)| {
-        // Use the default if the log level shouldn't be changed for this target or
-        // if it's already logging more than requested
-        let level = if IMMUTABLE_TARGET_LOG_LEVELS.contains(target) || level > &config.log_level {
-            level.as_str()
+    let global_level = config.log_level;
+
+    DEFAULT_TARGET_LOG_LEVELS.iter().for_each(|(target, default_level)| {
+        let level = if IMMUTABLE_LOG_TARGETS.contains(target) {
+            // If the target is immutable, keep the log level.
+            *default_level
+        } else if config.trace_log_packs.iter().any(|pack| pack.targets().contains(target)) {
+            // If a log pack includes that target, set the associated log level to TRACE.
+            LogLevel::Trace
+        } else if *default_level > global_level {
+            // If the default level is more verbose than the global level, keep the default.
+            *default_level
         } else {
-            config.log_level.as_str()
+            // Otherwise, use the global level.
+            global_level
         };
 
-        filters.push(format!("{}={}", target.as_str(), level));
+        filters.push(format!("{}={}", target.as_str(), level.as_str()));
     });
 
-    // Finally append the extra targets requested by the client
-    if let Some(extra_targets) = &config.extra_targets {
-        for target in extra_targets {
-            filters.push(format!("{}={}", target, config.log_level.as_str()));
-        }
+    // Finally append the extra targets requested by the client.
+    for target in &config.extra_targets {
+        filters.push(format!("{}={}", target, config.log_level.as_str()));
     }
 
     filters.join(",")
@@ -412,12 +464,14 @@ fn setup_lightweight_tokio_runtime() {
 #[cfg(test)]
 mod tests {
     use super::build_tracing_filter;
+    use crate::platform::TraceLogPacks;
 
     #[test]
     fn test_default_tracing_filter() {
         let config = super::TracingConfiguration {
             log_level: super::LogLevel::Error,
-            extra_targets: Some(vec!["super_duper_app".to_owned()]),
+            trace_log_packs: Vec::new(),
+            extra_targets: vec!["super_duper_app".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
         };
@@ -438,6 +492,7 @@ mod tests {
             matrix_sdk::sliding_sync=info,\
             matrix_sdk_base::sliding_sync=info,\
             matrix_sdk_ui::timeline=info,\
+            matrix_sdk::send_queue=info,\
             matrix_sdk::event_cache=info,\
             matrix_sdk_base::event_cache=info,\
             matrix_sdk_sqlite::event_cache_store=info,\
@@ -451,7 +506,8 @@ mod tests {
     fn test_trace_tracing_filter() {
         let config = super::TracingConfiguration {
             log_level: super::LogLevel::Trace,
-            extra_targets: Some(vec!["super_duper_app".to_owned(), "some_other_span".to_owned()]),
+            trace_log_packs: Vec::new(),
+            extra_targets: vec!["super_duper_app".to_owned(), "some_other_span".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
         };
@@ -472,6 +528,7 @@ mod tests {
             matrix_sdk::sliding_sync=trace,\
             matrix_sdk_base::sliding_sync=trace,\
             matrix_sdk_ui::timeline=trace,\
+            matrix_sdk::send_queue=trace,\
             matrix_sdk::event_cache=trace,\
             matrix_sdk_base::event_cache=trace,\
             matrix_sdk_sqlite::event_cache_store=trace,\
@@ -479,6 +536,46 @@ mod tests {
             matrix_sdk_base::store::ambiguity_map=warn,\
             super_duper_app=trace,\
             some_other_span=trace"
+        );
+    }
+
+    #[test]
+    fn test_trace_log_packs() {
+        let config = super::TracingConfiguration {
+            log_level: super::LogLevel::Info,
+            trace_log_packs: vec![TraceLogPacks::EventCache, TraceLogPacks::SendQueue],
+            extra_targets: vec!["super_duper_app".to_owned()],
+            write_to_stdout_or_system: true,
+            write_to_files: None,
+        };
+
+        let filter = build_tracing_filter(&config);
+
+        assert_eq!(
+            filter,
+            r#"panic=error,
+            hyper=warn,
+            matrix_sdk_ffi=info,
+            matrix_sdk=info,
+            matrix_sdk::client=trace,
+            matrix_sdk_crypto=debug,
+            matrix_sdk_crypto::olm::account=trace,
+            matrix_sdk::oidc=trace,
+            matrix_sdk::http_client=debug,
+            matrix_sdk::sliding_sync=info,
+            matrix_sdk_base::sliding_sync=info,
+            matrix_sdk_ui::timeline=info,
+            matrix_sdk::send_queue=trace,
+            matrix_sdk::event_cache=trace,
+            matrix_sdk_base::event_cache=trace,
+            matrix_sdk_sqlite::event_cache_store=trace,
+            matrix_sdk_common::store_locks=warn,
+            matrix_sdk_base::store::ambiguity_map=warn,
+            super_duper_app=info"#
+                .split('\n')
+                .map(|s| s.trim())
+                .collect::<Vec<_>>()
+                .join("")
         );
     }
 }

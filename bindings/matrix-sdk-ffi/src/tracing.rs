@@ -166,7 +166,7 @@ impl Span {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, uniffi::Enum)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, uniffi::Enum)]
 pub enum LogLevel {
     Error,
     Warn,
@@ -176,7 +176,7 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    fn to_tracing_level(&self) -> tracing::Level {
+    fn to_tracing_level(self) -> tracing::Level {
         match self {
             LogLevel::Error => tracing::Level::ERROR,
             LogLevel::Warn => tracing::Level::WARN,
