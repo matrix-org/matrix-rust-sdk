@@ -26,7 +26,6 @@ use super::{url_params, WidgetSettings};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-
 /// Parameters for the Element Call widget.
 /// These are documented at https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md
 struct ElementCallParams {
@@ -245,7 +244,7 @@ impl WidgetSettings {
                 _ => None,
             },
             intent: props.intent,
-            skip_lobby: skip_lobby,
+            skip_lobby,
             analytics_id: props.posthog_user_id.clone(),
             posthog_user_id: props.posthog_user_id,
             posthog_api_host: props.posthog_api_host,
@@ -551,7 +550,7 @@ mod tests {
 
             for e in expected_unset_elements {
                 assert!(
-                    query_set.iter().find(|x| x.0 == e).is_none(),
+                    !query_set.iter().any(|x| x.0 == e),
                     "The query elements: \n{:?}\nShould not have contained: \n{:?}",
                     query_set,
                     e
@@ -580,7 +579,7 @@ mod tests {
 
             for e in expected_unset_elements {
                 assert!(
-                    query_set.iter().find(|x| x.0 == e).is_none(),
+                    !query_set.iter().any(|x| x.0 == e),
                     "The query elements: \n{:?}\nShould not have contained: \n{:?}",
                     query_set,
                     e
