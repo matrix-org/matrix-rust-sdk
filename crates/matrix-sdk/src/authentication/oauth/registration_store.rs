@@ -70,7 +70,7 @@ pub enum OAuthRegistrationStoreError {
 #[derive(Debug)]
 pub struct OAuthRegistrationStore {
     /// The path of the file where the registrations are stored.
-    file_path: PathBuf,
+    pub(super) file_path: PathBuf,
     /// The metadata used to register the client.
     /// This is used to check if the client needs to be re-registered.
     pub(super) metadata: Raw<ClientMetadata>,
