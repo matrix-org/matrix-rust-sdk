@@ -104,7 +104,7 @@ impl SqliteEventCacheStore {
 
     /// Open the sqlite-based event cache store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        let SqliteStoreConfig { path, passphrase, pool_config } = config;
+        let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -113,21 +113,22 @@ impl SqliteEventCacheStore {
 
         let pool = config.create_pool(Runtime::Tokio1)?;
 
-        Self::open_with_pool(pool, passphrase.as_deref()).await
+        let this = Self::open_with_pool(pool, passphrase.as_deref()).await?;
+        this.pool.get().await?.apply_runtime_config(runtime_config).await?;
+
+        Ok(this)
     }
 
     /// Open an SQLite-based event cache store using the given SQLite database
     /// pool. The given passphrase will be used to encrypt private data.
-    pub async fn open_with_pool(
+    async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        conn.set_journal_size_limit().await?;
 
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
-        conn.optimize().await?;
 
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),

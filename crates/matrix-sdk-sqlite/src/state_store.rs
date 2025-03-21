@@ -99,7 +99,7 @@ impl SqliteStateStore {
 
     /// Open the sqlite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        let SqliteStoreConfig { path, passphrase, pool_config } = config;
+        let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -108,17 +108,19 @@ impl SqliteStateStore {
 
         let pool = config.create_pool(Runtime::Tokio1)?;
 
-        Self::open_with_pool(pool, passphrase.as_deref()).await
+        let this = Self::open_with_pool(pool, passphrase.as_deref()).await?;
+        this.pool.get().await?.apply_runtime_config(runtime_config).await?;
+
+        Ok(this)
     }
 
     /// Create a sqlite-based state store using the given sqlite database pool.
     /// The given passphrase will be used to encrypt private data.
-    pub async fn open_with_pool(
+    async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        conn.set_journal_size_limit().await?;
 
         let mut version = conn.db_version().await?;
 
@@ -133,7 +135,6 @@ impl SqliteStateStore {
         };
         let this = Self { store_cipher, pool };
         this.run_migrations(&conn, version, None).await?;
-        conn.optimize().await?;
 
         Ok(this)
     }
