@@ -103,7 +103,9 @@ impl OAuthAuthCodeUrlBuilder {
             login_hint,
         } = self;
 
-        oauth.use_registration_method(&registration_method).await?;
+        let server_metadata = oauth.server_metadata().await?;
+
+        oauth.use_registration_method(&server_metadata, &registration_method).await?;
 
         let data = oauth.data().expect("OAuth 2.0 data should be set after registration");
         info!(
@@ -112,8 +114,7 @@ impl OAuthAuthCodeUrlBuilder {
             "Authorizing scope via the OAuth 2.0 Authorization Code flow"
         );
 
-        let server_metadata = oauth.server_metadata().await?;
-        let auth_url = AuthUrl::from_url(server_metadata.authorization_endpoint);
+        let auth_url = AuthUrl::from_url(server_metadata.authorization_endpoint.clone());
 
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
         let redirect_uri = RedirectUrl::from_url(redirect_uri);
@@ -139,7 +140,7 @@ impl OAuthAuthCodeUrlBuilder {
 
         data.authorization_data.lock().await.insert(
             state.clone(),
-            AuthorizationValidationData { device_id, redirect_uri, pkce_verifier },
+            AuthorizationValidationData { server_metadata, device_id, redirect_uri, pkce_verifier },
         );
 
         Ok(OAuthAuthorizationData { url, state })

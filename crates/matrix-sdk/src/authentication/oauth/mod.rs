@@ -426,26 +426,23 @@ impl OAuth {
     /// while registering the client.
     async fn restore_or_register_client(
         &self,
-        issuer: Url,
+        server_metadata: &AuthorizationServerMetadata,
         registrations: &OAuthRegistrationStore,
-    ) -> std::result::Result<(), OAuthError> {
-        if let Some(client_id) =
-            registrations.client_id(&issuer).await.map_err(OAuthClientRegistrationError::from)?
-        {
-            self.restore_registered_client(issuer, client_id);
+    ) -> std::result::Result<(), OAuthClientRegistrationError> {
+        if let Some(client_id) = registrations.client_id(&server_metadata.issuer).await? {
+            self.restore_registered_client(server_metadata.issuer.clone(), client_id);
 
             tracing::info!("OAuth 2.0 configuration loaded from disk.");
             return Ok(());
         };
 
         tracing::info!("Registering this client for OAuth 2.0.");
-        let response = self.register_client(&registrations.metadata).await?;
+        let response = self.register_client_inner(server_metadata, &registrations.metadata).await?;
 
         tracing::info!("Persisting OAuth 2.0 registration data.");
         registrations
-            .set_and_write_client_id(response.client_id, issuer)
-            .await
-            .map_err(OAuthClientRegistrationError::from)?;
+            .set_and_write_client_id(response.client_id, server_metadata.issuer.clone())
+            .await?;
 
         Ok(())
     }
@@ -458,6 +455,7 @@ impl OAuth {
     /// Returns an error if there was a problem using the registration method.
     async fn use_registration_method(
         &self,
+        server_metadata: &AuthorizationServerMetadata,
         method: &ClientRegistrationMethod,
     ) -> std::result::Result<(), OAuthError> {
         if self.client_id().is_some() {
@@ -468,15 +466,13 @@ impl OAuth {
         match method {
             ClientRegistrationMethod::None => return Err(OAuthError::NotRegistered),
             ClientRegistrationMethod::ClientId(client_id) => {
-                let server_metadata = self.server_metadata().await?;
-                self.restore_registered_client(server_metadata.issuer, client_id.clone());
+                self.restore_registered_client(server_metadata.issuer.clone(), client_id.clone());
             }
             ClientRegistrationMethod::Metadata(client_metadata) => {
-                self.register_client(client_metadata).await?;
+                self.register_client_inner(server_metadata, client_metadata).await?;
             }
             ClientRegistrationMethod::Store(registrations) => {
-                let server_metadata = self.server_metadata().await?;
-                self.restore_or_register_client(server_metadata.issuer, registrations).await?
+                self.restore_or_register_client(server_metadata, registrations).await?
             }
         }
 
@@ -740,7 +736,14 @@ impl OAuth {
         client_metadata: &Raw<ClientMetadata>,
     ) -> Result<ClientRegistrationResponse, OAuthError> {
         let server_metadata = self.server_metadata().await?;
+        Ok(self.register_client_inner(&server_metadata, client_metadata).await?)
+    }
 
+    async fn register_client_inner(
+        &self,
+        server_metadata: &AuthorizationServerMetadata,
+        client_metadata: &Raw<ClientMetadata>,
+    ) -> Result<ClientRegistrationResponse, OAuthClientRegistrationError> {
         let registration_endpoint = server_metadata
             .registration_endpoint
             .as_ref()
@@ -752,7 +755,7 @@ impl OAuth {
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
         self.restore_registered_client(
-            server_metadata.issuer,
+            server_metadata.issuer.clone(),
             registration_response.client_id.clone(),
         );
 
@@ -1116,8 +1119,7 @@ impl OAuth {
             .remove(&auth_code.state)
             .ok_or(OAuthAuthorizationCodeError::InvalidState)?;
 
-        let server_metadata = self.server_metadata().await?;
-        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
+        let token_uri = TokenUrl::from_url(validation_data.server_metadata.token_endpoint.clone());
 
         let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
@@ -1159,6 +1161,7 @@ impl OAuth {
     #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
     async fn request_device_authorization(
         &self,
+        server_metadata: &AuthorizationServerMetadata,
         device_id: Option<OwnedDeviceId>,
     ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOAuthError>
     {
@@ -1166,7 +1169,6 @@ impl OAuth {
 
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
-        let server_metadata = self.server_metadata().await.map_err(OAuthError::from)?;
         let device_authorization_url = server_metadata
             .device_authorization_endpoint
             .clone()
@@ -1187,14 +1189,14 @@ impl OAuth {
     #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
     async fn exchange_device_code(
         &self,
+        server_metadata: &AuthorizationServerMetadata,
         device_authorization_response: &oauth2::StandardDeviceAuthorizationResponse,
     ) -> Result<(), qrcode::DeviceAuthorizationOAuthError> {
         use oauth2::TokenResponse;
 
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
-        let server_metadata = self.server_metadata().await.map_err(OAuthError::from)?;
-        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint);
+        let token_uri = TokenUrl::from_url(server_metadata.token_endpoint.clone());
 
         let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
@@ -1454,6 +1456,9 @@ pub struct UserSession {
 /// Authorization Code flow.
 #[derive(Debug)]
 struct AuthorizationValidationData {
+    /// The metadata of the server,
+    server_metadata: AuthorizationServerMetadata,
+
     /// The device ID used in the scope.
     device_id: OwnedDeviceId,
 
