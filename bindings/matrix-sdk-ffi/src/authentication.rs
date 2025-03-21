@@ -169,20 +169,26 @@ impl OidcConfiguration {
         let client_metadata = self.client_metadata()?;
 
         let registrations_file = PathBuf::from(&self.dynamic_registrations_file);
-        let static_registrations = self
-            .static_registrations
-            .iter()
-            .filter_map(|(issuer, client_id)| {
-                let Ok(issuer) = Url::parse(issuer) else {
-                    tracing::error!("Failed to parse {:?}", issuer);
-                    return None;
-                };
-                Some((issuer, ClientId::new(client_id.clone())))
-            })
-            .collect();
+        let mut registrations =
+            OAuthRegistrationStore::new(registrations_file, client_metadata).await?;
 
-        Ok(OAuthRegistrationStore::new(registrations_file, client_metadata, static_registrations)
-            .await?)
+        if !self.static_registrations.is_empty() {
+            let static_registrations = self
+                .static_registrations
+                .iter()
+                .filter_map(|(issuer, client_id)| {
+                    let Ok(issuer) = Url::parse(issuer) else {
+                        tracing::error!("Failed to parse {:?}", issuer);
+                        return None;
+                    };
+                    Some((issuer, ClientId::new(client_id.clone())))
+                })
+                .collect();
+
+            registrations = registrations.with_static_registrations(static_registrations);
+        }
+
+        Ok(registrations)
     }
 }
 

@@ -56,8 +56,9 @@ pub enum OAuthRegistrationStoreError {
 /// An API to store and restore OAuth 2.0 client registrations.
 ///
 /// This stores dynamic client registrations in a file, and accepts "static"
-/// client registrations, for servers that don't support dynamic client
-/// registration.
+/// client registrations via
+/// [`OAuthRegistrationStore::with_static_registrations()`], for servers that
+/// don't support dynamic client registration.
 ///
 /// If the client metadata passed to this API changes, the previous
 /// registrations that were stored in the file are invalidated, allowing to
@@ -75,7 +76,7 @@ pub struct OAuthRegistrationStore {
     pub(super) metadata: Raw<ClientMetadata>,
     /// Pre-configured registrations for use with issuers that don't support
     /// dynamic client registration.
-    static_registrations: HashMap<Url, ClientId>,
+    static_registrations: Option<HashMap<Url, ClientId>>,
 }
 
 /// The underlying data serialized into the registration file.
@@ -102,22 +103,33 @@ impl OAuthRegistrationStore {
     /// * `metadata` - The metadata used to register the client. If this changes
     ///   compared to the value stored in the file, any stored registrations
     ///   will be invalidated so the client can re-register with the new data.
-    ///
-    /// * `static_registrations` - Pre-configured registrations for use with
-    ///   servers that don't support dynamic client registration.
     pub async fn new(
         file: PathBuf,
         metadata: Raw<ClientMetadata>,
-        static_registrations: HashMap<Url, ClientId>,
     ) -> Result<Self, OAuthRegistrationStoreError> {
         spawn_blocking(move || {
             let parent = file.parent().ok_or(OAuthRegistrationStoreError::NotAFilePath)?;
             fs::create_dir_all(parent)?;
 
-            Ok(OAuthRegistrationStore { file_path: file, metadata, static_registrations })
+            Ok(OAuthRegistrationStore { file_path: file, metadata, static_registrations: None })
         })
         .await
         .expect("Task join error")
+    }
+
+    /// Add static registrations to the store.
+    ///
+    /// Static registrations are used for servers that don't support dynamic
+    /// registration but provide a client ID out-of-band.
+    ///
+    /// These registrations are not stored in the file and must be provided each
+    /// time.
+    pub fn with_static_registrations(
+        mut self,
+        static_registrations: HashMap<Url, ClientId>,
+    ) -> Self {
+        self.static_registrations = Some(static_registrations);
+        self
     }
 
     /// Returns the client ID registered for a particular issuer or `None` if a
@@ -135,7 +147,9 @@ impl OAuthRegistrationStore {
         &self,
         issuer: &Url,
     ) -> Result<Option<ClientId>, OAuthRegistrationStoreError> {
-        if let Some(client_id) = self.static_registrations.get(issuer) {
+        if let Some(client_id) =
+            self.static_registrations.as_ref().and_then(|registrations| registrations.get(issuer))
+        {
             return Ok(Some(client_id.clone()));
         }
 
@@ -252,10 +266,10 @@ mod tests {
 
         let oidc_metadata = mock_metadata("Example".to_owned());
 
-        let registrations =
-            OAuthRegistrationStore::new(registrations_file, oidc_metadata, static_registrations)
-                .await
-                .unwrap();
+        let registrations = OAuthRegistrationStore::new(registrations_file, oidc_metadata)
+            .await
+            .unwrap()
+            .with_static_registrations(static_registrations);
 
         assert_eq!(registrations.client_id(&static_url).await.unwrap(), Some(static_id.clone()));
         assert_eq!(registrations.client_id(&dynamic_url).await.unwrap(), None);
@@ -288,13 +302,10 @@ mod tests {
         let mut static_registrations = HashMap::new();
         static_registrations.insert(static_url.clone(), static_id.clone());
 
-        let registrations = OAuthRegistrationStore::new(
-            registrations_file.clone(),
-            oidc_metadata,
-            static_registrations.clone(),
-        )
-        .await
-        .unwrap();
+        let registrations = OAuthRegistrationStore::new(registrations_file.clone(), oidc_metadata)
+            .await
+            .unwrap()
+            .with_static_registrations(static_registrations.clone());
         registrations
             .set_and_write_client_id(dynamic_id.clone(), dynamic_url.clone())
             .await
@@ -306,13 +317,10 @@ mod tests {
         // When the app name changes.
         let new_oidc_metadata = mock_metadata("New App".to_owned());
 
-        let registrations = OAuthRegistrationStore::new(
-            registrations_file,
-            new_oidc_metadata,
-            static_registrations,
-        )
-        .await
-        .unwrap();
+        let registrations = OAuthRegistrationStore::new(registrations_file, new_oidc_metadata)
+            .await
+            .unwrap()
+            .with_static_registrations(static_registrations);
 
         // Then the dynamic registrations are cleared.
         assert_eq!(registrations.client_id(&dynamic_url).await.unwrap(), None);
