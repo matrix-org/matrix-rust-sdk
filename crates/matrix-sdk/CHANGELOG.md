@@ -200,6 +200,22 @@ simpler methods:
   - `OAuthRegistrationStore::new()` no longer takes a `static_registrations`
     parameter. It should be provided if needed with
     `OAuthRegistrationStore::with_static_registrations()`.
+- [**breaking**] Allow to use any registration method with `OAuth::login()` and
+  `OAuth::login_with_qr_code()`.
+  ([#4827](https://github.com/matrix-org/matrix-rust-sdk/pull/4827))
+  - `OAuth::login` takes an `ClientRegistrationMethod` to be able to register
+    and login with a single function call.
+  - `OAuth::url_for_oidc()` was removed, it can be replaced by a call to
+    `OAuth::login()`.
+  - `OAuth::login_with_qr_code()` takes a `ClientRegistrationMethod` instead of
+    the client metadata.
+  - `OAuth::finish_login` takes a `UrlOrQuery` instead of an
+    `AuthorizationCode`. The deserialization of the query string will occur
+    inside the method and eventual errors will be handled.
+  - `OAuth::login_with_oidc_callback()` was removed, it can be replaced by a
+    call to `OAuth::finish_login()`.
+  - `AuthorizationResponse`, `AuthorizationCode` and `AuthorizationError` are
+    now private.
 
 ## [0.10.0] - 2025-02-04
 
