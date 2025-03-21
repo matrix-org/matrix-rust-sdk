@@ -28,12 +28,7 @@ struct Cli {
     verbose: bool,
 }
 
-/// Generate the OIDC client metadata.
-///
-/// For simplicity, we use most of the default values here, but usually this
-/// should be adapted to the provider metadata to make interactions as secure as
-/// possible, for example by using the most secure signing algorithms supported
-/// by the provider.
+/// Generate the OAuth 2.0 client metadata.
 fn client_metadata() -> Raw<ClientMetadata> {
     let client_uri = Localized::new(
         Url::parse("https://github.com/matrix-org/matrix-rust-sdk")
@@ -42,10 +37,10 @@ fn client_metadata() -> Raw<ClientMetadata> {
     );
 
     let metadata = ClientMetadata {
-        // The following fields should be displayed in the OIDC provider interface as part of the
-        // process to get the user's consent. It means that these should contain real data so the
-        // user can make sure that they allow the proper application.
-        // We are cheating here because this is an example.
+        // The following fields should be displayed in the OAuth 2.0 authorization server's web UI
+        // as part of the process to get the user's consent. It means that these should
+        // contain real data so the user can make sure that they allow the proper
+        // application. We are cheating here because this is an example.
         client_name: Some(Localized::new("matrix-rust-sdk-qrlogin".to_owned(), [])),
         policy_uri: Some(client_uri.clone()),
         tos_uri: Some(client_uri.clone()),

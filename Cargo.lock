@@ -1542,7 +1542,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "example-oidc-cli"
+name = "example-oauth-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",

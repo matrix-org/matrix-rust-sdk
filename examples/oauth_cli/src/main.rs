@@ -23,9 +23,10 @@ use anyhow::bail;
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
+        error::OAuthClientRegistrationError,
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        AccountManagementActionFull, ClientId, ClientRegistrationMethod, OAuthAuthorizationData,
-        OAuthSession, UrlOrQuery, UserSession,
+        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthError,
+        OAuthRegistrationStore, OAuthSession, UrlOrQuery, UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -44,13 +45,13 @@ use tokio::{fs, io::AsyncBufReadExt as _};
 use url::Url;
 
 /// A command-line tool to demonstrate the steps requiring an interaction with
-/// an OpenID Connect provider for a Matrix client, using the Authorization Code
-/// flow.
+/// an OAuth 2.0 authorization server for a Matrix client, using the
+/// Authorization Code flow.
 ///
 /// You can test this against one of the servers from the OIDC playground:
 /// <https://github.com/element-hq/oidc-playground>.
 ///
-/// To use this, just run `cargo run -p example-oidc-cli`, and everything
+/// To use this, just run `cargo run -p example-oauth-cli`, and everything
 /// is interactive after that. You might want to set the `RUST_LOG` environment
 /// variable to `warn` to reduce the noise in the logs. The program exits
 /// whenever an unexpected error occurs.
@@ -64,14 +65,14 @@ async fn main() -> anyhow::Result<()> {
 
     // The folder containing this example's data.
     let data_dir =
-        dirs::data_dir().expect("no data_dir directory found").join("matrix_sdk/oidc_cli");
+        dirs::data_dir().expect("no data_dir directory found").join("matrix_sdk/oauth_cli");
     // The file where the session is persisted.
     let session_file = data_dir.join("session.json");
 
     let cli = if session_file.exists() {
-        OidcCli::from_stored_session(session_file).await?
+        OAuthCli::from_stored_session(session_file).await?
     } else {
-        OidcCli::new(&data_dir, session_file).await?
+        OAuthCli::new(&data_dir, session_file).await?
     };
 
     cli.run().await
@@ -104,29 +105,22 @@ struct ClientSession {
     passphrase: String,
 }
 
-/// The data needed to restore an OpenID Connect session.
-#[derive(Debug, Serialize, Deserialize)]
-struct Credentials {
-    /// The client ID obtained after registration.
-    client_id: ClientId,
-}
-
 /// The full session to persist.
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredSession {
     /// The data to re-build the client.
     client_session: ClientSession,
 
-    /// The OIDC user session.
+    /// The OAuth 2.0 user session.
     user_session: UserSession,
 
-    /// The OIDC client credentials.
-    client_credentials: Credentials,
+    /// The OAuth 2.0 client ID.
+    client_id: ClientId,
 }
 
-/// An OpenID Connect CLI.
+/// An OAuth 2.0 CLI.
 #[derive(Clone, Debug)]
-struct OidcCli {
+struct OAuthCli {
     /// The Matrix client.
     client: Client,
 
@@ -137,7 +131,7 @@ struct OidcCli {
     session_file: PathBuf,
 }
 
-impl OidcCli {
+impl OAuthCli {
     /// Create a new session by logging in.
     async fn new(data_dir: &Path, session_file: PathBuf) -> anyhow::Result<Self> {
         println!("No previous session found, logging in…");
@@ -145,27 +139,34 @@ impl OidcCli {
         let (client, client_session) = build_client(data_dir).await?;
         let cli = Self { client, restored: false, session_file };
 
-        let client_id = cli.register_client().await?;
-        cli.login().await?;
+        if let Err(error) = cli.register_and_login(data_dir).await {
+            if error.downcast_ref::<OAuthError>().is_some_and(|error| {
+                matches!(
+                    error,
+                    OAuthError::ClientRegistration(OAuthClientRegistrationError::NotSupported)
+                )
+            }) {
+                // This would require to register with the authorization server manually, which
+                // we don't support here.
+                bail!(
+                    "This server doesn't support dynamic registration.\n\
+                     Please select another homeserver."
+                );
+            } else {
+                return Err(error);
+            }
+        }
 
         // Persist the session to reuse it later.
         // This is not very secure, for simplicity. If the system provides a way of
         // storing secrets securely, it should be used instead.
-        // Note that we could also build the user session from the login response.
-        let user_session =
-            cli.client.oauth().user_session().expect("A logged-in client should have a session");
-
-        // The client registration data should be persisted separately than the user
-        // session, to be reused for other sessions or user accounts with the same
-        // issuer.
-        // Also, client metadata should be persisted as it might change depending on
-        // the provider metadata.
-        let client_credentials = Credentials { client_id };
+        let full_session =
+            cli.client.oauth().full_session().expect("A logged-in client should have a session");
 
         let serialized_session = serde_json::to_string(&StoredSession {
             client_session,
-            user_session,
-            client_credentials,
+            user_session: full_session.user,
+            client_id: full_session.client_id,
         })?;
         fs::write(&cli.session_file, serialized_session).await?;
 
@@ -176,50 +177,30 @@ impl OidcCli {
         Ok(cli)
     }
 
-    /// Register the OIDC client with the provider.
-    ///
-    /// Returns the ID of the client returned by the provider.
-    async fn register_client(&self) -> anyhow::Result<ClientId> {
-        let oauth = self.client.oauth();
-
-        let server_metadata = oauth.server_metadata().await?;
-
-        if server_metadata.registration_endpoint.is_none() {
-            // This would require to register with the authorization server manually, which
-            // we don't support here.
-            bail!(
-                "This server doesn't support dynamic registration.\n\
-                Please select another homeserver."
-            );
-        }
-
-        let metadata = client_metadata();
-
-        // During registration, we have the option of providing a software statement,
-        // which is a digitally signed version of the client metadata. That would allow
-        // to update the metadata later without changing the client ID, but requires to
-        // have a way to serve public keys online to validate the signature of
-        // the JWT.
-        let res = oauth.register_client(&metadata).await?;
-
-        println!("\nRegistered successfully");
-
-        Ok(res.client_id)
-    }
-
-    /// Login via the OIDC Authorization Code flow.
-    async fn login(&self) -> anyhow::Result<()> {
+    /// Register the client and log in the user via the OAuth 2.0 Authorization
+    /// Code flow.
+    async fn register_and_login(&self, data_dir: &Path) -> anyhow::Result<()> {
         let oauth = self.client.oauth();
 
         // We create a loop here so the user can retry if an error happens.
         loop {
+            // The registrations store allows to store the client ID separately
+            // and reuse it between sessions, so we don't need to
+            // re-register each time.
+            // We put it in the parent directory because we remove the data directory on
+            // logout.
+            let registration_file =
+                data_dir.parent().expect("directory has a parent").join("oauth_registrations");
+            let registration_store =
+                OAuthRegistrationStore::new(registration_file, client_metadata()).await?;
+
             // Here we spawn a server to listen on the loopback interface. Another option
             // would be to register a custom URI scheme with the system and handle
             // the redirect when the custom URI scheme is opened.
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OAuthAuthorizationData { url, .. } =
-                oauth.login(ClientRegistrationMethod::None, redirect_uri, None).build().await?;
+                oauth.login(registration_store.into(), redirect_uri, None).build().await?;
 
             let query_string =
                 use_auth_url(&url, server_handle).await.map(|query| query.0).unwrap_or_default();
@@ -247,7 +228,7 @@ impl OidcCli {
 
         // The session was serialized as JSON in a file.
         let serialized_session = fs::read_to_string(&session_file).await?;
-        let StoredSession { client_session, user_session, client_credentials } =
+        let StoredSession { client_session, user_session, client_id } =
             serde_json::from_str(&serialized_session)?;
 
         // Build the client with the previous settings from the session.
@@ -260,7 +241,7 @@ impl OidcCli {
 
         println!("Restoring session for {}…", user_session.meta.user_id);
 
-        let session = OAuthSession { client_id: client_credentials.client_id, user: user_session };
+        let session = OAuthSession { client_id, user: user_session };
         // Restore the Matrix user session.
         client.restore_session(session).await?;
 
@@ -370,7 +351,9 @@ impl OidcCli {
         if let Some(handle) = encryption.reset_cross_signing().await? {
             match handle.auth_type() {
                 CrossSigningResetAuthType::Uiaa(_) => {
-                    unimplemented!("This should never happen, this is after all the OIDC example.")
+                    unimplemented!(
+                        "This should never happen, this is after all the OAuth 2.0 example."
+                    )
                 }
                 CrossSigningResetAuthType::OAuth(o) => {
                     println!(
@@ -396,12 +379,12 @@ impl OidcCli {
         let user_id = client.user_id().expect("A logged in client has a user ID");
         let device_id = client.device_id().expect("A logged in client has a device ID");
         let homeserver = client.homeserver();
-        let issuer = oauth.issuer().expect("A logged in OIDC client has an issuer");
+        let issuer = oauth.issuer().expect("A logged in OAuth 2.0 client has an issuer");
 
         println!("\nUser ID: {user_id}");
         println!("Device ID: {device_id}");
         println!("Homeserver URL: {homeserver}");
-        println!("OpenID Connect provider: {issuer}");
+        println!("OAuth 2.0 authorization server: {issuer}");
     }
 
     /// Get the account management URL.
@@ -598,8 +581,7 @@ impl OidcCli {
 
 /// Build a new client.
 ///
-/// Returns the client, the data required to restore the client, and the OIDC
-/// issuer advertised by the homeserver.
+/// Returns the client and the data required to restore the client.
 async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)> {
     let db_path = data_dir.join("db");
 
@@ -679,12 +661,7 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
     }
 }
 
-/// Generate the OIDC client metadata.
-///
-/// For simplicity, we use most of the default values here, but usually this
-/// should be adapted to the provider metadata to make interactions as secure as
-/// possible, for example by using the most secure signing algorithms supported
-/// by the provider.
+/// Generate the OAuth 2.0 client metadata.
 fn client_metadata() -> Raw<ClientMetadata> {
     // Native clients should be able to register the IPv4 and IPv6 loopback
     // interfaces and then point to any port when needing a redirect URI. An
@@ -700,11 +677,11 @@ fn client_metadata() -> Raw<ClientMetadata> {
     );
 
     let metadata = ClientMetadata {
-        // The following fields should be displayed in the OIDC provider interface as part of the
-        // process to get the user's consent. It means that these should contain real data so the
-        // user can make sure that they allow the proper application.
-        // We are cheating here because this is an example.
-        client_name: Some(Localized::new("matrix-rust-sdk-oidc-cli".to_owned(), [])),
+        // The following fields should be displayed in the OAuth 2.0 authorization server's
+        // web UI as part of the process to get the user's consent. It means that these
+        // should contain real data so the user can make sure that they allow the proper
+        // application. We are cheating here because this is an example.
+        client_name: Some(Localized::new("matrix-rust-sdk-oauth-cli".to_owned(), [])),
         policy_uri: Some(client_uri.clone()),
         tos_uri: Some(client_uri.clone()),
         ..ClientMetadata::new(
