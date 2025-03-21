@@ -47,7 +47,7 @@ use crate::{
         repeat_vars, time_to_timestamp, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
-    OpenStoreError,
+    OpenStoreError, StoreOpenConfig,
 };
 
 mod keys {
@@ -59,6 +59,9 @@ mod keys {
     pub const LINKED_CHUNKS: &str = "linked_chunks";
     pub const MEDIA: &str = "media";
 }
+
+/// The database name.
+const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 
 /// Identifier of the latest database version.
 ///
@@ -96,23 +99,36 @@ impl SqliteEventCacheStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let pool = create_pool(path.as_ref()).await?;
+        Self::open_with_config(StoreOpenConfig::new(path, passphrase)).await
+    }
 
-        Self::open_with_pool(pool, passphrase).await
+    /// Open the sqlite-based event cache store with the config open config.
+    pub async fn open_with_config(config: StoreOpenConfig) -> Result<Self, OpenStoreError> {
+        let StoreOpenConfig { path, passphrase, pool_config, runtime_config } = config;
+
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+
+        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        config.pool = Some(pool_config);
+
+        let pool = config.create_pool(Runtime::Tokio1)?;
+
+        let this = Self::open_with_pool(pool, passphrase.as_deref()).await?;
+        this.pool.get().await?.apply_runtime_config(runtime_config).await?;
+
+        Ok(this)
     }
 
     /// Open an SQLite-based event cache store using the given SQLite database
     /// pool. The given passphrase will be used to encrypt private data.
-    pub async fn open_with_pool(
+    async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        conn.set_journal_size_limit().await?;
 
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
-        conn.optimize().await?;
 
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
@@ -292,12 +308,6 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
 
         Ok(events)
     }
-}
-
-async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
-    fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-    let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-event-cache.sqlite3"));
-    Ok(cfg.create_pool(Runtime::Tokio1)?)
 }
 
 /// Run migrations for the given version of the database.
@@ -1348,6 +1358,7 @@ fn insert_chunk(
 #[cfg(test)]
 mod tests {
     use std::{
+        path::PathBuf,
         sync::atomic::{AtomicU32, Ordering::SeqCst},
         time::Duration,
     };
@@ -1373,14 +1384,18 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
-    use crate::utils::SqliteAsyncConnExt;
+    use crate::{utils::SqliteAsyncConnExt, StoreOpenConfig};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
-    async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
+    fn new_event_cache_store_workspace() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
-        let tmpdir_path = TMP_DIR.path().join(name);
+        TMP_DIR.path().join(name)
+    }
+
+    async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
+        let tmpdir_path = new_event_cache_store_workspace();
 
         tracing::info!("using event cache store @ {}", tmpdir_path.to_str().unwrap());
 
@@ -1401,6 +1416,16 @@ mod tests {
             })
             .await
             .expect("querying media cache content by last access failed")
+    }
+
+    #[async_test]
+    async fn test_pool_size() {
+        let tmpdir_path = new_event_cache_store_workspace();
+        let store_open_config = StoreOpenConfig::new(tmpdir_path, None).pool_max_size(42);
+
+        let store = SqliteEventCacheStore::open_with_config(store_open_config).await.unwrap();
+
+        assert_eq!(store.pool.status().max_size, 42);
     }
 
     #[async_test]
