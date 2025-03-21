@@ -23,9 +23,10 @@ use anyhow::bail;
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
+        error::OAuthClientRegistrationError,
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        AccountManagementActionFull, ClientId, ClientRegistrationMethod, OAuthAuthorizationData,
-        OAuthSession, UrlOrQuery, UserSession,
+        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthError,
+        OAuthRegistrationStore, OAuthSession, UrlOrQuery, UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -138,17 +139,35 @@ impl OAuthCli {
         let (client, client_session) = build_client(data_dir).await?;
         let cli = Self { client, restored: false, session_file };
 
-        let client_id = cli.register_client().await?;
-        cli.login().await?;
+        if let Err(error) = cli.register_and_login(data_dir).await {
+            if error.downcast_ref::<OAuthError>().is_some_and(|error| {
+                matches!(
+                    error,
+                    OAuthError::ClientRegistration(OAuthClientRegistrationError::NotSupported)
+                )
+            }) {
+                // This would require to register with the authorization server manually, which
+                // we don't support here.
+                bail!(
+                    "This server doesn't support dynamic registration.\n\
+                     Please select another homeserver."
+                );
+            } else {
+                return Err(error);
+            }
+        }
 
         // Persist the session to reuse it later.
         // This is not very secure, for simplicity. If the system provides a way of
         // storing secrets securely, it should be used instead.
-        let user_session =
-            cli.client.oauth().user_session().expect("A logged-in client should have a session");
+        let full_session =
+            cli.client.oauth().full_session().expect("A logged-in client should have a session");
 
-        let serialized_session =
-            serde_json::to_string(&StoredSession { client_session, user_session, client_id })?;
+        let serialized_session = serde_json::to_string(&StoredSession {
+            client_session,
+            user_session: full_session.user,
+            client_id: full_session.client_id,
+        })?;
         fs::write(&cli.session_file, serialized_session).await?;
 
         println!("Session persisted in {}", cli.session_file.to_string_lossy());
@@ -158,43 +177,30 @@ impl OAuthCli {
         Ok(cli)
     }
 
-    /// Register the OAuth 2.0 client with the authorization server.
-    ///
-    /// Returns the ID of the client returned by the server.
-    async fn register_client(&self) -> anyhow::Result<ClientId> {
-        let oauth = self.client.oauth();
-
-        let server_metadata = oauth.server_metadata().await?;
-
-        if server_metadata.registration_endpoint.is_none() {
-            // This would require to register with the authorization server manually, which
-            // we don't support here.
-            bail!(
-                "This server doesn't support dynamic registration.\n\
-                Please select another homeserver."
-            );
-        }
-
-        let res = oauth.register_client(&client_metadata()).await?;
-
-        println!("\nRegistered successfully");
-
-        Ok(res.client_id)
-    }
-
-    /// Login via the OAuth 2.0 Authorization Code flow.
-    async fn login(&self) -> anyhow::Result<()> {
+    /// Register the client and log in the user via the OAuth 2.0 Authorization
+    /// Code flow.
+    async fn register_and_login(&self, data_dir: &Path) -> anyhow::Result<()> {
         let oauth = self.client.oauth();
 
         // We create a loop here so the user can retry if an error happens.
         loop {
+            // The registrations store allows to store the client ID separately
+            // and reuse it between sessions, so we don't need to
+            // re-register each time.
+            // We put it in the parent directory because we remove the data directory on
+            // logout.
+            let registration_file =
+                data_dir.parent().expect("directory has a parent").join("oauth_registrations");
+            let registration_store =
+                OAuthRegistrationStore::new(registration_file, client_metadata()).await?;
+
             // Here we spawn a server to listen on the loopback interface. Another option
             // would be to register a custom URI scheme with the system and handle
             // the redirect when the custom URI scheme is opened.
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OAuthAuthorizationData { url, .. } =
-                oauth.login(ClientRegistrationMethod::None, redirect_uri, None).build().await?;
+                oauth.login(registration_store.into(), redirect_uri, None).build().await?;
 
             let query_string =
                 use_auth_url(&url, server_handle).await.map(|query| query.0).unwrap_or_default();
