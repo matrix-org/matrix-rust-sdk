@@ -416,37 +416,6 @@ impl OAuth {
         LoginWithQrCode::new(&self.client, registration_method, data)
     }
 
-    /// A higher level wrapper around the methods to complete a login after the
-    /// user has logged in through a webview. This method should be used in
-    /// tandem with [`OAuth::url_for_oidc`].
-    pub async fn login_with_oidc_callback(
-        &self,
-        authorization_data: &OAuthAuthorizationData,
-        callback_url: Url,
-    ) -> Result<()> {
-        let response = AuthorizationResponse::parse_uri(&callback_url)
-            .map_err(OAuthAuthorizationCodeError::from)
-            .map_err(OAuthError::from)?;
-
-        let code = match response {
-            AuthorizationResponse::Success(code) => code,
-            AuthorizationResponse::Error(err) => {
-                return Err(OAuthError::from(OAuthAuthorizationCodeError::from(err.error)).into());
-            }
-        };
-
-        // This check will also be done in `finish_authorization`, however it requires
-        // the client to have called `abort_login` which we can't guarantee so
-        // lets double check with their supplied authorization data to be safe.
-        if code.state != authorization_data.state {
-            return Err(OAuthError::from(OAuthAuthorizationCodeError::InvalidState).into());
-        };
-
-        self.finish_login(code).await?;
-
-        Ok(())
-    }
-
     /// Restore or register the OAuth 2.0 client for the server with the given
     /// metadata, with the given [`OAuthRegistrationStore`].
     ///
@@ -950,7 +919,8 @@ impl OAuth {
     /// [`OAuth::restore_registered_client()`].
     ///
     /// [`OAuth::finish_login()`] must be called once the user has been
-    /// redirected to the `redirect_uri`.
+    /// redirected to the `redirect_uri`. [`OAuth::abort_login()`] should be
+    /// called instead if the authorization should be aborted before completion.
     ///
     /// # Arguments
     ///
@@ -972,7 +942,7 @@ impl OAuth {
     /// use anyhow::anyhow;
     /// use matrix_sdk::{
     ///     Client,
-    ///     authentication::oauth::{AuthorizationResponse, OAuthRegistrationStore},
+    ///     authentication::oauth::OAuthRegistrationStore,
     /// };
     /// # use ruma::serde::Raw;
     /// # use matrix_sdk::authentication::oauth::registration::ClientMetadata;
@@ -999,17 +969,7 @@ impl OAuth {
     /// // Open auth_data.url and wait for response at the redirect URI.
     /// let redirected_to_uri = open_uri_and_wait_for_redirect(auth_data.url).await;
     ///
-    /// let auth_response = AuthorizationResponse::parse_uri(&redirected_to_uri)?;
-    ///
-    /// let auth_code = match auth_response {
-    ///     AuthorizationResponse::Success(code) => code,
-    ///     AuthorizationResponse::Error(error) => {
-    ///         oauth.abort_login(&error.state).await;
-    ///         return Err(anyhow!("Authorization failed: {:?}", error));
-    ///     }
-    /// };
-    ///
-    /// oauth.finish_login(auth_code).await?;
+    /// oauth.finish_login(redirected_to_uri.into()).await?;
     ///
     /// // The session tokens can be persisted from the
     /// // `Client::session_tokens()` method.
@@ -1039,19 +999,31 @@ impl OAuth {
     ///
     /// This method should be called after the URL returned by
     /// [`OAuthAuthCodeUrlBuilder::build()`] has been presented and the user has
-    /// been redirected to the redirect URI after a successful authorization.
+    /// been redirected to the redirect URI after completing the authorization.
     ///
-    /// If the authorization has not been successful, [`OAuth::abort_login()`]
-    /// should be used instead to clean up the local data.
+    /// If the authorization needs to be cancelled before its completion,
+    /// [`OAuth::abort_login()`] should be used instead to clean up the local
+    /// data.
     ///
     /// # Arguments
     ///
-    /// * `auth_code` - The response received as part of the redirect URI when
-    ///   the authorization was successful.
+    /// * `url_or_query` - The URI where the user was redirected, or just its
+    ///   query part.
     ///
-    /// Returns an error if a request fails, or if the client was already
-    /// logged in with a different session.
-    pub async fn finish_login(&self, auth_code: AuthorizationCode) -> Result<()> {
+    /// Returns an error if the authorization failed, if a request fails, or if
+    /// the client was already logged in with a different session.
+    pub async fn finish_login(&self, url_or_query: UrlOrQuery) -> Result<()> {
+        let response = AuthorizationResponse::parse_url_or_query(&url_or_query)
+            .map_err(|error| OAuthError::from(OAuthAuthorizationCodeError::from(error)))?;
+
+        let auth_code = match response {
+            AuthorizationResponse::Success(code) => code,
+            AuthorizationResponse::Error(error) => {
+                self.abort_login(&error.state).await;
+                return Err(OAuthError::from(OAuthAuthorizationCodeError::from(error.error)).into());
+            }
+        };
+
         let device_id = self.finish_authorization(auth_code).await?;
         self.load_session(device_id).await
     }
@@ -1166,19 +1138,16 @@ impl OAuth {
 
     /// Abort the login process.
     ///
-    /// This method should be called after the URL returned by
-    /// [`OAuthAuthCodeUrlBuilder::build()`] has been presented and the user has
-    /// been redirected to the redirect URI after a failed authorization, or if
-    /// the authorization should be aborted before it is completed.
+    /// This method should be called if an authorization should be aborted
+    /// before it is completed.
     ///
-    /// If the authorization has been successful, [`OAuth::finish_login()`]
+    /// If the authorization has been completed, [`OAuth::finish_login()`]
     /// should be used instead.
     ///
     /// # Arguments
     ///
-    /// * `state` - The state received as part of the redirect URI when the
-    ///   authorization failed, or the one provided in
-    ///   [`OAuthAuthorizationData`] after building the authorization URL.
+    /// * `state` - The state provided in [`OAuthAuthorizationData`] after
+    ///   building the authorization URL.
     pub async fn abort_login(&self, state: &CsrfToken) {
         if let Some(data) = self.data() {
             data.authorization_data.lock().await.remove(state);
@@ -1498,7 +1467,7 @@ struct AuthorizationValidationData {
 /// The data returned by the server in the redirect URI after a successful
 /// authorization.
 #[derive(Debug, Clone)]
-pub enum AuthorizationResponse {
+enum AuthorizationResponse {
     /// A successful response.
     Success(AuthorizationCode),
 
@@ -1507,19 +1476,18 @@ pub enum AuthorizationResponse {
 }
 
 impl AuthorizationResponse {
-    /// Deserialize an `AuthorizationResponse` from the given URI.
+    /// Deserialize an `AuthorizationResponse` from a [`UrlOrQuery`].
     ///
-    /// Returns an error if the URL doesn't have the expected format.
-    pub fn parse_uri(uri: &Url) -> Result<Self, RedirectUriQueryParseError> {
-        let Some(query) = uri.query() else { return Err(RedirectUriQueryParseError::MissingQuery) };
-
+    /// Returns an error if the URL or query doesn't have the expected format.
+    fn parse_url_or_query(url_or_query: &UrlOrQuery) -> Result<Self, RedirectUriQueryParseError> {
+        let query = url_or_query.query().ok_or(RedirectUriQueryParseError::MissingQuery)?;
         Self::parse_query(query)
     }
 
     /// Deserialize an `AuthorizationResponse` from the query part of a URI.
     ///
     /// Returns an error if the query doesn't have the expected format.
-    pub fn parse_query(query: &str) -> Result<Self, RedirectUriQueryParseError> {
+    fn parse_query(query: &str) -> Result<Self, RedirectUriQueryParseError> {
         // For some reason deserializing the enum with `serde(untagged)` doesn't work,
         // so let's try both variants separately.
         if let Ok(code) = serde_html_form::from_str(query) {
@@ -1536,22 +1504,22 @@ impl AuthorizationResponse {
 /// The data returned by the server in the redirect URI after a successful
 /// authorization.
 #[derive(Debug, Clone, Deserialize)]
-pub struct AuthorizationCode {
+struct AuthorizationCode {
     /// The code to use to retrieve the access token.
-    pub code: String,
+    code: String,
     /// The unique identifier for this transaction.
-    pub state: CsrfToken,
+    state: CsrfToken,
 }
 
 /// The data returned by the server in the redirect URI after an authorization
 /// error.
 #[derive(Debug, Clone, Deserialize)]
-pub struct AuthorizationError {
+struct AuthorizationError {
     /// The error.
     #[serde(flatten)]
-    pub error: StandardErrorResponse<error::AuthorizationCodeErrorResponseType>,
+    error: StandardErrorResponse<error::AuthorizationCodeErrorResponseType>,
     /// The unique identifier for this transaction.
-    pub state: CsrfToken,
+    state: CsrfToken,
 }
 
 fn hash_str(x: &str) -> impl fmt::LowerHex {
@@ -1597,5 +1565,33 @@ impl From<Raw<ClientMetadata>> for ClientRegistrationMethod {
 impl From<OAuthRegistrationStore> for ClientRegistrationMethod {
     fn from(value: OAuthRegistrationStore) -> Self {
         Self::Store(value)
+    }
+}
+
+/// A full URL or just the query part of a URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UrlOrQuery {
+    /// A full URL.
+    Url(Url),
+
+    /// The query part of a URL.
+    Query(String),
+}
+
+impl UrlOrQuery {
+    /// Get the query part of this [`UrlOrQuery`].
+    ///
+    /// If this is a [`Url`], this extracts the query.
+    pub fn query(&self) -> Option<&str> {
+        match self {
+            Self::Url(url) => url.query(),
+            Self::Query(query) => Some(query),
+        }
+    }
+}
+
+impl From<Url> for UrlOrQuery {
+    fn from(value: Url) -> Self {
+        Self::Url(value)
     }
 }
