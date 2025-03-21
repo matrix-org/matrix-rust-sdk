@@ -25,7 +25,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     error::{Error, Result},
-    OpenStoreError,
+    OpenStoreError, RuntimeConfig,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -105,35 +105,71 @@ pub(crate) trait SqliteAsyncConnExt {
         Res: Send + 'static,
         Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
 
+    /// Apply the [`RuntimeConfig`].
+    ///
+    /// It will call the `Self::optimize`, `Self::cache_size` or
+    /// `Self::journal_size_limit` methods automatically based on the
+    /// `RuntimeConfig` values.
+    ///
+    /// It is possible to call these methods individually though. This
+    /// `apply_runtime_config` method allows to automate this process.
+    async fn apply_runtime_config(&self, runtime_config: RuntimeConfig) -> Result<()> {
+        let RuntimeConfig { optimize, cache_size, journal_size_limit } = runtime_config;
+
+        if optimize {
+            self.optimize().await?;
+        }
+
+        self.cache_size(cache_size).await?;
+        self.journal_size_limit(journal_size_limit).await?;
+
+        Ok(())
+    }
+
     /// Optimize the database.
     ///
-    /// [The SQLite docs] recommend to run this regularly and after any schema
-    /// change. The easiest is to do it consistently when the state store is
+    /// The SQLite documentations recommend to run this regularly and after any
+    /// schema change. The easiest is to do it consistently when the store is
     /// constructed, after eventual migrations.
     ///
-    /// [The SQLite docs]: https://www.sqlite.org/pragma.html#pragma_optimize
+    /// See [`PRAGMA optimize`] to learn more.
+    ///
+    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_optimize
     async fn optimize(&self) -> Result<()> {
-        self.execute_batch("PRAGMA optimize=0x10002;").await?;
+        self.execute_batch("PRAGMA optimize = 0x10002;").await?;
+        Ok(())
+    }
+
+    /// Define the maximum number of pages the SQLite cache can use.
+    ///
+    /// See [`PRAGMA cache_size`] to learn more. This value corresponds to a
+    /// negative `N` in `PRAGMA cache_size = N`.
+    ///
+    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_cache_size
+    async fn cache_size(&self, n: u16) -> Result<()> {
+        self.execute_batch(format!("PRAGMA cache_size = -{n};")).await?;
         Ok(())
     }
 
     /// Limit the size of the WAL file.
     ///
     /// By default, while the DB connections of the databases are open, [the
-    /// size of the WAL file can keep increasing] depending on the size
-    /// needed for the transactions. A critical case is VACUUM which
-    /// basically writes the content of the DB file to the WAL file before
-    /// writing it back to the DB file, so we end up taking twice the size
-    /// of the database.
+    /// size of the WAL file can keep increasing][size_wal_file] depending on
+    /// the size needed for the transactions. A critical case is `VACUUM`
+    /// which basically writes the content of the DB file to the WAL file
+    /// before writing it back to the DB file, so we end up taking twice the
+    /// size of the database.
     ///
     /// By setting this limit, the WAL file is truncated after its content is
     /// written to the database, if it is bigger than the limit.
     ///
-    /// The limit is set to 10MB.
+    /// See [`PRAGMA journal_size_limit`] to learn more. The value `n`
+    /// corresponds to `N` in `PRAGMA journal_size_limit = N`.
     ///
-    /// [the size of the WAL file can keep increasing]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
-    async fn set_journal_size_limit(&self) -> Result<()> {
-        self.execute_batch("PRAGMA journal_size_limit = 10000000;").await.map_err(Error::from)?;
+    /// [size_wal_file]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
+    /// [`PRAGMA journal_size_limit`]: https://www.sqlite.org/pragma.html#pragma_journal_size_limit
+    async fn journal_size_limit(&self, n: u32) -> Result<()> {
+        self.execute_batch(format!("PRAGMA journal_size_limit = {};", n)).await?;
         Ok(())
     }
 

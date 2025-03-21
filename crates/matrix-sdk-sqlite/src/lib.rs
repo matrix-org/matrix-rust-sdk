@@ -47,6 +47,8 @@ pub struct StoreOpenConfig {
     passphrase: Option<String>,
     /// The pool configuration for [`deadpool_sqlite`].
     pool_config: PoolConfig,
+    /// The runtime configuration to apply when opening an SQLite connection.
+    runtime_config: RuntimeConfig,
 }
 
 impl StoreOpenConfig {
@@ -60,6 +62,7 @@ impl StoreOpenConfig {
             path: path.as_ref().to_path_buf(),
             passphrase: passphrase.map(|passphrase| passphrase.to_owned()),
             pool_config: PoolConfig::new(num_cpus::get_physical() * 4),
+            runtime_config: RuntimeConfig::default(),
         }
     }
 
@@ -69,6 +72,73 @@ impl StoreOpenConfig {
     pub fn pool_max_size(mut self, max_size: usize) -> Self {
         self.pool_config.max_size = max_size;
         self
+    }
+
+    /// Define the maximum number of pages the SQLite cache can use.
+    ///
+    /// See [`PRAGMA cache_size`] to learn more. This value corresponds to a
+    /// negative `N` in `PRAGMA cache_size = N`.
+    ///
+    /// The default value is 2000 pages.
+    ///
+    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_cache_size
+    pub fn cache_size(mut self, number_of_cache_pages: u16) -> Self {
+        self.runtime_config.cache_size = number_of_cache_pages;
+        self
+    }
+
+    /// Limit the size of the WAL file.
+    ///
+    /// By default, while the DB connections of the databases are open, [the
+    /// size of the WAL file can keep increasing][size_wal_file] depending on
+    /// the size needed for the transactions. A critical case is `VACUUM`
+    /// which basically writes the content of the DB file to the WAL file
+    /// before writing it back to the DB file, so we end up taking twice the
+    /// size of the database.
+    ///
+    /// By setting this limit, the WAL file is truncated after its content is
+    /// written to the database, if it is bigger than the limit.
+    ///
+    /// See [`PRAGMA journal_size_limit`] to learn more. The value `n`
+    /// corresponds to `N` in `PRAGMA journal_size_limit = N`.
+    ///
+    /// The default value is 10Mib.
+    ///
+    /// [size_wal_file]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
+    /// [`PRAGMA journal_size_limit`]: https://www.sqlite.org/pragma.html#pragma_journal_size_limit
+    pub fn journal_size_limit(mut self, limit: u32) -> Self {
+        self.runtime_config.journal_size_limit = limit;
+        self
+    }
+}
+
+/// This type represents values to set at runtime when a database is opened.
+///
+/// This configuration is applied by
+/// [`utils::SqliteAsyncConnExt::apply_runtime_config`].
+struct RuntimeConfig {
+    /// If `true`, [`utils::SqliteAsyncConnExt::optimize`] will be called.
+    optimize: bool,
+
+    /// Regardless of the value, [`utils::SqliteAsyncConnExt::cache_size`] will
+    /// always be called with this value.
+    cache_size: u16,
+
+    /// If `Some(_)`, [`utils::SqliteAsyncConnExt::journal_size_limit`] will be
+    /// called with this value.
+    journal_size_limit: u32,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            // Optimize is always applied.
+            optimize: true,
+            // A cache of 2000 pages, be a cache of 2Mib.
+            cache_size: 2000,
+            // A limit of 10Mib.
+            journal_size_limit: 10_000_000,
+        }
     }
 }
 
