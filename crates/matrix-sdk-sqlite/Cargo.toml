@@ -23,6 +23,7 @@ itertools = { workspace = true }
 matrix-sdk-base = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption = { workspace = true }
+num_cpus = "1.16.0"
 rmp-serde = { workspace = true }
 ruma = { workspace = true }
 rusqlite = { version = "0.32.1", features = ["limits"] }
