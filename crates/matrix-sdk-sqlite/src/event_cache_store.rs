@@ -47,7 +47,7 @@ use crate::{
         repeat_vars, time_to_timestamp, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
-    OpenStoreError,
+    OpenStoreError, StoreOpenConfig,
 };
 
 mod keys {
@@ -59,6 +59,9 @@ mod keys {
     pub const LINKED_CHUNKS: &str = "linked_chunks";
     pub const MEDIA: &str = "media";
 }
+
+/// The database name.
+const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 
 /// Identifier of the latest database version.
 ///
@@ -96,9 +99,21 @@ impl SqliteEventCacheStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let pool = create_pool(path.as_ref()).await?;
+        Self::open_with_config(StoreOpenConfig::new(path, passphrase)).await
+    }
 
-        Self::open_with_pool(pool, passphrase).await
+    /// Open the sqlite-based event cache store with the config open config.
+    pub async fn open_with_config(config: StoreOpenConfig) -> Result<Self, OpenStoreError> {
+        let StoreOpenConfig { path, passphrase, pool_config } = config;
+
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+
+        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        config.pool = Some(pool_config);
+
+        let pool = config.create_pool(Runtime::Tokio1)?;
+
+        Self::open_with_pool(pool, passphrase.as_deref()).await
     }
 
     /// Open an SQLite-based event cache store using the given SQLite database
@@ -292,12 +307,6 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
 
         Ok(events)
     }
-}
-
-async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
-    fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-    let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-event-cache.sqlite3"));
-    Ok(cfg.create_pool(Runtime::Tokio1)?)
 }
 
 /// Run migrations for the given version of the database.

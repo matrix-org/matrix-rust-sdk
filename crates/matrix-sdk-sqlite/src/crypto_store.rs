@@ -51,8 +51,11 @@ use crate::{
         repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
-    OpenStoreError,
+    OpenStoreError, StoreOpenConfig,
 };
+
+/// The database name.
+const DATABASE_NAME: &str = "matrix-sdk-crypto.sqlite3";
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -79,12 +82,21 @@ impl SqliteCryptoStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let path = path.as_ref();
-        fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-        let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-crypto.sqlite3"));
-        let pool = cfg.create_pool(Runtime::Tokio1)?;
+        Self::open_with_config(StoreOpenConfig::new(path, passphrase)).await
+    }
 
-        Self::open_with_pool(pool, passphrase).await
+    /// Open the sqlite-based crypto store with the config open config.
+    pub async fn open_with_config(config: StoreOpenConfig) -> Result<Self, OpenStoreError> {
+        let StoreOpenConfig { path, passphrase, pool_config } = config;
+
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+
+        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        config.pool = Some(pool_config);
+
+        let pool = config.create_pool(Runtime::Tokio1)?;
+
+        Self::open_with_pool(pool, passphrase.as_deref()).await
     }
 
     /// Create a sqlite-based crypto store using the given sqlite database pool.

@@ -46,7 +46,7 @@ use crate::{
         repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
-    OpenStoreError,
+    OpenStoreError, StoreOpenConfig,
 };
 
 mod keys {
@@ -63,6 +63,8 @@ mod keys {
     pub const SEND_QUEUE: &str = "send_queue_events";
     pub const DEPENDENTS_SEND_QUEUE: &str = "dependent_send_queue_events";
 }
+
+const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 
 /// Identifier of the latest database version.
 ///
@@ -92,9 +94,21 @@ impl SqliteStateStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let pool = create_pool(path.as_ref()).await?;
+        Self::open_with_config(StoreOpenConfig::new(path, passphrase)).await
+    }
 
-        Self::open_with_pool(pool, passphrase).await
+    /// Open the sqlite-based state store with the config open config.
+    pub async fn open_with_config(config: StoreOpenConfig) -> Result<Self, OpenStoreError> {
+        let StoreOpenConfig { path, passphrase, pool_config } = config;
+
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+
+        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        config.pool = Some(pool_config);
+
+        let pool = config.create_pool(Runtime::Tokio1)?;
+
+        Self::open_with_pool(pool, passphrase.as_deref()).await
     }
 
     /// Create a sqlite-based state store using the given sqlite database pool.
@@ -446,12 +460,6 @@ impl SqliteStateStore {
         let member_room_id = self.encode_key(keys::MEMBER, room_id);
         txn.remove_room_members(&member_room_id, Some(stripped))
     }
-}
-
-async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
-    fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-    let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-state.sqlite3"));
-    Ok(cfg.create_pool(Runtime::Tokio1)?)
 }
 
 /// Initialize the database.
@@ -2161,6 +2169,7 @@ mod migration_tests {
         },
     };
 
+    use deadpool_sqlite::Runtime;
     use matrix_sdk_base::{
         store::{ChildTransactionId, DependentQueuedRequestKind, SerializableEventContent},
         sync::UnreadNotificationsCount,
@@ -2179,11 +2188,13 @@ mod migration_tests {
     use rusqlite::Transaction;
     use serde_json::json;
     use tempfile::{tempdir, TempDir};
+    use tokio::fs;
 
-    use super::{create_pool, init, keys, SqliteStateStore};
+    use super::{init, keys, SqliteStateStore, DATABASE_NAME};
     use crate::{
         error::{Error, Result},
         utils::{SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+        OpenStoreError,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
@@ -2196,7 +2207,12 @@ mod migration_tests {
     }
 
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
-        let pool = create_pool(path).await.unwrap();
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir).unwrap();
+
+        let config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        // use default pool config
+
+        let pool = config.create_pool(Runtime::Tokio1).unwrap();
         let conn = pool.get().await?;
 
         init(&conn).await?;
