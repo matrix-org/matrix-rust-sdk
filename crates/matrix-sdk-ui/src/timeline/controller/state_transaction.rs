@@ -34,7 +34,7 @@ use super::{
     ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
     TimelineSettings,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::VirtualTimelineItem};
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// A vector transaction over the items themselves. Holds temporary state
@@ -484,9 +484,16 @@ impl<'a> TimelineStateTransaction<'a> {
         // `VectorDiff::Clear` should be much more efficient to process for
         // subscribers.
         if has_local_echoes {
-            // Remove all remote events and the read marker
+            // Remove all remote events and virtual items that aren't date dividers.
             self.items.for_each(|entry| {
-                if entry.is_remote_event() || entry.is_read_marker() {
+                if entry.is_remote_event()
+                    || entry.as_virtual().is_some_and(|vitem| match vitem {
+                        VirtualTimelineItem::DateDivider(_) => false,
+                        VirtualTimelineItem::ReadMarker | VirtualTimelineItem::TimelineStart => {
+                            true
+                        }
+                    })
+                {
                     ObservableItemsTransactionEntry::remove(entry);
                 }
             });

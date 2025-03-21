@@ -836,6 +836,9 @@ impl App {
                     VirtualTimelineItem::ReadMarker => {
                         content.push("Read marker".to_owned());
                     }
+                    VirtualTimelineItem::TimelineStart => {
+                        content.push("🥳 Timeline start! 🥳".to_owned());
+                    }
                 },
             }
         }

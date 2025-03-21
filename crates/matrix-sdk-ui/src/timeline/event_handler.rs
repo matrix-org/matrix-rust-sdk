@@ -1074,7 +1074,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
                     self.items,
                     &mut item,
-                    Some(event_id),
+                    event_id,
                     txn_id.as_ref().map(AsRef::as_ref),
                 );
                 let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
@@ -1093,7 +1093,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
                     self.items,
                     &mut item,
-                    Some(event_id),
+                    event_id,
                     txn_id.as_ref().map(AsRef::as_ref),
                 );
                 let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
@@ -1128,7 +1128,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                             (!timeline_item.as_event()?.is_local_echo())
                                 .then_some(timeline_item_index + 1)
                         })
-                        .unwrap_or(0)
+                        .unwrap_or_else(|| {
+                            // We don't have any local echo, so we could insert at 0. However, in
+                            // the case of an insertion caused by a pagination, we
+                            // may have already pushed the start of the timeline item, so we need
+                            // to check if the first item is that, and insert after it otherwise.
+                            if self.items.get(0).is_some_and(|item| item.is_timeline_start()) {
+                                1
+                            } else {
+                                0
+                            }
+                        })
                 });
 
                 trace!(
@@ -1146,7 +1156,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let removed_duplicated_timeline_item = Self::deduplicate_local_timeline_item(
                     self.items,
                     &mut item,
-                    Some(event_id),
+                    event_id,
                     txn_id.as_ref().map(AsRef::as_ref),
                 );
                 let item = new_timeline_item(self.meta, item, removed_duplicated_timeline_item);
@@ -1228,7 +1238,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn deduplicate_local_timeline_item(
         items: &mut ObservableItemsTransaction<'_>,
         new_event_timeline_item: &mut EventTimelineItem,
-        event_id: Option<&EventId>,
+        event_id: &EventId,
         transaction_id: Option<&TransactionId>,
     ) -> Option<Arc<TimelineItem>> {
         // Detect a local timeline item that matches `event_id` or `transaction_id`.
@@ -1259,7 +1269,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     return ControlFlow::Break(None);
                 }
 
-                if event_id == event_timeline_item.event_id()
+                if Some(event_id) == event_timeline_item.event_id()
                     || (transaction_id.is_some()
                         && transaction_id == event_timeline_item.transaction_id())
                 {
