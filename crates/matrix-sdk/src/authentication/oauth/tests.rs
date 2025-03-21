@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk_test::async_test;
-use oauth2::{CsrfToken, PkceCodeChallenge, RedirectUrl};
+use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl};
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, device_id,
     owned_device_id, user_id, DeviceId, ServerName,
@@ -30,7 +30,7 @@ use crate::{
     test_utils::{
         client::{
             mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
-            oauth::{mock_client_metadata, mock_redirect_uri, mock_session},
+            oauth::{mock_client_id, mock_client_metadata, mock_redirect_uri, mock_session},
             MockClientBuilder,
         },
         mocks::{oauth::MockServerMetadataBuilder, MatrixMockServer},
@@ -711,4 +711,89 @@ async fn test_server_metadata() {
     oauth_server.mock_server_metadata().ok().expect(1).named("auth_metadata").mount().await;
 
     oauth.server_metadata().await.unwrap();
+}
+
+#[async_test]
+async fn test_client_registration_methods() {
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+    let server_metadata = oauth_server.server_metadata();
+
+    // Without registration we get an error.
+    let client = server.client_builder().unlogged().build().await;
+    let oauth = client.oauth();
+    let res =
+        oauth.use_registration_method(&server_metadata, &ClientRegistrationMethod::None).await;
+    assert_matches!(res, Err(OAuthError::NotRegistered));
+    assert_eq!(oauth.client_id(), None);
+
+    // With a client ID.
+    oauth
+        .use_registration_method(
+            &server_metadata,
+            &ClientRegistrationMethod::ClientId(mock_client_id()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+
+    // If we call it again we get the same client ID.
+    oauth
+        .use_registration_method(
+            &server_metadata,
+            &ClientRegistrationMethod::ClientId(ClientId::new("other_client_id".to_owned())),
+        )
+        .await
+        .unwrap();
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+
+    // With metadata we register a new client ID.
+    let client_metadata = mock_client_metadata();
+    let client = server.client_builder().unlogged().build().await;
+    let oauth = client.oauth();
+
+    oauth_server
+        .mock_registration()
+        .ok()
+        .mock_once()
+        .named("registration_with_metadata")
+        .mount()
+        .await;
+
+    oauth
+        .use_registration_method(
+            &server_metadata,
+            &ClientRegistrationMethod::Metadata(client_metadata.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+
+    // With registration store we register a new client ID.
+    let client = server.client_builder().unlogged().build().await;
+    let oauth = client.oauth();
+
+    let registrations_path =
+        tempdir().unwrap().path().join("matrix-sdk-oauth").join("registrations.json");
+    let registrations =
+        OAuthRegistrationStore::new(registrations_path, client_metadata).await.unwrap();
+    let store_method = ClientRegistrationMethod::Store(registrations);
+
+    oauth_server
+        .mock_registration()
+        .ok()
+        .mock_once()
+        .named("registration_with_store")
+        .mount()
+        .await;
+
+    oauth.use_registration_method(&server_metadata, &store_method).await.unwrap();
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+
+    // With same registration store, the client ID is loaded from the store.
+    let client = server.client_builder().unlogged().build().await;
+    let oauth = client.oauth();
+
+    oauth.use_registration_method(&server_metadata, &store_method).await.unwrap();
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
 }
