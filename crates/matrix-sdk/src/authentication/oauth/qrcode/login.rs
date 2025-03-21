@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     SessionMeta,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
-use ruma::{serde::Raw, OwnedDeviceId};
+use ruma::OwnedDeviceId;
 use tracing::trace;
 use vodozemac::{ecies::CheckCode, Curve25519PublicKey};
 
@@ -33,7 +33,7 @@ use super::{
 };
 #[cfg(doc)]
 use crate::authentication::oauth::OAuth;
-use crate::{authentication::oauth::ClientMetadata, Client};
+use crate::{authentication::oauth::ClientRegistrationMethod, Client};
 
 async fn send_unexpected_message_error(
     channel: &mut EstablishedSecureChannel,
@@ -76,7 +76,7 @@ pub enum LoginProgress {
 #[derive(Debug)]
 pub struct LoginWithQrCode<'a> {
     client: &'a Client,
-    client_metadata: Raw<ClientMetadata>,
+    registration_method: ClientRegistrationMethod,
     qr_code_data: &'a QrCodeData,
     state: SharedObservable<LoginProgress>,
 }
@@ -260,10 +260,10 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 impl<'a> LoginWithQrCode<'a> {
     pub(crate) fn new(
         client: &'a Client,
-        client_metadata: Raw<ClientMetadata>,
+        registration_method: ClientRegistrationMethod,
         qr_code_data: &'a QrCodeData,
     ) -> LoginWithQrCode<'a> {
-        LoginWithQrCode { client, client_metadata, qr_code_data, state: Default::default() }
+        LoginWithQrCode { client, registration_method, qr_code_data, state: Default::default() }
     }
 
     async fn establish_secure_channel(
@@ -284,7 +284,8 @@ impl<'a> LoginWithQrCode<'a> {
     /// Register the client with the OAuth 2.0 authorization server.
     async fn register_client(&self) -> Result<(), DeviceAuthorizationOAuthError> {
         let oauth = self.client.oauth();
-        oauth.register_client(&self.client_metadata).await?;
+        oauth.use_registration_method(&self.registration_method).await?;
+
         Ok(())
     }
 
@@ -446,7 +447,7 @@ mod test {
         let qr_code = alice.qr_code_data().clone();
 
         let oauth = bob.oauth();
-        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata());
+        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata().into());
         let mut updates = login_bob.subscribe_to_progress();
 
         let updates_task = tokio::spawn(async move {
@@ -533,7 +534,7 @@ mod test {
         let qr_code = alice.qr_code_data().clone();
 
         let oauth = bob.oauth();
-        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata());
+        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata().into());
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = tokio::spawn(async move {
@@ -656,7 +657,7 @@ mod test {
         let qr_code = alice.qr_code_data().clone();
 
         let oauth = bob.oauth();
-        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata());
+        let login_bob = oauth.login_with_qr_code(&qr_code, mock_client_metadata().into());
         let mut updates = login_bob.subscribe_to_progress();
 
         let _updates_task = tokio::spawn(async move {
