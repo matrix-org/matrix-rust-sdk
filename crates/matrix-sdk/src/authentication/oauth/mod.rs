@@ -379,7 +379,7 @@ impl OAuth {
     ///
     /// // Subscribing to the progress is necessary since we need to input the check
     /// // code on the existing device.
-    /// let login = oauth.login_with_qr_code(&qr_code_data, metadata);
+    /// let login = oauth.login_with_qr_code(&qr_code_data, metadata.into());
     /// let mut progress = login.subscribe_to_progress();
     ///
     /// // Create a task which will show us the progress and tell us the check
@@ -411,9 +411,9 @@ impl OAuth {
     pub fn login_with_qr_code<'a>(
         &'a self,
         data: &'a QrCodeData,
-        client_metadata: Raw<ClientMetadata>,
+        registration_method: ClientRegistrationMethod,
     ) -> LoginWithQrCode<'a> {
-        LoginWithQrCode::new(&self.client, client_metadata, data)
+        LoginWithQrCode::new(&self.client, registration_method, data)
     }
 
     /// A higher level wrapper around the configuration and login methods that
@@ -443,9 +443,7 @@ impl OAuth {
         redirect_uri: Url,
         prompt: Option<Prompt>,
     ) -> Result<OAuthAuthorizationData, OAuthError> {
-        let server_metadata = self.server_metadata().await?;
-
-        self.restore_or_register_client(server_metadata.issuer, registrations).await?;
+        self.use_registration_method(&registrations.into()).await?;
 
         let mut data_builder = self.login(redirect_uri, None);
 
@@ -489,26 +487,19 @@ impl OAuth {
         Ok(())
     }
 
-    /// Restore or register the OAuth 2.0 client for the given issuer with the
-    /// given [`OAuthRegistrationStore`].
+    /// Restore or register the OAuth 2.0 client for the server with the given
+    /// metadata, with the given [`OAuthRegistrationStore`].
     ///
     /// If there is a client ID in the store, it is used to restore the client.
     /// Otherwise, the client is registered with the metadata in the store.
-    ///
-    /// If we already have a client ID, this is a noop.
     ///
     /// Returns an error if there is an error while accessing the store, or
     /// while registering the client.
     async fn restore_or_register_client(
         &self,
         issuer: Url,
-        registrations: OAuthRegistrationStore,
+        registrations: &OAuthRegistrationStore,
     ) -> std::result::Result<(), OAuthError> {
-        if self.client_id().is_some() {
-            tracing::info!("OAuth 2.0 is already configured.");
-            return Ok(());
-        };
-
         if let Some(client_id) =
             registrations.client_id(&issuer).await.map_err(OAuthClientRegistrationError::from)?
         {
@@ -526,6 +517,39 @@ impl OAuth {
             .set_and_write_client_id(response.client_id, issuer)
             .await
             .map_err(OAuthClientRegistrationError::from)?;
+
+        Ok(())
+    }
+
+    /// Restore or register the OAuth 2.0 client for the server with the given
+    /// metadata, with the given [`ClientRegistrationMethod`].
+    ///
+    /// If we already have a client ID, this is a noop.
+    ///
+    /// Returns an error if there was a problem using the registration method.
+    async fn use_registration_method(
+        &self,
+        method: &ClientRegistrationMethod,
+    ) -> std::result::Result<(), OAuthError> {
+        if self.client_id().is_some() {
+            tracing::info!("OAuth 2.0 is already configured.");
+            return Ok(());
+        };
+
+        match method {
+            ClientRegistrationMethod::None => return Err(OAuthError::NotRegistered),
+            ClientRegistrationMethod::ClientId(client_id) => {
+                let server_metadata = self.server_metadata().await?;
+                self.restore_registered_client(server_metadata.issuer, client_id.clone());
+            }
+            ClientRegistrationMethod::Metadata(client_metadata) => {
+                self.register_client(client_metadata).await?;
+            }
+            ClientRegistrationMethod::Store(registrations) => {
+                let server_metadata = self.server_metadata().await?;
+                self.restore_or_register_client(server_metadata.issuer, registrations).await?
+            }
+        }
 
         Ok(())
     }
@@ -1556,4 +1580,46 @@ pub struct AuthorizationError {
 
 fn hash_str(x: &str) -> impl fmt::LowerHex {
     sha2::Sha256::new().chain_update(x).finalize()
+}
+
+/// The available methods to register or restore a client.
+#[derive(Debug)]
+pub enum ClientRegistrationMethod {
+    /// No registration will be done.
+    ///
+    /// This should only be set if [`OAuth::register_client()`] or
+    /// [`OAuth::restore_registered_client()`] was already called before.
+    None,
+
+    /// The given client ID will be used.
+    ///
+    /// This will call [`OAuth::restore_registered_client()`] internally.
+    ClientId(ClientId),
+
+    /// The client will register using dynamic client registration, with the
+    /// given metadata.
+    ///
+    /// This will call [`OAuth::register_client()`] internally.
+    Metadata(Raw<ClientMetadata>),
+
+    /// Use an [`OAuthRegistrationStore`] to handle registrations.
+    Store(OAuthRegistrationStore),
+}
+
+impl From<ClientId> for ClientRegistrationMethod {
+    fn from(value: ClientId) -> Self {
+        Self::ClientId(value)
+    }
+}
+
+impl From<Raw<ClientMetadata>> for ClientRegistrationMethod {
+    fn from(value: Raw<ClientMetadata>) -> Self {
+        Self::Metadata(value)
+    }
+}
+
+impl From<OAuthRegistrationStore> for ClientRegistrationMethod {
+    fn from(value: OAuthRegistrationStore) -> Self {
+        Self::Store(value)
+    }
 }
