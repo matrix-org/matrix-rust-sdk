@@ -153,6 +153,9 @@ async fn check_authorization_url(
 async fn test_high_level_login() -> anyhow::Result<()> {
     // Given a fresh environment.
     let (oauth, _server, mut redirect_uri, registrations) = mock_environment().await.unwrap();
+    let registrations_path = registrations.file_path.clone();
+    let client_metadata = registrations.metadata.clone();
+
     assert!(oauth.issuer().is_none());
     assert!(oauth.client_id().is_none());
 
@@ -164,7 +167,15 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 
     // Then the client should be configured correctly.
     assert_let!(Some(issuer) = oauth.issuer());
-    assert!(oauth.client_id().is_some());
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+
+    // The client ID should have been saved in the registration file.
+    let registrations =
+        OAuthRegistrationStore::new(registrations_path, client_metadata).await.unwrap();
+    assert_eq!(
+        registrations.client_id(issuer).await.unwrap().as_ref().map(|id| id.as_str()),
+        Some("test_client_id")
+    );
 
     check_authorization_url(&authorization_data, &oauth, issuer, None, Some("create"), None).await;
 
@@ -181,11 +192,22 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Given a client ready to complete login.
     let (oauth, _server, mut redirect_uri, registrations) = mock_environment().await.unwrap();
+    let registrations_path = registrations.file_path.clone();
+    let client_metadata = registrations.metadata.clone();
+
     let authorization_data =
         oauth.url_for_oidc(registrations, redirect_uri.clone(), None).await.unwrap();
 
     assert_let!(Some(issuer) = oauth.issuer());
-    assert!(oauth.client_id().is_some());
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+
+    // The client ID should have been saved in the registration file.
+    let registrations =
+        OAuthRegistrationStore::new(registrations_path, client_metadata).await.unwrap();
+    assert_eq!(
+        registrations.client_id(issuer).await.unwrap().as_ref().map(|id| id.as_str()),
+        Some("test_client_id")
+    );
 
     check_authorization_url(&authorization_data, &oauth, issuer, None, None, None).await;
 
@@ -211,11 +233,22 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Given a client ready to complete login.
     let (oauth, _server, mut redirect_uri, registrations) = mock_environment().await.unwrap();
+    let registrations_path = registrations.file_path.clone();
+    let client_metadata = registrations.metadata.clone();
+
     let authorization_data =
         oauth.url_for_oidc(registrations, redirect_uri.clone(), None).await.unwrap();
 
     assert_let!(Some(issuer) = oauth.issuer());
-    assert!(oauth.client_id().is_some());
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+
+    // The client ID should have been saved in the registration file.
+    let registrations =
+        OAuthRegistrationStore::new(registrations_path, client_metadata).await.unwrap();
+    assert_eq!(
+        registrations.client_id(issuer).await.unwrap().as_ref().map(|id| id.as_str()),
+        Some("test_client_id")
+    );
 
     check_authorization_url(&authorization_data, &oauth, issuer, None, None, None).await;
 
