@@ -2134,26 +2134,45 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
-    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+    use std::{
+        path::PathBuf,
+        sync::atomic::{AtomicU32, Ordering::SeqCst},
+    };
 
     use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+    use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteStateStore;
+    use crate::StoreOpenConfig;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
-    async fn get_store() -> Result<impl StateStore, StoreError> {
+    fn new_state_store_workspace() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
-        let tmpdir_path = TMP_DIR.path().join(name);
+        TMP_DIR.path().join(name)
+    }
+
+    async fn get_store() -> Result<impl StateStore, StoreError> {
+        let tmpdir_path = new_state_store_workspace();
 
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), Some("default_test_password"))
             .await
             .unwrap())
+    }
+
+    #[async_test]
+    async fn test_pool_size() {
+        let tmpdir_path = new_state_store_workspace();
+        let store_open_config = StoreOpenConfig::new(tmpdir_path, None).pool_max_size(42);
+
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+
+        assert_eq!(store.pool.status().max_size, 42);
     }
 
     statestore_integration_tests!();

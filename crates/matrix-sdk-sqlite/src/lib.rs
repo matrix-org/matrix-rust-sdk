@@ -71,3 +71,20 @@ impl StoreOpenConfig {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::StoreOpenConfig;
+
+    #[test]
+    fn test_store_open_config() {
+        let store_open_config =
+            StoreOpenConfig::new(Path::new("foo"), Some("bar")).pool_max_size(42);
+
+        assert_eq!(store_open_config.path, PathBuf::from("foo"));
+        assert_eq!(store_open_config.passphrase, Some("bar".to_owned()));
+        assert_eq!(store_open_config.pool_config.max_size, 42);
+    }
+}

@@ -1433,6 +1433,7 @@ mod tests {
     use tokio::fs;
 
     use super::SqliteCryptoStore;
+    use crate::StoreOpenConfig;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
@@ -1443,8 +1444,8 @@ mod tests {
         database: SqliteCryptoStore,
     }
 
-    async fn get_test_db(data_path: &str, passphrase: Option<&str>) -> TestDb {
-        let db_name = "matrix-sdk-crypto.sqlite3";
+    fn copy_db(data_path: &str) -> TempDir {
+        let db_name = super::DATABASE_NAME;
 
         let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let database_path = manifest_path.join(data_path).join(db_name);
@@ -1455,11 +1456,27 @@ mod tests {
         // Copy the test database to the tempdir so our test runs are idempotent.
         std::fs::copy(&database_path, destination).unwrap();
 
+        tmpdir
+    }
+
+    async fn get_test_db(data_path: &str, passphrase: Option<&str>) -> TestDb {
+        let tmpdir = copy_db(data_path);
+
         let database = SqliteCryptoStore::open(tmpdir.path(), passphrase)
             .await
             .expect("Can't open the test store");
 
         TestDb { _dir: tmpdir, database }
+    }
+
+    #[async_test]
+    async fn test_pool_size() {
+        let store_open_config =
+            StoreOpenConfig::new(TMP_DIR.path().join("test_pool_size"), None).pool_max_size(42);
+
+        let store = SqliteCryptoStore::open_with_config(store_open_config).await.unwrap();
+
+        assert_eq!(store.pool.status().max_size, 42);
     }
 
     /// Test that we didn't regress in our storage layer by loading data from a
@@ -1799,6 +1816,7 @@ mod tests {
         assert_eq!(backup_keys.backup_version.unwrap(), "6");
         assert!(backup_keys.decryption_key.is_some());
     }
+
     async fn get_store(
         name: &str,
         passphrase: Option<&str>,

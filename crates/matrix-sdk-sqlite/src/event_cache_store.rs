@@ -1357,6 +1357,7 @@ fn insert_chunk(
 #[cfg(test)]
 mod tests {
     use std::{
+        path::PathBuf,
         sync::atomic::{AtomicU32, Ordering::SeqCst},
         time::Duration,
     };
@@ -1382,14 +1383,18 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
-    use crate::utils::SqliteAsyncConnExt;
+    use crate::{utils::SqliteAsyncConnExt, StoreOpenConfig};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
-    async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
+    fn new_event_cache_store_workspace() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
-        let tmpdir_path = TMP_DIR.path().join(name);
+        TMP_DIR.path().join(name)
+    }
+
+    async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
+        let tmpdir_path = new_event_cache_store_workspace();
 
         tracing::info!("using event cache store @ {}", tmpdir_path.to_str().unwrap());
 
@@ -1410,6 +1415,16 @@ mod tests {
             })
             .await
             .expect("querying media cache content by last access failed")
+    }
+
+    #[async_test]
+    async fn test_pool_size() {
+        let tmpdir_path = new_event_cache_store_workspace();
+        let store_open_config = StoreOpenConfig::new(tmpdir_path, None).pool_max_size(42);
+
+        let store = SqliteEventCacheStore::open_with_config(store_open_config).await.unwrap();
+
+        assert_eq!(store.pool.status().max_size, 42);
     }
 
     #[async_test]
