@@ -46,7 +46,7 @@ async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, OAu
     server.mock_who_am_i().ok().named("whoami").mount().await;
 
     let oauth_server = server.oauth();
-    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+    oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
     oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
     oauth_server.mock_token().ok().mount().await;
 
@@ -275,7 +275,7 @@ async fn test_login_url() -> anyhow::Result<()> {
     let issuer = Url::parse(&server.server().uri())?;
 
     let oauth_server = server.oauth();
-    oauth_server.mock_server_metadata().ok().expect(1..).mount().await;
+    oauth_server.mock_server_metadata().ok().expect(3).mount().await;
 
     let client = server.client_builder().registered_with_oauth(server.server().uri()).build().await;
     let oauth = client.oauth();
@@ -361,9 +361,8 @@ fn test_authorization_response() -> anyhow::Result<()> {
 #[async_test]
 async fn test_finish_login() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
-
     let oauth_server = server.oauth();
-    oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+    let server_metadata = oauth_server.server_metadata();
 
     let client = server.client_builder().registered_with_oauth(server.server().uri()).build().await;
     let oauth = client.oauth();
@@ -383,6 +382,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let redirect_uri = REDIRECT_URI_STRING;
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let auth_validation_data = AuthorizationValidationData {
+        server_metadata: server_metadata.clone(),
         device_id: owned_device_id!("D3V1C31D"),
         redirect_uri: RedirectUrl::new(redirect_uri.to_owned())?,
         pkce_verifier,
@@ -435,6 +435,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let redirect_uri = REDIRECT_URI_STRING;
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let auth_validation_data = AuthorizationValidationData {
+        server_metadata: server_metadata.clone(),
         device_id: owned_device_id!("D3V1C31D"),
         redirect_uri: RedirectUrl::new(redirect_uri.to_owned())?,
         pkce_verifier,
@@ -478,6 +479,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let redirect_uri = REDIRECT_URI_STRING;
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let auth_validation_data = AuthorizationValidationData {
+        server_metadata,
         device_id: wrong_device_id.to_owned(),
         redirect_uri: RedirectUrl::new(redirect_uri.to_owned())?,
         pkce_verifier,

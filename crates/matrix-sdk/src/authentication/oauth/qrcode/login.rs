@@ -22,7 +22,10 @@ use matrix_sdk_base::{
     SessionMeta,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
-use ruma::OwnedDeviceId;
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata,
+    OwnedDeviceId,
+};
 use tracing::trace;
 use vodozemac::{ecies::CheckCode, Curve25519PublicKey};
 
@@ -33,7 +36,10 @@ use super::{
 };
 #[cfg(doc)]
 use crate::authentication::oauth::OAuth;
-use crate::{authentication::oauth::ClientRegistrationMethod, Client};
+use crate::{
+    authentication::oauth::{ClientRegistrationMethod, OAuthError},
+    Client,
+};
 
 async fn send_unexpected_message_error(
     channel: &mut EstablishedSecureChannel,
@@ -112,7 +118,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 
             // Register the client with the OAuth 2.0 authorization server.
             trace!("Registering the client with the OAuth 2.0 authorization server.");
-            self.register_client().await?;
+            let server_metadata = self.register_client().await?;
 
             // We want to use the Curve25519 public key for the device ID, so let's generate
             // a new vodozemac `Account` now.
@@ -123,7 +129,8 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // Let's tell the OAuth 2.0 authorization server that we want to log in using
             // the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
             trace!("Requesting device authorization.");
-            let auth_grant_response = self.request_device_authorization(device_id).await?;
+            let auth_grant_response =
+                self.request_device_authorization(&server_metadata, device_id).await?;
 
             // Now we need to inform the other device of the login protocols we picked and
             // the URL they should use to log us in.
@@ -160,7 +167,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             // Let's now wait for the access token to be provided to use by the OAuth 2.0
             // authorization server.
             trace!("Waiting for the OAuth 2.0 authorization server to give us the access token.");
-            if let Err(e) = self.wait_for_tokens(&auth_grant_response).await {
+            if let Err(e) = self.wait_for_tokens(&server_metadata, &auth_grant_response).await {
                 // If we received an error, and it's one of the ones we should report to the
                 // other side, do so now.
                 if let Some(e) = e.as_request_token_error() {
@@ -282,29 +289,37 @@ impl<'a> LoginWithQrCode<'a> {
     }
 
     /// Register the client with the OAuth 2.0 authorization server.
-    async fn register_client(&self) -> Result<(), DeviceAuthorizationOAuthError> {
+    ///
+    /// Returns the authorization server metadata.
+    async fn register_client(
+        &self,
+    ) -> Result<AuthorizationServerMetadata, DeviceAuthorizationOAuthError> {
         let oauth = self.client.oauth();
-        oauth.use_registration_method(&self.registration_method).await?;
+        let server_metadata = oauth.server_metadata().await.map_err(OAuthError::from)?;
+        oauth.use_registration_method(&server_metadata, &self.registration_method).await?;
 
-        Ok(())
+        Ok(server_metadata)
     }
 
     async fn request_device_authorization(
         &self,
+        server_metadata: &AuthorizationServerMetadata,
         device_id: Curve25519PublicKey,
     ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOAuthError> {
         let oauth = self.client.oauth();
-        let response =
-            oauth.request_device_authorization(Some(device_id.to_base64().into())).await?;
+        let response = oauth
+            .request_device_authorization(server_metadata, Some(device_id.to_base64().into()))
+            .await?;
         Ok(response)
     }
 
     async fn wait_for_tokens(
         &self,
+        server_metadata: &AuthorizationServerMetadata,
         auth_response: &StandardDeviceAuthorizationResponse,
     ) -> Result<(), DeviceAuthorizationOAuthError> {
         let oauth = self.client.oauth();
-        oauth.exchange_device_code(auth_response).await?;
+        oauth.exchange_device_code(server_metadata, auth_response).await?;
         Ok(())
     }
 }
@@ -414,7 +429,7 @@ mod test {
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
-        oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
         oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
         oauth_server
             .mock_device_authorization()
@@ -496,7 +511,7 @@ mod test {
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
-        oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
+        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
         oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
         oauth_server
             .mock_device_authorization()
@@ -631,7 +646,7 @@ mod test {
         oauth_server
             .mock_server_metadata()
             .ok_without_device_authorization()
-            .expect(1..)
+            .expect(1)
             .named("server_metadata")
             .mount()
             .await;
