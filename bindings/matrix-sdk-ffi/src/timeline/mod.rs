@@ -48,7 +48,7 @@ use ruma::{
         },
         receipt::ReceiptThread,
         room::message::{
-            ForwardThread, LocationMessageEventContent, MessageType,
+            ForwardThread, LocationMessageEventContent, MessageType, ReplyWithinThread,
             RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent,
@@ -465,6 +465,11 @@ impl Timeline {
         Ok(())
     }
 
+    /// Send a reply.
+    ///
+    /// If the replied to event has a thread relation, it is forwarded on the
+    /// reply so that clients that support threads can render the reply
+    /// inside the thread.
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
@@ -478,7 +483,38 @@ impl Timeline {
             .map_err(|err| anyhow::anyhow!(err))?;
 
         self.inner
-            .send_reply((*msg).clone(), replied_to_info, ForwardThread::Yes)
+            .send_reply(
+                (*msg).clone(),
+                replied_to_info,
+                timeline::EnforceThread::No(ForwardThread::Yes),
+            )
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+        Ok(())
+    }
+
+    /// Send a message on a thread.
+    ///
+    /// If the replied to event does not have a thread relation, it becomes the
+    /// root of a new thread.
+    pub async fn send_thread_reply(
+        &self,
+        msg: Arc<RoomMessageEventContentWithoutRelation>,
+        event_id: String,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let replied_to_info = self
+            .inner
+            .replied_to_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
+        self.inner
+            .send_reply(
+                (*msg).clone(),
+                replied_to_info,
+                timeline::EnforceThread::Yes(ReplyWithinThread::No),
+            )
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
