@@ -428,14 +428,10 @@ impl Client {
     }
 
     /// Completes the OIDC login process.
-    pub async fn login_with_oidc_callback(
-        &self,
-        authorization_data: Arc<OAuthAuthorizationData>,
-        callback_url: String,
-    ) -> Result<(), OidcError> {
+    pub async fn login_with_oidc_callback(&self, callback_url: String) -> Result<(), OidcError> {
         let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
 
-        self.inner.oauth().login_with_oidc_callback(&authorization_data, url).await?;
+        self.inner.oauth().finish_login(url.into()).await?;
 
         Ok(())
     }

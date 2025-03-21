@@ -19,6 +19,7 @@ use wiremock::{
 use super::{
     registration_store::OAuthRegistrationStore, AuthorizationCode, AuthorizationError,
     AuthorizationResponse, OAuth, OAuthAuthorizationData, OAuthError, RedirectUriQueryParseError,
+    UrlOrQuery,
 };
 use crate::{
     authentication::oauth::{
@@ -186,7 +187,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     redirect_uri.set_query(Some(&format!("code=42&state={}", authorization_data.state.secret())));
 
     // Then the login should succeed.
-    oauth.login_with_oidc_callback(&authorization_data, redirect_uri).await?;
+    oauth.finish_login(redirect_uri.into()).await?;
 
     Ok(())
 }
@@ -220,8 +221,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
         authorization_data.state.secret()
     )));
 
-    let error =
-        oauth.login_with_oidc_callback(&authorization_data, redirect_uri).await.unwrap_err();
+    let error = oauth.finish_login(redirect_uri.into()).await.unwrap_err();
 
     // Then a cancellation error should be thrown.
     assert_matches!(
@@ -258,8 +258,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // When completing login with an old/tampered state.
     redirect_uri.set_query(Some("code=42&state=imposter_alert"));
 
-    let error =
-        oauth.login_with_oidc_callback(&authorization_data, redirect_uri).await.unwrap_err();
+    let error = oauth.finish_login(redirect_uri.into()).await.unwrap_err();
 
     // Then the login should fail by flagging the invalid state.
     assert_matches!(
@@ -333,13 +332,13 @@ async fn test_login_url() -> anyhow::Result<()> {
 fn test_authorization_response() -> anyhow::Result<()> {
     let uri = Url::parse("https://example.com")?;
     assert_matches!(
-        AuthorizationResponse::parse_uri(&uri),
+        AuthorizationResponse::parse_url_or_query(&uri.into()),
         Err(RedirectUriQueryParseError::MissingQuery)
     );
 
     let uri = Url::parse("https://example.com?code=123&state=456")?;
     assert_matches!(
-        AuthorizationResponse::parse_uri(&uri),
+        AuthorizationResponse::parse_url_or_query(&uri.into()),
         Ok(AuthorizationResponse::Success(AuthorizationCode { code, state })) => {
             assert_eq!(code, "123");
             assert_eq!(state.secret(), "456");
@@ -348,7 +347,7 @@ fn test_authorization_response() -> anyhow::Result<()> {
 
     let uri = Url::parse("https://example.com?error=invalid_scope&state=456")?;
     assert_matches!(
-        AuthorizationResponse::parse_uri(&uri),
+        AuthorizationResponse::parse_url_or_query(&uri.into()),
         Ok(AuthorizationResponse::Error(AuthorizationError { error, state })) => {
             assert_eq!(*error.error(), AuthorizationCodeErrorResponseType::InvalidScope);
             assert_eq!(error.error_description(), None);
@@ -370,12 +369,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let oauth = client.oauth();
 
     // If the state is missing, then any attempt to finish authorizing will fail.
-    let res = oauth
-        .finish_login(AuthorizationCode {
-            code: "42".to_owned(),
-            state: CsrfToken::new("none".to_owned()),
-        })
-        .await;
+    let res = oauth.finish_login(UrlOrQuery::Query("code=42&state=none".to_owned())).await;
 
     assert_matches!(
         res,
@@ -402,12 +396,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     }
 
     // Finishing the authorization for another state won't work.
-    let res = oauth
-        .finish_login(AuthorizationCode {
-            code: "1337".to_owned(),
-            state: CsrfToken::new("none".to_owned()),
-        })
-        .await;
+    let res = oauth.finish_login(UrlOrQuery::Query("code=1337&state=none".to_owned())).await;
 
     assert_matches!(
         res,
@@ -433,9 +422,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
         .mount()
         .await;
 
-    oauth
-        .finish_login(AuthorizationCode { code: "1337".to_owned(), state: state1.clone() })
-        .await?;
+    oauth.finish_login(UrlOrQuery::Query(format!("code=42&state={}", state1.secret()))).await?;
 
     let session_tokens = client.session_tokens().unwrap();
     assert_eq!(session_tokens.access_token, "AT1");
@@ -477,9 +464,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
         .mount()
         .await;
 
-    oauth
-        .finish_login(AuthorizationCode { code: "1337".to_owned(), state: state2.clone() })
-        .await?;
+    oauth.finish_login(UrlOrQuery::Query(format!("code=42&state={}", state2.secret()))).await?;
 
     let session_tokens = client.session_tokens().unwrap();
     assert_eq!(session_tokens.access_token, "AT2");
@@ -522,9 +507,8 @@ async fn test_finish_login() -> anyhow::Result<()> {
         .mount()
         .await;
 
-    let res = oauth
-        .finish_login(AuthorizationCode { code: "1337".to_owned(), state: state3.clone() })
-        .await;
+    let res =
+        oauth.finish_login(UrlOrQuery::Query(format!("code=42&state={}", state3.secret()))).await;
 
     assert_matches!(res, Err(Error::OAuth(OAuthError::SessionMismatch)));
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state3).is_none());

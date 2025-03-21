@@ -19,13 +19,13 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, ClientId,
-        ClientRegistrationMethod, CsrfToken, OAuthAuthorizationData, OAuthSession, UserSession,
+        AccountManagementActionFull, ClientId, ClientRegistrationMethod, OAuthAuthorizationData,
+        OAuthSession, UrlOrQuery, UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -34,7 +34,7 @@ use matrix_sdk::{
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
         serde::Raw,
     },
-    utils::local_server::{LocalServerBuilder, LocalServerRedirectHandle},
+    utils::local_server::{LocalServerBuilder, LocalServerRedirectHandle, QueryString},
     Client, ClientBuildError, Result, RoomState,
 };
 use matrix_sdk_ui::sync_service::SyncService;
@@ -218,27 +218,21 @@ impl OidcCli {
             // the redirect when the custom URI scheme is opened.
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
-            let OAuthAuthorizationData { url, state } =
+            let OAuthAuthorizationData { url, .. } =
                 oauth.login(ClientRegistrationMethod::None, redirect_uri, None).build().await?;
 
-            let authorization_code = match use_auth_url(&url, &state, server_handle).await {
-                Ok(code) => code,
-                Err(err) => {
-                    oauth.abort_login(&state).await;
-                    return Err(err);
-                }
-            };
+            let query_string =
+                use_auth_url(&url, server_handle).await.map(|query| query.0).unwrap_or_default();
 
-            match oauth.finish_login(authorization_code).await {
+            match oauth.finish_login(UrlOrQuery::Query(query_string)).await {
                 Ok(()) => {
                     let user_id = self.client.user_id().expect("Got a user ID");
                     println!("Logged in as {user_id}");
                     break;
                 }
                 Err(err) => {
-                    println!("Error: failed to finish login: {err}");
+                    println!("Error: failed to login: {err}");
                     println!("Please try again.\n");
-                    oauth.abort_login(&state).await;
                     continue;
                 }
             }
@@ -731,33 +725,11 @@ fn client_metadata() -> Raw<ClientMetadata> {
 /// Open the authorization URL and wait for it to be complete.
 ///
 /// Returns the code to obtain the access token.
-async fn use_auth_url(
-    url: &Url,
-    state: &CsrfToken,
-    server_handle: LocalServerRedirectHandle,
-) -> anyhow::Result<AuthorizationCode> {
+async fn use_auth_url(url: &Url, server_handle: LocalServerRedirectHandle) -> Option<QueryString> {
     println!("\nPlease authenticate yourself at: {url}\n");
     println!("Then proceed to the authorization.\n");
 
-    let response_query = server_handle.await;
-
-    let code =
-        match AuthorizationResponse::parse_query(response_query.as_deref().unwrap_or_default())? {
-            AuthorizationResponse::Success(code) => code,
-            AuthorizationResponse::Error(err) => {
-                return Err(anyhow!(err.error));
-            }
-        };
-
-    // Here we only manage one authorization at a time so, if the state string is
-    // wrong, it is an error. Some clients might want to allow several
-    // authorizations at once, in which case the state string can be used to
-    // identify the session that was authorized.
-    if code.state != *state {
-        bail!("State strings don't match")
-    }
-
-    Ok(code)
+    server_handle.await
 }
 
 /// Handle room messages.
