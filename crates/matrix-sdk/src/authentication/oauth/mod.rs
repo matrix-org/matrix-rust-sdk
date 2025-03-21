@@ -120,14 +120,14 @@
 //! # Examples
 //!
 //! Most methods have examples, there is also an example CLI application that
-//! supports all the actions described here, in [`examples/oidc_cli`].
+//! supports all the actions described here, in [`examples/oauth_cli`].
 //!
 //! [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
 //! [areweoidcyet.com]: https://areweoidcyet.com/
 //! [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens()
 //! [`Error`]: ruma::api::client::error::Error
 //! [`ErrorKind::UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
-//! [`examples/oidc_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oidc_cli
+//! [`examples/oauth_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oauth_cli
 
 use std::{
     borrow::Cow,
