@@ -24,8 +24,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, ClientId, CsrfToken,
-        OAuthAuthorizationData, OAuthSession, UserSession,
+        AccountManagementActionFull, AuthorizationCode, AuthorizationResponse, ClientId,
+        ClientRegistrationMethod, CsrfToken, OAuthAuthorizationData, OAuthSession, UserSession,
     },
     config::SyncSettings,
     encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
@@ -219,7 +219,7 @@ impl OidcCli {
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OAuthAuthorizationData { url, state } =
-                oauth.login(redirect_uri, None).build().await?;
+                oauth.login(ClientRegistrationMethod::None, redirect_uri, None).build().await?;
 
             let authorization_code = match use_auth_url(&url, &state, server_handle).await {
                 Ok(code) => code,
