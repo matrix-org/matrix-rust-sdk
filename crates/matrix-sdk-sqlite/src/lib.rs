@@ -74,6 +74,22 @@ impl StoreOpenConfig {
         self
     }
 
+    /// Optimize the database.
+    ///
+    /// The SQLite documentations recommend to run this regularly and after any
+    /// schema change. The easiest is to do it consistently when the store is
+    /// constructed, after eventual migrations.
+    ///
+    /// See [`PRAGMA optimize`] to learn more.
+    ///
+    /// The default value is `true`.
+    ///
+    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_optimize
+    pub fn optimize(mut self, optimize: bool) -> Self {
+        self.runtime_config.optimize = optimize;
+        self
+    }
+
     /// Define the maximum number of pages the SQLite cache can use.
     ///
     /// See [`PRAGMA cache_size`] to learn more. This value corresponds to a
