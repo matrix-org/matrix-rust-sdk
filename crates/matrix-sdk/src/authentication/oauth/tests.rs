@@ -23,7 +23,8 @@ use super::{
 use crate::{
     authentication::oauth::{
         error::{AuthorizationCodeErrorResponseType, OAuthClientRegistrationError},
-        AccountManagementActionFull, AuthorizationValidationData, OAuthAuthorizationCodeError,
+        AccountManagementActionFull, AuthorizationValidationData, ClientRegistrationMethod,
+        OAuthAuthorizationCodeError,
     },
     test_utils::{
         client::{
@@ -161,7 +162,9 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 
     // When getting the OIDC login URL.
     let authorization_data = oauth
-        .url_for_oidc(registrations, redirect_uri.clone(), Some(Prompt::Create))
+        .login(registrations.into(), redirect_uri.clone(), None)
+        .prompt(vec![Prompt::Create])
+        .build()
         .await
         .unwrap();
 
@@ -196,7 +199,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     let client_metadata = registrations.metadata.clone();
 
     let authorization_data =
-        oauth.url_for_oidc(registrations, redirect_uri.clone(), None).await.unwrap();
+        oauth.login(registrations.into(), redirect_uri.clone(), None).build().await.unwrap();
 
     assert_let!(Some(issuer) = oauth.issuer());
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
@@ -237,7 +240,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     let client_metadata = registrations.metadata.clone();
 
     let authorization_data =
-        oauth.url_for_oidc(registrations, redirect_uri.clone(), None).await.unwrap();
+        oauth.login(registrations.into(), redirect_uri.clone(), None).build().await.unwrap();
 
     assert_let!(Some(issuer) = oauth.issuer());
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
@@ -284,14 +287,16 @@ async fn test_login_url() -> anyhow::Result<()> {
     let redirect_uri = Url::parse(redirect_uri_str)?;
 
     // No extra parameters.
-    let authorization_data =
-        oauth.login(redirect_uri.clone(), Some(device_id.clone())).build().await?;
+    let authorization_data = oauth
+        .login(ClientRegistrationMethod::None, redirect_uri.clone(), Some(device_id.clone()))
+        .build()
+        .await?;
     check_authorization_url(&authorization_data, &oauth, &issuer, Some(&device_id), None, None)
         .await;
 
     // With prompt parameter.
     let authorization_data = oauth
-        .login(redirect_uri.clone(), Some(device_id.clone()))
+        .login(ClientRegistrationMethod::None, redirect_uri.clone(), Some(device_id.clone()))
         .prompt(vec![Prompt::Create])
         .build()
         .await?;
@@ -307,7 +312,7 @@ async fn test_login_url() -> anyhow::Result<()> {
 
     // With user_id_hint parameter.
     let authorization_data = oauth
-        .login(redirect_uri.clone(), Some(device_id.clone()))
+        .login(ClientRegistrationMethod::None, redirect_uri.clone(), Some(device_id.clone()))
         .user_id_hint(user_id!("@joe:example.org"))
         .build()
         .await?;

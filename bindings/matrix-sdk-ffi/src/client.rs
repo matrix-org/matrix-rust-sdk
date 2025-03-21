@@ -410,11 +410,13 @@ impl Client {
         let registrations = oidc_configuration.registrations().await?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let data = self
-            .inner
-            .oauth()
-            .url_for_oidc(registrations, redirect_uri, prompt.map(Into::into))
-            .await?;
+        let mut url_builder = self.inner.oauth().login(registrations.into(), redirect_uri, None);
+
+        if let Some(prompt) = prompt {
+            url_builder = url_builder.prompt(vec![prompt.into()]);
+        }
+
+        let data = url_builder.build().await?;
 
         Ok(Arc::new(data))
     }

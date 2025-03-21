@@ -154,7 +154,7 @@ use ruma::{
         get_authentication_issuer,
         get_authorization_server_metadata::{
             self,
-            msc2965::{AccountManagementAction, AuthorizationServerMetadata, Prompt},
+            msc2965::{AccountManagementAction, AuthorizationServerMetadata},
         },
     },
     serde::Raw,
@@ -414,46 +414,6 @@ impl OAuth {
         registration_method: ClientRegistrationMethod,
     ) -> LoginWithQrCode<'a> {
         LoginWithQrCode::new(&self.client, registration_method, data)
-    }
-
-    /// A higher level wrapper around the configuration and login methods that
-    /// will take some client metadata, register the client if needed and begin
-    /// the login process, returning the authorization data required to show a
-    /// webview for a user to login to their account. Call
-    /// [`OAuth::login_with_oidc_callback`] to finish the process when the
-    /// webview is complete.
-    ///
-    /// # Arguments
-    ///
-    /// * `registrations` - The storage where the registered client ID will be
-    ///   loaded from, if the client is already registered, or stored into, if
-    ///   the client is not registered yet.
-    ///
-    /// * `redirect_uri` - The URI where the end user will be redirected after
-    ///   authorizing the login. It must be one of the redirect URIs in the
-    ///   client metadata used for registration.
-    ///
-    /// * `prompt` - The desired user experience in the web UI. `None` means
-    ///   that the user wishes to login into an existing account, and
-    ///   `Some(Prompt::Create)` means that the user wishes to register a new
-    ///   account.
-    pub async fn url_for_oidc(
-        &self,
-        registrations: OAuthRegistrationStore,
-        redirect_uri: Url,
-        prompt: Option<Prompt>,
-    ) -> Result<OAuthAuthorizationData, OAuthError> {
-        self.use_registration_method(&registrations.into()).await?;
-
-        let mut data_builder = self.login(redirect_uri, None);
-
-        if let Some(prompt) = prompt {
-            data_builder = data_builder.prompt(vec![prompt]);
-        }
-
-        let data = data_builder.build().await?;
-
-        Ok(data)
     }
 
     /// A higher level wrapper around the methods to complete a login after the
@@ -994,6 +954,9 @@ impl OAuth {
     ///
     /// # Arguments
     ///
+    /// * `registration_method` - The method to restore or register the client
+    ///   with the server.
+    ///
     /// * `redirect_uri` - The URI where the end user will be redirected after
     ///   authorizing the login. It must be one of the redirect URIs sent in the
     ///   client metadata during registration.
@@ -1009,23 +972,29 @@ impl OAuth {
     /// use anyhow::anyhow;
     /// use matrix_sdk::{
     ///     Client,
-    ///     authentication::oauth::AuthorizationResponse,
+    ///     authentication::oauth::{AuthorizationResponse, OAuthRegistrationStore},
     /// };
+    /// # use ruma::serde::Raw;
+    /// # use matrix_sdk::authentication::oauth::registration::ClientMetadata;
     /// # let homeserver = unimplemented!();
     /// # let redirect_uri = unimplemented!();
     /// # let issuer_info = unimplemented!();
     /// # let client_id = unimplemented!();
+    /// # let store_path = unimplemented!();
     /// # async fn open_uri_and_wait_for_redirect(uri: url::Url) -> url::Url { unimplemented!() };
+    /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() };
     /// # _ = async {
     /// # let client = Client::new(homeserver).await?;
     /// let oauth = client.oauth();
     ///
-    /// oauth.restore_registered_client(
-    ///     issuer_info,
-    ///     client_id,
-    /// );
+    /// let registration_store = OAuthRegistrationStore::new(
+    ///     store_path,
+    ///     client_metadata()
+    /// ).await?;
     ///
-    /// let auth_data = oauth.login(redirect_uri, None).build().await?;
+    /// let auth_data = oauth.login(registration_store.into(), redirect_uri, None)
+    ///                      .build()
+    ///                      .await?;
     ///
     /// // Open auth_data.url and wait for response at the redirect URI.
     /// let redirected_to_uri = open_uri_and_wait_for_redirect(auth_data.url).await;
@@ -1051,12 +1020,19 @@ impl OAuth {
     /// ```
     pub fn login(
         &self,
+        registration_method: ClientRegistrationMethod,
         redirect_uri: Url,
         device_id: Option<OwnedDeviceId>,
     ) -> OAuthAuthCodeUrlBuilder {
         let (scopes, device_id) = Self::login_scopes(device_id);
 
-        OAuthAuthCodeUrlBuilder::new(self.clone(), scopes.to_vec(), device_id, redirect_uri)
+        OAuthAuthCodeUrlBuilder::new(
+            self.clone(),
+            registration_method,
+            scopes.to_vec(),
+            device_id,
+            redirect_uri,
+        )
     }
 
     /// Finish the login process.

@@ -24,7 +24,7 @@ use ruma::{
 use tracing::{info, instrument};
 use url::Url;
 
-use super::{OAuth, OAuthError};
+use super::{ClientRegistrationMethod, OAuth, OAuthError};
 use crate::{authentication::oauth::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
@@ -34,6 +34,7 @@ use crate::{authentication::oauth::AuthorizationValidationData, Result};
 #[allow(missing_debug_implementations)]
 pub struct OAuthAuthCodeUrlBuilder {
     oauth: OAuth,
+    registration_method: ClientRegistrationMethod,
     scopes: Vec<Scope>,
     device_id: OwnedDeviceId,
     redirect_uri: Url,
@@ -44,11 +45,20 @@ pub struct OAuthAuthCodeUrlBuilder {
 impl OAuthAuthCodeUrlBuilder {
     pub(super) fn new(
         oauth: OAuth,
+        registration_method: ClientRegistrationMethod,
         scopes: Vec<Scope>,
         device_id: OwnedDeviceId,
         redirect_uri: Url,
     ) -> Self {
-        Self { oauth, scopes, device_id, redirect_uri, prompt: None, login_hint: None }
+        Self {
+            oauth,
+            registration_method,
+            scopes,
+            device_id,
+            redirect_uri,
+            prompt: None,
+            login_hint: None,
+        }
     }
 
     /// Set the [`Prompt`] of the authorization URL.
@@ -83,9 +93,19 @@ impl OAuthAuthCodeUrlBuilder {
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OAuthAuthorizationData, OAuthError> {
-        let Self { oauth, scopes, device_id, redirect_uri, prompt, login_hint } = self;
+        let Self {
+            oauth,
+            registration_method,
+            scopes,
+            device_id,
+            redirect_uri,
+            prompt,
+            login_hint,
+        } = self;
 
-        let data = oauth.data().ok_or(OAuthError::NotAuthenticated)?;
+        oauth.use_registration_method(&registration_method).await?;
+
+        let data = oauth.data().expect("OAuth 2.0 data should be set after registration");
         info!(
             issuer = data.issuer.as_str(),
             ?scopes,

@@ -160,12 +160,10 @@ impl ClientMetadata {
 pub enum OAuthGrantType {
     /// The authorization code grant type, defined in [RFC 6749].
     ///
-    /// This grant type is necessary to use the [`OAuth::login()`] and
-    /// [`OAuth::url_for_oidc()`] methods.
+    /// This grant type is necessary to use [`OAuth::login()`].
     ///
     /// [RFC 6749]: https://datatracker.ietf.org/doc/html/rfc6749
     /// [`OAuth::login()`]: super::OAuth::login
-    /// [`OAuth::url_for_oidc()`]: super::OAuth::url_for_oidc
     AuthorizationCode {
         /// Redirection URIs for the authorization endpoint.
         redirect_uris: Vec<Url>,
