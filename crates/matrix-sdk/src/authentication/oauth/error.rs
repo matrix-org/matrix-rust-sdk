@@ -29,6 +29,7 @@ use ruma::{
     serde::{PartialEqAsRefStr, StringEnum},
 };
 
+#[cfg(feature = "e2e-encryption")]
 pub use super::cross_process::CrossProcessRefreshLockError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use super::registration_store::OAuthRegistrationStoreError;
@@ -89,6 +90,7 @@ pub enum OAuthError {
     AccountManagementUrl(serde_html_form::ser::Error),
 
     /// An error occurred caused by the cross-process locks.
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     LockError(#[from] CrossProcessRefreshLockError),
 
