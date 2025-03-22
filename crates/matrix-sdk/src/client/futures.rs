@@ -20,17 +20,13 @@ use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
 use matrix_sdk_common::boxed_into_future;
-#[cfg(feature = "experimental-oidc")]
 use oauth2::{basic::BasicErrorResponseType, RequestTokenError};
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
-#[cfg(feature = "experimental-oidc")]
-use tracing::error;
-use tracing::trace;
+use tracing::{error, trace};
 
 use super::super::Client;
-#[cfg(feature = "experimental-oidc")]
-use crate::authentication::oauth::OAuthError;
 use crate::{
+    authentication::oauth::OAuthError,
     config::RequestConfig,
     error::{HttpError, HttpResult},
     RefreshTokenError, TransmissionProgress,
@@ -113,7 +109,6 @@ where
                             client.broadcast_unknown_token(soft_logout);
                         }
 
-                        #[cfg(feature = "experimental-oidc")]
                         RefreshTokenError::OAuth(oauth_error) => {
                             match &**oauth_error {
                                 OAuthError::RefreshToken(RequestTokenError::ServerResponse(

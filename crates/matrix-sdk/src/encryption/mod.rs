@@ -320,16 +320,12 @@ impl CrossSigningResetAuthType {
         error: &HttpError,
     ) -> Result<Option<Self>> {
         if let Some(auth_info) = error.as_uiaa_response() {
-            #[cfg(feature = "experimental-oidc")]
             if client.oauth().issuer().is_some() {
                 OAuthCrossSigningResetInfo::from_auth_info(client, auth_info)
                     .map(|t| Some(CrossSigningResetAuthType::OAuth(t)))
             } else {
                 Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
             }
-
-            #[cfg(not(feature = "experimental-oidc"))]
-            Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
         } else {
             Ok(None)
         }
@@ -345,7 +341,6 @@ pub struct OAuthCrossSigningResetInfo {
 }
 
 impl OAuthCrossSigningResetInfo {
-    #[cfg(feature = "experimental-oidc")]
     fn from_auth_info(
         // This is used if the OAuth 2.0 feature is enabled.
         #[allow(unused_variables)] client: &Client,
@@ -360,7 +355,6 @@ impl OAuthCrossSigningResetInfo {
 
 /// The parsed `parameters` part of a [`ruma::api::client::uiaa::UiaaInfo`]
 /// response
-#[cfg(feature = "experimental-oidc")]
 #[derive(Debug, Deserialize)]
 struct OAuthCrossSigningResetUiaaParameters {
     /// The URL where the user can approve the reset of the cross-signing keys.
@@ -370,7 +364,6 @@ struct OAuthCrossSigningResetUiaaParameters {
 
 /// The `org.matrix.cross_signing_reset` part of the Uiaa response `parameters``
 /// dictionary.
-#[cfg(feature = "experimental-oidc")]
 #[derive(Debug, Deserialize)]
 struct OAuthCrossSigningResetUiaaResetParameter {
     /// The URL where the user can approve the reset of the cross-signing keys.
@@ -729,7 +722,7 @@ impl Encryption {
         }
     }
 
-    #[cfg(all(feature = "experimental-oidc", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn import_secrets_bundle(
         &self,
         bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
@@ -1697,7 +1690,7 @@ impl Encryption {
     /// **Warning**: Do not use this method if we're already calling
     /// [`Client::send_outgoing_request()`]. This method is intended for
     /// explicitly uploading the device keys before starting a sync.
-    #[cfg(all(feature = "experimental-oidc", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn ensure_device_keys_upload(&self) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;

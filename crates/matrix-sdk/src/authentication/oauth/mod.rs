@@ -18,11 +18,7 @@
 //! work-in-progress and are defined by [MSC3861] and its sub-proposals. And
 //! more documentation is available at [areweoidcyet.com].
 //!
-//! # Setup
-//!
-//! To enable support for OAuth 2.0 on the [`Client`], simply enable the
-//! `experimental-oidc` cargo feature for the `matrix-sdk` crate. Then this
-//! authentication API is available with [`Client::oauth()`].
+//! This authentication API is available with [`Client::oauth()`].
 //!
 //! # Homeserver support
 //!

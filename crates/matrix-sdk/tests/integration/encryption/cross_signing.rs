@@ -109,7 +109,6 @@ async fn test_reset_legacy_auth() {
     );
 }
 
-#[cfg(feature = "experimental-oidc")]
 #[async_test]
 async fn test_reset_oauth() {
     use assert_matches2::assert_let;
