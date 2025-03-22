@@ -35,7 +35,6 @@ jobs:
       fail-fast: true
       matrix:
         name:
-          - experimental-oidc
           - no-encryption
           - no-sqlite
           - no-encryption-and-sqlite

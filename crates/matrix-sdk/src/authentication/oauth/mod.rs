@@ -18,11 +18,7 @@
 //! work-in-progress and are defined by [MSC3861] and its sub-proposals. And
 //! more documentation is available at [areweoidcyet.com].
 //!
-//! # Setup
-//!
-//! To enable support for OAuth 2.0 on the [`Client`], simply enable the
-//! `experimental-oidc` cargo feature for the `matrix-sdk` crate. Then this
-//! authentication API is available with [`Client::oauth()`].
+//! This authentication API is available with [`Client::oauth()`].
 //!
 //! # Homeserver support
 //!
@@ -137,13 +133,17 @@ use std::{
 };
 
 use as_variant::as_variant;
-use error::{
-    CrossProcessRefreshLockError, OAuthAuthorizationCodeError, OAuthClientRegistrationError,
-    OAuthDiscoveryError, OAuthTokenRevocationError, RedirectUriQueryParseError,
-};
 #[cfg(feature = "e2e-encryption")]
+use error::CrossProcessRefreshLockError;
+use error::{
+    OAuthAuthorizationCodeError, OAuthClientRegistrationError, OAuthDiscoveryError,
+    OAuthTokenRevocationError, RedirectUriQueryParseError,
+};
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
-use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::once_cell::sync::OnceCell;
+use matrix_sdk_base::SessionMeta;
 use oauth2::{
     basic::BasicClient as OAuthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
     RevocationUrl, Scope, StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
@@ -162,12 +162,13 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
-use tokio::{spawn, sync::Mutex};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tokio::sync::Mutex;
+use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
 mod account_management_url;
 mod auth_code_builder;
+#[cfg(feature = "e2e-encryption")]
 mod cross_process;
 pub mod error;
 mod http_client;
@@ -175,35 +176,41 @@ mod oidc_discovery;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registration;
+#[cfg(not(target_arch = "wasm32"))]
 mod registration_store;
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
 
+#[cfg(feature = "e2e-encryption")]
+use self::cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager};
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+use self::qrcode::LoginWithQrCode;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self::registration_store::OAuthRegistrationStore;
 use self::{
     account_management_url::build_account_management_url,
-    cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
     http_client::OAuthHttpClient,
     oidc_discovery::discover,
-    qrcode::LoginWithQrCode,
     registration::{register_client, ClientMetadata, ClientRegistrationResponse},
 };
 pub use self::{
     account_management_url::AccountManagementActionFull,
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
     error::OAuthError,
-    registration_store::OAuthRegistrationStore,
 };
 use super::{AuthData, SessionTokens};
-use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
+use crate::{client::SessionChange, executor::spawn, Client, HttpError, RefreshTokenError, Result};
 
 pub(crate) struct OAuthCtx {
     /// Lock and state when multiple processes may refresh an OAuth 2.0 session.
+    #[cfg(feature = "e2e-encryption")]
     cross_process_token_refresh_manager: OnceCell<CrossProcessRefreshManager>,
 
     /// Deferred cross-process lock initializer.
     ///
     /// Note: only required because we're using the crypto store that might not
     /// be present before reloading a session.
+    #[cfg(feature = "e2e-encryption")]
     deferred_cross_process_lock_init: Mutex<Option<String>>,
 
     /// Whether to allow HTTP issuer URLs.
@@ -214,7 +221,9 @@ impl OAuthCtx {
     pub(crate) fn new(insecure_discover: bool) -> Self {
         Self {
             insecure_discover,
+            #[cfg(feature = "e2e-encryption")]
             cross_process_token_refresh_manager: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
             deferred_cross_process_lock_init: Default::default(),
         }
     }
@@ -276,6 +285,7 @@ impl OAuth {
 
     /// Enable a cross-process store lock on the state store, to coordinate
     /// refreshes across different processes.
+    #[cfg(feature = "e2e-encryption")]
     pub async fn enable_cross_process_refresh_lock(
         &self,
         lock_value: String,
@@ -296,6 +306,7 @@ impl OAuth {
     /// olm machine has been initialized.
     ///
     /// Must be called after `set_session_meta`.
+    #[cfg(feature = "e2e-encryption")]
     async fn deferred_enable_cross_process_refresh_lock(&self) {
         let deferred_init_lock = self.ctx().deferred_cross_process_lock_init.lock().await;
 
@@ -424,6 +435,7 @@ impl OAuth {
     ///
     /// Returns an error if there is an error while accessing the store, or
     /// while registering the client.
+    #[cfg(not(target_arch = "wasm32"))]
     async fn restore_or_register_client(
         &self,
         server_metadata: &AuthorizationServerMetadata,
@@ -471,6 +483,7 @@ impl OAuth {
             ClientRegistrationMethod::Metadata(client_metadata) => {
                 self.register_client_inner(server_metadata, client_metadata).await?;
             }
+            #[cfg(not(target_arch = "wasm32"))]
             ClientRegistrationMethod::Store(registrations) => {
                 self.restore_or_register_client(server_metadata, registrations).await?
             }
@@ -818,6 +831,7 @@ impl OAuth {
                 None,
             )
             .await?;
+        #[cfg(feature = "e2e-encryption")]
         self.deferred_enable_cross_process_refresh_lock().await;
 
         self.client
@@ -830,6 +844,7 @@ impl OAuth {
         // Initialize the cross-process locking by saving our tokens' hash into the
         // database, if we've enabled the cross-process lock.
 
+        #[cfg(feature = "e2e-encryption")]
         if let Some(cross_process_lock) = self.ctx().cross_process_token_refresh_manager.get() {
             cross_process_lock.restore_session(&tokens).await;
 
@@ -866,6 +881,7 @@ impl OAuth {
         Ok(())
     }
 
+    #[cfg(feature = "e2e-encryption")]
     async fn handle_session_hash_mismatch(
         &self,
         guard: &mut CrossProcessRefreshLockGuard,
@@ -1056,6 +1072,7 @@ impl OAuth {
             // At this point the Olm machine has been set up.
 
             // Enable the cross-process lock for refreshes, if needs be.
+            #[cfg(feature = "e2e-encryption")]
             self.enable_cross_process_lock().await.map_err(OAuthError::from)?;
 
             #[cfg(feature = "e2e-encryption")]
@@ -1065,6 +1082,7 @@ impl OAuth {
         Ok(())
     }
 
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn enable_cross_process_lock(
         &self,
     ) -> Result<(), CrossProcessRefreshLockError> {
@@ -1217,7 +1235,7 @@ impl OAuth {
         refresh_token: String,
         token_endpoint: Url,
         client_id: ClientId,
-        cross_process_lock: Option<CrossProcessRefreshLockGuard>,
+        #[cfg(feature = "e2e-encryption")] cross_process_lock: Option<CrossProcessRefreshLockGuard>,
     ) -> Result<(), OAuthError> {
         trace!(
             "Token refresh: attempting to refresh with refresh_token {:x}",
@@ -1251,7 +1269,10 @@ impl OAuth {
             refresh_token: new_refresh_token.or(Some(refresh_token)),
         };
 
-        self.client.auth_ctx().set_session_tokens(tokens.clone());
+        #[cfg(feature = "e2e-encryption")]
+        let tokens_clone = tokens.clone();
+
+        self.client.auth_ctx().set_session_tokens(tokens);
 
         // Call the save_session_callback if set, while the optional lock is being held.
         if let Some(save_session_callback) = self.client.auth_ctx().save_session_callback.get() {
@@ -1262,8 +1283,9 @@ impl OAuth {
             }
         }
 
+        #[cfg(feature = "e2e-encryption")]
         if let Some(mut lock) = cross_process_lock {
-            lock.save_in_memory_and_db(&tokens).await?;
+            lock.save_in_memory_and_db(&tokens_clone).await?;
         }
 
         _ = self.client.auth_ctx().session_change_sender.send(SessionChange::TokensRefreshed);
@@ -1310,6 +1332,7 @@ impl OAuth {
 
         debug!("no other refresh happening in background, starting.");
 
+        #[cfg(feature = "e2e-encryption")]
         let cross_process_guard =
             if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
                 let mut cross_process_guard = match manager
@@ -1330,7 +1353,7 @@ impl OAuth {
                         .map_err(|err| RefreshTokenError::OAuth(Arc::new(err.into())))?;
                     // Optimistic exit: assume that the underlying process did update fast enough.
                     // In the worst case, we'll do another refresh Soon™.
-                    info!("other process handled refresh for us, assuming success");
+                    tracing::info!("other process handled refresh for us, assuming success");
                     *refresh_status_guard = Ok(());
                     return Ok(());
                 }
@@ -1378,6 +1401,7 @@ impl OAuth {
                     refresh_token,
                     server_metadata.token_endpoint,
                     client_id,
+                    #[cfg(feature = "e2e-encryption")]
                     cross_process_guard,
                 )
                 .await
@@ -1419,6 +1443,7 @@ impl OAuth {
             .await
             .map_err(OAuthTokenRevocationError::Revoke)?;
 
+        #[cfg(feature = "e2e-encryption")]
         if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
             manager.on_logout().await?;
         }
@@ -1552,6 +1577,7 @@ pub enum ClientRegistrationMethod {
     Metadata(Raw<ClientMetadata>),
 
     /// Use an [`OAuthRegistrationStore`] to handle registrations.
+    #[cfg(not(target_arch = "wasm32"))]
     Store(OAuthRegistrationStore),
 }
 
@@ -1567,6 +1593,7 @@ impl From<Raw<ClientMetadata>> for ClientRegistrationMethod {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl From<OAuthRegistrationStore> for ClientRegistrationMethod {
     fn from(value: OAuthRegistrationStore) -> Self {
         Self::Store(value)

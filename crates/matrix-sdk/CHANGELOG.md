@@ -64,6 +64,9 @@ simpler methods:
   a server when the end-user needs to be redirected to an address on localhost.
   It was used for `SsoLoginBuilder` and can now be used in other cases, like for
   login with the OAuth 2.0 API.
+- The `OAuth` api is no longer gated behind the `experimental-oidc` cargo
+  feature.
+  ([#4830](https://github.com/matrix-org/matrix-rust-sdk/pull/4830))
 
 ### Bug Fixes
 
@@ -72,6 +75,8 @@ simpler methods:
   these secrets, making an attempt to remove them is considered good practice.
   Note that all secrets are uploaded to the server in an encrypted form.
   ([#4629](https://github.com/matrix-org/matrix-rust-sdk/pull/4629))
+- Most of the features in the `OAuth` API should now work under WASM
+  ([#4830](https://github.com/matrix-org/matrix-rust-sdk/pull/4830))
 
 ### Refactor
 
