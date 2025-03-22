@@ -406,14 +406,29 @@ impl OidcCli {
 
     /// Get the account management URL.
     async fn account(&self, action: Option<AccountManagementActionFull>) {
-        match self.client.oauth().fetch_account_management_url(action).await {
-            Ok(Some(url)) => {
-                println!("\nTo manage your account, visit: {url}");
-            }
+        let mut url_builder = match self.client.oauth().fetch_account_management_url().await {
+            Ok(Some(url_builder)) => url_builder,
             _ => {
-                println!("\nThis homeserver does not provide the URL to manage your account")
+                println!("\nThis homeserver does not provide the URL to manage your account");
+                return;
             }
+        };
+
+        // Get the original account management URL to use as a fallback below.
+        let original_url =
+            url_builder.clone().build().expect("url without action should not return an error");
+
+        if let Some(action) = action {
+            url_builder = url_builder.action(action);
         }
+
+        let url = match url_builder.build() {
+            Ok(url) => url,
+            // Fallback to the original URL.
+            Err(_) => original_url,
+        };
+
+        println!("\nTo manage your account, visit: {url}");
     }
 
     /// Watch incoming messages.

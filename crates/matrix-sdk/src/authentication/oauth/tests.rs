@@ -24,8 +24,7 @@ use super::{
 use crate::{
     authentication::oauth::{
         error::{AuthorizationCodeErrorResponseType, OAuthClientRegistrationError},
-        AccountManagementActionFull, AuthorizationValidationData, ClientRegistrationMethod,
-        OAuthAuthorizationCodeError,
+        AuthorizationValidationData, ClientRegistrationMethod, OAuthAuthorizationCodeError,
     },
     test_utils::{
         client::{
@@ -659,7 +658,7 @@ async fn test_management_url_cache() {
     assert!(!client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
     let management_url = oauth
-        .account_management_url(Some(AccountManagementActionFull::Profile))
+        .account_management_url()
         .await
         .expect("We should be able to fetch the account management url");
 
@@ -668,9 +667,9 @@ async fn test_management_url_cache() {
     // Check that the server metadata has been inserted into the cache.
     assert!(client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
-    // Another parameter doesn't make another request for the metadata.
+    // Another call doesn't make another request for the metadata.
     let management_url = oauth
-        .account_management_url(Some(AccountManagementActionFull::SessionsList))
+        .account_management_url()
         .await
         .expect("We should be able to fetch the account management url");
 
