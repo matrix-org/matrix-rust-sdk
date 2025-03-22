@@ -175,10 +175,13 @@ mod oidc_discovery;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub mod qrcode;
 pub mod registration;
+#[cfg(not(target_arch = "wasm32"))]
 mod registration_store;
 #[cfg(test)]
 mod tests;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use self::registration_store::OAuthRegistrationStore;
 use self::{
     account_management_url::build_account_management_url,
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
@@ -191,7 +194,6 @@ pub use self::{
     account_management_url::AccountManagementActionFull,
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
     error::OAuthError,
-    registration_store::OAuthRegistrationStore,
 };
 use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
@@ -424,6 +426,7 @@ impl OAuth {
     ///
     /// Returns an error if there is an error while accessing the store, or
     /// while registering the client.
+    #[cfg(not(target_arch = "wasm32"))]
     async fn restore_or_register_client(
         &self,
         server_metadata: &AuthorizationServerMetadata,
@@ -471,6 +474,7 @@ impl OAuth {
             ClientRegistrationMethod::Metadata(client_metadata) => {
                 self.register_client_inner(server_metadata, client_metadata).await?;
             }
+            #[cfg(not(target_arch = "wasm32"))]
             ClientRegistrationMethod::Store(registrations) => {
                 self.restore_or_register_client(server_metadata, registrations).await?
             }
@@ -1552,6 +1556,7 @@ pub enum ClientRegistrationMethod {
     Metadata(Raw<ClientMetadata>),
 
     /// Use an [`OAuthRegistrationStore`] to handle registrations.
+    #[cfg(not(target_arch = "wasm32"))]
     Store(OAuthRegistrationStore),
 }
 
@@ -1567,6 +1572,7 @@ impl From<Raw<ClientMetadata>> for ClientRegistrationMethod {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl From<OAuthRegistrationStore> for ClientRegistrationMethod {
     fn from(value: OAuthRegistrationStore) -> Self {
         Self::Store(value)

@@ -29,9 +29,9 @@ use ruma::{
     serde::{PartialEqAsRefStr, StringEnum},
 };
 
-pub use super::{
-    cross_process::CrossProcessRefreshLockError, registration_store::OAuthRegistrationStoreError,
-};
+pub use super::cross_process::CrossProcessRefreshLockError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use super::registration_store::OAuthRegistrationStoreError;
 
 /// An error when interacting with the OAuth 2.0 authorization server.
 pub type OAuthRequestError<T> =
@@ -262,6 +262,7 @@ pub enum OAuthClientRegistrationError {
     FromJson(serde_json::Error),
 
     /// Failed to access or store the registration in the store.
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("failed to use registration store: {0}")]
     Store(#[from] OAuthRegistrationStoreError),
 }
