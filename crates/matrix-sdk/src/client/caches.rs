@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "experimental-oidc")]
 use matrix_sdk_base::ttl_cache::TtlCache;
-#[cfg(feature = "experimental-oidc")]
 use ruma::api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata;
 use tokio::sync::RwLock;
 
@@ -26,6 +24,5 @@ pub(crate) struct ClientCaches {
     /// Server capabilities, either prefilled during building or fetched from
     /// the server.
     pub(super) server_capabilities: RwLock<ClientServerCapabilities>,
-    #[cfg(feature = "experimental-oidc")]
     pub(crate) server_metadata: tokio::sync::Mutex<TtlCache<String, AuthorizationServerMetadata>>,
 }

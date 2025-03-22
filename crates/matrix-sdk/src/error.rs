@@ -352,7 +352,6 @@ pub enum Error {
     MultipleSessionCallbacks,
 
     /// An error occurred interacting with the OAuth 2.0 API.
-    #[cfg(feature = "experimental-oidc")]
     #[error(transparent)]
     OAuth(#[from] crate::authentication::oauth::OAuthError),
 
@@ -559,7 +558,6 @@ pub enum RefreshTokenError {
     MatrixAuth(Arc<HttpError>),
 
     /// An error occurred interacting with the OAuth 2.0 API.
-    #[cfg(feature = "experimental-oidc")]
     #[error(transparent)]
     OAuth(#[from] Arc<crate::authentication::oauth::OAuthError>),
 }

@@ -23,7 +23,7 @@ url = { workspace = true }
 
 [dependencies.matrix-sdk]
 path = "../../crates/matrix-sdk"
-features = ["experimental-oidc", "local-server"]
+features = ["local-server"]
 
 [lints]
 workspace = true

@@ -36,7 +36,6 @@ use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
-#[cfg(feature = "experimental-oidc")]
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
@@ -76,11 +75,10 @@ use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
-#[cfg(feature = "experimental-oidc")]
-use crate::authentication::oauth::OAuth;
 use crate::{
     authentication::{
-        matrix::MatrixAuth, AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,
+        matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
+        SaveSessionCallback,
     },
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
@@ -356,7 +354,6 @@ impl ClientInner {
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_capabilities: server_capabilities.into(),
-            #[cfg(feature = "experimental-oidc")]
             server_metadata: Mutex::new(TtlCache::new()),
         };
 
@@ -606,7 +603,6 @@ impl Client {
     pub fn auth_api(&self) -> Option<AuthApi> {
         match self.auth_ctx().auth_data.get()? {
             AuthData::Matrix => Some(AuthApi::Matrix(self.matrix_auth())),
-            #[cfg(feature = "experimental-oidc")]
             AuthData::OAuth(_) => Some(AuthApi::OAuth(self.oauth())),
         }
     }
@@ -620,7 +616,6 @@ impl Client {
     pub fn session(&self) -> Option<AuthSession> {
         match self.auth_api()? {
             AuthApi::Matrix(api) => api.session().map(Into::into),
-            #[cfg(feature = "experimental-oidc")]
             AuthApi::OAuth(api) => api.full_session().map(Into::into),
         }
     }
@@ -662,7 +657,6 @@ impl Client {
     }
 
     /// Access the OAuth 2.0 API of the client.
-    #[cfg(feature = "experimental-oidc")]
     pub fn oauth(&self) -> OAuth {
         OAuth::new(self.clone())
     }
@@ -1273,7 +1267,6 @@ impl Client {
         let session = session.into();
         match session {
             AuthSession::Matrix(s) => Box::pin(self.matrix_auth().restore_session(s)).await,
-            #[cfg(feature = "experimental-oidc")]
             AuthSession::OAuth(s) => Box::pin(self.oauth().restore_session(*s)).await,
         }
     }
@@ -1309,7 +1302,6 @@ impl Client {
                 trace!("Token refresh: Using the homeserver.");
                 Box::pin(api.refresh_access_token()).await?;
             }
-            #[cfg(feature = "experimental-oidc")]
             AuthApi::OAuth(api) => {
                 trace!("Token refresh: Using OAuth 2.0.");
                 Box::pin(api.refresh_access_token()).await?;

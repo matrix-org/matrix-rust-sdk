@@ -51,14 +51,12 @@ impl MockClientBuilder {
     }
 
     /// The client is registered with the OAuth 2.0 API.
-    #[cfg(feature = "experimental-oidc")]
     pub fn registered_with_oauth(mut self, issuer: impl Into<String>) -> Self {
         self.auth_state = AuthState::RegisteredWithOAuth { issuer: issuer.into() };
         self
     }
 
     /// The user is already logged in with the OAuth 2.0 API.
-    #[cfg(feature = "experimental-oidc")]
     pub fn logged_in_with_oauth(mut self, issuer: impl Into<String>) -> Self {
         self.auth_state = AuthState::LoggedInWithOAuth { issuer: issuer.into() };
         self
@@ -101,10 +99,8 @@ enum AuthState {
     /// The client is logged in with the native Matrix API.
     LoggedInWithMatrixAuth,
     /// The client is registered with the OAuth 2.0 API.
-    #[cfg(feature = "experimental-oidc")]
     RegisteredWithOAuth { issuer: String },
     /// The client is logged in with the OAuth 2.0 API.
-    #[cfg(feature = "experimental-oidc")]
     LoggedInWithOAuth { issuer: String },
 }
 
@@ -117,12 +113,10 @@ impl AuthState {
             AuthState::LoggedInWithMatrixAuth => {
                 client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
             }
-            #[cfg(feature = "experimental-oidc")]
             AuthState::RegisteredWithOAuth { issuer } => {
                 let issuer = url::Url::parse(&issuer).unwrap();
                 client.oauth().restore_registered_client(issuer, oauth::mock_client_id());
             }
-            #[cfg(feature = "experimental-oidc")]
             AuthState::LoggedInWithOAuth { issuer } => {
                 client
                     .oauth()
@@ -172,7 +166,6 @@ pub fn mock_matrix_session() -> MatrixSession {
 }
 
 /// Mock client data for the OAuth 2.0 API.
-#[cfg(feature = "experimental-oidc")]
 pub mod oauth {
     use ruma::serde::Raw;
     use url::Url;
