@@ -14,8 +14,7 @@
 
 //! HTTP client and helpers for making OAuth 2.0 requests.
 
-use std::{future::Future, pin::Pin};
-
+use matrix_sdk_base::BoxFuture;
 use oauth2::{
     AsyncHttpClient, ErrorResponse, HttpClientError, HttpRequest, HttpResponse, RequestTokenError,
 };
@@ -35,8 +34,7 @@ pub(super) struct OAuthHttpClient {
 impl<'c> AsyncHttpClient<'c> for OAuthHttpClient {
     type Error = HttpClientError<reqwest::Error>;
 
-    type Future =
-        Pin<Box<dyn Future<Output = Result<HttpResponse, Self::Error>> + Send + Sync + 'c>>;
+    type Future = BoxFuture<'c, Result<HttpResponse, Self::Error>>;
 
     fn call(&'c self, request: HttpRequest) -> Self::Future {
         Box::pin(async move {
