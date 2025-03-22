@@ -162,7 +162,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
-use tokio::{spawn, sync::Mutex};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
@@ -196,7 +196,7 @@ pub use self::{
     error::OAuthError,
 };
 use super::{AuthData, SessionTokens};
-use crate::{client::SessionChange, Client, HttpError, RefreshTokenError, Result};
+use crate::{client::SessionChange, executor::spawn, Client, HttpError, RefreshTokenError, Result};
 
 pub(crate) struct OAuthCtx {
     /// Lock and state when multiple processes may refresh an OAuth 2.0 session.
