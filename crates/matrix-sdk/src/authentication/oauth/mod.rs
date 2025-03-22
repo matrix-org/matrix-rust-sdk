@@ -141,7 +141,7 @@ use error::{
     CrossProcessRefreshLockError, OAuthAuthorizationCodeError, OAuthClientRegistrationError,
     OAuthDiscoveryError, OAuthTokenRevocationError, RedirectUriQueryParseError,
 };
-#[cfg(feature = "e2e-encryption")]
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 use matrix_sdk_base::{once_cell::sync::OnceCell, SessionMeta};
 use oauth2::{
@@ -181,13 +181,14 @@ mod registration_store;
 mod tests;
 
 #[cfg(not(target_arch = "wasm32"))]
+use self::qrcode::LoginWithQrCode;
+#[cfg(not(target_arch = "wasm32"))]
 pub use self::registration_store::OAuthRegistrationStore;
 use self::{
     account_management_url::build_account_management_url,
     cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager},
     http_client::OAuthHttpClient,
     oidc_discovery::discover,
-    qrcode::LoginWithQrCode,
     registration::{register_client, ClientMetadata, ClientRegistrationResponse},
 };
 pub use self::{
