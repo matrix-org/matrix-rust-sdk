@@ -47,7 +47,6 @@ use wiremock::{
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
-#[cfg(feature = "experimental-oidc")]
 pub mod oauth;
 
 use super::client::MockClientBuilder;
@@ -149,7 +148,6 @@ impl MatrixMockServer {
     }
 
     /// Get an `OAuthMockServer` that uses the same mock server as this one.
-    #[cfg(feature = "experimental-oidc")]
     pub fn oauth(&self) -> oauth::OAuthMockServer<'_> {
         oauth::OAuthMockServer::new(self)
     }
@@ -2484,7 +2482,6 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
     }
 
     /// Returns an error response with an OAuth 2.0 UIAA stage.
-    #[cfg(feature = "experimental-oidc")]
     pub fn uiaa_oauth(self) -> MatrixMock<'a> {
         let server_uri = self.server.uri();
         self.respond_with(ResponseTemplate::new(401).set_body_json(json!({

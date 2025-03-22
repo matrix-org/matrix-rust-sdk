@@ -555,7 +555,6 @@ async fn test_refresh_token_handled_other_error() {
     client.whoami().await.unwrap_err();
 }
 
-#[cfg(feature = "experimental-oidc")]
 #[async_test]
 async fn test_oauth_refresh_token_handled_success() {
     use matrix_sdk::test_utils::{
@@ -605,7 +604,6 @@ async fn test_oauth_refresh_token_handled_success() {
     );
 }
 
-#[cfg(feature = "experimental-oidc")]
 #[async_test]
 async fn test_oauth_refresh_token_handled_failure() {
     use matrix_sdk::{
@@ -668,7 +666,6 @@ async fn test_oauth_refresh_token_handled_failure() {
     );
 }
 
-#[cfg(feature = "experimental-oidc")]
 #[async_test]
 async fn test_oauth_handle_refresh_tokens() {
     use matrix_sdk::test_utils::{
