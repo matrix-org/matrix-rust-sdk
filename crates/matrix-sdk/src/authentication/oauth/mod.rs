@@ -187,16 +187,15 @@ use self::cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManag
 use self::qrcode::LoginWithQrCode;
 #[cfg(not(target_arch = "wasm32"))]
 pub use self::registration_store::OAuthRegistrationStore;
+pub use self::{
+    account_management_url::{AccountManagementActionFull, AccountManagementUrlBuilder},
+    auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
+    error::OAuthError,
+};
 use self::{
-    account_management_url::build_account_management_url,
     http_client::OAuthHttpClient,
     oidc_discovery::discover,
     registration::{register_client, ClientMetadata, ClientRegistrationResponse},
-};
-pub use self::{
-    account_management_url::AccountManagementActionFull,
-    auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
-    error::OAuthError,
 };
 use super::{AuthData, SessionTokens};
 use crate::{client::SessionChange, executor::spawn, Client, HttpError, RefreshTokenError, Result};
@@ -516,63 +515,46 @@ impl OAuth {
 
     /// Build the URL where the user can manage their account.
     ///
-    /// # Arguments
+    /// This will always request the latest server metadata to get the account
+    /// management URL.
     ///
-    /// * `action` - An optional action that wants to be performed by the user
-    ///   when they open the URL. The list of supported actions by the account
-    ///   management URL can be found in the [`AuthorizationServerMetadata`], or
-    ///   directly with [`OAuth::account_management_actions_supported()`].
+    /// To avoid making a request each time, you can use
+    /// [`OAuth::account_management_url()`].
     ///
-    /// Returns `Ok(None)` if the URL was not found. Returns an error if the
-    /// request to get the server metadata fails or the URL could not be parsed.
+    /// Returns an [`AccountManagementUrlBuilder`] if the URL was found. An
+    /// optional action to perform can be added with `.action()`, and the final
+    /// URL is obtained with `.build()` or `.build_or_ignore_action()`.
+    ///
+    /// Returns `Ok(None)` if the URL was not found.
+    ///
+    /// Returns an error if the request to get the server metadata fails or the
+    /// URL could not be parsed.
     pub async fn fetch_account_management_url(
         &self,
-        action: Option<AccountManagementActionFull>,
-    ) -> Result<Option<Url>, OAuthError> {
+    ) -> Result<Option<AccountManagementUrlBuilder>, OAuthError> {
         let server_metadata = self.server_metadata().await?;
-        self.management_url_from_server_metadata(server_metadata, action)
-    }
-
-    fn management_url_from_server_metadata(
-        &self,
-        server_metadata: AuthorizationServerMetadata,
-        action: Option<AccountManagementActionFull>,
-    ) -> Result<Option<Url>, OAuthError> {
-        let Some(base_url) = server_metadata.account_management_uri else {
-            return Ok(None);
-        };
-
-        let url = if let Some(action) = action {
-            build_account_management_url(base_url, action)
-                .map_err(OAuthError::AccountManagementUrl)?
-        } else {
-            base_url
-        };
-
-        Ok(Some(url))
+        Ok(server_metadata.account_management_uri.map(AccountManagementUrlBuilder::new))
     }
 
     /// Get the account management URL where the user can manage their
     /// identity-related settings.
     ///
-    /// # Arguments
-    ///
-    /// * `action` - An optional action that wants to be performed by the user
-    ///   when they open the URL. The list of supported actions by the account
-    ///   management URL can be found in the [`AuthorizationServerMetadata`], or
-    ///   directly with [`OAuth::account_management_actions_supported()`].
-    ///
-    /// Returns `Ok(None)` if the URL was not found. Returns an error if the
-    /// request to get the server metadata fails or the URL could not be parsed.
-    ///
     /// This method will cache the URL for a while, if the cache is not
-    /// populated it will internally call
-    /// [`OAuth::fetch_account_management_url()`] and cache the resulting URL
+    /// populated it will request the server metadata, like a call to
+    /// [`OAuth::fetch_account_management_url()`], and cache the resulting URL
     /// before returning it.
+    ///
+    /// Returns an [`AccountManagementUrlBuilder`] if the URL was found. An
+    /// optional action to perform can be added with `.action()`, and the final
+    /// URL is obtained with `.build()` or `.build_or_ignore_action()`.
+    ///
+    /// Returns `Ok(None)` if the URL was not found.
+    ///
+    /// Returns an error if the request to get the server metadata fails or the
+    /// URL could not be parsed.
     pub async fn account_management_url(
         &self,
-        action: Option<AccountManagementActionFull>,
-    ) -> Result<Option<Url>, OAuthError> {
+    ) -> Result<Option<AccountManagementUrlBuilder>, OAuthError> {
         const CACHE_KEY: &str = "SERVER_METADATA";
 
         let mut cache = self.client.inner.caches.server_metadata.lock().await;
@@ -585,7 +567,7 @@ impl OAuth {
             server_metadata
         };
 
-        self.management_url_from_server_metadata(metadata, action)
+        Ok(metadata.account_management_uri.map(AccountManagementUrlBuilder::new))
     }
 
     /// Discover the authentication issuer and retrieve the
