@@ -62,8 +62,6 @@ use crate::{
 pub struct Message {
     pub(in crate::timeline) msgtype: MessageType,
     pub(in crate::timeline) in_reply_to: Option<InReplyToDetails>,
-    /// Event ID of the thread root, if this is a threaded message.
-    pub(in crate::timeline) thread_root: Option<OwnedEventId>,
     pub(in crate::timeline) edited: bool,
     pub(in crate::timeline) mentions: Option<Mentions>,
 }
@@ -75,17 +73,13 @@ impl Message {
         edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        let mut thread_root = None;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
             Relation::Reply { in_reply_to } => {
                 Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
             }
-            Relation::Thread(thread) => {
-                thread_root = Some(thread.event_id);
-                thread
-                    .in_reply_to
-                    .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items))
-            }
+            Relation::Thread(thread) => thread
+                .in_reply_to
+                .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items)),
             _ => None,
         });
 
@@ -95,8 +89,7 @@ impl Message {
         let mut msgtype = c.msgtype;
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
 
-        let mut ret =
-            Self { msgtype, in_reply_to, thread_root, edited: false, mentions: c.mentions };
+        let mut ret = Self { msgtype, in_reply_to, edited: false, mentions: c.mentions };
 
         if let Some(edit) = edit {
             ret.apply_edit(edit);
@@ -132,16 +125,6 @@ impl Message {
         self.in_reply_to.as_ref()
     }
 
-    /// Whether this message is part of a thread.
-    pub fn is_threaded(&self) -> bool {
-        self.thread_root.is_some()
-    }
-
-    /// Get the [`OwnedEventId`] of the root event of a thread if it exists.
-    pub fn thread_root(&self) -> Option<&OwnedEventId> {
-        self.thread_root.as_ref()
-    }
-
     /// Get the edit state of this message (has been edited: `true` /
     /// `false`).
     pub fn is_edited(&self) -> bool {
@@ -155,14 +138,6 @@ impl Message {
 
     pub(in crate::timeline) fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
         Self { in_reply_to: Some(in_reply_to), ..self.clone() }
-    }
-}
-
-impl From<Message> for RoomMessageEventContent {
-    fn from(msg: Message) -> Self {
-        let relates_to =
-            make_relates_to(msg.thread_root, msg.in_reply_to.map(|details| details.event_id));
-        assign!(Self::new(msg.msgtype), { relates_to })
     }
 }
 
@@ -262,12 +237,11 @@ fn make_relates_to(
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, thread_root, edited, mentions: _ } = self;
+        let Self { msgtype: _, in_reply_to, edited, mentions: _ } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message")
             .field("in_reply_to", in_reply_to)
-            .field("thread_root", thread_root)
             .field("edited", edited)
             .finish_non_exhaustive()
     }
@@ -367,10 +341,11 @@ impl RepliedToEvent {
         let content = match event.original_content() {
             Some(content) => match content {
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    // Assume we're not interested in reactions in this context: this is
-                    // information for an embedded (replied-to) event, that will usually not
+                    // Assume we're not interested in reactions and thread info in this context:
+                    // this is information for an embedded (replied-to) event, that will usually not
                     // include detailed information like reactions.
                     let reactions = ReactionsByKeyBySender::default();
+                    let thread_root = None;
 
                     TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
                         kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
@@ -379,17 +354,20 @@ impl RepliedToEvent {
                             &vector![],
                         )),
                         reactions,
+                        thread_root,
                     })
                 }
 
                 AnyMessageLikeEventContent::Sticker(content) => {
-                    // Assume we're not interested in reactions in this context. (See above an
-                    // explanation as to why that's the case.)
+                    // Assume we're not interested in reactions or thread info in this context.
+                    // (See above an explanation as to why that's the case.)
                     let reactions = ReactionsByKeyBySender::default();
+                    let thread_root = None;
 
                     TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
                         kind: AggregatedTimelineItemContentKind::Sticker(Sticker { content }),
                         reactions,
+                        thread_root,
                     })
                 }
 
@@ -411,14 +389,17 @@ impl RepliedToEvent {
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(content),
                 ) => {
-                    // Assume we're not interested in reactions in this context. (See above an
-                    // explanation as to why that's the case.)
+                    // Assume we're not interested in reactions or thread info in this context.
+                    // (See above an explanation as to why that's the case.)
                     let reactions = ReactionsByKeyBySender::default();
+                    let thread_root = None;
+
                     // TODO: could we provide the bundled edit here?
                     let poll_state = PollState::new(content, None);
                     TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
                         kind: AggregatedTimelineItemContentKind::Poll(poll_state),
                         reactions,
+                        thread_root,
                     })
                 }
 

@@ -1028,12 +1028,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
 
         // Replace the local-related state (kind) and the content state.
         let prev_reactions = prev_item.content().reactions();
+        let prev_thread_root = prev_item.content().thread_root();
         let new_item = TimelineItem::new(
             prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
                 content,
                 None,
                 &txn.items,
                 prev_reactions,
+                prev_thread_root,
             )),
             prev_item.internal_id.to_owned(),
         );
@@ -1344,6 +1346,7 @@ impl TimelineController {
         let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(message),
             reactions,
+            thread_root,
         }) = item.content().clone()
         else {
             debug!("Event is not a message");
@@ -1371,6 +1374,7 @@ impl TimelineController {
             internal_id,
             &message,
             &reactions,
+            &thread_root,
             &in_reply_to.event_id,
             self.room(),
         )
@@ -1387,6 +1391,7 @@ impl TimelineController {
         let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(message),
             reactions,
+            thread_root,
         }) = item.content().clone()
         else {
             info!("Event is no longer a message (redacted?)");
@@ -1407,6 +1412,7 @@ impl TimelineController {
                 InReplyToDetails { event_id: in_reply_to.event_id.clone(), event },
             )),
             reactions,
+            thread_root,
         }));
         state.items.replace(index, TimelineItem::new(item, internal_id));
 
@@ -1515,6 +1521,7 @@ impl<P: RoomDataProvider> TimelineController<P, (OlmMachine, OwnedRoomId)> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fetch_replied_to_event(
     mut state: RwLockWriteGuard<'_, TimelineState>,
     index: usize,
@@ -1522,6 +1529,7 @@ async fn fetch_replied_to_event(
     internal_id: TimelineUniqueId,
     message: &Message,
     reactions: &ReactionsByKeyBySender,
+    thread_root: &Option<OwnedEventId>,
     in_reply_to: &EventId,
     room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
@@ -1542,6 +1550,7 @@ async fn fetch_replied_to_event(
         item.with_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(reply),
             reactions: reactions.clone(),
+            thread_root: thread_root.clone(),
         }));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);

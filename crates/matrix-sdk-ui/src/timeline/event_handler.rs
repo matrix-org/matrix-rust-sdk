@@ -419,6 +419,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                     content,
                                 }),
                                 reactions: Default::default(),
+                                thread_root: None,
                             }),
                             None,
                         );
@@ -583,11 +584,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         // If this message is a reply to another message, add an entry in the inverted
         // mapping.
+        let mut thread_root = None;
         if let Some(event_id) = self.ctx.flow.event_id() {
             let replied_to_event_id =
                 msg.relates_to.as_ref().and_then(|relates_to| match relates_to {
                     Relation::Reply { in_reply_to } => Some(in_reply_to.event_id.clone()),
                     Relation::Thread(thread) => {
+                        thread_root = Some(thread.event_id.clone());
                         thread.in_reply_to.as_ref().map(|in_reply_to| in_reply_to.event_id.clone())
                     }
                     _ => None,
@@ -603,7 +606,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         self.add_item(
-            TimelineItemContent::message(msg, edit_content, self.items, Default::default()),
+            TimelineItemContent::message(
+                msg,
+                edit_content,
+                self.items,
+                Default::default(),
+                thread_root,
+            ),
             edit_json,
         );
     }
@@ -723,6 +732,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(msg),
             reactions,
+            thread_root,
         }) = item.content()
         else {
             info!(
@@ -739,6 +749,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
                 kind: AggregatedTimelineItemContentKind::Message(new_msg),
                 reactions: reactions.clone(),
+                thread_root: thread_root.clone(),
             }),
             edit_json,
         );
@@ -832,6 +843,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Poll(poll_state),
             reactions,
+            thread_root,
         }) = &item.content()
         else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
@@ -843,6 +855,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
                     kind: AggregatedTimelineItemContentKind::Poll(edited_poll_state),
                     reactions: reactions.clone(),
+                    thread_root: thread_root.clone(),
                 })
             }
             None => {
@@ -894,6 +907,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
                 kind: AggregatedTimelineItemContentKind::Poll(poll_state),
                 reactions: Default::default(),
+                thread_root: None,
             }),
             edit_json,
         );
@@ -1377,6 +1391,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         message.with_in_reply_to(in_reply_to),
                     ),
                     reactions: aggregated.reactions.clone(),
+                    thread_root: aggregated.thread_root.clone(),
                 });
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);

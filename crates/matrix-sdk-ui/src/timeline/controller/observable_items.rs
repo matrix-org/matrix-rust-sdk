@@ -403,11 +403,11 @@ mod observable_items_tests {
                     kind: AggregatedTimelineItemContentKind::Message(Message {
                         msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
                         in_reply_to: None,
-                        thread_root: None,
                         edited: false,
                         mentions: None,
                     }),
                     reactions: Default::default(),
+                    thread_root: None,
                 }),
                 EventTimelineItemKind::Remote(RemoteEventTimelineItem {
                     event_id: event_id.parse().unwrap(),

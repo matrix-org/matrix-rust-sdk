@@ -539,6 +539,7 @@ mod tests {
                     None,
                     &Vector::new(),
                     ReactionsByKeyBySender::default(),
+                    None,
                 ),
                 event_kind,
                 true,

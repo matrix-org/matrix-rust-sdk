@@ -57,7 +57,7 @@ use ruma::{
         AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
         MessageLikeEventType, StateEventType,
     },
-    OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
+    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::warn;
 
@@ -96,7 +96,9 @@ pub enum AggregatedTimelineItemContentKind {
 #[derive(Clone, Debug)]
 pub struct AggregatedTimelineItemContent {
     pub kind: AggregatedTimelineItemContentKind,
-    pub(in crate::timeline) reactions: ReactionsByKeyBySender,
+    pub reactions: ReactionsByKeyBySender,
+    /// Event ID of the thread root, if this is a threaded message.
+    pub thread_root: Option<OwnedEventId>,
 }
 
 impl AggregatedTimelineItemContent {
@@ -107,6 +109,16 @@ impl AggregatedTimelineItemContent {
             AggregatedTimelineItemContentKind::Sticker(_) => "a sticker",
             AggregatedTimelineItemContentKind::Poll(_) => "a poll",
         }
+    }
+
+    /// Whether this message is part of a thread.
+    pub fn is_threaded(&self) -> bool {
+        self.thread_root.is_some()
+    }
+
+    /// Get the [`OwnedEventId`] of the root event of a thread if it exists.
+    pub fn thread_root(&self) -> Option<&OwnedEventId> {
+        self.thread_root.as_ref()
     }
 }
 
@@ -236,7 +248,10 @@ impl TimelineItemContent {
                 // `Message::from_event` marks the original event as `Unavailable` if it can't
                 // be found inside the timeline_items.
                 let timeline_items = Vector::new();
+
+                // We're not interested in reactions or thread info for the latest preview item.
                 let reactions = Default::default();
+                let thread_root = None;
 
                 let aggregated = AggregatedTimelineItemContent {
                     kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
@@ -245,6 +260,7 @@ impl TimelineItemContent {
                         &timeline_items,
                     )),
                     reactions,
+                    thread_root,
                 };
 
                 TimelineItemContent::Aggregated(aggregated)
@@ -280,11 +296,16 @@ impl TimelineItemContent {
                 // Grab the content of this event
                 let event_content = event.content.clone();
 
+                // We're not interested in reactions or thread info for the latest preview item.
+                let reactions = Default::default();
+                let thread_root = None;
+
                 let aggregated = AggregatedTimelineItemContent {
                     kind: AggregatedTimelineItemContentKind::Sticker(Sticker {
                         content: event_content,
                     }),
-                    reactions: Default::default(),
+                    reactions,
+                    thread_root,
                 };
 
                 TimelineItemContent::Aggregated(aggregated)
@@ -314,8 +335,9 @@ impl TimelineItemContent {
                 }
             });
 
-        // We're not interested in reactions for the latest preview item.
+        // We're not interested in reactions or thread info for the latest preview item.
         let reactions = Default::default();
+        let thread_root = None;
 
         let aggregated = AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Poll(PollState::new(
@@ -323,6 +345,7 @@ impl TimelineItemContent {
                 edit,
             )),
             reactions,
+            thread_root,
         };
 
         TimelineItemContent::Aggregated(aggregated)
@@ -390,6 +413,7 @@ impl TimelineItemContent {
         edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
         reactions: ReactionsByKeyBySender,
+        thread_root: Option<OwnedEventId>,
     ) -> Self {
         Self::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
@@ -398,6 +422,7 @@ impl TimelineItemContent {
                 timeline_items,
             )),
             reactions,
+            thread_root,
         })
     }
 
@@ -497,6 +522,21 @@ impl TimelineItemContent {
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),
             Self::OtherState(ev) => Self::OtherState(ev.redact(room_version)),
             Self::FailedToParseMessageLike { .. } | Self::FailedToParseState { .. } => self.clone(),
+        }
+    }
+
+    pub fn thread_root(&self) -> Option<OwnedEventId> {
+        match self {
+            TimelineItemContent::Aggregated(aggregated) => aggregated.thread_root.clone(),
+            TimelineItemContent::UnableToDecrypt(..)
+            | TimelineItemContent::RedactedMessage
+            | TimelineItemContent::MembershipChange(..)
+            | TimelineItemContent::ProfileChange(..)
+            | TimelineItemContent::OtherState(..)
+            | TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. }
+            | TimelineItemContent::CallInvite
+            | TimelineItemContent::CallNotify => None,
         }
     }
 

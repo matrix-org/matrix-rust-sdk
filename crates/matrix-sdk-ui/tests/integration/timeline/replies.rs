@@ -869,10 +869,11 @@ async fn test_send_reply_to_threaded() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregated = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
 
     // The reply should be considered part of the thread.
-    assert!(reply_message.is_threaded());
+    assert!(aggregated.is_threaded());
 
     // Some extra assertions.
     assert_eq!(reply_message.body(), "Hello, Bob!");
@@ -889,7 +890,7 @@ async fn test_send_reply_to_threaded() {
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
 
     // Same assertions as before still hold on the contained message.
-    assert!(reply_message.is_threaded());
+    assert!(aggregated.is_threaded());
 
     assert_eq!(reply_message.body(), "Hello, Bob!");
     let in_reply_to = reply_message.in_reply_to().unwrap();
