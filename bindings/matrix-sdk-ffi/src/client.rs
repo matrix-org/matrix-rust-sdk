@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oauth::{
-        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
+        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthError, OAuthSession,
     },
     event_cache::EventCacheError,
     media::{
@@ -606,11 +606,24 @@ impl Client {
             return Ok(None);
         }
 
-        match self.inner.oauth().account_management_url(action.map(Into::into)).await {
-            Ok(url) => Ok(url.map(|u| u.to_string())),
+        let mut url_builder = match self.inner.oauth().account_management_url().await {
+            Ok(Some(url_builder)) => url_builder,
+            Ok(None) => return Ok(None),
             Err(e) => {
                 tracing::error!("Failed retrieving account management URL: {e}");
-                Err(e.into())
+                return Err(e.into());
+            }
+        };
+
+        if let Some(action) = action {
+            url_builder = url_builder.action(action.into());
+        }
+
+        match url_builder.build() {
+            Ok(url) => Ok(Some(url.to_string())),
+            Err(e) => {
+                tracing::error!("Failed to build account management URL: {e}");
+                Err(OAuthError::AccountManagementUrl(e).into())
             }
         }
     }
