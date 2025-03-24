@@ -63,6 +63,7 @@ use tracing::warn;
 
 use crate::timeline::TimelineItem;
 
+mod aggregated;
 mod message;
 pub(crate) mod pinned_events;
 mod polls;
@@ -74,55 +75,12 @@ pub(in crate::timeline) use self::message::{
     extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
 };
 pub use self::{
+    aggregated::{AggregatedTimelineItemContent, AggregatedTimelineItemContentKind},
     message::Message,
     polls::{PollResult, PollState},
     reply::{InReplyToDetails, RepliedToEvent},
 };
 use super::ReactionsByKeyBySender;
-
-#[derive(Clone, Debug)]
-pub enum AggregatedTimelineItemContentKind {
-    /// An `m.room.message` event or extensible event, including edits.
-    Message(Message),
-
-    /// An `m.sticker` event.
-    Sticker(Sticker),
-
-    /// An `m.poll.start` event.
-    Poll(PollState),
-}
-
-/// A special kind of [`TimelineItemContent`] that groups together
-/// different room message types with their respective reactions and thread
-/// information.
-#[derive(Clone, Debug)]
-pub struct AggregatedTimelineItemContent {
-    pub kind: AggregatedTimelineItemContentKind,
-    pub reactions: ReactionsByKeyBySender,
-    /// Event ID of the thread root, if this is a threaded message.
-    pub thread_root: Option<OwnedEventId>,
-}
-
-impl AggregatedTimelineItemContent {
-    #[cfg(not(tarpaulin_include))] // debug-logging functionality
-    pub(crate) fn debug_string(&self) -> &'static str {
-        match self.kind {
-            AggregatedTimelineItemContentKind::Message(_) => "a message",
-            AggregatedTimelineItemContentKind::Sticker(_) => "a sticker",
-            AggregatedTimelineItemContentKind::Poll(_) => "a poll",
-        }
-    }
-
-    /// Whether this message is part of a thread.
-    pub fn is_threaded(&self) -> bool {
-        self.thread_root.is_some()
-    }
-
-    /// Get the [`OwnedEventId`] of the root event of a thread if it exists.
-    pub fn thread_root(&self) -> Option<&OwnedEventId> {
-        self.thread_root.as_ref()
-    }
-}
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
