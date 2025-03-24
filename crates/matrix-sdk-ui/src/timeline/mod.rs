@@ -147,11 +147,11 @@ pub enum EnforceThread {
     Threaded(ReplyWithinThread),
 
     /// A thread relation is not enforced. If the original message has a thread
-    /// relation, it is forwarded, however.
+    /// relation, it is forwarded.
     MaybeThreaded,
 
     /// A thread relation is not enforced. If the original message has a thread
-    /// relation, it is *not* forwarded, however.
+    /// relation, it is *not* forwarded.
     Unthreaded,
 }
 
