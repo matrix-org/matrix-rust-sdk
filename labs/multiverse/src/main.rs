@@ -104,8 +104,8 @@ async fn main() -> Result<()> {
     let client = configure_client(cli).await?;
 
     let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
+    event_cache.subscribe()?;
+    event_cache.enable_storage()?;
 
     let terminal = ratatui::init();
     let mut app = App::new(client).await?;
