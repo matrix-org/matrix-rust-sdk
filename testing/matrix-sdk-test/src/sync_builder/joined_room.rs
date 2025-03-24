@@ -2,14 +2,14 @@ use ruma::{
     api::client::sync::sync_events::v3::JoinedRoom,
     events::{
         receipt::ReceiptEventContent, typing::TypingEventContent, AnyRoomAccountDataEvent,
-        AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
     OwnedRoomId, RoomId,
 };
 use serde_json::{from_value as from_json_value, Value as JsonValue};
 
-use super::{EphemeralTestEvent, RoomAccountDataTestEvent, StateTestEvent};
+use super::{RoomAccountDataTestEvent, StateTestEvent};
 use crate::{event_factory::EventBuilder, DEFAULT_TEST_ROOM_ID};
 
 pub struct JoinedRoomBuilder {
@@ -85,21 +85,6 @@ impl JoinedRoomBuilder {
         I: IntoIterator<Item = Raw<AnySyncStateEvent>>,
     {
         self.inner.state.events.extend(events);
-        self
-    }
-
-    /// Add an ephemeral event.
-    pub fn add_ephemeral_event(mut self, event: EphemeralTestEvent) -> Self {
-        self.inner.ephemeral.events.push(event.into_raw_event());
-        self
-    }
-
-    /// Add ephemeral events in bulk.
-    pub fn add_ephemeral_bulk<I>(mut self, events: I) -> Self
-    where
-        I: IntoIterator<Item = Raw<AnySyncEphemeralRoomEvent>>,
-    {
-        self.inner.ephemeral.events.extend(events);
         self
     }
 

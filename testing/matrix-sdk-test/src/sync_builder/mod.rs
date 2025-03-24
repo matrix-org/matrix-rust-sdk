@@ -29,8 +29,8 @@ pub use joined_room::JoinedRoomBuilder;
 pub use knocked_room::KnockedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
 pub use test_event::{
-    EphemeralTestEvent, GlobalAccountDataTestEvent, PresenceTestEvent, RoomAccountDataTestEvent,
-    StateTestEvent, StrippedStateTestEvent,
+    GlobalAccountDataTestEvent, PresenceTestEvent, RoomAccountDataTestEvent, StateTestEvent,
+    StrippedStateTestEvent,
 };
 
 /// The `SyncResponseBuilder` struct can be used to easily generate valid sync

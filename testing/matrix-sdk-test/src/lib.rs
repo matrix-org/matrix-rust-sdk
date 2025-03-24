@@ -120,9 +120,9 @@ mod sync_builder;
 pub mod test_json;
 
 pub use self::sync_builder::{
-    bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
-    JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, PresenceTestEvent,
-    RoomAccountDataTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
+    bulk_room_members, GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder,
+    KnockedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
+    StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
 };
 
 pub static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));
