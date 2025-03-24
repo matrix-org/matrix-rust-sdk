@@ -457,8 +457,7 @@ impl Timeline {
             return timeline_item.replied_to_info();
         }
 
-        // TODO: read from the event cache, if available, or fetch from the server.
-        let event = self.room().event(event_id, None).await.map_err(|error| {
+        let event = self.room().load_or_fetch_event(event_id, None).await.map_err(|error| {
             error!("Failed to fetch event with ID {event_id} with error: {error}");
             UnsupportedReplyItem::MissingEvent
         })?;

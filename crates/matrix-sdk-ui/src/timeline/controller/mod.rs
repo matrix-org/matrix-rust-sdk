@@ -1529,9 +1529,7 @@ async fn fetch_replied_to_event(
     drop(state);
 
     trace!("Fetching replied-to event");
-
-    // TODO: read from the event cache, if available, or fetch from the server.
-    let res = match room.event(in_reply_to, None).await {
+    let res = match room.load_or_fetch_event(in_reply_to, None).await {
         Ok(timeline_event) => TimelineDetails::Ready(Box::new(
             RepliedToEvent::try_from_timeline_event(timeline_event, room).await?,
         )),
