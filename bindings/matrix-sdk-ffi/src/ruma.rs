@@ -28,7 +28,8 @@ use ruma::{
                 AudioMessageEventContent as RumaAudioMessageEventContent,
                 EmoteMessageEventContent as RumaEmoteMessageEventContent, FileInfo as RumaFileInfo,
                 FileMessageEventContent as RumaFileMessageEventContent,
-                FormattedBody as RumaFormattedBody,
+                FormattedBody as RumaFormattedBody, GalleryItemType as RumaGalleryItemType,
+                GalleryMessageEventContent as RumaGalleryMessageEventContent,
                 ImageMessageEventContent as RumaImageMessageEventContent,
                 LocationMessageEventContent as RumaLocationMessageEventContent,
                 MessageType as RumaMessageType,
@@ -313,6 +314,7 @@ pub enum MessageType {
     Audio { content: AudioMessageContent },
     Video { content: VideoMessageContent },
     File { content: FileMessageContent },
+    Gallery { content: GalleryMessageContent },
     Notice { content: NoticeMessageContent },
     Text { content: TextMessageContent },
     Location { content: LocationContent },
@@ -381,6 +383,18 @@ impl TryFrom<MessageType> for RumaMessageType {
                 event_content.formatted = content.formatted_caption.map(Into::into);
                 event_content.filename = filename;
                 Self::File(event_content)
+            }
+            MessageType::Gallery { content } => {
+                let event_content = RumaGalleryMessageEventContent::new(
+                    content.body,
+                    content.formatted.map(Into::into),
+                    content
+                        .itemtypes
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+                Self::Gallery(event_content)
             }
             MessageType::Notice { content } => {
                 Self::Notice(assign!(RumaNoticeMessageEventContent::plain(content.body), {
@@ -452,6 +466,17 @@ impl TryFrom<RumaMessageType> for MessageType {
                     info: c.info.as_deref().map(TryInto::try_into).transpose()?,
                 },
             },
+            RumaMessageType::Gallery(c) => MessageType::Gallery {
+                content: GalleryMessageContent {
+                    body: c.body,
+                    formatted: c.formatted.as_ref().map(Into::into),
+                    itemtypes: c
+                        .itemtypes
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?,
+                },
+            },
             RumaMessageType::Notice(c) => MessageType::Notice {
                 content: NoticeMessageContent {
                     body: c.body.clone(),
@@ -483,6 +508,105 @@ impl TryFrom<RumaMessageType> for MessageType {
             }
             _ => MessageType::Other {
                 msgtype: value.msgtype().to_owned(),
+                body: value.body().to_owned(),
+            },
+        })
+    }
+}
+
+impl TryFrom<GalleryItemType> for RumaGalleryItemType {
+    type Error = ClientError;
+
+    fn try_from(value: GalleryItemType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            GalleryItemType::Image { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
+                let mut event_content =
+                    RumaImageMessageEventContent::new(body, (*content.source).clone().into())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
+                Self::Image(event_content)
+            }
+            GalleryItemType::Audio { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
+                let mut event_content =
+                    RumaAudioMessageEventContent::new(body, (*content.source).clone().into())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
+                Self::Audio(event_content)
+            }
+            GalleryItemType::Video { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
+                let mut event_content =
+                    RumaVideoMessageEventContent::new(body, (*content.source).clone().into())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
+                Self::Video(event_content)
+            }
+            GalleryItemType::File { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
+                let mut event_content =
+                    RumaFileMessageEventContent::new(body, (*content.source).clone().into())
+                        .info(content.info.map(Into::into).map(Box::new));
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
+                Self::File(event_content)
+            }
+            GalleryItemType::Other { itemtype, body } => {
+                Self::new(&itemtype, body, JsonObject::default())?
+            }
+        })
+    }
+}
+
+impl TryFrom<RumaGalleryItemType> for GalleryItemType {
+    type Error = ClientError;
+
+    fn try_from(value: RumaGalleryItemType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            RumaGalleryItemType::Image(c) => GalleryItemType::Image {
+                content: ImageMessageContent {
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
+                    source: Arc::new(c.source.try_into()?),
+                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
+                },
+            },
+            RumaGalleryItemType::Audio(c) => GalleryItemType::Audio {
+                content: AudioMessageContent {
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
+                    source: Arc::new(c.source.try_into()?),
+                    info: c.info.as_deref().map(Into::into),
+                    audio: c.audio.map(Into::into),
+                    voice: c.voice.map(Into::into),
+                },
+            },
+            RumaGalleryItemType::Video(c) => GalleryItemType::Video {
+                content: VideoMessageContent {
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
+                    source: Arc::new(c.source.try_into()?),
+                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
+                },
+            },
+            RumaGalleryItemType::File(c) => GalleryItemType::File {
+                content: FileMessageContent {
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
+                    source: Arc::new(c.source.try_into()?),
+                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
+                },
+            },
+            _ => GalleryItemType::Other {
+                itemtype: value.itemtype().to_owned(),
                 body: value.body().to_owned(),
             },
         })
@@ -559,6 +683,22 @@ pub struct FileMessageContent {
     pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<FileInfo>,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct GalleryMessageContent {
+    pub body: String,
+    pub formatted: Option<FormattedBody>,
+    pub itemtypes: Vec<GalleryItemType>,
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum GalleryItemType {
+    Image { content: ImageMessageContent },
+    Audio { content: AudioMessageContent },
+    Video { content: VideoMessageContent },
+    File { content: FileMessageContent },
+    Other { itemtype: String, body: String },
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -806,6 +946,11 @@ impl From<AssetType> for RumaAssetType {
 pub struct FormattedBody {
     pub format: MessageFormat,
     pub body: String,
+}
+
+#[uniffi::export]
+pub fn formatted_body_from_html(body: String) -> FormattedBody {
+    FormattedBody::from(&RumaFormattedBody::html(body))
 }
 
 impl From<FormattedBody> for RumaFormattedBody {

@@ -363,6 +363,7 @@ impl EventTimelineItem {
                         | MessageType::Emote(_)
                         | MessageType::Audio(_)
                         | MessageType::File(_)
+                        | MessageType::Gallery(_)
                         | MessageType::Image(_)
                         | MessageType::Video(_)
                 )
@@ -612,6 +613,7 @@ impl EventTimelineItem {
                 MessageType::Text(text) => Some(text.body.as_str()),
                 MessageType::Audio(audio) => audio.caption(),
                 MessageType::File(file) => file.caption(),
+                MessageType::Gallery(gallery) => Some(gallery.body.as_str()),
                 MessageType::Image(image) => image.caption(),
                 MessageType::Video(video) => video.caption(),
                 _ => None,

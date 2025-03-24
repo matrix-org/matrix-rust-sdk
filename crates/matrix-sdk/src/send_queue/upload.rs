@@ -14,9 +14,11 @@
 
 //! Private implementations of the media upload mechanism.
 
+use std::collections::HashMap;
+
 use matrix_sdk_base::{
     event_cache::store::media::IgnoreMediaRetentionPolicy,
-    media::{MediaFormat, MediaRequestParameters},
+    media::{MediaFormat, MediaRequestParameters, UniqueKey},
     store::{
         ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
         QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
@@ -26,7 +28,7 @@ use matrix_sdk_base::{
 use mime::Mime;
 use ruma::{
     events::{
-        room::message::{FormattedBody, MessageType, RoomMessageEventContent},
+        room::message::{FormattedBody, GalleryItemType, MessageType, RoomMessageEventContent},
         AnyMessageLikeEventContent, Mentions,
     },
     MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
@@ -35,11 +37,11 @@ use tracing::{debug, error, instrument, trace, warn, Span};
 
 use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
 use crate::{
-    attachment::AttachmentConfig,
+    attachment::{AttachmentConfig, GalleryConfig, GalleryItemInfo},
     room::edit::update_media_caption,
     send_queue::{
-        LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
-        SendHandle,
+        GalleryItemQueueInfo, LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError,
+        RoomSendQueueUpdate, SendHandle,
     },
     Client, Media, Room,
 };
@@ -79,6 +81,84 @@ fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: Sen
             error!("Invalid message type in database: {}", echo.msgtype());
             // Only crash debug builds.
             debug_assert!(false, "invalid message type in database");
+        }
+    }
+}
+
+/// Replace the sources by the final ones in all the media types handled by
+/// [`Room::make_gallery_item_type()`].
+fn update_gallery_event_after_upload(
+    echo: &mut RoomMessageEventContent,
+    sent: HashMap<String, SentMediaInfo>,
+) {
+    match &mut echo.msgtype {
+        MessageType::Gallery(gallery) => {
+            // Some variants look really similar below, but the `event` and `info` are all
+            // different types…
+            for itemtype in gallery.itemtypes.iter_mut() {
+                match itemtype {
+                    GalleryItemType::Audio(event) => match sent.get(&event.source.unique_key()) {
+                        Some(sent) => event.source = sent.file.clone(),
+                        None => error!(
+                            "key for item {:?} does not exist on gallery event",
+                            &event.source
+                        ),
+                    },
+                    GalleryItemType::File(event) => match sent.get(&event.source.unique_key()) {
+                        Some(sent) => {
+                            event.source = sent.file.clone();
+                            if let Some(info) = event.info.as_mut() {
+                                info.thumbnail_source = sent.thumbnail.clone();
+                            }
+                        }
+                        None => error!(
+                            "key for item {:?} does not exist on gallery event",
+                            &event.source
+                        ),
+                    },
+                    GalleryItemType::Image(event) => match sent.get(&event.source.unique_key()) {
+                        Some(sent) => {
+                            event.source = sent.file.clone();
+                            if let Some(info) = event.info.as_mut() {
+                                info.thumbnail_source = sent.thumbnail.clone();
+                            }
+                        }
+                        None => error!(
+                            "key for item {:?} does not exist on gallery event",
+                            &event.source
+                        ),
+                    },
+                    GalleryItemType::Video(event) => match sent.get(&event.source.unique_key()) {
+                        Some(sent) => {
+                            event.source = sent.file.clone();
+                            if let Some(info) = event.info.as_mut() {
+                                info.thumbnail_source = sent.thumbnail.clone();
+                            }
+                        }
+                        None => error!(
+                            "key for item {:?} does not exist on gallery event",
+                            &event.source
+                        ),
+                    },
+
+                    _ => {
+                        // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
+                        // handled here. The only way to end up here is that a item type has
+                        // been tampered with in the database.
+                        error!("Invalid gallery item types in database");
+                        // Only crash debug builds.
+                        debug_assert!(false, "invalid item type in database {:?}", itemtype);
+                    }
+                }
+            }
+        }
+        _ => {
+            // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
+            // handled here. The only way to end up here is that a item type has
+            // been tampered with in the database.
+            error!("Invalid gallery item types in database");
+            // Only crash debug builds.
+            debug_assert!(false, "invalid item type in database {:?}", echo.msgtype());
         }
     }
 }
@@ -219,7 +299,179 @@ impl RoomSendQueue {
         let send_handle = SendHandle {
             room: self.clone(),
             transaction_id: send_event_txn.clone().into(),
-            media_handles: Some(MediaHandles { upload_thumbnail_txn, upload_file_txn }),
+            media_handles: vec![MediaHandles { upload_thumbnail_txn, upload_file_txn }],
+            created_at,
+        };
+
+        let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            transaction_id: send_event_txn.clone().into(),
+            content: LocalEchoContent::Event {
+                serialized_event: SerializableEventContent::new(&event_content.into())
+                    .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                send_handle: send_handle.clone(),
+                send_error: None,
+            },
+        }));
+
+        Ok(send_handle)
+    }
+
+    /// Queues a gallery to be sent to the room, using the send queue.
+    ///
+    /// This returns quickly (without sending or uploading anything), and will
+    /// push the event to be sent into a queue, handled in the background.
+    ///
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
+    /// the [`Self::subscribe()`] method to get updates about the sending of
+    /// that event.
+    ///
+    /// By default, if sending failed on the first attempt, it will be retried a
+    /// few times. If sending failed after those retries, the entire
+    /// client's sending queue will be disabled, and it will need to be
+    /// manually re-enabled by the caller (e.g. after network is back, or when
+    /// something has been done about the faulty requests).
+    ///
+    /// The attachments and their optional thumbnails are stored in the media
+    /// cache and can be retrieved at any time, by calling
+    /// [`Media::get_media_content()`] with the respective `MediaSource` that
+    /// can be found in the local or remote echo, and using a
+    /// `MediaFormat::File`.
+    #[instrument(skip_all, fields(event_txn))]
+    pub async fn send_gallery(
+        &self,
+        item_infos: Vec<GalleryItemInfo>,
+        config: GalleryConfig,
+    ) -> Result<SendHandle, RoomSendQueueError> {
+        let Some(room) = self.inner.room.get() else {
+            return Err(RoomSendQueueError::RoomDisappeared);
+        };
+
+        if room.state() != RoomState::Joined {
+            return Err(RoomSendQueueError::RoomNotJoined);
+        }
+
+        let send_event_txn = config.txn_id.map_or_else(ChildTransactionId::new, Into::into);
+        Span::current().record("event_txn", tracing::field::display(&*send_event_txn));
+
+        let mut item_types = Vec::<GalleryItemType>::new();
+        let mut item_queue_infos = Vec::<GalleryItemQueueInfo>::new();
+        let mut media_handles = Vec::<MediaHandles>::new();
+
+        for item_info in item_infos {
+            let filename = item_info.filename;
+            let content_type = item_info.content_type;
+            let data = item_info.data;
+
+            let upload_file_txn = TransactionId::new();
+
+            debug!(filename, %content_type, %upload_file_txn, "uploading a gallery attachment");
+
+            let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
+
+            let (upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info) = {
+                let client = room.client();
+                let cache_store = client
+                    .event_cache_store()
+                    .lock()
+                    .await
+                    .map_err(RoomSendQueueStorageError::LockError)?;
+
+                // Cache the file itself in the cache store.
+                cache_store
+                    .add_media_content(
+                        &file_media_request,
+                        data.clone(),
+                        // Make sure that the file is stored until it has been uploaded.
+                        IgnoreMediaRetentionPolicy::Yes,
+                    )
+                    .await
+                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+                // Process the thumbnail, if it's been provided.
+                if let Some(thumbnail) = item_info.thumbnail {
+                    let txn = TransactionId::new();
+                    trace!(upload_thumbnail_txn = %txn, "gallery item has a thumbnail");
+
+                    // Create the information required for filling the thumbnail section of the
+                    // gallery event.
+                    let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+
+                    // Cache thumbnail in the cache store.
+                    let thumbnail_media_request = Media::make_local_file_media_request(&txn);
+                    cache_store
+                        .add_media_content(
+                            &thumbnail_media_request,
+                            data,
+                            // Make sure that the thumbnail is stored until it has been uploaded.
+                            IgnoreMediaRetentionPolicy::Yes,
+                        )
+                        .await
+                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+                    (
+                        Some(txn.clone()),
+                        Some((thumbnail_media_request.source.clone(), thumbnail_info)),
+                        Some((
+                            FinishUploadThumbnailInfo { txn, width: None, height: None },
+                            thumbnail_media_request,
+                            content_type,
+                        )),
+                    )
+                } else {
+                    Default::default()
+                }
+            };
+
+            item_types.push(room.make_gallery_item_type(
+                &content_type,
+                filename,
+                file_media_request.source.clone(),
+                item_info.caption,
+                item_info.formatted_caption,
+                Some(item_info.attachment_info),
+                event_thumbnail_info,
+            ));
+
+            item_queue_infos.push(GalleryItemQueueInfo {
+                content_type,
+                finish_upload_file_txn: TransactionId::new(),
+                upload_file_txn: upload_file_txn.clone(),
+                file_media_request,
+                thumbnail: queue_thumbnail_info,
+            });
+
+            media_handles.push(MediaHandles { upload_file_txn, upload_thumbnail_txn });
+        }
+
+        // Create the content for the gallery event.
+        let event_content = Room::make_gallery_event(
+            config.caption,
+            config.formatted_caption,
+            item_types,
+            config.mentions,
+        );
+
+        let created_at = MilliSecondsSinceUnixEpoch::now();
+
+        // Save requests in the queue storage.
+        self.inner
+            .queue
+            .push_gallery(
+                event_content.clone(),
+                send_event_txn.clone().into(),
+                created_at,
+                item_queue_infos,
+            )
+            .await?;
+
+        trace!("manager sends a gallery to the background task");
+
+        self.inner.notifier.notify_one();
+
+        let send_handle = SendHandle {
+            room: self.clone(),
+            transaction_id: send_event_txn.clone().into(),
+            media_handles,
             created_at,
         };
 
@@ -315,6 +567,126 @@ impl QueueStorage {
         }
 
         update_media_event_after_upload(&mut local_echo, sent_media);
+
+        let new_content = SerializableEventContent::new(&local_echo.into())
+            .map_err(RoomSendQueueStorageError::JsonSerialization)?;
+
+        // Indicates observers that the upload finished, by editing the local echo for
+        // the event into its final form before sending.
+        new_updates.push(RoomSendQueueUpdate::ReplacedLocalEvent {
+            transaction_id: event_txn.clone(),
+            new_content: new_content.clone(),
+        });
+
+        trace!(%event_txn, "queueing media event after successfully uploading media(s)");
+
+        client
+            .store()
+            .save_send_queue_request(
+                &self.room_id,
+                event_txn,
+                MilliSecondsSinceUnixEpoch::now(),
+                new_content.into(),
+                Self::HIGH_PRIORITY,
+            )
+            .await
+            .map_err(RoomSendQueueStorageError::StateStoreError)?;
+
+        Ok(())
+    }
+
+    /// Consumes a finished gallery upload and queues sending of the final
+    /// gallery event.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn handle_dependent_finish_gallery_upload(
+        &self,
+        client: &Client,
+        event_txn: OwnedTransactionId,
+        mut local_echo: RoomMessageEventContent,
+        item_infos: Vec<FinishedGalleryItemInfo>,
+        new_updates: &mut Vec<RoomSendQueueUpdate>,
+    ) -> Result<(), RoomSendQueueError> {
+        let mut sent_infos = HashMap::<String, SentMediaInfo>::new();
+
+        for item_info in item_infos {
+            let FinishedGalleryItemInfo { parent_key, file_upload_txn, thumbnail_info } = item_info;
+
+            // Both uploads are ready: enqueue the event with its final data.
+            let sent_media = parent_key.into_media().ok_or(RoomSendQueueError::StorageError(
+                RoomSendQueueStorageError::InvalidParentKey,
+            ))?;
+
+            // Update cache keys in the cache store.
+            {
+                // Do it for the file itself.
+                let from_req = Media::make_local_file_media_request(&file_upload_txn);
+
+                // Store the sent media under the original cache key for later insertion into
+                // the local echo
+                sent_infos.insert(from_req.source.unique_key(), sent_media.clone());
+
+                trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
+                let cache_store = client
+                    .event_cache_store()
+                    .lock()
+                    .await
+                    .map_err(RoomSendQueueStorageError::LockError)?;
+
+                // The media can now be removed during cleanups.
+                cache_store
+                    .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
+                    .await
+                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+                cache_store
+                    .replace_media_key(
+                        &from_req,
+                        &MediaRequestParameters {
+                            source: sent_media.file.clone(),
+                            format: MediaFormat::File,
+                        },
+                    )
+                    .await
+                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+                // Rename the thumbnail too, if needs be.
+                if let Some((info, new_source)) =
+                    thumbnail_info.as_ref().zip(sent_media.thumbnail.clone())
+                {
+                    // Previously the media request used `MediaFormat::Thumbnail`. Handle this case
+                    // for send queue requests that were in the state store before the change.
+                    let from_req = if let Some((height, width)) = info.height.zip(info.width) {
+                        Media::make_local_thumbnail_media_request(&info.txn, height, width)
+                    } else {
+                        Media::make_local_file_media_request(&info.txn)
+                    };
+
+                    trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
+
+                    // The media can now be removed during cleanups.
+                    cache_store
+                        .set_ignore_media_retention_policy(
+                            &from_req,
+                            IgnoreMediaRetentionPolicy::No,
+                        )
+                        .await
+                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+                    cache_store
+                        .replace_media_key(
+                            &from_req,
+                            &MediaRequestParameters {
+                                source: new_source,
+                                format: MediaFormat::File,
+                            },
+                        )
+                        .await
+                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+                }
+            }
+        }
+
+        update_gallery_event_after_upload(&mut local_echo, sent_infos);
 
         let new_content = SerializableEventContent::new(&local_echo.into())
             .map_err(RoomSendQueueStorageError::JsonSerialization)?;
@@ -635,4 +1007,10 @@ impl QueueStorage {
         trace!("media event was not being sent, updated local echo");
         Ok(Some(any_content))
     }
+}
+
+pub struct FinishedGalleryItemInfo {
+    pub parent_key: SentRequestKey,
+    pub file_upload_txn: OwnedTransactionId,
+    pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
 }
