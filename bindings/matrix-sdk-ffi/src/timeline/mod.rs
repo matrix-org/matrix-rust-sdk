@@ -493,10 +493,19 @@ impl Timeline {
     ///
     /// If the replied to event does not have a thread relation, it becomes the
     /// root of a new thread.
+    ///
+    /// # Arguments
+    ///
+    /// * `msg` - Message content to send
+    ///
+    /// * `event_id` - ID of the event to reply to
+    ///
+    /// * `is_reply` - Whether the message is a reply on a thread
     pub async fn send_thread_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         event_id: String,
+        is_reply: bool,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
         let replied_to_info = self
@@ -509,7 +518,11 @@ impl Timeline {
             .send_reply(
                 (*msg).clone(),
                 replied_to_info,
-                timeline::EnforceThread::Yes(ReplyWithinThread::No),
+                timeline::EnforceThread::Yes(if is_reply {
+                    ReplyWithinThread::Yes
+                } else {
+                    ReplyWithinThread::No
+                }),
             )
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
