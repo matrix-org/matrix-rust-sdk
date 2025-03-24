@@ -1014,8 +1014,8 @@ impl TryInto<matrix_sdk::attachment::GalleryItemInfo> for GalleryItemInfo {
         let (data, filename) = self.source.try_into_bytes_and_filename()?;
         Ok(matrix_sdk::attachment::GalleryItemInfo {
             content_type: self.mime_type,
-            data: data,
-            filename: filename,
+            data,
+            filename,
             attachment_info: self.attachment_info,
             caption: self.caption,
             formatted_caption: self.formatted_caption,
