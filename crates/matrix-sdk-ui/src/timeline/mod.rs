@@ -19,7 +19,7 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use algorithms::rfind_event_by_item_id;
-use event_item::{extract_room_msg_edit_content, TimelineItemHandle};
+use event_item::TimelineItemHandle;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -44,7 +44,7 @@ use ruma::{
             encrypted::Relation as EncryptedRelation,
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, Relation, ReplyWithinThread,
-                RoomMessageEventContentWithoutRelation,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             pinned_events::RoomPinnedEventsEventContent,
         },
@@ -122,18 +122,13 @@ impl RepliedToInfo {
     pub fn sender(&self) -> &UserId {
         &self.sender
     }
-
-    /// The content of the event to reply to.
-    pub fn content(&self) -> &ReplyContent {
-        &self.content
-    }
 }
 
 /// The content of a reply.
 #[derive(Debug, Clone)]
 pub enum ReplyContent {
     /// Content of a message event.
-    Message(Message),
+    Message(RoomMessageEventContent),
     /// Content of any other kind of event stored as raw JSON.
     Raw(Raw<AnySyncTimelineEvent>),
 }
@@ -360,13 +355,13 @@ impl Timeline {
         };
 
         let content = match replied_to_info.content {
-            ReplyContent::Message(msg) => {
+            ReplyContent::Message(replied_to_content) => {
                 let event = OriginalRoomMessageEvent {
                     event_id: replied_to_info.event_id,
                     sender: replied_to_info.sender,
                     origin_server_ts: replied_to_info.timestamp,
                     room_id: self.room().room_id().to_owned(),
-                    content: msg.to_content(),
+                    content: replied_to_content,
                     unsigned: Default::default(),
                 };
 
@@ -382,6 +377,7 @@ impl Timeline {
                     }
                 }
             }
+
             ReplyContent::Raw(raw_event) => {
                 match enforce_thread {
                     EnforceThread::Threaded(is_reply) => {
@@ -427,6 +423,7 @@ impl Timeline {
                         content.relates_to = Some(Relation::Thread(thread));
                         content
                     }
+
                     EnforceThread::MaybeThreaded => content.make_reply_to_raw(
                         &raw_event,
                         replied_to_info.event_id,
@@ -434,6 +431,7 @@ impl Timeline {
                         ForwardThread::Yes,
                         mention_the_sender,
                     ),
+
                     EnforceThread::Unthreaded => content.make_reply_to_raw(
                         &raw_event,
                         replied_to_info.event_id,
@@ -459,33 +457,27 @@ impl Timeline {
             return timeline_item.replied_to_info();
         }
 
+        // TODO: read from the event cache, if available, or fetch from the server.
         let event = self.room().event(event_id, None).await.map_err(|error| {
             error!("Failed to fetch event with ID {event_id} with error: {error}");
             UnsupportedReplyItem::MissingEvent
         })?;
 
-        let raw_sync_event = event.into_raw();
-        let sync_event = raw_sync_event.deserialize().map_err(|error| {
+        let raw_event = event.into_raw();
+        let event = raw_event.deserialize().map_err(|error| {
             error!("Failed to deserialize event with ID {event_id} with error: {error}");
             UnsupportedReplyItem::FailedToDeserializeEvent
         })?;
 
-        let reply_content = match &sync_event {
-            AnySyncTimelineEvent::MessageLike(message_like_event) => {
+        let reply_content = match &event {
+            AnySyncTimelineEvent::MessageLike(event) => {
                 if let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                    original_message,
-                )) = message_like_event
+                    original_event,
+                )) = event
                 {
-                    // We don't have access to reactions here.
-                    let reactions = Default::default();
-                    ReplyContent::Message(Message::from_event(
-                        original_message.content.clone(),
-                        extract_room_msg_edit_content(message_like_event.relations()),
-                        &self.items().await,
-                        reactions,
-                    ))
+                    ReplyContent::Message(original_event.content.clone())
                 } else {
-                    ReplyContent::Raw(raw_sync_event)
+                    ReplyContent::Raw(raw_event)
                 }
             }
             AnySyncTimelineEvent::State(_) => return Err(UnsupportedReplyItem::StateEvent),
@@ -493,8 +485,8 @@ impl Timeline {
 
         Ok(RepliedToInfo {
             event_id: event_id.to_owned(),
-            sender: sync_event.sender().to_owned(),
-            timestamp: sync_event.origin_server_ts(),
+            sender: event.sender().to_owned(),
+            timestamp: event.origin_server_ts(),
             content: reply_content,
         })
     }
