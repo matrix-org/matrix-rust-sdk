@@ -17,33 +17,27 @@ use matrix_sdk::{
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{
-        events::room::message::{MessageType, RoomMessageEventContent},
-        MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
-    },
+    ruma::OwnedRoomId,
     AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
-    timeline::{
-        MsgLikeContent, MsgLikeKind, TimelineItem, TimelineItemContent, TimelineItemKind,
-        VirtualTimelineItem,
-    },
+    timeline::TimelineItem,
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
-use widgets::recovery::{RecoveryView, RecoveryViewState};
+use widgets::{
+    recovery::{RecoveryView, RecoveryViewState},
+    room_view::RoomView,
+};
 
 use crate::widgets::{
-    events::EventsView,
     help::HelpView,
-    linked_chunk::LinkedChunkView,
-    read_receipts::ReadReceipts,
     room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms},
     status::Status,
 };
@@ -128,7 +122,7 @@ pub enum DetailsMode {
     LinkedChunk,
 }
 
-struct Timeline {
+pub struct Timeline {
     timeline: Arc<SdkTimeline>,
     items: Arc<Mutex<Vector<Arc<TimelineItem>>>>,
     task: JoinHandle<()>,
@@ -140,7 +134,8 @@ pub struct AppState {
     /// mainly used for help and settings screens.
     global_mode: GlobalMode,
 
-    /// What's shown in the details view, aka the right panel.
+    /// Is any details popup shown above the room view or are we looking at the
+    /// timeline.
     details_mode: DetailsMode,
 }
 
@@ -151,14 +146,15 @@ struct App {
     /// The sync service used for synchronizing events.
     sync_service: Arc<SyncService>,
 
-    /// Room list service rooms known to the app.
-    ui_rooms: UiRooms,
-
     /// Timelines data structures for each room.
     timelines: Timelines,
 
     /// The room list widget on the left-hand side of the screen.
     room_list: RoomList,
+
+    /// A view displaying the contents of the selected room, the widget on the
+    /// right-hand side of the screen.
+    room_view: RoomView,
 
     /// Task listening to room list service changes, and spawning timelines.
     listen_task: JoinHandle<()>,
@@ -167,8 +163,6 @@ struct App {
     status: Status,
 
     state: AppState,
-
-    current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
 
     last_tick: Instant,
 }
@@ -208,16 +202,17 @@ impl App {
             status.handle(),
         );
 
+        let room_view = RoomView::new(ui_rooms, timelines.clone(), status.handle());
+
         Ok(Self {
             sync_service,
-            ui_rooms,
+            timelines,
             room_list,
+            room_view,
             client,
             listen_task,
             status,
             state: AppState::default(),
-            timelines,
-            current_pagination: Default::default(),
             last_tick: Instant::now(),
         })
     }
@@ -237,7 +232,7 @@ impl App {
         while let Some(diffs) = stream.next().await {
             let all_rooms = {
                 // Apply the diffs to the list of room entries.
-                let mut rooms = rooms.lock().unwrap();
+                let mut rooms = rooms.lock();
 
                 for diff in diffs {
                     diff.apply(&mut rooms);
@@ -267,7 +262,7 @@ impl App {
                         warn!("couldn't figure whether a room is a DM or not: {err}");
                     })
                     .ok();
-                room_infos.lock().unwrap().insert(
+                room_infos.lock().insert(
                     room.room_id().to_owned(),
                     ExtraRoomInfo { raw_name, display_name, is_dm },
                 );
@@ -324,68 +319,6 @@ impl App {
         }
     }
 
-    async fn toggle_reaction_to_latest_msg(&mut self) {
-        let selected = self.room_list.get_selected_room_id();
-
-        if let Some((sdk_timeline, items)) = selected.and_then(|room_id| {
-            self.timelines
-                .lock()
-                .get(&room_id)
-                .map(|timeline| (timeline.timeline.clone(), timeline.items.clone()))
-        }) {
-            // Look for the latest (most recent) room message.
-            let item_id = {
-                let items = items.lock();
-                items.iter().rev().find_map(|it| {
-                    it.as_event()
-                        .and_then(|ev| ev.content().as_message().is_some().then(|| ev.identifier()))
-                })
-            };
-
-            // If found, send a reaction.
-            if let Some(item_id) = item_id {
-                match sdk_timeline.toggle_reaction(&item_id, "🥰").await {
-                    Ok(_) => {
-                        self.status.set_message("reaction sent!".to_owned());
-                    }
-                    Err(err) => self.status.set_message(format!("error when reacting: {err}")),
-                }
-            } else {
-                self.status.set_message("no item to react to".to_owned());
-            }
-        } else {
-            self.status.set_message("missing timeline for room".to_owned());
-        };
-    }
-
-    /// Run a small back-pagination (expect a batch of 20 events, continue until
-    /// we get 10 timeline items or hit the timeline start).
-    fn back_paginate(&mut self) {
-        let Some(sdk_timeline) = self.room_list.get_selected_room_id().and_then(|room_id| {
-            self.timelines.lock().get(&room_id).map(|timeline| timeline.timeline.clone())
-        }) else {
-            self.status.set_message("missing timeline for room".to_owned());
-            return;
-        };
-
-        let mut pagination = self.current_pagination.lock();
-
-        // Cancel the previous back-pagination, if any.
-        if let Some(prev) = pagination.take() {
-            prev.abort();
-        }
-
-        let status_handle = self.status.handle();
-
-        // Start a new one, request batches of 20 events, stop after 10 timeline items
-        // have been added.
-        *pagination = Some(spawn(async move {
-            if let Err(err) = sdk_timeline.paginate_backwards(20).await {
-                status_handle.set_message(format!("Error during backpagination: {err}"));
-            }
-        }));
-    }
-
     fn set_mode(&mut self, mode: DetailsMode) {
         self.state.details_mode = mode;
     }
@@ -418,10 +351,14 @@ impl App {
 
                 Char('j') | Down => {
                     self.room_list.next_room();
+                    let room_id = self.room_list.get_selected_room_id();
+                    self.room_view.set_selected_room(room_id);
                 }
 
                 Char('k') | Up => {
                     self.room_list.previous_room();
+                    let room_id = self.room_list.get_selected_room_id();
+                    self.room_view.set_selected_room(room_id);
                 }
 
                 Char('s') => self.sync_service.start().await,
@@ -432,39 +369,6 @@ impl App {
                     let enabled = q.is_enabled();
                     q.set_enabled(!enabled).await;
                 }
-
-                Char('M') => {
-                    let selected = self.room_list.get_selected_room_id();
-
-                    if let Some(sdk_timeline) = selected.and_then(|room_id| {
-                        self.timelines
-                            .lock()
-                            .get(&room_id)
-                            .map(|timeline| timeline.timeline.clone())
-                    }) {
-                        match sdk_timeline
-                            .send(
-                                RoomMessageEventContent::text_plain(format!(
-                                    "hey {}",
-                                    MilliSecondsSinceUnixEpoch::now().get()
-                                ))
-                                .into(),
-                            )
-                            .await
-                        {
-                            Ok(_) => {
-                                self.status.set_message("message sent!".to_owned());
-                            }
-                            Err(err) => {
-                                self.status.set_message(format!("error when sending event: {err}"));
-                            }
-                        }
-                    } else {
-                        self.status.set_message("missing timeline for room".to_owned());
-                    };
-                }
-
-                Char('L') => self.toggle_reaction_to_latest_msg().await,
 
                 Char('r') => {
                     if self.room_list.get_selected_room_id().is_some() {
@@ -479,11 +383,11 @@ impl App {
                     if self.state.details_mode == DetailsMode::TimelineItems
                         || self.state.details_mode == DetailsMode::LinkedChunk =>
                 {
-                    self.back_paginate();
+                    self.room_view.back_paginate();
                 }
 
                 Char('m') if self.state.details_mode == DetailsMode::ReadReceipts => {
-                    self.room_list.mark_as_read().await
+                    self.room_view.mark_as_read().await
                 }
 
                 _ => {}
@@ -574,11 +478,11 @@ impl Widget for &mut App {
         // the other for the info block.
         let horizontal =
             Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]);
-        let [room_list_area, rhs] = horizontal.areas(rest_area);
+        let [room_list_area, room_view_area] = horizontal.areas(rest_area);
 
         self.render_title(header_area, buf);
         self.room_list.render(room_list_area, buf);
-        self.render_right(rhs, buf);
+        self.room_view.render(room_view_area, buf, &mut self.state.details_mode);
         self.status.render(status_area, buf, &mut self.state);
 
         match &mut self.state.global_mode {
@@ -599,185 +503,6 @@ impl App {
     /// Render the top square (title of the program).
     fn render_title(&self, area: Rect, buf: &mut Buffer) {
         Paragraph::new("Multiverse").bold().centered().render(area, buf);
-    }
-
-    /// Render the right part of the screen, showing the details of the current
-    /// view.
-    fn render_right(&mut self, area: Rect, buf: &mut Buffer) {
-        // Split the block into two parts:
-        // - outer_block with the title of the block.
-        // - inner_block that will contain the actual details.
-        let outer_block = Block::default()
-            .borders(Borders::NONE)
-            .fg(TEXT_COLOR)
-            .bg(HEADER_BG)
-            .title("Room view")
-            .title_alignment(Alignment::Center);
-
-        let inner_block = Block::default()
-            .borders(Borders::NONE)
-            .bg(NORMAL_ROW_COLOR)
-            .padding(Padding::horizontal(1));
-
-        // This is a similar process to what we did for list. outer_info_area will be
-        // used for header inner_info_area will be used for the list info.
-        let outer_area = area;
-        let inner_area = outer_block.inner(outer_area);
-
-        // We can render the header. Inner area will be rendered later.
-        outer_block.render(outer_area, buf);
-
-        // Helper to render some string as a paragraph.
-        let render_paragraph = |buf: &mut Buffer, content: String| {
-            Paragraph::new(content)
-                .block(inner_block.clone())
-                .fg(TEXT_COLOR)
-                .wrap(Wrap { trim: false })
-                .render(inner_area, buf);
-        };
-
-        if let Some(room_id) = self.room_list.get_selected_room_id() {
-            match self.state.details_mode {
-                DetailsMode::ReadReceipts => {
-                    // In read receipts mode, show the read receipts object as computed by the
-                    // client.
-                    let rooms = self.ui_rooms.lock();
-                    let room = rooms.get(&room_id);
-
-                    let mut read_receipts = ReadReceipts::new(room);
-                    read_receipts.render(inner_area, buf);
-                }
-
-                DetailsMode::TimelineItems => {
-                    if !self.render_timeline(&room_id, inner_block.clone(), inner_area, buf) {
-                        render_paragraph(buf, "(room's timeline disappeared)".to_owned())
-                    }
-                }
-
-                DetailsMode::LinkedChunk => {
-                    // In linked chunk mode, show a rough representation of the chunks.
-                    let rooms = self.ui_rooms.lock();
-                    let room = rooms.get(&room_id);
-
-                    let mut linked_chunk_view = LinkedChunkView::new(room);
-                    linked_chunk_view.render(inner_area, buf);
-                }
-
-                DetailsMode::Events => {
-                    let rooms = self.ui_rooms.lock();
-                    let room = rooms.get(&room_id);
-
-                    let mut events_view = EventsView::new(room);
-                    events_view.render(inner_area, buf);
-                }
-            }
-        } else {
-            render_paragraph(buf, "Nothing to see here...".to_owned())
-        };
-    }
-
-    /// Renders the list of timeline items for the given room.
-    fn render_timeline(
-        &mut self,
-        room_id: &RoomId,
-        inner_block: Block<'_>,
-        inner_area: Rect,
-        buf: &mut Buffer,
-    ) -> bool {
-        let Some(items) = self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
-        else {
-            return false;
-        };
-
-        let items = items.lock();
-        let mut content = Vec::new();
-
-        for item in items.iter() {
-            match item.kind() {
-                TimelineItemKind::Event(ev) => {
-                    let sender = ev.sender();
-
-                    match ev.content() {
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Message(message),
-                            ..
-                        }) => {
-                            if let MessageType::Text(text) = message.msgtype() {
-                                content.push(format!("{}: {}", sender, text.body))
-                            }
-                        }
-
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Redacted,
-                            ..
-                        }) => content.push(format!("{}: -- redacted --", sender)),
-
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::UnableToDecrypt(_),
-                            ..
-                        }) => content.push(format!("{}: (UTD)", sender)),
-
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Sticker(_),
-                            ..
-                        })
-                        | TimelineItemContent::MembershipChange(_)
-                        | TimelineItemContent::ProfileChange(_)
-                        | TimelineItemContent::OtherState(_)
-                        | TimelineItemContent::FailedToParseMessageLike { .. }
-                        | TimelineItemContent::FailedToParseState { .. }
-                        | TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Poll(_),
-                            ..
-                        })
-                        | TimelineItemContent::CallInvite
-                        | TimelineItemContent::CallNotify => {
-                            continue;
-                        }
-                    }
-                }
-
-                TimelineItemKind::Virtual(virt) => match virt {
-                    VirtualTimelineItem::DateDivider(unix_ts) => {
-                        content.push(format!("Date: {unix_ts:?}"));
-                    }
-                    VirtualTimelineItem::ReadMarker => {
-                        content.push("Read marker".to_owned());
-                    }
-                    VirtualTimelineItem::TimelineStart => {
-                        content.push("🥳 Timeline start! 🥳".to_owned());
-                    }
-                },
-            }
-        }
-
-        let list_items = content
-            .into_iter()
-            .enumerate()
-            .map(|(i, line)| {
-                let bg_color = match i % 2 {
-                    0 => NORMAL_ROW_COLOR,
-                    _ => ALT_ROW_COLOR,
-                };
-                let line = Line::styled(line, TEXT_COLOR);
-                ListItem::new(line).bg(bg_color)
-            })
-            .collect::<Vec<_>>();
-
-        let list = List::new(list_items)
-            .block(inner_block)
-            .highlight_style(
-                Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
-                    .fg(SELECTED_STYLE_FG),
-            )
-            .highlight_symbol(">")
-            .highlight_spacing(HighlightSpacing::Always);
-
-        let mut dummy_list_state = ListState::default();
-        StatefulWidget::render(list, inner_area, buf, &mut dummy_list_state);
-        true
     }
 }
 
