@@ -1,7 +1,8 @@
 use ruma::{
     api::client::sync::sync_events::v3::JoinedRoom,
     events::{
-        AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        receipt::ReceiptEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
     OwnedRoomId, RoomId,
@@ -9,7 +10,7 @@ use ruma::{
 use serde_json::{from_value as from_json_value, Value as JsonValue};
 
 use super::{EphemeralTestEvent, RoomAccountDataTestEvent, StateTestEvent};
-use crate::DEFAULT_TEST_ROOM_ID;
+use crate::{event_factory::EventBuilder, DEFAULT_TEST_ROOM_ID};
 
 pub struct JoinedRoomBuilder {
     pub(super) room_id: OwnedRoomId,
@@ -99,6 +100,12 @@ impl JoinedRoomBuilder {
         I: IntoIterator<Item = Raw<AnySyncEphemeralRoomEvent>>,
     {
         self.inner.ephemeral.events.extend(events);
+        self
+    }
+
+    /// Add a single read receipt to the joined room's ephemeral events.
+    pub fn add_receipt(mut self, f: EventBuilder<ReceiptEventContent>) -> Self {
+        self.inner.ephemeral.events.push(f.into_raw());
         self
     }
 

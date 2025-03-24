@@ -1360,10 +1360,10 @@ async fn test_no_duplicate_receipt_after_backpagination() {
         .into_raw_sync();
 
     // Carol has a read receipt on the edit.
-    let read_receipt_event_content = f
+    let read_receipt_event = f
         .read_receipts()
         .add(eid3, *CAROL, ruma::events::receipt::ReceiptType::Read, ReceiptThread::Unthreaded)
-        .build();
+        .event();
 
     let prev_batch_token = "prev-batch-token";
 
@@ -1372,11 +1372,7 @@ async fn test_no_duplicate_receipt_after_backpagination() {
             &client,
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(ev3)
-                .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                    "type": "m.receipt",
-                    "room_id": room_id,
-                    "content": read_receipt_event_content,
-                })))
+                .add_receipt(read_receipt_event.room(room_id))
                 .set_timeline_limited()
                 .set_timeline_prev_batch(prev_batch_token),
         )
