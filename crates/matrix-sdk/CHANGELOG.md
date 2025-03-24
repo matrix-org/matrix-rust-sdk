@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- `Room::load_or_fetch_event()` is a new method that will find an event in the event cache (if
+  enabled), or using network like `Room::event()` does.
+  ([#4837](https://github.com/matrix-org/matrix-rust-sdk/pull/4837))
 - [**breaking**]: The element call widget URL configuration struct (`VirtualElementCallWidgetOptions`) and URL generation
   have changed.
   - It supports the new fields: `hide_screensharing`, `posthog_api_host`, `posthog_api_key`,
