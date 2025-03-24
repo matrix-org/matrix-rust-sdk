@@ -1008,13 +1008,18 @@ async fn test_send_reply_enforce_thread_is_reply() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
+    let thread_root = owned_event_id!("$thread_root");
+
     let event_id_from_bob = event_id!("$event_from_bob");
     let f = EventFactory::new();
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob),
+                f.text_msg("Hello from Bob")
+                    .sender(&BOB)
+                    .event_id(event_id_from_bob)
+                    .in_thread(&thread_root, &thread_root),
             ),
         )
         .await;
@@ -1028,6 +1033,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
+    let thread_root_for_closure = thread_root.clone();
     server
         .mock_room_send()
         .respond_with(move |req: &Request| {
@@ -1038,7 +1044,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
                 .expect("Failed to deserialize the event");
 
             assert_matches!(reply_event.relates_to, Some(Relation::Thread(thread)) => {
-                assert_eq!(thread.event_id, event_id_from_bob);
+                assert_eq!(thread.event_id, thread_root_for_closure);
                 assert_eq!(thread.in_reply_to.unwrap().event_id, event_id_from_bob);
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
@@ -1072,7 +1078,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
+    assert_eq!(reply_message.thread_root().unwrap(), &thread_root);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
@@ -1082,7 +1088,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
+    assert_eq!(reply_message.thread_root().unwrap(), &thread_root);
 }
 
 #[async_test]
