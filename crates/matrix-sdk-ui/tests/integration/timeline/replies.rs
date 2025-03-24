@@ -868,11 +868,6 @@ async fn test_send_reply_with_event_id() {
         .mount()
         .await;
 
-    // Since we assume we can't use the timeline item directly in this use case, the
-    // API will fetch the event from the server directly so we need to mock the
-    // response.
-    server.mock_room_event().ok(bob_event).named("event_1").mock_once().mount().await;
-
     let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
@@ -1147,11 +1142,6 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
         .expect(1)
         .mount()
         .await;
-
-    // Since we assume we can't use the timeline item directly in this use case, the
-    // API will fetch the event from the server directly so we need to mock the
-    // response.
-    server.mock_room_event().ok(event_from_bob).mock_once().named("event_1").mount().await;
 
     let replied_to_info =
         timeline.replied_to_info_from_event_id(redacted_event_id_from_bob).await.unwrap();
