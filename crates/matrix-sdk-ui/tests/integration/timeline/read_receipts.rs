@@ -27,9 +27,8 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
-    EphemeralTestEvent, JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder, ALICE,
-    BOB, CAROL,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, EphemeralTestEvent,
+    JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
@@ -417,109 +416,104 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
 #[async_test]
 async fn test_send_single_receipt() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let own_user_id = client.user_id().unwrap();
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
 
     // Unknown receipts are sent.
     let first_receipts_event_id = event_id!("$first_receipts_event_id");
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Public read receipt")
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read\.private/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Private read receipt")
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.fully_read/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Fully-read marker")
-        .mount(&server)
-        .await;
-
-    timeline
-        .send_single_receipt(
-            CreateReceiptType::Read,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
-        .await
-        .unwrap();
-    timeline
-        .send_single_receipt(
-            CreateReceiptType::ReadPrivate,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
-        .await
-        .unwrap();
-    timeline
-        .send_single_receipt(
-            CreateReceiptType::FullyRead,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
-        .await
-        .unwrap();
-    server.reset().await;
-
-    // Unchanged receipts are not sent.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                "content": {
-                    first_receipts_event_id: {
-                        "m.read.private": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                        "m.read": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                    },
-                },
-                "type": "m.receipt",
-            })))
-            .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "event_id": first_receipts_event_id,
-                },
-                "type": "m.fully_read",
-            }))),
+    let mock_post_receipt_guards = (
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Public read receipt")
+            .mount_as_scoped(server.server())
+            .await,
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read\.private/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Private read receipt")
+            .mount_as_scoped(server.server())
+            .await,
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.fully_read/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Fully-read marker")
+            .mount_as_scoped(server.server())
+            .await,
     );
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    timeline
+        .send_single_receipt(
+            CreateReceiptType::Read,
+            ReceiptThread::Unthreaded,
+            first_receipts_event_id.to_owned(),
+        )
+        .await
+        .unwrap();
+    timeline
+        .send_single_receipt(
+            CreateReceiptType::ReadPrivate,
+            ReceiptThread::Unthreaded,
+            first_receipts_event_id.to_owned(),
+        )
+        .await
+        .unwrap();
+    timeline
+        .send_single_receipt(
+            CreateReceiptType::FullyRead,
+            ReceiptThread::Unthreaded,
+            first_receipts_event_id.to_owned(),
+        )
+        .await
+        .unwrap();
+
+    drop(mock_post_receipt_guards);
+
+    // Unchanged receipts are not sent.
+    let f = EventFactory::new();
+    let own_user_id = client.user_id().unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": first_receipts_event_id,
+                    },
+                    "type": "m.fully_read",
+                }))),
+        )
+        .await;
 
     timeline
         .send_single_receipt(
@@ -545,35 +539,36 @@ async fn test_send_single_receipt() {
         )
         .await
         .unwrap();
-    server.reset().await;
 
     // Receipts with unknown previous receipts are always sent.
     let second_receipts_event_id = event_id!("$second_receipts_event_id");
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Public read receipt")
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read\.private/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Private read receipt")
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.fully_read/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Fully-read marker")
-        .mount(&server)
-        .await;
+    let mock_post_receipt_guards = (
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Public read receipt")
+            .mount_as_scoped(server.server())
+            .await,
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read\.private/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Private read receipt")
+            .mount_as_scoped(server.server())
+            .await,
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.fully_read/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Fully-read marker")
+            .mount_as_scoped(server.server())
+            .await,
+    );
 
     timeline
         .send_single_receipt(
@@ -599,86 +594,77 @@ async fn test_send_single_receipt() {
         )
         .await
         .unwrap();
-    server.reset().await;
+
+    drop(mock_post_receipt_guards);
 
     // Newer receipts in the timeline are sent.
     let third_receipts_event_id = event_id!("$third_receipts_event_id");
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "I'm User A",
-                    "msgtype": "m.text",
-                },
-                "event_id": second_receipts_event_id,
-                "origin_server_ts": 152046694,
-                "sender": "@user_a:example.org",
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "I'm User B",
-                    "msgtype": "m.text",
-                },
-                "event_id": third_receipts_event_id,
-                "origin_server_ts": 152049794,
-                "sender": "@user_b:example.org",
-                "type": "m.room.message",
-            }))
-            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                "content": {
-                    second_receipts_event_id: {
-                        "m.read.private": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                        "m.read": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("I'm User A")
+                        .sender(user_id!("@user_a:example.org"))
+                        .event_id(second_receipts_event_id),
+                )
+                .add_timeline_event(
+                    f.text_msg("I'm User B")
+                        .sender(user_id!("@user_b:example.org"))
+                        .event_id(third_receipts_event_id),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            second_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            second_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": second_receipts_event_id,
                     },
-                },
-                "type": "m.receipt",
-            })))
-            .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "event_id": second_receipts_event_id,
-                },
-                "type": "m.fully_read",
-            }))),
+                    "type": "m.fully_read",
+                }))),
+        )
+        .await;
+
+    let mock_post_receipt_guards = (
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Public read receipt")
+            .mount_as_scoped(server.server())
+            .await,
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read\.private/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Private read receipt")
+            .mount_as_scoped(server.server())
+            .await,
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.fully_read/"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .named("Fully-read marker")
+            .mount_as_scoped(server.server())
+            .await,
     );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Public read receipt")
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read\.private/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Private read receipt")
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.fully_read/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Fully-read marker")
-        .mount(&server)
-        .await;
 
     timeline
         .send_single_receipt(
@@ -704,39 +690,38 @@ async fn test_send_single_receipt() {
         )
         .await
         .unwrap();
-    server.reset().await;
+
+    drop(mock_post_receipt_guards);
 
     // Older receipts in the timeline are not sent.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                "content": {
-                    third_receipts_event_id: {
-                        "m.read.private": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                        "m.read": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            third_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            third_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": third_receipts_event_id,
                     },
-                },
-                "type": "m.receipt",
-            })))
-            .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "event_id": third_receipts_event_id,
-                },
-                "type": "m.fully_read",
-            }))),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+                    "type": "m.fully_read",
+                }))),
+        )
+        .await;
 
     timeline
         .send_single_receipt(
@@ -766,70 +751,48 @@ async fn test_send_single_receipt() {
 
 #[async_test]
 async fn test_mark_as_read() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let own_user_id = client.user_id().unwrap();
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
 
     let original_event_id = event_id!("$original_event_id");
     let reaction_event_id = event_id!("$reaction_event_id");
 
     // When I receive an event with a reaction on it,
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "I like big Rust and I cannot lie",
-                    "msgtype": "m.text",
-                },
-                "event_id": original_event_id,
-                "origin_server_ts": 152046694,
-                "sender": "@sir-axalot:example.org",
-                "type": "m.room.message",
-            }))
-            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                "content": {
-                    original_event_id: {
-                        "m.read": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                    },
-                },
-                "type": "m.receipt",
-            })))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "m.relates_to": {
-                        "event_id": original_event_id,
-                        "key": "🔥🔥🔥",
-                        "rel_type": "m.annotation",
-                    },
-                },
-                "event_id": reaction_event_id,
-                "origin_server_ts": 152038300,
-                "sender": "@prime-minirusta:example.org",
-                "type": "m.reaction",
-            })),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let f = EventFactory::new();
+    let own_user_id = client.user_id().unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("I like big Rust and I cannot lie")
+                        .sender(user_id!("@sir-axalot:example.org"))
+                        .event_id(original_event_id),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            original_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_timeline_event(
+                    f.reaction(original_event_id, "🔥🔥🔥")
+                        .sender(user_id!("@prime-minirusta:example.org"))
+                        .event_id(reaction_event_id),
+                ),
+        )
+        .await;
 
     // And I try to mark the latest event related to a timeline item as read,
     let latest_event = timeline.latest_event().await.expect("missing timeline event item");
@@ -848,15 +811,14 @@ async fn test_mark_as_read() {
     // Then no request is actually sent, because the event forming the timeline item
     // (the message) is known as read.
     assert!(has_sent.not());
-    server.reset().await;
 
     Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt/m\.read/"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
         .named("Public read receipt")
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     // But when I mark the room as read by sending a read receipt to the latest
@@ -865,28 +827,18 @@ async fn test_mark_as_read() {
 
     // It works.
     assert!(has_sent);
-
-    server.reset().await;
 }
 
 #[async_test]
 async fn test_send_multiple_receipts() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let own_user_id = client.user_id().unwrap();
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
 
     // Unknown receipts are sent.
@@ -896,8 +848,8 @@ async fn test_send_multiple_receipts() {
         .public_read_receipt(Some(first_receipts_event_id.to_owned()))
         .private_read_receipt(Some(first_receipts_event_id.to_owned()));
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/read_markers$"))
+    let guard = Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/read_markers$"))
         .and(header("authorization", "Bearer 1234"))
         .and(body_json(json!({
             "m.fully_read": first_receipts_event_id,
@@ -906,46 +858,46 @@ async fn test_send_multiple_receipts() {
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
-        .mount(&server)
+        .mount_as_scoped(server.server())
         .await;
 
     timeline.send_multiple_receipts(first_receipts.clone()).await.unwrap();
-    server.reset().await;
+
+    drop(guard);
 
     // Unchanged receipts are not sent.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                "content": {
-                    first_receipts_event_id: {
-                        "m.read.private": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                        "m.read": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
+    let f = EventFactory::new();
+    let own_user_id = client.user_id().unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": first_receipts_event_id,
                     },
-                },
-                "type": "m.receipt",
-            })))
-            .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "event_id": first_receipts_event_id,
-                },
-                "type": "m.fully_read",
-            }))),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+                    "type": "m.fully_read",
+                }))),
+        )
+        .await;
 
     timeline.send_multiple_receipts(first_receipts).await.unwrap();
-    server.reset().await;
 
     // Receipts with unknown previous receipts are always sent.
     let second_receipts_event_id = event_id!("$second_receipts_event_id");
@@ -954,8 +906,8 @@ async fn test_send_multiple_receipts() {
         .public_read_receipt(Some(second_receipts_event_id.to_owned()))
         .private_read_receipt(Some(second_receipts_event_id.to_owned()));
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/read_markers$"))
+    let guard = Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/read_markers$"))
         .and(header("authorization", "Bearer 1234"))
         .and(body_json(json!({
             "m.fully_read": second_receipts_event_id,
@@ -964,11 +916,11 @@ async fn test_send_multiple_receipts() {
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
-        .mount(&server)
+        .mount_as_scoped(server.server())
         .await;
 
     timeline.send_multiple_receipts(second_receipts.clone()).await.unwrap();
-    server.reset().await;
+    drop(guard);
 
     // Newer receipts in the timeline are sent.
     let third_receipts_event_id = event_id!("$third_receipts_event_id");
@@ -977,59 +929,47 @@ async fn test_send_multiple_receipts() {
         .public_read_receipt(Some(third_receipts_event_id.to_owned()))
         .private_read_receipt(Some(third_receipts_event_id.to_owned()));
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "I'm User A",
-                    "msgtype": "m.text",
-                },
-                "event_id": second_receipts_event_id,
-                "origin_server_ts": 152046694,
-                "sender": "@user_a:example.org",
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "I'm User B",
-                    "msgtype": "m.text",
-                },
-                "event_id": third_receipts_event_id,
-                "origin_server_ts": 152049794,
-                "sender": "@user_b:example.org",
-                "type": "m.room.message",
-            }))
-            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                "content": {
-                    second_receipts_event_id: {
-                        "m.read.private": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                        "m.read": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("I'm User A")
+                        .sender(user_id!("@user_a:example.org"))
+                        .event_id(second_receipts_event_id),
+                )
+                .add_timeline_event(
+                    f.text_msg("I'm User B")
+                        .sender(user_id!("@user_b:example.org"))
+                        .event_id(third_receipts_event_id),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            second_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            second_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": second_receipts_event_id,
                     },
-                },
-                "type": "m.receipt",
-            })))
-            .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "event_id": second_receipts_event_id,
-                },
-                "type": "m.fully_read",
-            }))),
-    );
+                    "type": "m.fully_read",
+                }))),
+        )
+        .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/read_markers$"))
+    let guard = Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/read_markers$"))
         .and(header("authorization", "Bearer 1234"))
         .and(body_json(json!({
             "m.fully_read": third_receipts_event_id,
@@ -1038,43 +978,41 @@ async fn test_send_multiple_receipts() {
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
-        .mount(&server)
+        .mount_as_scoped(server.server())
         .await;
 
     timeline.send_multiple_receipts(third_receipts.clone()).await.unwrap();
-    server.reset().await;
+    drop(guard);
 
     // Older receipts in the timeline are not sent.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_ephemeral_event(EphemeralTestEvent::Custom(json!({
-                "content": {
-                    third_receipts_event_id: {
-                        "m.read.private": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
-                        "m.read": {
-                            own_user_id: {
-                                "ts": 1436453550,
-                            },
-                        },
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            third_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            third_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": third_receipts_event_id,
                     },
-                },
-                "type": "m.receipt",
-            })))
-            .add_account_data(RoomAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "event_id": third_receipts_event_id,
-                },
-                "type": "m.fully_read",
-            }))),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+                    "type": "m.fully_read",
+                }))),
+        )
+        .await;
 
     timeline.send_multiple_receipts(second_receipts.clone()).await.unwrap();
 }
