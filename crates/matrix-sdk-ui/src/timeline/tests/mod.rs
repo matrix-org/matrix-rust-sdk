@@ -210,7 +210,7 @@ impl TestTimeline {
         for (event_id, tyype, user_id, thread) in receipts {
             read_receipt = read_receipt.add(&event_id, &user_id, tyype, thread);
         }
-        let ev_content = read_receipt.build();
+        let ev_content = read_receipt.into_content();
         self.controller.handle_read_receipts(ev_content).await;
     }
 
