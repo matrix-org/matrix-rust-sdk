@@ -48,7 +48,7 @@ use ruma::{
         },
         receipt::ReceiptThread,
         room::message::{
-            ForwardThread, LocationMessageEventContent, MessageType, ReplyWithinThread,
+            LocationMessageEventContent, MessageType, ReplyWithinThread,
             RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent,
@@ -479,11 +479,7 @@ impl Timeline {
             .map_err(|err| anyhow::anyhow!(err))?;
 
         self.inner
-            .send_reply(
-                (*msg).clone(),
-                replied_to_info,
-                timeline::EnforceThread::No(ForwardThread::Yes),
-            )
+            .send_reply((*msg).clone(), replied_to_info, timeline::EnforceThread::MaybeThreaded)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -518,7 +514,7 @@ impl Timeline {
             .send_reply(
                 (*msg).clone(),
                 replied_to_info,
-                timeline::EnforceThread::Yes(if is_reply {
+                timeline::EnforceThread::Threaded(if is_reply {
                     ReplyWithinThread::Yes
                 } else {
                     ReplyWithinThread::No

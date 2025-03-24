@@ -143,11 +143,15 @@ pub enum ReplyContent {
 pub enum EnforceThread {
     /// A thread relation is enforced. If the original message does not have a
     /// thread relation itself, a new thread is started.
-    Yes(ReplyWithinThread),
+    Threaded(ReplyWithinThread),
 
     /// A thread relation is not enforced. If the original message has a thread
-    /// relation, it is optionally forwarded.
-    No(ForwardThread),
+    /// relation, it is forwarded, however.
+    MaybeThreaded,
+
+    /// A thread relation is not enforced. If the original message has a thread
+    /// relation, it is *not* forwarded, however.
+    Unthreaded,
 }
 
 /// A high-level view into a regular¹ room's contents.
@@ -366,17 +370,20 @@ impl Timeline {
                 };
 
                 match enforce_thread {
-                    EnforceThread::Yes(is_reply) => {
+                    EnforceThread::Threaded(is_reply) => {
                         content.make_for_thread(&event, is_reply, mention_the_sender)
                     }
-                    EnforceThread::No(forward_thread) => {
-                        content.make_reply_to(&event, forward_thread, mention_the_sender)
+                    EnforceThread::MaybeThreaded => {
+                        content.make_reply_to(&event, ForwardThread::Yes, mention_the_sender)
+                    }
+                    EnforceThread::Unthreaded => {
+                        content.make_reply_to(&event, ForwardThread::No, mention_the_sender)
                     }
                 }
             }
             ReplyContent::Raw(raw_event) => {
                 match enforce_thread {
-                    EnforceThread::Yes(is_reply) => {
+                    EnforceThread::Threaded(is_reply) => {
                         // Some of the code below technically belongs into ruma. However,
                         // reply fallbacks have been removed in Matrix 1.13 which means
                         // both match arms can use the successor of make_for_thread in
@@ -420,11 +427,18 @@ impl Timeline {
                         content.relates_to = Some(Relation::Thread(thread));
                         content
                     }
-                    EnforceThread::No(forward_thread) => content.make_reply_to_raw(
+                    EnforceThread::MaybeThreaded => content.make_reply_to_raw(
                         &raw_event,
                         replied_to_info.event_id,
                         self.room().room_id(),
-                        forward_thread,
+                        ForwardThread::Yes,
+                        mention_the_sender,
+                    ),
+                    EnforceThread::Unthreaded => content.make_reply_to_raw(
+                        &raw_event,
+                        replied_to_info.event_id,
+                        self.room().room_id(),
+                        ForwardThread::No,
                         mention_the_sender,
                     ),
                 }

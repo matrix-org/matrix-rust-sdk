@@ -22,9 +22,7 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            message::{
-                ForwardThread, Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation,
-            },
+            message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
             ImageInfo,
         },
         sticker::{StickerEventContent, StickerMediaSource},
@@ -606,7 +604,7 @@ async fn test_send_reply() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            EnforceThread::No(ForwardThread::Yes),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -706,7 +704,7 @@ async fn test_send_reply_to_self() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
             replied_to_info,
-            EnforceThread::No(ForwardThread::Yes),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -772,7 +770,7 @@ async fn test_send_reply_to_threaded() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
             replied_to_info,
-            EnforceThread::No(ForwardThread::Yes),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -880,7 +878,7 @@ async fn test_send_reply_with_event_id() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            EnforceThread::No(ForwardThread::Yes),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -966,7 +964,7 @@ async fn test_send_reply_enforce_thread() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            EnforceThread::Yes(ReplyWithinThread::No),
+            EnforceThread::Threaded(ReplyWithinThread::No),
         )
         .await
         .unwrap();
@@ -1063,7 +1061,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            EnforceThread::Yes(ReplyWithinThread::Yes),
+            EnforceThread::Threaded(ReplyWithinThread::Yes),
         )
         .await
         .unwrap();
@@ -1161,7 +1159,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
             replied_to_info,
-            EnforceThread::No(ForwardThread::Yes),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
