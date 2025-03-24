@@ -114,7 +114,6 @@ impl RoomAccountDataTestEvent {
 
 /// Test events that can be added to the ephemeral events.
 pub enum EphemeralTestEvent {
-    Typing,
     Custom(JsonValue),
 }
 
@@ -122,7 +121,6 @@ impl EphemeralTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::Typing => test_json::sync_events::TYPING.to_owned(),
             Self::Custom(json) => json,
         }
     }

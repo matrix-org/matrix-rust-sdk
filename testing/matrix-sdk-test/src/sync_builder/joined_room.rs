@@ -1,8 +1,8 @@
 use ruma::{
     api::client::sync::sync_events::v3::JoinedRoom,
     events::{
-        receipt::ReceiptEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
-        AnySyncStateEvent, AnySyncTimelineEvent,
+        receipt::ReceiptEventContent, typing::TypingEventContent, AnyRoomAccountDataEvent,
+        AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnySyncTimelineEvent,
     },
     serde::Raw,
     OwnedRoomId, RoomId,
@@ -105,6 +105,12 @@ impl JoinedRoomBuilder {
 
     /// Add a single read receipt to the joined room's ephemeral events.
     pub fn add_receipt(mut self, f: EventBuilder<ReceiptEventContent>) -> Self {
+        self.inner.ephemeral.events.push(f.into_raw());
+        self
+    }
+
+    /// Add a typing notification event for this sync.
+    pub fn add_typing(mut self, f: EventBuilder<TypingEventContent>) -> Self {
         self.inner.ephemeral.events.push(f.into_raw());
         self
     }
