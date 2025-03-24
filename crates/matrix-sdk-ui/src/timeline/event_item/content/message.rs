@@ -311,9 +311,9 @@ impl InReplyToDetails {
 /// An event that is replied to.
 #[derive(Clone, Debug)]
 pub struct RepliedToEvent {
-    pub(in crate::timeline) content: TimelineItemContent,
-    pub(in crate::timeline) sender: OwnedUserId,
-    pub(in crate::timeline) sender_profile: TimelineDetails<Profile>,
+    content: TimelineItemContent,
+    sender: OwnedUserId,
+    sender_profile: TimelineDetails<Profile>,
 }
 
 impl RepliedToEvent {
@@ -332,6 +332,7 @@ impl RepliedToEvent {
         &self.sender_profile
     }
 
+    /// Create a [`RepliedToEvent`] from a loaded event timeline item.
     pub fn from_timeline_item(timeline_item: &EventTimelineItem) -> Self {
         Self {
             content: timeline_item.content.clone(),
