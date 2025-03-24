@@ -832,16 +832,32 @@ pub struct ReadReceiptBuilder<'a> {
 impl ReadReceiptBuilder<'_> {
     /// Add a single read receipt to the event.
     pub fn add(
-        mut self,
+        self,
         event_id: &EventId,
         user_id: &UserId,
         tyype: ReceiptType,
         thread: ReceiptThread,
     ) -> Self {
+        let ts = self.factory.next_server_ts();
+        self.add_with_timestamp(event_id, user_id, tyype, thread, Some(ts))
+    }
+
+    /// Add a single read receipt to the event, with an optional timestamp.
+    pub fn add_with_timestamp(
+        mut self,
+        event_id: &EventId,
+        user_id: &UserId,
+        tyype: ReceiptType,
+        thread: ReceiptThread,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> Self {
         let by_event = self.content.0.entry(event_id.to_owned()).or_default();
         let by_type = by_event.entry(tyype).or_default();
 
-        let mut receipt = Receipt::new(self.factory.next_server_ts());
+        let mut receipt = Receipt::default();
+        if let Some(ts) = ts {
+            receipt.ts = Some(ts);
+        }
         receipt.thread = thread;
 
         by_type.insert(user_id.to_owned(), receipt);

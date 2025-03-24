@@ -12,23 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Not as _, time::Duration};
+use std::ops::Not as _;
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    config::SyncSettings,
     room::Receipts,
-    test_utils::{
-        logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
-    },
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, EphemeralTestEvent,
-    JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder, ALICE, BOB, CAROL,
+    async_test, event_factory::EventFactory, JoinedRoomBuilder, RoomAccountDataTestEvent, ALICE,
+    BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
@@ -39,7 +35,7 @@ use ruma::{
         room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     },
-    room_id, user_id, RoomVersionId,
+    room_id, uint, user_id, MilliSecondsSinceUnixEpoch, RoomVersionId,
 };
 use serde_json::json;
 use stream_assert::{assert_pending, assert_ready};
@@ -48,8 +44,6 @@ use wiremock::{
     matchers::{body_json, header, method, path_regex},
     Mock, ResponseTemplate,
 };
-
-use crate::mock_sync;
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -1019,11 +1013,23 @@ async fn test_send_multiple_receipts() {
 
 #[async_test]
 async fn test_latest_user_read_receipt() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    let (items, _) = timeline.subscribe().await;
+
+    assert!(items.is_empty());
 
     let own_user_id = client.user_id().unwrap();
+    let user_receipt = timeline.latest_user_read_receipt(own_user_id).await;
+    assert_matches!(user_receipt, None);
 
     let event_a_id = event_id!("$event_a");
     let event_b_id = event_id!("$event_b");
@@ -1031,116 +1037,95 @@ async fn test_latest_user_read_receipt() {
     let event_d_id = event_id!("$event_d");
     let event_e_id = event_id!("$event_e");
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await.unwrap();
-    let (items, _) = timeline.subscribe().await;
-
-    assert!(items.is_empty());
-
-    let user_receipt = timeline.latest_user_read_receipt(own_user_id).await;
-    assert_matches!(user_receipt, None);
-
     // Only private receipt.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                event_a_id: {
-                    "m.read.private": {
-                        own_user_id: {},
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add_with_timestamp(
+                        event_a_id,
+                        own_user_id,
+                        EventReceiptType::ReadPrivate,
+                        ReceiptThread::Unthreaded,
+                        None,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
 
     let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
     assert_eq!(user_receipt_id, event_a_id);
 
     // Private and public receipts without timestamp should return private
     // receipt.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                event_b_id: {
-                    "m.read": {
-                        own_user_id: {},
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add_with_timestamp(
+                        event_b_id,
+                        own_user_id,
+                        EventReceiptType::Read,
+                        ReceiptThread::Unthreaded,
+                        None,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
 
     let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
     assert_eq!(user_receipt_id, event_a_id);
 
     // Public receipt with bigger timestamp.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                event_c_id: {
-                    "m.read.private": {
-                        own_user_id: {
-                            "ts": 1,
-                        },
-                    },
-                },
-                event_d_id: {
-                    "m.read": {
-                        own_user_id: {
-                            "ts": 10,
-                        },
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add_with_timestamp(
+                        event_c_id,
+                        own_user_id,
+                        EventReceiptType::ReadPrivate,
+                        ReceiptThread::Unthreaded,
+                        Some(MilliSecondsSinceUnixEpoch(uint!(1))),
+                    )
+                    .add_with_timestamp(
+                        event_d_id,
+                        own_user_id,
+                        EventReceiptType::Read,
+                        ReceiptThread::Unthreaded,
+                        Some(MilliSecondsSinceUnixEpoch(uint!(10))),
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
 
     let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
     assert_eq!(user_receipt_id, event_d_id);
 
     // Private receipt with bigger timestamp.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                event_e_id: {
-                    "m.read.private": {
-                        own_user_id: {
-                            "ts": 100,
-                        },
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add_with_timestamp(
+                        event_e_id,
+                        own_user_id,
+                        EventReceiptType::ReadPrivate,
+                        ReceiptThread::Unthreaded,
+                        Some(MilliSecondsSinceUnixEpoch(uint!(100))),
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
 
     let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
     assert_eq!(user_receipt_id, event_e_id);
