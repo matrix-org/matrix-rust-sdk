@@ -495,6 +495,31 @@ impl Room {
         Ok(event)
     }
 
+    /// Try to load the event from the event cache, if it's enabled, or fetch it
+    /// from the homeserver.
+    ///
+    /// When running the request against the homeserver, it uses the given
+    /// [`RequestConfig`] if provided, or the client's default one
+    /// otherwise.
+    pub async fn load_or_fetch_event(
+        &self,
+        event_id: &EventId,
+        request_config: Option<RequestConfig>,
+    ) -> Result<TimelineEvent> {
+        match self.event_cache().await {
+            Ok((event_cache, _drop_handles)) => {
+                if let Some(event) = event_cache.event(event_id).await {
+                    return Ok(event);
+                }
+                // Fallthrough: try with a request.
+            }
+            Err(err) => {
+                debug!("error when getting the event cache: {err}");
+            }
+        }
+        self.event(event_id, request_config).await
+    }
+
     /// Fetch the event with the given `EventId` in this room, using the
     /// `/context` endpoint to get more information.
     pub async fn event_with_context(
