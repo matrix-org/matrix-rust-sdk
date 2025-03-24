@@ -1377,7 +1377,7 @@ impl QueueStorage {
 
             finish_item_infos.push(FinishGalleryItemInfo {
                 file_upload: upload_file_txn.clone(),
-                thumbnail_info: thumbnail_info,
+                thumbnail_info,
             });
 
             last_upload_file_txn = Some(upload_file_txn);
@@ -1575,7 +1575,7 @@ impl QueueStorage {
                             upload_file_txn: i.file_upload,
                         })
                         .collect(),
-                    created_at: created_at,
+                    created_at,
                 },
                 send_error: None,
             },
