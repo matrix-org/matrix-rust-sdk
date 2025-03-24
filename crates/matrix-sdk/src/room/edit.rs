@@ -34,7 +34,7 @@ use ruma::{
     EventId, RoomId, UserId,
 };
 use thiserror::Error;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{instrument, warn};
 
 use crate::Room;
 
@@ -134,21 +134,9 @@ trait EventSource {
 
 impl EventSource for &Room {
     async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, EditError> {
-        match self.event_cache().await {
-            Ok((event_cache, _drop_handles)) => {
-                if let Some(event) = event_cache.event(event_id).await {
-                    return Ok(event);
-                }
-                // Fallthrough: try with /event.
-            }
-
-            Err(err) => {
-                debug!("error when getting the event cache: {err}");
-            }
-        }
-
-        trace!("trying with /event now");
-        self.event(event_id, None).await.map_err(|err| EditError::Fetch(Box::new(err)))
+        self.load_or_fetch_event(event_id, None)
+            .await
+            .map_err(|err| EditError::Fetch(Box::new(err)))
     }
 }
 
