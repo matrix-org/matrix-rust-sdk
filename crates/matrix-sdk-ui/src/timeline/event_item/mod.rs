@@ -541,7 +541,7 @@ impl EventTimelineItem {
     /// Gives the information needed to reply to the event of the item.
     pub fn replied_to_info(&self) -> Result<RepliedToInfo, UnsupportedReplyItem> {
         let reply_content = match self.content() {
-            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
+            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_content()),
             _ => {
                 let Some(raw_event) = self.latest_json() else {
                     return Err(UnsupportedReplyItem::MissingJson);
