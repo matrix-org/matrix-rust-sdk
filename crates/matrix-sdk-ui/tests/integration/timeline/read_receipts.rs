@@ -63,33 +63,27 @@ fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bo
 
 #[async_test]
 async fn test_read_receipts_updates() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let own_user_id = client.user_id().unwrap();
-    let alice = user_id!("@alice:localhost");
-    let bob = user_id!("@bob:localhost");
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
 
     let second_event_id = event_id!("$e32037280er453l:localhost");
     let third_event_id = event_id!("$Sg2037280074GZr34:localhost");
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (items, mut timeline_stream) = timeline.subscribe().await;
     let mut own_receipts_subscriber = timeline.subscribe_own_user_read_receipts_changed().await;
 
     assert!(items.is_empty());
     assert_pending!(own_receipts_subscriber);
+
+    let own_user_id = client.user_id().unwrap();
+    let alice = user_id!("@alice:localhost");
+    let bob = user_id!("@bob:localhost");
 
     let own_receipt = timeline.latest_user_read_receipt(own_user_id).await;
     assert_matches!(own_receipt, None);
@@ -98,48 +92,47 @@ async fn test_read_receipts_updates() {
     let bob_receipt = timeline.latest_user_read_receipt(bob).await;
     assert_matches!(bob_receipt, None);
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "is dancing", "format":
-                    "org.matrix.custom.html",
-                    "formatted_body": "<strong>is dancing</strong>",
-                    "msgtype": "m.text"
-                },
-                "event_id": "$152037280074GZeOm:localhost",
-                "origin_server_ts": 152037280,
-                "sender": "@example:localhost",
-                "type": "m.room.message",
-                "unsigned": {
-                    "age": 598971
-                }
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "I'm dancing too",
-                    "msgtype": "m.text"
-                },
-                "event_id": second_event_id,
-                "origin_server_ts": 152039280,
-                "sender": alice,
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "Viva la macarena!",
-                    "msgtype": "m.text"
-                },
-                "event_id": third_event_id,
-                "origin_server_ts": 152045280,
-                "sender": alice,
-                "type": "m.room.message",
-            })),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(sync_timeline_event!({
+                    "content": {
+                        "body": "is dancing", "format":
+                        "org.matrix.custom.html",
+                        "formatted_body": "<strong>is dancing</strong>",
+                        "msgtype": "m.text"
+                    },
+                    "event_id": "$152037280074GZeOm:localhost",
+                    "origin_server_ts": 152037280,
+                    "sender": "@example:localhost",
+                    "type": "m.room.message",
+                    "unsigned": {
+                        "age": 598971
+                    }
+                }))
+                .add_timeline_event(sync_timeline_event!({
+                    "content": {
+                        "body": "I'm dancing too",
+                        "msgtype": "m.text"
+                    },
+                    "event_id": second_event_id,
+                    "origin_server_ts": 152039280,
+                    "sender": alice,
+                    "type": "m.room.message",
+                }))
+                .add_timeline_event(sync_timeline_event!({
+                    "content": {
+                        "body": "Viva la macarena!",
+                        "msgtype": "m.text"
+                    },
+                    "event_id": third_event_id,
+                    "origin_server_ts": 152045280,
+                    "sender": alice,
+                    "type": "m.room.message",
+                })),
+        )
+        .await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
     assert_eq!(timeline_updates.len(), 5);
@@ -176,93 +169,105 @@ async fn test_read_receipts_updates() {
     assert!(date_divider.is_date_divider());
 
     // Read receipt on unknown event is ignored.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                "$unknowneventid": {
-                    "m.read": {
-                        alice: {
-                            "ts": 1436453550,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_ephemeral_event(EphemeralTestEvent::Custom(
+                json!({
+                    "content": {
+                        "$unknowneventid": {
+                            "m.read": {
+                                alice: {
+                                    "ts": 1436453550,
+                                },
+                            },
                         },
                     },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+                    "type": "m.receipt",
+                }),
+            )),
+        )
+        .await;
 
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
     assert_eq!(alice_receipt_event_id, third_event.event_id().unwrap());
 
     // Read receipt on older event is ignored.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                second_event_id: {
-                    "m.read": {
-                        alice: {
-                            "ts": 1436451550,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_ephemeral_event(EphemeralTestEvent::Custom(
+                json!({
+                    "content": {
+                        second_event_id: {
+                            "m.read": {
+                                alice: {
+                                    "ts": 1436451550,
+                                },
+                            },
                         },
                     },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
+                    "type": "m.receipt",
+                }),
+            )),
+        )
+        .await;
 
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
     assert_eq!(alice_receipt_event_id, third_event_id);
 
     // Read receipt on same event is ignored.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                third_event_id: {
-                    "m.read": {
-                        alice: {
-                            "ts": 1436451550,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_ephemeral_event(EphemeralTestEvent::Custom(
+                json!({
+                    "content": {
+                        third_event_id: {
+                            "m.read": {
+                                alice: {
+                                    "ts": 1436451550,
+                                },
+                            },
                         },
                     },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
+                    "type": "m.receipt",
+                }),
+            )),
+        )
+        .await;
 
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
     assert_eq!(alice_receipt_event_id, third_event_id);
 
     // New user with explicit threaded and unthreaded read receipts.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                second_event_id: {
-                    "m.read": {
-                        bob: {
-                            "ts": 1436451350,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_ephemeral_event(EphemeralTestEvent::Custom(
+                json!({
+                    "content": {
+                        second_event_id: {
+                            "m.read": {
+                                bob: {
+                                    "ts": 1436451350,
+                                },
+                            },
+                        },
+                        third_event_id: {
+                            "m.read": {
+                                bob: {
+                                    "ts": 1436451550,
+                                    "thread_id": "main",
+                                },
+                            },
                         },
                     },
-                },
-                third_event_id: {
-                    "m.read": {
-                        bob: {
-                            "ts": 1436451550,
-                            "thread_id": "main",
-                        },
-                    },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+                    "type": "m.receipt",
+                }),
+            )),
+        )
+        .await;
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
     assert_eq!(timeline_updates.len(), 1);
@@ -277,24 +282,25 @@ async fn test_read_receipts_updates() {
     assert_pending!(own_receipts_subscriber);
 
     // Private read receipt is updated.
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
-        EphemeralTestEvent::Custom(json!({
-            "content": {
-                second_event_id: {
-                    "m.read.private": {
-                        own_user_id: {
-                            "ts": 1436453550,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_ephemeral_event(EphemeralTestEvent::Custom(
+                json!({
+                    "content": {
+                        second_event_id: {
+                            "m.read.private": {
+                                own_user_id: {
+                                    "ts": 1436453550,
+                                },
+                            },
                         },
                     },
-                },
-            },
-            "type": "m.receipt",
-        })),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+                    "type": "m.receipt",
+                }),
+            )),
+        )
+        .await;
 
     let (own_user_receipt_event_id, _) =
         timeline.latest_user_read_receipt(own_user_id).await.unwrap();
