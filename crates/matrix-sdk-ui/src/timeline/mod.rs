@@ -41,6 +41,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread},
         relation::Thread,
         room::{
+            encrypted::Relation as EncryptedRelation,
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, Relation, ReplyWithinThread,
                 RoomMessageEventContentWithoutRelation,
@@ -391,7 +392,7 @@ impl Timeline {
                         #[derive(Deserialize)]
                         struct ContentDeHelper {
                             #[serde(rename = "m.relates_to")]
-                            relates_to: Option<ruma::events::room::encrypted::Relation>,
+                            relates_to: Option<EncryptedRelation>,
                         }
 
                         let previous_content =
@@ -409,14 +410,13 @@ impl Timeline {
                             content.into()
                         };
 
-                        let thread_root =
-                            if let Some(ruma::events::room::encrypted::Relation::Thread(thread)) =
-                                previous_content.as_ref().and_then(|c| c.relates_to.as_ref())
-                            {
-                                thread.event_id.to_owned()
-                            } else {
-                                replied_to_info.event_id.to_owned()
-                            };
+                        let thread_root = if let Some(EncryptedRelation::Thread(thread)) =
+                            previous_content.as_ref().and_then(|c| c.relates_to.as_ref())
+                        {
+                            thread.event_id.to_owned()
+                        } else {
+                            replied_to_info.event_id.to_owned()
+                        };
 
                         let thread = if is_reply == ReplyWithinThread::Yes {
                             Thread::reply(thread_root, replied_to_info.event_id)
