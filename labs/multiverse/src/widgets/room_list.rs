@@ -1,10 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use imbl::Vector;
-use matrix_sdk::ruma::{api::client::receipt::create_receipt::v3::ReceiptType, OwnedRoomId};
+use matrix_sdk::{locks::Mutex, ruma::OwnedRoomId};
 use matrix_sdk_ui::{room_list_service, sync_service::SyncService};
 use ratatui::{prelude::*, widgets::*};
 
@@ -72,7 +69,7 @@ impl RoomList {
     ///
     /// Returns the index only if there was a meaningful change.
     pub fn next_room(&mut self) {
-        let num_items = self.rooms.lock().unwrap().len();
+        let num_items = self.rooms.lock().len();
 
         // If there's no item to select, leave early.
         if num_items == 0 {
@@ -94,7 +91,7 @@ impl RoomList {
     ///
     /// Returns the index only if there was a meaningful change.
     pub fn previous_room(&mut self) {
-        let num_items = self.rooms.lock().unwrap().len();
+        let num_items = self.rooms.lock().len();
 
         // If there's no item to select, leave early.
         if num_items == 0 {
@@ -114,7 +111,7 @@ impl RoomList {
 
     /// Returns the [`OwnedRoomId`] of the `nth` room within the [`RoomList`].
     pub fn get_room_id_of_entry(&self, nth: usize) -> Option<OwnedRoomId> {
-        self.rooms.lock().unwrap().get(nth).cloned().map(|room| room.room_id().to_owned())
+        self.rooms.lock().get(nth).cloned().map(|room| room.room_id().to_owned())
     }
 
     /// Returns the [`OwnedRoomId`] of the currently selected room, if any.
@@ -135,31 +132,6 @@ impl RoomList {
         {
             self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
             self.current_room_subscription = Some(room);
-        }
-    }
-
-    /// Mark the currently selected room as read.
-    pub async fn mark_as_read(&mut self) {
-        let Some(room) = self
-            .get_selected_room_id()
-            .and_then(|room_id| self.ui_rooms.lock().get(&room_id).cloned())
-        else {
-            self.status_handle.set_message("missing room or nothing to show".to_owned());
-            return;
-        };
-
-        // Mark as read!
-        match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
-            Ok(did) => {
-                self.status_handle.set_message(format!(
-                    "did {}send a read receipt!",
-                    if did { "" } else { "not " }
-                ));
-            }
-            Err(err) => {
-                self.status_handle
-                    .set_message(format!("error when marking a room as read: {err}",));
-            }
         }
     }
 }
@@ -190,13 +162,12 @@ impl Widget for &mut RoomList {
 
         // Don't keep this lock too long by cloning the content. RAM's free these days,
         // right?
-        let mut room_info = self.room_infos.lock().unwrap().clone();
+        let mut room_info = self.room_infos.lock().clone();
 
         // Iterate through all elements in the `items` and stylize them.
         let items: Vec<ListItem<'_>> = self
             .rooms
             .lock()
-            .unwrap()
             .iter()
             .enumerate()
             .map(|(i, room)| {

@@ -163,7 +163,8 @@ impl StatefulWidget for &mut RecoveryView {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         state.update_state();
 
-        // Create a centered popout with 8 lines and 70 rows.
+        // Create a centered popout with 8 lines and 70 rows. This size is picked so the
+        // recovery view looks a bit like a settings screen.
         let vertical =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(10), Constraint::Fill(1)])
                 .flex(Flex::Center);
