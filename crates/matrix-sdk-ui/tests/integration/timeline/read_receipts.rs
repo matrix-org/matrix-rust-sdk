@@ -92,7 +92,7 @@ async fn test_read_receipts_updates() {
     let bob_receipt = timeline.latest_user_read_receipt(bob).await;
     assert_matches!(bob_receipt, None);
 
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new();
     server
         .sync_room(
             &client,
@@ -279,7 +279,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         timeline.latest_user_read_receipt_timeline_event_id(*BOB).await;
     assert_matches!(bob_receipt_timeline_event, None);
 
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new();
     server
         .sync_room(
             &client,

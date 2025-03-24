@@ -692,19 +692,6 @@ pub static TOPIC: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static TYPING: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "user_ids": [
-                "@alice:matrix.org",
-                "@bob:example.com"
-            ]
-        },
-        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-        "type": "m.typing"
-    })
-});
-
 pub static TOPIC_REDACTION: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {},
