@@ -568,8 +568,7 @@ async fn test_send_reply() {
         )
         .await;
 
-    let event_from_bob =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
@@ -599,7 +598,7 @@ async fn test_send_reply() {
         .mount()
         .await;
 
-    let replied_to_info = event_from_bob.replied_to_info().unwrap();
+    let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
@@ -671,8 +670,7 @@ async fn test_send_reply_to_self() {
         )
         .await;
 
-    let event_from_self =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
@@ -699,7 +697,7 @@ async fn test_send_reply_to_self() {
         .mount()
         .await;
 
-    let replied_to_info = event_from_self.replied_to_info().unwrap();
+    let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_self).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
@@ -760,12 +758,11 @@ async fn test_send_reply_to_threaded() {
         )
         .await;
 
-    let hello_world_item =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     server.mock_room_send().ok(event_id!("$reply_event")).mock_once().mount().await;
 
-    let replied_to_info = hello_world_item.replied_to_info().unwrap();
+    let replied_to_info = timeline.replied_to_info_from_event_id(event_id_1).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
@@ -924,8 +921,7 @@ async fn test_send_reply_enforce_thread() {
         )
         .await;
 
-    let event_from_bob =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
@@ -954,7 +950,7 @@ async fn test_send_reply_enforce_thread() {
         .mount()
         .await;
 
-    let replied_to_info = event_from_bob.replied_to_info().unwrap();
+    let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
@@ -1017,8 +1013,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
         )
         .await;
 
-    let event_from_bob =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
@@ -1051,7 +1046,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
         .mount()
         .await;
 
-    let replied_to_info = event_from_bob.replied_to_info().unwrap();
+    let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),

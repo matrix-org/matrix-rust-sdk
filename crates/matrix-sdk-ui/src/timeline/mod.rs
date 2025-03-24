@@ -453,10 +453,6 @@ impl Timeline {
         &self,
         event_id: &EventId,
     ) -> Result<RepliedToInfo, UnsupportedReplyItem> {
-        if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return timeline_item.replied_to_info();
-        }
-
         let event = self.room().load_or_fetch_event(event_id, None).await.map_err(|error| {
             error!("Failed to fetch event with ID {event_id} with error: {error}");
             UnsupportedReplyItem::MissingEvent

@@ -57,7 +57,6 @@ pub use self::{
     },
     local::EventSendState,
 };
-use super::{RepliedToInfo, ReplyContent, UnsupportedReplyItem};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -536,31 +535,6 @@ impl EventTimelineItem {
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
-    }
-
-    /// Gives the information needed to reply to the event of the item.
-    pub fn replied_to_info(&self) -> Result<RepliedToInfo, UnsupportedReplyItem> {
-        let reply_content = match self.content() {
-            TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_content()),
-            _ => {
-                let Some(raw_event) = self.latest_json() else {
-                    return Err(UnsupportedReplyItem::MissingJson);
-                };
-
-                ReplyContent::Raw(raw_event.clone())
-            }
-        };
-
-        let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedReplyItem::MissingEventId);
-        };
-
-        Ok(RepliedToInfo {
-            event_id: event_id.to_owned(),
-            sender: self.sender().to_owned(),
-            timestamp: self.timestamp(),
-            content: reply_content,
-        })
     }
 
     pub(super) fn handle(&self) -> TimelineItemHandle<'_> {
