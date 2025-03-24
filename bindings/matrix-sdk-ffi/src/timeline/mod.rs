@@ -28,7 +28,6 @@ use matrix_sdk::{
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
     room::edit::EditedContent as SdkEditedContent,
-    Error,
 };
 use matrix_sdk_ui::timeline::{
     self, EventItemOrigin, Profile, RepliedToEvent, TimelineDetails,
@@ -671,19 +670,12 @@ impl Timeline {
     ) -> Result<Arc<InReplyToDetails>, ClientError> {
         let event_id = EventId::parse(&event_id_str)?;
 
-        let replied_to: Result<RepliedToEvent, Error> =
-            if let Some(event) = self.inner.item_by_event_id(&event_id).await {
-                Ok(RepliedToEvent::from_timeline_item(&event))
-            } else {
-                match self.inner.room().event(&event_id, None).await {
-                    Ok(timeline_event) => Ok(RepliedToEvent::try_from_timeline_event_for_room(
-                        timeline_event,
-                        self.inner.room(),
-                    )
-                    .await?),
-                    Err(e) => Err(e),
-                }
-            };
+        let replied_to = match self.inner.room().load_or_fetch_event(&event_id, None).await {
+            Ok(event) => RepliedToEvent::try_from_timeline_event_for_room(event, self.inner.room())
+                .await
+                .map_err(ClientError::from),
+            Err(e) => Err(ClientError::from(e)),
+        };
 
         match replied_to {
             Ok(replied_to) => Ok(Arc::new(InReplyToDetails::new(
