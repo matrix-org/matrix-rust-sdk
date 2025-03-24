@@ -114,8 +114,6 @@ impl RoomAccountDataTestEvent {
 
 /// Test events that can be added to the ephemeral events.
 pub enum EphemeralTestEvent {
-    ReadReceipt,
-    ReadReceiptOther,
     Typing,
     Custom(JsonValue),
 }
@@ -124,8 +122,6 @@ impl EphemeralTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::ReadReceipt => test_json::sync_events::READ_RECEIPT.to_owned(),
-            Self::ReadReceiptOther => test_json::sync_events::READ_RECEIPT_OTHER.to_owned(),
             Self::Typing => test_json::sync_events::TYPING.to_owned(),
             Self::Custom(json) => json,
         }

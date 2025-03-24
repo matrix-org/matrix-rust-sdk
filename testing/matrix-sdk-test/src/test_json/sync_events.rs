@@ -596,38 +596,6 @@ pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static READ_RECEIPT: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "$example": {
-                "m.read": {
-                    "@example:localhost": {
-                        "ts": 1436451550
-                    }
-                }
-            }
-        },
-        "room_id": "!test:localhost",
-        "type": "m.receipt"
-    })
-});
-
-pub static READ_RECEIPT_OTHER: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "$other": {
-                "m.read": {
-                    "@example:localhost": {
-                        "ts": 1436964550
-                    }
-                }
-            }
-        },
-        "room_id": "!test:localhost",
-        "type": "m.receipt"
-    })
-});
-
 pub static REDACTED_INVALID: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {},
