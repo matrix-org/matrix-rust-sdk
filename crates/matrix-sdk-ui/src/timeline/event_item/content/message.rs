@@ -16,46 +16,25 @@
 
 use std::{fmt, sync::Arc};
 
-use imbl::{vector, Vector};
-use matrix_sdk::{
-    crypto::types::events::UtdCause,
-    deserialized_responses::{TimelineEvent, TimelineEventKind},
-    Room,
-};
+use imbl::Vector;
 use ruma::{
-    assign,
     events::{
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, SyncUnstablePollStartEvent,
             UnstablePollStartEventContent,
         },
-        relation::{InReplyTo, Thread},
         room::message::{
             MessageType, Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             SyncRoomMessageEvent,
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        BundledMessageLikeRelations, Mentions,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations, Mentions,
     },
     html::RemoveReplyFallback,
     serde::Raw,
-    OwnedEventId, OwnedUserId, UserId,
 };
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{error, trace};
 
-use super::TimelineItemContent;
-use crate::{
-    timeline::{
-        event_item::{
-            content::{AggregatedTimelineItemContent, AggregatedTimelineItemContentKind},
-            EventTimelineItem, Profile, TimelineDetails,
-        },
-        traits::RoomDataProvider,
-        EncryptedMessage, Error as TimelineError, PollState, ReactionsByKeyBySender, Sticker,
-        TimelineItem,
-    },
-    DEFAULT_SANITIZER_MODE,
-};
+use crate::DEFAULT_SANITIZER_MODE;
 
 /// An `m.room.message` event or extensible event, including edits.
 #[derive(Clone)]
@@ -212,28 +191,6 @@ pub(crate) fn extract_poll_edit_content(
     }
 }
 
-/// Turn a pair of thread root ID and in-reply-to ID as stored in [`Message`]
-/// back into a [`Relation`].
-///
-/// This doesn't properly handle the distinction between reply relations in
-/// threads that just exist as fallbacks, and "real" thread + reply relations.
-/// For our use, this is okay though.
-fn make_relates_to(
-    thread_root: Option<OwnedEventId>,
-    in_reply_to: Option<OwnedEventId>,
-) -> Option<Relation<RoomMessageEventContentWithoutRelation>> {
-    match (thread_root, in_reply_to) {
-        (Some(thread_root), Some(in_reply_to)) => {
-            Some(Relation::Thread(Thread::plain(thread_root, in_reply_to)))
-        }
-        (Some(thread_root), None) => Some(Relation::Thread(Thread::without_fallback(thread_root))),
-        (None, Some(in_reply_to)) => {
-            Some(Relation::Reply { in_reply_to: InReplyTo::new(in_reply_to) })
-        }
-        (None, None) => None,
-    }
-}
-
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -244,182 +201,5 @@ impl fmt::Debug for Message {
             .field("in_reply_to", in_reply_to)
             .field("edited", edited)
             .finish_non_exhaustive()
-    }
-}
-
-/// Details about an event being replied to.
-#[derive(Clone, Debug)]
-pub struct InReplyToDetails {
-    /// The ID of the event.
-    pub event_id: OwnedEventId,
-
-    /// The details of the event.
-    ///
-    /// Use [`Timeline::fetch_details_for_event`] to fetch the data if it is
-    /// unavailable.
-    ///
-    /// [`Timeline::fetch_details_for_event`]: crate::Timeline::fetch_details_for_event
-    pub event: TimelineDetails<Box<RepliedToEvent>>,
-}
-
-impl InReplyToDetails {
-    pub fn new(
-        event_id: OwnedEventId,
-        timeline_items: &Vector<Arc<TimelineItem>>,
-    ) -> InReplyToDetails {
-        let event = timeline_items
-            .iter()
-            .filter_map(|it| it.as_event())
-            .find(|it| it.event_id() == Some(&*event_id))
-            .map(|item| Box::new(RepliedToEvent::from_timeline_item(item)));
-
-        InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
-    }
-}
-
-/// An event that is replied to.
-#[derive(Clone, Debug)]
-pub struct RepliedToEvent {
-    content: TimelineItemContent,
-    sender: OwnedUserId,
-    sender_profile: TimelineDetails<Profile>,
-}
-
-impl RepliedToEvent {
-    /// Get the message of this event.
-    pub fn content(&self) -> &TimelineItemContent {
-        &self.content
-    }
-
-    /// Get the sender of this event.
-    pub fn sender(&self) -> &UserId {
-        &self.sender
-    }
-
-    /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
-        &self.sender_profile
-    }
-
-    /// Create a [`RepliedToEvent`] from a loaded event timeline item.
-    pub fn from_timeline_item(timeline_item: &EventTimelineItem) -> Self {
-        Self {
-            content: timeline_item.content.clone(),
-            sender: timeline_item.sender.clone(),
-            sender_profile: timeline_item.sender_profile.clone(),
-        }
-    }
-
-    /// Try to create a `RepliedToEvent` from a `TimelineEvent` by providing the
-    /// room.
-    pub async fn try_from_timeline_event_for_room(
-        timeline_event: TimelineEvent,
-        room_data_provider: &Room,
-    ) -> Result<Self, TimelineError> {
-        Self::try_from_timeline_event(timeline_event, room_data_provider).await
-    }
-
-    #[instrument(skip_all)]
-    pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
-        timeline_event: TimelineEvent,
-        room_data_provider: &P,
-    ) -> Result<Self, TimelineError> {
-        let event = match timeline_event.raw().deserialize() {
-            Ok(AnySyncTimelineEvent::MessageLike(event)) => event,
-            Ok(_) => {
-                warn!("can't get details, event isn't a message-like event");
-                return Err(TimelineError::UnsupportedEvent);
-            }
-            Err(err) => {
-                warn!("can't get details, event couldn't be deserialized: {err}");
-                return Err(TimelineError::UnsupportedEvent);
-            }
-        };
-
-        debug!(event_type = %event.event_type(), "got deserialized event");
-
-        let content = match event.original_content() {
-            Some(content) => match content {
-                AnyMessageLikeEventContent::RoomMessage(c) => {
-                    // Assume we're not interested in reactions and thread info in this context:
-                    // this is information for an embedded (replied-to) event, that will usually not
-                    // include detailed information like reactions.
-                    let reactions = ReactionsByKeyBySender::default();
-                    let thread_root = None;
-
-                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                        kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
-                            c,
-                            extract_room_msg_edit_content(event.relations()),
-                            &vector![],
-                        )),
-                        reactions,
-                        thread_root,
-                    })
-                }
-
-                AnyMessageLikeEventContent::Sticker(content) => {
-                    // Assume we're not interested in reactions or thread info in this context.
-                    // (See above an explanation as to why that's the case.)
-                    let reactions = ReactionsByKeyBySender::default();
-                    let thread_root = None;
-
-                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                        kind: AggregatedTimelineItemContentKind::Sticker(Sticker { content }),
-                        reactions,
-                        thread_root,
-                    })
-                }
-
-                AnyMessageLikeEventContent::RoomEncrypted(content) => {
-                    let utd_cause = match &timeline_event.kind {
-                        TimelineEventKind::UnableToDecrypt { utd_info, .. } => UtdCause::determine(
-                            timeline_event.raw(),
-                            room_data_provider.crypto_context_info().await,
-                            utd_info,
-                        ),
-                        _ => UtdCause::Unknown,
-                    };
-
-                    TimelineItemContent::UnableToDecrypt(EncryptedMessage::from_content(
-                        content, utd_cause,
-                    ))
-                }
-
-                AnyMessageLikeEventContent::UnstablePollStart(
-                    UnstablePollStartEventContent::New(content),
-                ) => {
-                    // Assume we're not interested in reactions or thread info in this context.
-                    // (See above an explanation as to why that's the case.)
-                    let reactions = ReactionsByKeyBySender::default();
-                    let thread_root = None;
-
-                    // TODO: could we provide the bundled edit here?
-                    let poll_state = PollState::new(content, None);
-                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                        kind: AggregatedTimelineItemContentKind::Poll(poll_state),
-                        reactions,
-                        thread_root,
-                    })
-                }
-
-                _ => {
-                    warn!("unsupported event type");
-                    return Err(TimelineError::UnsupportedEvent);
-                }
-            },
-
-            None => {
-                // Redacted message.
-                TimelineItemContent::RedactedMessage
-            }
-        };
-
-        let sender = event.sender().to_owned();
-        let sender_profile = TimelineDetails::from_initial_value(
-            room_data_provider.profile_from_user_id(&sender).await,
-        );
-
-        Ok(Self { content, sender, sender_profile })
     }
 }
