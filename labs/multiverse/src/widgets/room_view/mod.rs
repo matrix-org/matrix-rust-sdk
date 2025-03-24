@@ -16,14 +16,16 @@ use matrix_sdk_ui::timeline::{
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 
-use super::{
-    events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts,
-    status::StatusHandle,
-};
+use self::{events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts};
+use super::status::StatusHandle;
 use crate::{
     DetailsMode, Timelines, UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG,
     TEXT_COLOR,
 };
+
+mod events;
+mod linked_chunk;
+mod read_receipts;
 
 pub struct RoomView {
     selected_room: Option<OwnedRoomId>,
