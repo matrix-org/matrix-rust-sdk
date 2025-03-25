@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
@@ -6,26 +6,23 @@ use matrix_sdk::{
     locks::Mutex,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
-        events::room::message::{MessageType, RoomMessageEventContent},
-        MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
+        events::room::message::RoomMessageEventContent, MilliSecondsSinceUnixEpoch, OwnedRoomId,
     },
-};
-use matrix_sdk_ui::timeline::{
-    MsgLikeContent, MsgLikeKind, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 
-use self::{events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts};
-use super::status::StatusHandle;
-use crate::{
-    DetailsMode, Timelines, UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG,
-    TEXT_COLOR,
+use self::{
+    events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts,
+    timeline::TimelineView,
 };
+use super::status::StatusHandle;
+use crate::{DetailsMode, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR};
 
 mod events;
 mod linked_chunk;
 mod read_receipts;
+mod timeline;
 
 pub struct RoomView {
     selected_room: Option<OwnedRoomId>,
@@ -217,11 +214,11 @@ impl StatefulWidget for &mut RoomView {
 
         // We can render the header. Inner area will be rendered later.
         outer_block.render(outer_area, buf);
+        inner_block.render(inner_area, buf);
 
         // Helper to render some string as a paragraph.
         let render_paragraph = |buf: &mut Buffer, content: String| {
             Paragraph::new(content)
-                .block(inner_block.clone())
                 .fg(TEXT_COLOR)
                 .wrap(Wrap { trim: false })
                 .render(inner_area, buf);
@@ -240,9 +237,15 @@ impl StatefulWidget for &mut RoomView {
                 }
 
                 DetailsMode::TimelineItems => {
-                    if !self.render_timeline(room_id, inner_block.clone(), inner_area, buf) {
+                    if let Some(items) =
+                        self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
+                    {
+                        let items = items.lock();
+                        let mut timeline = TimelineView::new(items.deref());
+                        timeline.render(inner_area, buf);
+                    } else {
                         render_paragraph(buf, "(room's timeline disappeared)".to_owned())
-                    }
+                    };
                 }
 
                 DetailsMode::LinkedChunk => {
@@ -265,112 +268,5 @@ impl StatefulWidget for &mut RoomView {
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
         };
-    }
-}
-
-impl RoomView {
-    /// Renders the list of timeline items for the given room.
-    fn render_timeline(
-        &self,
-        room_id: &RoomId,
-        inner_block: Block<'_>,
-        inner_area: Rect,
-        buf: &mut Buffer,
-    ) -> bool {
-        let Some(items) = self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
-        else {
-            return false;
-        };
-
-        let items = items.lock();
-        let mut content = Vec::new();
-
-        for item in items.iter() {
-            match item.kind() {
-                TimelineItemKind::Event(ev) => {
-                    let sender = ev.sender();
-
-                    match ev.content() {
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Message(message),
-                            ..
-                        }) => {
-                            if let MessageType::Text(text) = message.msgtype() {
-                                content.push(format!("{}: {}", sender, text.body))
-                            }
-                        }
-
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Redacted,
-                            ..
-                        }) => content.push(format!("{}: -- redacted --", sender)),
-
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::UnableToDecrypt(_),
-                            ..
-                        }) => content.push(format!("{}: (UTD)", sender)),
-
-                        TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Sticker(_),
-                            ..
-                        })
-                        | TimelineItemContent::MembershipChange(_)
-                        | TimelineItemContent::ProfileChange(_)
-                        | TimelineItemContent::OtherState(_)
-                        | TimelineItemContent::FailedToParseMessageLike { .. }
-                        | TimelineItemContent::FailedToParseState { .. }
-                        | TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::Poll(_),
-                            ..
-                        })
-                        | TimelineItemContent::CallInvite
-                        | TimelineItemContent::CallNotify => {
-                            continue;
-                        }
-                    }
-                }
-
-                TimelineItemKind::Virtual(virt) => match virt {
-                    VirtualTimelineItem::DateDivider(unix_ts) => {
-                        content.push(format!("Date: {unix_ts:?}"));
-                    }
-                    VirtualTimelineItem::ReadMarker => {
-                        content.push("Read marker".to_owned());
-                    }
-                    VirtualTimelineItem::TimelineStart => {
-                        content.push("🥳 Timeline start! 🥳".to_owned());
-                    }
-                },
-            }
-        }
-
-        let list_items = content
-            .into_iter()
-            .enumerate()
-            .map(|(i, line)| {
-                let bg_color = match i % 2 {
-                    0 => NORMAL_ROW_COLOR,
-                    _ => ALT_ROW_COLOR,
-                };
-                let line = Line::styled(line, TEXT_COLOR);
-                ListItem::new(line).bg(bg_color)
-            })
-            .collect::<Vec<_>>();
-
-        let list = List::new(list_items)
-            .block(inner_block)
-            .highlight_style(
-                Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
-                    .fg(SELECTED_STYLE_FG),
-            )
-            .highlight_symbol(">")
-            .highlight_spacing(HighlightSpacing::Always);
-
-        let mut dummy_list_state = ListState::default();
-        StatefulWidget::render(list, inner_area, buf, &mut dummy_list_state);
-
-        true
     }
 }
