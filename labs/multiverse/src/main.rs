@@ -315,19 +315,23 @@ impl App {
 
         match (key.modifiers, key.code) {
             (KeyModifiers::NONE, F(1)) => self.set_global_mode(GlobalMode::Help),
+
             (KeyModifiers::NONE, F(10)) => self.set_global_mode(GlobalMode::Recovery {
                 state: RecoveryViewState::new(self.client.clone()),
             }),
+
             (KeyModifiers::CONTROL, Char('j') | Down) => {
                 self.room_list.next_room();
                 let room_id = self.room_list.get_selected_room_id();
                 self.room_view.set_selected_room(room_id);
             }
+
             (KeyModifiers::CONTROL, Char('k') | Up) => {
                 self.room_list.previous_room();
                 let room_id = self.room_list.get_selected_room_id();
                 self.room_view.set_selected_room(room_id);
             }
+
             (KeyModifiers::CONTROL, Char('q')) => {
                 if !matches!(self.state.global_mode, GlobalMode::Default) {
                     self.set_global_mode(GlobalMode::Default);

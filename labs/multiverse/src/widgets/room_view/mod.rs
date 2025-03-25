@@ -80,7 +80,7 @@ impl RoomView {
                     }
                 },
 
-                (_, Char('L')) => self.toggle_reaction_to_latest_msg().await,
+                (KeyModifiers::CONTROL, Char('l')) => self.toggle_reaction_to_latest_msg().await,
 
                 (KeyModifiers::NONE, PageUp) => self.back_paginate(),
 
