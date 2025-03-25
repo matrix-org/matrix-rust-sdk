@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] Optionally allow starting threads with `Timeline::send_reply`.
   ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
+- [**breaking**] Push the reply logic down into matrix_sdk.
+  ([4842](https://github.com/matrix-org/matrix-rust-sdk/pull/4842))
 
 ### Refactor
 
