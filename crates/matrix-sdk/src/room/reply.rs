@@ -41,7 +41,7 @@ use super::Room;
 
 /// Information needed to reply to an event.
 #[derive(Debug, Clone)]
-pub struct RepliedToInfo {
+struct RepliedToInfo {
     /// The event ID of the event to reply to.
     event_id: OwnedEventId,
     /// The sender of the event to reply to.
@@ -52,21 +52,9 @@ pub struct RepliedToInfo {
     content: ReplyContent,
 }
 
-impl RepliedToInfo {
-    /// The event ID of the event to reply to.
-    pub fn event_id(&self) -> &EventId {
-        &self.event_id
-    }
-
-    /// The sender of the event to reply to.
-    pub fn sender(&self) -> &UserId {
-        &self.sender
-    }
-}
-
 /// The content of a reply.
 #[derive(Debug, Clone)]
-pub enum ReplyContent {
+enum ReplyContent {
     /// Content of a message event.
     Message(RoomMessageEventContent),
     /// Content of any other kind of event stored as raw JSON.
