@@ -17,7 +17,7 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{AppState, DetailsMode, GlobalMode};
+use crate::{AppState, GlobalMode, RoomViewDetails};
 
 const MESSAGE_DURATION: Duration = Duration::from_secs(4);
 
@@ -124,20 +124,20 @@ impl StatefulWidget for &mut Status {
                 GlobalMode::Help => "Press q to exit the help screen",
                 GlobalMode::Recovery { .. } => "Press ESC to exit the recovery screen",
                 GlobalMode::Default => match details_mode {
-                    DetailsMode::ReadReceipts => {
+                    RoomViewDetails::ReadReceipts => {
                         "\nUse j/k to move, s/S to start/stop the sync service, \
                      m to mark as read, t to show the timeline, e to show events."
                     }
-                    DetailsMode::TimelineItems => {
+                    RoomViewDetails::None => {
                         "\nUse j/k to move, s/S to start/stop the sync service, \
                      r to show read receipts, e to show events, Q to enable/disable \
                      the send queue, M to send a message, L to like the last message."
                     }
-                    DetailsMode::Events => {
+                    RoomViewDetails::Events => {
                         "\nUse j/k to move, s/S to start/stop the sync service, r to show \
                      read receipts, t to show the timeline"
                     }
-                    DetailsMode::LinkedChunk => {
+                    RoomViewDetails::LinkedChunk => {
                         "\nUse j/k to move, s/S to start/stop the sync service, r to show \
                      read receipts, t to show the timeline, e to show events"
                     }

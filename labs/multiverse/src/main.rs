@@ -114,11 +114,15 @@ async fn main() -> Result<()> {
 }
 
 #[derive(Default, PartialEq)]
-pub enum DetailsMode {
-    ReadReceipts,
+pub enum RoomViewDetails {
+    /// Show just the timeline.
     #[default]
-    TimelineItems,
+    None,
+    /// Show details about read receipts of the room.
+    ReadReceipts,
+    /// Show the raw event sources of the timeline.
     Events,
+    /// Show the linked chunks that are used to display the timeline.
     LinkedChunk,
 }
 
@@ -136,7 +140,7 @@ pub struct AppState {
 
     /// Is any details popup shown above the room view or are we looking at the
     /// timeline.
-    details_mode: DetailsMode,
+    details_mode: RoomViewDetails,
 }
 
 struct App {
@@ -319,7 +323,7 @@ impl App {
         }
     }
 
-    fn set_mode(&mut self, mode: DetailsMode) {
+    fn set_mode(&mut self, mode: RoomViewDetails) {
         self.state.details_mode = mode;
     }
 
@@ -372,21 +376,21 @@ impl App {
 
                 Char('r') => {
                     if self.room_list.get_selected_room_id().is_some() {
-                        self.set_mode(DetailsMode::ReadReceipts);
+                        self.set_mode(RoomViewDetails::ReadReceipts);
                     }
                 }
-                Char('t') => self.set_mode(DetailsMode::TimelineItems),
-                Char('e') => self.set_mode(DetailsMode::Events),
-                Char('l') => self.set_mode(DetailsMode::LinkedChunk),
+                Char('t') => self.set_mode(RoomViewDetails::None),
+                Char('e') => self.set_mode(RoomViewDetails::Events),
+                Char('l') => self.set_mode(RoomViewDetails::LinkedChunk),
 
                 Char('b')
-                    if self.state.details_mode == DetailsMode::TimelineItems
-                        || self.state.details_mode == DetailsMode::LinkedChunk =>
+                    if self.state.details_mode == RoomViewDetails::None
+                        || self.state.details_mode == RoomViewDetails::LinkedChunk =>
                 {
                     self.room_view.back_paginate();
                 }
 
-                Char('m') if self.state.details_mode == DetailsMode::ReadReceipts => {
+                Char('m') if self.state.details_mode == RoomViewDetails::ReadReceipts => {
                     self.room_view.mark_as_read().await
                 }
 

@@ -17,7 +17,7 @@ use self::{
     timeline::TimelineView,
 };
 use super::status::StatusHandle;
-use crate::{DetailsMode, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR};
+use crate::{RoomViewDetails, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR};
 
 mod events;
 mod linked_chunk;
@@ -186,7 +186,7 @@ impl RoomView {
 }
 
 impl StatefulWidget for &mut RoomView {
-    type State = DetailsMode;
+    type State = RoomViewDetails;
 
     fn render(self, area: Rect, buf: &mut Buffer, details_mode: &mut Self::State)
     where
@@ -225,8 +225,20 @@ impl StatefulWidget for &mut RoomView {
         };
 
         if let Some(room_id) = self.selected_room.as_deref() {
+            if let Some(items) =
+                self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
+            {
+                let items = items.lock();
+                let mut timeline = TimelineView::new(items.deref());
+                timeline.render(inner_area, buf);
+            } else {
+                render_paragraph(buf, "(room's timeline disappeared)".to_owned())
+            };
+
             match details_mode {
-                DetailsMode::ReadReceipts => {
+                RoomViewDetails::None => {}
+
+                RoomViewDetails::ReadReceipts => {
                     // In read receipts mode, show the read receipts object as computed by the
                     // client.
                     let rooms = self.ui_rooms.lock();
@@ -236,19 +248,7 @@ impl StatefulWidget for &mut RoomView {
                     read_receipts.render(inner_area, buf);
                 }
 
-                DetailsMode::TimelineItems => {
-                    if let Some(items) =
-                        self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
-                    {
-                        let items = items.lock();
-                        let mut timeline = TimelineView::new(items.deref());
-                        timeline.render(inner_area, buf);
-                    } else {
-                        render_paragraph(buf, "(room's timeline disappeared)".to_owned())
-                    };
-                }
-
-                DetailsMode::LinkedChunk => {
+                RoomViewDetails::LinkedChunk => {
                     // In linked chunk mode, show a rough representation of the chunks.
                     let rooms = self.ui_rooms.lock();
                     let room = rooms.get(room_id);
@@ -257,7 +257,7 @@ impl StatefulWidget for &mut RoomView {
                     linked_chunk_view.render(inner_area, buf);
                 }
 
-                DetailsMode::Events => {
+                RoomViewDetails::Events => {
                     let rooms = self.ui_rooms.lock();
                     let room = rooms.get(room_id);
 
