@@ -2,11 +2,11 @@ use itertools::Itertools;
 use matrix_sdk_ui::room_list_service::Room;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Clear, Paragraph, Wrap},
+    widgets::{Paragraph, Wrap},
 };
 use tokio::runtime::Handle;
 
-use crate::{popup_area, TEXT_COLOR};
+use crate::TEXT_COLOR;
 
 pub struct EventsView<'a> {
     room: Option<&'a Room>,
@@ -23,10 +23,6 @@ impl Widget for &mut EventsView<'_> {
     where
         Self: Sized,
     {
-        let block = Block::bordered().title("Events");
-        let area = popup_area(area, 80, 80);
-        Clear.render(area, buf);
-
         match self.room {
             Some(room) => {
                 let events = tokio::task::block_in_place(|| {
@@ -46,16 +42,11 @@ impl Widget for &mut EventsView<'_> {
                 let events = Itertools::intersperse(events, separator);
                 let lines: Vec<_> = [Line::from("")].into_iter().chain(events).collect();
 
-                Paragraph::new(lines)
-                    .block(block.clone())
-                    .fg(TEXT_COLOR)
-                    .wrap(Wrap { trim: false })
-                    .render(area, buf);
+                Paragraph::new(lines).fg(TEXT_COLOR).wrap(Wrap { trim: false }).render(area, buf);
             }
 
             None => {
                 Paragraph::new("(room disappeared in the room list service)")
-                    .block(block.clone())
                     .fg(TEXT_COLOR)
                     .wrap(Wrap { trim: false })
                     .render(area, buf);

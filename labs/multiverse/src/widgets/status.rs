@@ -17,7 +17,7 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{AppState, GlobalMode, RoomViewDetails};
+use crate::{AppState, GlobalMode};
 
 const MESSAGE_DURATION: Duration = Duration::from_secs(4);
 
@@ -118,30 +118,12 @@ impl StatefulWidget for &mut Status {
         let content = if let Some(status_message) = status_message.as_deref() {
             status_message
         } else {
-            let AppState { global_mode, details_mode } = state;
+            let AppState { global_mode } = state;
 
             match global_mode {
                 GlobalMode::Help => "Press q to exit the help screen",
                 GlobalMode::Recovery { .. } => "Press ESC to exit the recovery screen",
-                GlobalMode::Default => match details_mode {
-                    RoomViewDetails::ReadReceipts => {
-                        "\nUse j/k to move, s/S to start/stop the sync service, \
-                     m to mark as read, t to show the timeline, e to show events."
-                    }
-                    RoomViewDetails::None => {
-                        "\nUse j/k to move, s/S to start/stop the sync service, \
-                     r to show read receipts, e to show events, Q to enable/disable \
-                     the send queue, M to send a message, L to like the last message."
-                    }
-                    RoomViewDetails::Events => {
-                        "\nUse j/k to move, s/S to start/stop the sync service, r to show \
-                     read receipts, t to show the timeline"
-                    }
-                    RoomViewDetails::LinkedChunk => {
-                        "\nUse j/k to move, s/S to start/stop the sync service, r to show \
-                     read receipts, t to show the timeline, e to show events"
-                    }
-                },
+                GlobalMode::Default => "Press F1 to show the help screen",
             }
         };
 

@@ -1,11 +1,11 @@
 use matrix_sdk_ui::room_list_service::Room;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Clear, Paragraph, Wrap},
+    widgets::{Paragraph, Wrap},
 };
 use tokio::runtime::Handle;
 
-use crate::{popup_area, TEXT_COLOR};
+use crate::TEXT_COLOR;
 
 pub struct LinkedChunkView<'a> {
     room: Option<&'a Room>,
@@ -22,10 +22,6 @@ impl Widget for &mut LinkedChunkView<'_> {
     where
         Self: Sized,
     {
-        let block = Block::bordered().title("Linked chunks");
-        let area = popup_area(area, 80, 80);
-        Clear.render(area, buf);
-
         match self.room {
             Some(room) => {
                 let lines = tokio::task::block_in_place(|| {
@@ -38,16 +34,11 @@ impl Widget for &mut LinkedChunkView<'_> {
 
                 let lines: Vec<Line<'_>> = lines.into_iter().map(Line::from).collect();
 
-                Paragraph::new(lines)
-                    .block(block.clone())
-                    .fg(TEXT_COLOR)
-                    .wrap(Wrap { trim: false })
-                    .render(area, buf);
+                Paragraph::new(lines).fg(TEXT_COLOR).wrap(Wrap { trim: false }).render(area, buf);
             }
 
             None => {
                 Paragraph::new("(room disappeared in the room list service)")
-                    .block(block.clone())
                     .fg(TEXT_COLOR)
                     .wrap(Wrap { trim: false })
                     .render(area, buf);

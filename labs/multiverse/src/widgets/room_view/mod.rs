@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use color_eyre::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use matrix_sdk::{
     locks::Mutex,
     ruma::{
@@ -12,20 +12,31 @@ use matrix_sdk::{
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 
-use self::{
-    events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts,
-    timeline::TimelineView,
-};
+use self::{details::RoomDetails, timeline::TimelineView};
 use super::status::StatusHandle;
-use crate::{RoomViewDetails, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR};
+use crate::{
+    popup_area, widgets::recovery::ShouldExit, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR,
+    TEXT_COLOR,
+};
 
+mod details;
 mod events;
 mod linked_chunk;
 mod read_receipts;
 mod timeline;
 
+#[derive(Default)]
+enum Mode {
+    #[default]
+    Normal,
+    Details {
+        view: RoomDetails,
+    },
+}
+
 pub struct RoomView {
     selected_room: Option<OwnedRoomId>,
+
     /// Room list service rooms known to the app.
     ui_rooms: UiRooms,
 
@@ -35,6 +46,8 @@ pub struct RoomView {
     status_handle: StatusHandle,
 
     current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
+
+    mode: Mode,
 }
 
 impl RoomView {
@@ -45,6 +58,7 @@ impl RoomView {
             timelines,
             status_handle,
             current_pagination: Default::default(),
+            mode: Mode::default(),
         }
     }
 
@@ -55,19 +69,35 @@ impl RoomView {
             return;
         }
 
-        match key.code {
-            Char('M') => match self.send_message().await {
-                Ok(_) => {
-                    self.status_handle.set_message("message sent!".to_owned());
+        match &mut self.mode {
+            Mode::Normal => match (key.modifiers, key.code) {
+                (_, Char('M')) => match self.send_message().await {
+                    Ok(_) => {
+                        self.status_handle.set_message("message sent!".to_owned());
+                    }
+                    Err(err) => {
+                        self.status_handle.set_message(format!("error when sending event: {err}"));
+                    }
+                },
+
+                (_, Char('L')) => self.toggle_reaction_to_latest_msg().await,
+
+                (KeyModifiers::NONE, PageUp) => self.back_paginate(),
+
+                (KeyModifiers::CONTROL, Char('d')) => {
+                    if self.selected_room.is_some() {
+                        self.mode = Mode::Details { view: RoomDetails::new() }
+                    }
                 }
-                Err(err) => {
-                    self.status_handle.set_message(format!("error when sending event: {err}"));
-                }
+
+                _ => {}
             },
 
-            Char('L') => self.toggle_reaction_to_latest_msg().await,
-
-            _ => {}
+            Mode::Details { view } => match view.handle_key_press(key) {
+                ShouldExit::No => {}
+                ShouldExit::OnlySubScreen => {}
+                ShouldExit::Yes => self.mode = Mode::Normal,
+            },
         }
     }
 
@@ -185,10 +215,8 @@ impl RoomView {
     }
 }
 
-impl StatefulWidget for &mut RoomView {
-    type State = RoomViewDetails;
-
-    fn render(self, area: Rect, buf: &mut Buffer, details_mode: &mut Self::State)
+impl Widget for &mut RoomView {
+    fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
@@ -235,34 +263,16 @@ impl StatefulWidget for &mut RoomView {
                 render_paragraph(buf, "(room's timeline disappeared)".to_owned())
             };
 
-            match details_mode {
-                RoomViewDetails::None => {}
+            match &mut self.mode {
+                Mode::Normal => {}
+                Mode::Details { view } => {
+                    let details_area = area.inner(Margin::new(0, 1));
+                    Clear.render(details_area, buf);
 
-                RoomViewDetails::ReadReceipts => {
-                    // In read receipts mode, show the read receipts object as computed by the
-                    // client.
                     let rooms = self.ui_rooms.lock();
-                    let room = rooms.get(room_id);
+                    let mut room = rooms.get(room_id);
 
-                    let mut read_receipts = ReadReceipts::new(room);
-                    read_receipts.render(inner_area, buf);
-                }
-
-                RoomViewDetails::LinkedChunk => {
-                    // In linked chunk mode, show a rough representation of the chunks.
-                    let rooms = self.ui_rooms.lock();
-                    let room = rooms.get(room_id);
-
-                    let mut linked_chunk_view = LinkedChunkView::new(room);
-                    linked_chunk_view.render(inner_area, buf);
-                }
-
-                RoomViewDetails::Events => {
-                    let rooms = self.ui_rooms.lock();
-                    let room = rooms.get(room_id);
-
-                    let mut events_view = EventsView::new(room);
-                    events_view.render(inner_area, buf);
+                    view.render(details_area, buf, &mut room);
                 }
             }
         } else {
