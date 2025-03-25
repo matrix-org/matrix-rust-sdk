@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
-    linked_chunk::{LinkedChunk, Update},
+    linked_chunk::{lazy_loader, LinkedChunk, Update},
     SqliteEventCacheStore,
 };
 use matrix_sdk_base::event_cache::{
@@ -20,7 +20,7 @@ enum Operation {
     PushGapBack(Gap),
 }
 
-pub fn writing(c: &mut Criterion) {
+fn writing(c: &mut Criterion) {
     // Create a new asynchronous runtime.
     let runtime = Builder::new_multi_thread()
         .enable_time()
@@ -136,6 +136,105 @@ pub fn writing(c: &mut Criterion) {
     group.finish()
 }
 
+fn reading(c: &mut Criterion) {
+    // Create a new asynchronous runtime.
+    let runtime = Builder::new_multi_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("Failed to create an asynchronous runtime");
+
+    let room_id = room_id!("!foo:bar.baz");
+    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+
+    let mut group = c.benchmark_group("reading");
+    group.sample_size(10);
+
+    for num_events in [10, 100, 1000, 10_000, 100_000] {
+        let sqlite_temp_dir = tempdir().unwrap();
+
+        // Declare new stores for this set of events.
+        let stores: [(&str, Arc<DynEventCacheStore>); 2] = [
+            ("memory store", MemoryStore::default().into_event_cache_store()),
+            (
+                "sqlite store",
+                runtime.block_on(async {
+                    SqliteEventCacheStore::open(sqlite_temp_dir.path().join("bench"), None)
+                        .await
+                        .unwrap()
+                        .into_event_cache_store()
+                }),
+            ),
+        ];
+
+        for (store_name, store) in stores {
+            // Store some events and gap chunks in the store.
+            {
+                let mut events = (0..num_events)
+                    .map(|nth| {
+                        event_factory
+                            .text_msg("foo")
+                            .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                            .into_event()
+                    })
+                    .peekable();
+
+                let mut lc =
+                    LinkedChunk::<DEFAULT_CHUNK_CAPACITY, Event, Gap>::new_with_update_history();
+                let mut num_gaps = 0;
+
+                while events.peek().is_some() {
+                    let events_chunk = events.by_ref().take(80).collect::<Vec<_>>();
+                    if events_chunk.is_empty() {
+                        break;
+                    }
+                    lc.push_items_back(events_chunk);
+                    lc.push_gap_back(Gap { prev_token: format!("gap{num_gaps}") });
+                    num_gaps += 1;
+                }
+
+                // Now persist the updates to recreate this full linked chunk.
+                let updates = lc.updates().unwrap().take();
+                runtime.block_on(store.handle_linked_chunk_updates(room_id, updates)).unwrap();
+            }
+
+            // Define the throughput.
+            group.throughput(Throughput::Elements(num_events));
+
+            // Get a bencher.
+            group.bench_function(BenchmarkId::new(store_name, num_events), |bencher| {
+                // Bench the routine.
+                bencher.to_async(&runtime).iter(|| async {
+                    // Load the last chunk first,
+                    let (last_chunk, chunk_id_gen) = store.load_last_chunk(room_id).await.unwrap();
+
+                    let mut lc =
+                        lazy_loader::from_last_chunk::<128, _, _>(last_chunk, chunk_id_gen)
+                            .expect("no error when reconstructing the linked chunk")
+                            .expect("there is a linked chunk in the store");
+
+                    // Then load until the start of the linked chunk.
+                    let mut cur_chunk_id = lc.chunks().next().unwrap().identifier();
+                    while let Some(prev) =
+                        store.load_previous_chunk(room_id, cur_chunk_id).await.unwrap()
+                    {
+                        cur_chunk_id = prev.identifier;
+                        lazy_loader::insert_new_first_chunk(&mut lc, prev)
+                            .expect("no error when linking the previous lazy-loaded chunk");
+                    }
+                })
+            });
+
+            {
+                let _guard = runtime.enter();
+                drop(store);
+            }
+        }
+    }
+
+    group.finish()
+}
+
 fn criterion() -> Criterion {
     #[cfg(target_os = "linux")]
     let criterion = Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
@@ -151,6 +250,7 @@ fn criterion() -> Criterion {
 criterion_group! {
     name = event_cache;
     config = criterion();
-    targets = writing,
+    targets = writing, reading,
 }
+
 criterion_main!(event_cache);
