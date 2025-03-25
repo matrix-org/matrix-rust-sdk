@@ -27,7 +27,7 @@ use matrix_sdk::{
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
-    room::edit::EditedContent as SdkEditedContent,
+    room::{edit::EditedContent as SdkEditedContent, reply::EnforceThread},
 };
 use matrix_sdk_ui::timeline::{
     self, EventItemOrigin, Profile, RepliedToEvent, TimelineDetails,
@@ -475,14 +475,8 @@ impl Timeline {
         event_id: String,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        let replied_to_info = self
-            .inner
-            .replied_to_info_from_event_id(&event_id)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
-
         self.inner
-            .send_reply((*msg).clone(), replied_to_info, timeline::EnforceThread::MaybeThreaded)
+            .send_reply((*msg).clone(), event_id, EnforceThread::MaybeThreaded)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -507,17 +501,11 @@ impl Timeline {
         is_reply: bool,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        let replied_to_info = self
-            .inner
-            .replied_to_info_from_event_id(&event_id)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
-
         self.inner
             .send_reply(
                 (*msg).clone(),
-                replied_to_info,
-                timeline::EnforceThread::Threaded(if is_reply {
+                event_id,
+                EnforceThread::Threaded(if is_reply {
                     ReplyWithinThread::Yes
                 } else {
                     ReplyWithinThread::No

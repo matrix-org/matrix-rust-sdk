@@ -166,6 +166,7 @@ pub mod knock_requests;
 mod member;
 mod messages;
 pub mod power_levels;
+pub mod reply;
 
 /// Contains all the functionality for modifying the privacy settings in a room.
 pub mod privacy_settings;

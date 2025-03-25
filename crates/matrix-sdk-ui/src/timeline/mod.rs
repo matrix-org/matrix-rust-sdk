@@ -28,7 +28,7 @@ use matrix_sdk::{
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{edit::EditedContent, Receipts, Room},
+    room::{edit::EditedContent, reply::EnforceThread, Receipts, Room},
     send_queue::{RoomSendQueueError, SendHandle},
     Client, Result,
 };
@@ -39,25 +39,17 @@ use ruma::{
     events::{
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
-        relation::Thread,
         room::{
-            encrypted::Relation as EncryptedRelation,
-            message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, Relation, ReplyWithinThread,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-            },
+            message::RoomMessageEventContentWithoutRelation,
             pinned_events::RoomPinnedEventsEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        SyncMessageLikeEvent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
+    EventId, OwnedEventId, RoomVersionId, UserId,
 };
-use serde::Deserialize;
 use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
-use tracing::{error, instrument, trace, warn};
+use tracing::{instrument, trace, warn};
 
 use self::{
     algorithms::rfind_event_by_id, controller::TimelineController, futures::SendAttachment,
@@ -98,57 +90,6 @@ pub use self::{
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
-
-/// Information needed to reply to an event.
-#[derive(Debug, Clone)]
-pub struct RepliedToInfo {
-    /// The event ID of the event to reply to.
-    event_id: OwnedEventId,
-    /// The sender of the event to reply to.
-    sender: OwnedUserId,
-    /// The timestamp of the event to reply to.
-    timestamp: MilliSecondsSinceUnixEpoch,
-    /// The content of the event to reply to.
-    content: ReplyContent,
-}
-
-impl RepliedToInfo {
-    /// The event ID of the event to reply to.
-    pub fn event_id(&self) -> &EventId {
-        &self.event_id
-    }
-
-    /// The sender of the event to reply to.
-    pub fn sender(&self) -> &UserId {
-        &self.sender
-    }
-}
-
-/// The content of a reply.
-#[derive(Debug, Clone)]
-pub enum ReplyContent {
-    /// Content of a message event.
-    Message(RoomMessageEventContent),
-    /// Content of any other kind of event stored as raw JSON.
-    Raw(Raw<AnySyncTimelineEvent>),
-}
-
-/// Whether or not to enforce a [`Relation::Thread`] when sending a reply.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(clippy::exhaustive_enums)]
-pub enum EnforceThread {
-    /// A thread relation is enforced. If the original message does not have a
-    /// thread relation itself, a new thread is started.
-    Threaded(ReplyWithinThread),
-
-    /// A thread relation is not enforced. If the original message has a thread
-    /// relation, it is forwarded.
-    MaybeThreaded,
-
-    /// A thread relation is not enforced. If the original message has a thread
-    /// relation, it is *not* forwarded.
-    Unthreaded,
-}
 
 /// A high-level view into a regular¹ room's contents.
 ///
@@ -330,160 +271,19 @@ impl Timeline {
     ///
     /// * `content` - The content of the reply
     ///
-    /// * `replied_to_info` - A wrapper that contains the event ID, sender,
-    ///   content and timestamp of the event to reply to
+    /// * `event_id` - The ID of the event to reply to
     ///
     /// * `enforce_thread` - Whether to enforce a thread relation on the reply
-    #[instrument(skip(self, content, replied_to_info))]
+    #[instrument(skip(self, content))]
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
-        replied_to_info: RepliedToInfo,
+        event_id: OwnedEventId,
         enforce_thread: EnforceThread,
-    ) -> Result<(), RoomSendQueueError> {
-        // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
-        //
-        // > Users should not add their own Matrix ID to the `m.mentions` property as
-        // > outgoing messages cannot self-notify.
-        //
-        // If the replied to event has been written by the current user, let's toggle to
-        // `AddMentions::No`.
-        let mention_the_sender = if self.room().own_user_id() == replied_to_info.sender {
-            AddMentions::No
-        } else {
-            AddMentions::Yes
-        };
-
-        let content = match replied_to_info.content {
-            ReplyContent::Message(replied_to_content) => {
-                let event = OriginalRoomMessageEvent {
-                    event_id: replied_to_info.event_id,
-                    sender: replied_to_info.sender,
-                    origin_server_ts: replied_to_info.timestamp,
-                    room_id: self.room().room_id().to_owned(),
-                    content: replied_to_content,
-                    unsigned: Default::default(),
-                };
-
-                match enforce_thread {
-                    EnforceThread::Threaded(is_reply) => {
-                        content.make_for_thread(&event, is_reply, mention_the_sender)
-                    }
-                    EnforceThread::MaybeThreaded => {
-                        content.make_reply_to(&event, ForwardThread::Yes, mention_the_sender)
-                    }
-                    EnforceThread::Unthreaded => {
-                        content.make_reply_to(&event, ForwardThread::No, mention_the_sender)
-                    }
-                }
-            }
-
-            ReplyContent::Raw(raw_event) => {
-                match enforce_thread {
-                    EnforceThread::Threaded(is_reply) => {
-                        // Some of the code below technically belongs into ruma. However,
-                        // reply fallbacks have been removed in Matrix 1.13 which means
-                        // both match arms can use the successor of make_for_thread in
-                        // the next ruma release.
-                        #[derive(Deserialize)]
-                        struct ContentDeHelper {
-                            #[serde(rename = "m.relates_to")]
-                            relates_to: Option<EncryptedRelation>,
-                        }
-
-                        let previous_content =
-                            raw_event.get_field::<ContentDeHelper>("content").ok().flatten();
-
-                        let mut content = if is_reply == ReplyWithinThread::Yes {
-                            content.make_reply_to_raw(
-                                &raw_event,
-                                replied_to_info.event_id.to_owned(),
-                                self.room().room_id(),
-                                ForwardThread::No,
-                                mention_the_sender,
-                            )
-                        } else {
-                            content.into()
-                        };
-
-                        let thread_root = if let Some(EncryptedRelation::Thread(thread)) =
-                            previous_content.as_ref().and_then(|c| c.relates_to.as_ref())
-                        {
-                            thread.event_id.to_owned()
-                        } else {
-                            replied_to_info.event_id.to_owned()
-                        };
-
-                        let thread = if is_reply == ReplyWithinThread::Yes {
-                            Thread::reply(thread_root, replied_to_info.event_id)
-                        } else {
-                            Thread::plain(thread_root, replied_to_info.event_id)
-                        };
-
-                        content.relates_to = Some(Relation::Thread(thread));
-                        content
-                    }
-
-                    EnforceThread::MaybeThreaded => content.make_reply_to_raw(
-                        &raw_event,
-                        replied_to_info.event_id,
-                        self.room().room_id(),
-                        ForwardThread::Yes,
-                        mention_the_sender,
-                    ),
-
-                    EnforceThread::Unthreaded => content.make_reply_to_raw(
-                        &raw_event,
-                        replied_to_info.event_id,
-                        self.room().room_id(),
-                        ForwardThread::No,
-                        mention_the_sender,
-                    ),
-                }
-            }
-        };
-
-        self.send(content.into()).await?;
-
+    ) -> Result<(), Error> {
+        let content = self.room().make_reply_event(content, &event_id, enforce_thread).await?;
+        self.send(content).await?;
         Ok(())
-    }
-
-    /// Get the information needed to reply to the event with the given ID.
-    pub async fn replied_to_info_from_event_id(
-        &self,
-        event_id: &EventId,
-    ) -> Result<RepliedToInfo, UnsupportedReplyItem> {
-        let event = self.room().load_or_fetch_event(event_id, None).await.map_err(|error| {
-            error!("Failed to fetch event with ID {event_id} with error: {error}");
-            UnsupportedReplyItem::MissingEvent
-        })?;
-
-        let raw_event = event.into_raw();
-        let event = raw_event.deserialize().map_err(|error| {
-            error!("Failed to deserialize event with ID {event_id} with error: {error}");
-            UnsupportedReplyItem::FailedToDeserializeEvent
-        })?;
-
-        let reply_content = match &event {
-            AnySyncTimelineEvent::MessageLike(event) => {
-                if let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                    original_event,
-                )) = event
-                {
-                    ReplyContent::Message(original_event.content.clone())
-                } else {
-                    ReplyContent::Raw(raw_event)
-                }
-            }
-            AnySyncTimelineEvent::State(_) => return Err(UnsupportedReplyItem::StateEvent),
-        };
-
-        Ok(RepliedToInfo {
-            event_id: event_id.to_owned(),
-            sender: event.sender().to_owned(),
-            timestamp: event.origin_server_ts(),
-            content: reply_content,
-        })
     }
 
     /// Edit an event given its [`TimelineEventItemId`] and some new content.
