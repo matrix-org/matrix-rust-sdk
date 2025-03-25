@@ -23,6 +23,7 @@ impl Widget for &mut HelpView {
         let rows = vec![
             Row::new(vec![Cell::from("F1"), Cell::from("Open Help")]),
             Row::new(vec![Cell::from("F10"), Cell::from("Open the encryption settings")]),
+            Row::new(vec![Cell::from("Ctrl-d"), Cell::from("Open the details view of a room")]),
             Row::new(vec![Cell::from("Ctrl-q"), Cell::from("Quit Multiverse")]),
             Row::new(vec![
                 Cell::from("Ctrl-j / Ctrl-down"),
@@ -31,6 +32,10 @@ impl Widget for &mut HelpView {
             Row::new(vec![
                 Cell::from("Ctrl-k / Ctrl-up"),
                 Cell::from("Switch to the previous room in the list"),
+            ]),
+            Row::new(vec![
+                Cell::from("Page-Up"),
+                Cell::from("Backpaginate the currently selected room"),
             ]),
             Row::new(vec![Cell::from("s"), Cell::from("Resume syncing")]),
             Row::new(vec![Cell::from("S"), Cell::from("Stop syncing")]),

@@ -113,19 +113,6 @@ async fn main() -> Result<()> {
     app.run(terminal).await
 }
 
-#[derive(Default, PartialEq)]
-pub enum RoomViewDetails {
-    /// Show just the timeline.
-    #[default]
-    None,
-    /// Show details about read receipts of the room.
-    ReadReceipts,
-    /// Show the raw event sources of the timeline.
-    Events,
-    /// Show the linked chunks that are used to display the timeline.
-    LinkedChunk,
-}
-
 pub struct Timeline {
     timeline: Arc<SdkTimeline>,
     items: Arc<Mutex<Vector<Arc<TimelineItem>>>>,
@@ -137,10 +124,6 @@ pub struct AppState {
     /// What popup are we showing that is covering the majority of the screen,
     /// mainly used for help and settings screens.
     global_mode: GlobalMode,
-
-    /// Is any details popup shown above the room view or are we looking at the
-    /// timeline.
-    details_mode: RoomViewDetails,
 }
 
 struct App {
@@ -323,10 +306,6 @@ impl App {
         }
     }
 
-    fn set_mode(&mut self, mode: RoomViewDetails) {
-        self.state.details_mode = mode;
-    }
-
     fn set_global_mode(&mut self, mode: GlobalMode) {
         self.state.global_mode = mode;
     }
@@ -357,9 +336,10 @@ impl App {
                 }
             }
 
-            _ => (),
+            _ => self.room_view.handle_key_press(key).await,
         }
 
+        // TODO: Remove the remaining keys.
         if key.kind == KeyEventKind::Press && key.modifiers == KeyModifiers::NONE {
             match key.code {
                 Char('s') => self.sync_service.start().await,
@@ -370,26 +350,6 @@ impl App {
                     let q = self.client.send_queue();
                     let enabled = q.is_enabled();
                     q.set_enabled(!enabled).await;
-                }
-
-                Char('r') => {
-                    if self.room_list.get_selected_room_id().is_some() {
-                        self.set_mode(RoomViewDetails::ReadReceipts);
-                    }
-                }
-                Char('t') => self.set_mode(RoomViewDetails::None),
-                Char('e') => self.set_mode(RoomViewDetails::Events),
-                Char('l') => self.set_mode(RoomViewDetails::LinkedChunk),
-
-                Char('b')
-                    if self.state.details_mode == RoomViewDetails::None
-                        || self.state.details_mode == RoomViewDetails::LinkedChunk =>
-                {
-                    self.room_view.back_paginate();
-                }
-
-                Char('m') if self.state.details_mode == RoomViewDetails::ReadReceipts => {
-                    self.room_view.mark_as_read().await
                 }
 
                 _ => {}
@@ -484,7 +444,7 @@ impl Widget for &mut App {
 
         self.render_title(header_area, buf);
         self.room_list.render(room_list_area, buf);
-        self.room_view.render(room_view_area, buf, &mut self.state.details_mode);
+        self.room_view.render(room_view_area, buf);
         self.status.render(status_area, buf, &mut self.state);
 
         match &mut self.state.global_mode {

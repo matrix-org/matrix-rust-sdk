@@ -26,6 +26,7 @@ tui-textarea = "0.7.0"
 tui-framework-experiment = "0.4.0"
 rpassword = "7.3.1"
 serde_json = { workspace = true }
+strum = "0.27.1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-appender = { version = "0.2.2" }
