@@ -420,6 +420,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                 }),
                                 reactions: Default::default(),
                                 thread_root: None,
+                                in_reply_to: None,
                             }),
                             None,
                         );
@@ -580,21 +581,26 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .or(pending_edit)
             .unzip();
 
-        let edit_json = edit_json.flatten();
+        let mut replied_to_event_id = None;
+        let mut thread_root = None;
+        let in_reply_to_details = msg.relates_to.clone().and_then(|relation| match relation {
+            Relation::Reply { in_reply_to } => {
+                replied_to_event_id = Some(in_reply_to.event_id.clone());
+                Some(InReplyToDetails::new(in_reply_to.event_id, self.items))
+            }
+            Relation::Thread(thread) => {
+                thread_root = Some(thread.event_id.clone());
+                thread.in_reply_to.map(|in_reply_to| {
+                    replied_to_event_id = Some(in_reply_to.event_id.clone());
+                    InReplyToDetails::new(in_reply_to.event_id, self.items)
+                })
+            }
+            _ => None,
+        });
 
         // If this message is a reply to another message, add an entry in the inverted
         // mapping.
-        let mut thread_root = None;
         if let Some(event_id) = self.ctx.flow.event_id() {
-            let replied_to_event_id =
-                msg.relates_to.as_ref().and_then(|relates_to| match relates_to {
-                    Relation::Reply { in_reply_to } => Some(in_reply_to.event_id.clone()),
-                    Relation::Thread(thread) => {
-                        thread_root = Some(thread.event_id.clone());
-                        thread.in_reply_to.as_ref().map(|in_reply_to| in_reply_to.event_id.clone())
-                    }
-                    _ => None,
-                });
             if let Some(replied_to_event_id) = replied_to_event_id {
                 // This is a reply! Add an entry.
                 self.meta
@@ -605,13 +611,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
+        let edit_json = edit_json.flatten();
+
         self.add_item(
             TimelineItemContent::message(
                 msg,
                 edit_content,
-                self.items,
                 Default::default(),
                 thread_root,
+                in_reply_to_details,
             ),
             edit_json,
         );
@@ -733,6 +741,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             kind: AggregatedTimelineItemContentKind::Message(msg),
             reactions,
             thread_root,
+            in_reply_to,
         }) = item.content()
         else {
             info!(
@@ -750,6 +759,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 kind: AggregatedTimelineItemContentKind::Message(new_msg),
                 reactions: reactions.clone(),
                 thread_root: thread_root.clone(),
+                in_reply_to: in_reply_to.clone(),
             }),
             edit_json,
         );
@@ -844,6 +854,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             kind: AggregatedTimelineItemContentKind::Poll(poll_state),
             reactions,
             thread_root,
+            in_reply_to,
         }) = &item.content()
         else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
@@ -856,6 +867,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     kind: AggregatedTimelineItemContentKind::Poll(edited_poll_state),
                     reactions: reactions.clone(),
                     thread_root: thread_root.clone(),
+                    in_reply_to: in_reply_to.clone(),
                 })
             }
             None => {
@@ -908,6 +920,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 kind: AggregatedTimelineItemContentKind::Poll(poll_state),
                 reactions: Default::default(),
                 thread_root: None,
+                in_reply_to: None,
             }),
             edit_json,
         );
@@ -1375,23 +1388,22 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let Some(event_item) = item.as_event() else { continue };
             let Some(aggregated) = event_item.content.as_aggregated() else { continue };
             let Some(message) = event_item.content.as_message() else { continue };
-            let Some(in_reply_to) = message.in_reply_to() else { continue };
+            let Some(in_reply_to) = aggregated.in_reply_to.clone() else { continue };
 
             trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
-            let in_reply_to = InReplyToDetails {
+            let in_reply_to = Some(InReplyToDetails {
                 event_id: in_reply_to.event_id.clone(),
                 event: TimelineDetails::Ready(Box::new(RepliedToEvent::from_timeline_item(
                     new_item,
                 ))),
-            };
+            });
 
             let new_reply_content =
                 TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                    kind: AggregatedTimelineItemContentKind::Message(
-                        message.with_in_reply_to(in_reply_to),
-                    ),
+                    kind: AggregatedTimelineItemContentKind::Message(message.clone()),
                     reactions: aggregated.reactions.clone(),
                     thread_root: aggregated.thread_root.clone(),
+                    in_reply_to,
                 });
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);
@@ -1407,23 +1419,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 /// `old_item` *should* always be a local timeline item usually, but it
 /// can be a remote timeline item.
 fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
-    let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-        kind: AggregatedTimelineItemContentKind::Message(msg),
-        ..
-    }) = &mut new_item.content
-    else {
+    let TimelineItemContent::Aggregated(new_aggregated) = &mut new_item.content else {
         return;
     };
-    let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-        kind: AggregatedTimelineItemContentKind::Message(old_msg),
-        ..
-    }) = &old_item.content
-    else {
+    let TimelineItemContent::Aggregated(old_aggregated) = &old_item.content else {
         return;
     };
 
-    let Some(in_reply_to) = &mut msg.in_reply_to else { return };
-    let Some(old_in_reply_to) = &old_msg.in_reply_to else { return };
+    let Some(in_reply_to) = &mut new_aggregated.in_reply_to else { return };
+    let Some(old_in_reply_to) = &old_aggregated.in_reply_to else { return };
 
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();

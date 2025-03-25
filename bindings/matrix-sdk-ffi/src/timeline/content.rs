@@ -35,6 +35,7 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
             Content::Aggregated(AggregatedTimelineItemContent {
                 kind: AggregatedTimelineItemContentKind::Message(message),
                 thread_root,
+                in_reply_to,
                 ..
             }) => {
                 let message_type_string = message.msgtype().msgtype().to_owned();
@@ -44,7 +45,7 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                         content: MessageContent {
                             msg_type: message_type,
                             body: message.body().to_owned(),
-                            in_reply_to: message.in_reply_to().map(|r| Arc::new(r.clone().into())),
+                            in_reply_to: in_reply_to.map(|r| Arc::new(r.into())),
                             is_edited: message.is_edited(),
                             thread_root: thread_root.map(|id| id.to_string()),
                             mentions: message.mentions().cloned().map(|m| m.into()),

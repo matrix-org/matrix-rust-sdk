@@ -14,9 +14,8 @@
 
 //! Timeline item content bits for `m.room.message` events.
 
-use std::{fmt, sync::Arc};
+use std::fmt;
 
-use imbl::Vector;
 use ruma::{
     events::{
         poll::unstable_start::{
@@ -40,7 +39,6 @@ use crate::DEFAULT_SANITIZER_MODE;
 #[derive(Clone)]
 pub struct Message {
     pub(in crate::timeline) msgtype: MessageType,
-    pub(in crate::timeline) in_reply_to: Option<InReplyToDetails>,
     pub(in crate::timeline) edited: bool,
     pub(in crate::timeline) mentions: Option<Mentions>,
 }
@@ -50,25 +48,12 @@ impl Message {
     pub(in crate::timeline) fn from_event(
         c: RoomMessageEventContent,
         edit: Option<RoomMessageEventContentWithoutRelation>,
-        timeline_items: &Vector<Arc<TimelineItem>>,
+        remove_reply_fallback: RemoveReplyFallback,
     ) -> Self {
-        let in_reply_to = c.relates_to.and_then(|relation| match relation {
-            Relation::Reply { in_reply_to } => {
-                Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
-            }
-            Relation::Thread(thread) => thread
-                .in_reply_to
-                .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items)),
-            _ => None,
-        });
-
-        let remove_reply_fallback =
-            if in_reply_to.is_some() { RemoveReplyFallback::Yes } else { RemoveReplyFallback::No };
-
         let mut msgtype = c.msgtype;
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
 
-        let mut ret = Self { msgtype, in_reply_to, edited: false, mentions: c.mentions };
+        let mut ret = Self { msgtype, edited: false, mentions: c.mentions };
 
         if let Some(edit) = edit {
             ret.apply_edit(edit);
@@ -99,11 +84,6 @@ impl Message {
         self.msgtype.body()
     }
 
-    /// Get the event this message is replying to, if any.
-    pub fn in_reply_to(&self) -> Option<&InReplyToDetails> {
-        self.in_reply_to.as_ref()
-    }
-
     /// Get the edit state of this message (has been edited: `true` /
     /// `false`).
     pub fn is_edited(&self) -> bool {
@@ -113,10 +93,6 @@ impl Message {
     /// Get the mentions of this message.
     pub fn mentions(&self) -> Option<&Mentions> {
         self.mentions.as_ref()
-    }
-
-    pub(in crate::timeline) fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
-        Self { in_reply_to: Some(in_reply_to), ..self.clone() }
     }
 }
 
@@ -194,12 +170,9 @@ pub(crate) fn extract_poll_edit_content(
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, in_reply_to, edited, mentions: _ } = self;
+        let Self { msgtype: _, edited, mentions: _ } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
-        f.debug_struct("Message")
-            .field("in_reply_to", in_reply_to)
-            .field("edited", edited)
-            .finish_non_exhaustive()
+        f.debug_struct("Message").field("edited", edited).finish_non_exhaustive()
     }
 }

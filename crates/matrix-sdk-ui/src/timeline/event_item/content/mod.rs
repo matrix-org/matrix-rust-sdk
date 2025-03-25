@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use imbl::Vector;
 use matrix_sdk::crypto::types::events::UtdCause;
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
@@ -57,11 +56,10 @@ use ruma::{
         AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
         MessageLikeEventType, StateEventType,
     },
+    html::RemoveReplyFallback,
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::warn;
-
-use crate::timeline::TimelineItem;
 
 mod aggregated;
 mod message;
@@ -202,25 +200,20 @@ impl TimelineItemContent {
                         }
                     });
 
-                // If this message is a reply, we would look up in this list the message it was
-                // replying to. Since we probably won't show this in the message preview,
-                // it's probably OK to supply an empty list here.
-                // `Message::from_event` marks the original event as `Unavailable` if it can't
-                // be found inside the timeline_items.
-                let timeline_items = Vector::new();
-
-                // We're not interested in reactions or thread info for the latest preview item.
+                // We're not interested in aggregations for the latest preview item.
                 let reactions = Default::default();
                 let thread_root = None;
+                let in_reply_to = None;
 
                 let aggregated = AggregatedTimelineItemContent {
                     kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
                         event_content,
                         edit,
-                        &timeline_items,
+                        RemoveReplyFallback::Yes,
                     )),
                     reactions,
                     thread_root,
+                    in_reply_to,
                 };
 
                 TimelineItemContent::Aggregated(aggregated)
@@ -256,9 +249,10 @@ impl TimelineItemContent {
                 // Grab the content of this event
                 let event_content = event.content.clone();
 
-                // We're not interested in reactions or thread info for the latest preview item.
+                // We're not interested in aggregations for the latest preview item.
                 let reactions = Default::default();
                 let thread_root = None;
+                let in_reply_to = None;
 
                 let aggregated = AggregatedTimelineItemContent {
                     kind: AggregatedTimelineItemContentKind::Sticker(Sticker {
@@ -266,6 +260,7 @@ impl TimelineItemContent {
                     }),
                     reactions,
                     thread_root,
+                    in_reply_to,
                 };
 
                 TimelineItemContent::Aggregated(aggregated)
@@ -295,9 +290,10 @@ impl TimelineItemContent {
                 }
             });
 
-        // We're not interested in reactions or thread info for the latest preview item.
+        // We're not interested in aggregations for the latest preview item.
         let reactions = Default::default();
         let thread_root = None;
+        let in_reply_to = None;
 
         let aggregated = AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Poll(PollState::new(
@@ -306,6 +302,7 @@ impl TimelineItemContent {
             )),
             reactions,
             thread_root,
+            in_reply_to,
         };
 
         TimelineItemContent::Aggregated(aggregated)
@@ -371,18 +368,22 @@ impl TimelineItemContent {
     pub(crate) fn message(
         c: RoomMessageEventContent,
         edit: Option<RoomMessageEventContentWithoutRelation>,
-        timeline_items: &Vector<Arc<TimelineItem>>,
         reactions: ReactionsByKeyBySender,
         thread_root: Option<OwnedEventId>,
+        in_reply_to: Option<InReplyToDetails>,
     ) -> Self {
+        let remove_reply_fallback =
+            if in_reply_to.is_some() { RemoveReplyFallback::Yes } else { RemoveReplyFallback::No };
+
         Self::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
                 c,
                 edit,
-                timeline_items,
+                remove_reply_fallback,
             )),
             reactions,
             thread_root,
+            in_reply_to,
         })
     }
 
@@ -485,9 +486,26 @@ impl TimelineItemContent {
         }
     }
 
+    /// Event ID of the thread root, if this is a threaded message.
     pub fn thread_root(&self) -> Option<OwnedEventId> {
         match self {
             TimelineItemContent::Aggregated(aggregated) => aggregated.thread_root.clone(),
+            TimelineItemContent::UnableToDecrypt(..)
+            | TimelineItemContent::RedactedMessage
+            | TimelineItemContent::MembershipChange(..)
+            | TimelineItemContent::ProfileChange(..)
+            | TimelineItemContent::OtherState(..)
+            | TimelineItemContent::FailedToParseMessageLike { .. }
+            | TimelineItemContent::FailedToParseState { .. }
+            | TimelineItemContent::CallInvite
+            | TimelineItemContent::CallNotify => None,
+        }
+    }
+
+    /// Get the event this message is replying to, if any.
+    pub fn in_reply_to(&self) -> Option<InReplyToDetails> {
+        match self {
+            TimelineItemContent::Aggregated(aggregated) => aggregated.in_reply_to.clone(),
             TimelineItemContent::UnableToDecrypt(..)
             | TimelineItemContent::RedactedMessage
             | TimelineItemContent::MembershipChange(..)

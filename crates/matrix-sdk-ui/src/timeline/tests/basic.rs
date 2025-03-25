@@ -414,6 +414,7 @@ async fn test_reply() {
     assert_let!(
         TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(message),
+            in_reply_to,
             ..
         }) = item.as_event().unwrap().content()
     );
@@ -422,7 +423,7 @@ async fn test_reply() {
     assert_eq!(text.body, "I'm replying!");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<p>I'm replying!</p>");
 
-    let in_reply_to = message.in_reply_to().unwrap();
+    let in_reply_to = in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *ALICE);
@@ -455,6 +456,7 @@ async fn test_thread() {
     assert_let!(
         TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
             kind: AggregatedTimelineItemContentKind::Message(message),
+            in_reply_to,
             ..
         }) = item.as_event().unwrap().content()
     );
@@ -463,7 +465,7 @@ async fn test_thread() {
     assert_eq!(text.body, "I'm replying in a thread");
     assert_matches!(text.formatted, None);
 
-    let in_reply_to = message.in_reply_to().unwrap();
+    let in_reply_to = in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *ALICE);

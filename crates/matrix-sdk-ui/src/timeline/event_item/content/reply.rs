@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use imbl::{vector, Vector};
+use imbl::Vector;
 use matrix_sdk::{
     crypto::types::events::UtdCause,
     deserialized_responses::{TimelineEvent, TimelineEventKind},
@@ -11,6 +11,7 @@ use ruma::{
         poll::unstable_start::UnstablePollStartEventContent, AnyMessageLikeEventContent,
         AnySyncTimelineEvent,
     },
+    html::RemoveReplyFallback,
     OwnedEventId, OwnedUserId, UserId,
 };
 use tracing::{debug, instrument, warn};
@@ -130,10 +131,11 @@ impl RepliedToEvent {
                         kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
                             c,
                             extract_room_msg_edit_content(event.relations()),
-                            &vector![],
+                            RemoveReplyFallback::Yes,
                         )),
                         reactions,
                         thread_root,
+                        in_reply_to: None,
                     })
                 }
 
@@ -147,6 +149,7 @@ impl RepliedToEvent {
                         kind: AggregatedTimelineItemContentKind::Sticker(Sticker { content }),
                         reactions,
                         thread_root,
+                        in_reply_to: None,
                     })
                 }
 
@@ -179,6 +182,7 @@ impl RepliedToEvent {
                         kind: AggregatedTimelineItemContentKind::Poll(poll_state),
                         reactions,
                         thread_root,
+                        in_reply_to: None,
                     })
                 }
 

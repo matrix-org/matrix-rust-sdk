@@ -1029,13 +1029,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         // Replace the local-related state (kind) and the content state.
         let prev_reactions = prev_item.content().reactions();
         let prev_thread_root = prev_item.content().thread_root();
+        let prev_in_reply_to = prev_item.content().in_reply_to();
         let new_item = TimelineItem::new(
             prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
                 content,
                 None,
-                &txn.items,
                 prev_reactions,
                 prev_thread_root,
+                prev_in_reply_to,
             )),
             prev_item.internal_id.to_owned(),
         );
@@ -1347,12 +1348,13 @@ impl TimelineController {
             kind: AggregatedTimelineItemContentKind::Message(message),
             reactions,
             thread_root,
+            in_reply_to,
         }) = item.content().clone()
         else {
             debug!("Event is not a message");
             return Ok(());
         };
-        let Some(in_reply_to) = message.in_reply_to() else {
+        let Some(in_reply_to) = in_reply_to else {
             debug!("Event is not a reply");
             return Ok(());
         };
@@ -1392,12 +1394,13 @@ impl TimelineController {
             kind: AggregatedTimelineItemContentKind::Message(message),
             reactions,
             thread_root,
+            in_reply_to,
         }) = item.content().clone()
         else {
             info!("Event is no longer a message (redacted?)");
             return Ok(());
         };
-        let Some(in_reply_to) = message.in_reply_to() else {
+        let Some(in_reply_to) = in_reply_to else {
             warn!("Event no longer has a reply (bug?)");
             return Ok(());
         };
@@ -1408,11 +1411,10 @@ impl TimelineController {
         let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
         item.set_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message.with_in_reply_to(
-                InReplyToDetails { event_id: in_reply_to.event_id.clone(), event },
-            )),
+            kind: AggregatedTimelineItemContentKind::Message(message),
             reactions,
             thread_root,
+            in_reply_to: Some(InReplyToDetails { event_id: in_reply_to.event_id, event }),
         }));
         state.items.replace(index, TimelineItem::new(item, internal_id));
 
@@ -1542,15 +1544,17 @@ async fn fetch_replied_to_event(
     // Replace the item with a new timeline item that has the fetching status of the
     // replied-to event to pending.
     trace!("Setting in-reply-to details to pending");
-    let reply = message.with_in_reply_to(InReplyToDetails {
+    let in_reply_to_details = Some(InReplyToDetails {
         event_id: in_reply_to.to_owned(),
         event: TimelineDetails::Pending,
     });
+
     let event_item =
         item.with_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(reply),
+            kind: AggregatedTimelineItemContentKind::Message(message.clone()),
             reactions: reactions.clone(),
             thread_root: thread_root.clone(),
+            in_reply_to: in_reply_to_details,
         }));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);

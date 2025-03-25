@@ -855,10 +855,11 @@ async fn test_retry_decryption_updates_response() {
     // We receive the text response.
     {
         let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        let aggregated = event.content().as_aggregated().unwrap();
         let msg = event.content().as_message().unwrap();
         assert_eq!(msg.body(), "well said!");
 
-        let reply_details = msg.in_reply_to().unwrap();
+        let reply_details = aggregated.in_reply_to.clone().unwrap();
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
@@ -889,10 +890,11 @@ async fn test_retry_decryption_updates_response() {
             VectorDiff::Set { index: 1, value } => value
         );
 
+        let aggregated = event.content().as_aggregated().unwrap();
         let msg = event.content().as_message().unwrap();
         assert_eq!(msg.body(), "well said!");
 
-        let reply_details = msg.in_reply_to().unwrap();
+        let reply_details = aggregated.in_reply_to.clone().unwrap();
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();

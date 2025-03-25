@@ -336,7 +336,7 @@ async fn decrypt_by_index<D: Decryptor>(
 mod tests {
     use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 
-    use imbl::{vector, Vector};
+    use imbl::vector;
     use matrix_sdk::{
         crypto::types::events::UtdCause,
         deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},
@@ -537,8 +537,8 @@ mod tests {
                 TimelineItemContent::message(
                     RoomMessageEventContent::text_plain("hi"),
                     None,
-                    &Vector::new(),
                     ReactionsByKeyBySender::default(),
+                    None,
                     None,
                 ),
                 event_kind,
