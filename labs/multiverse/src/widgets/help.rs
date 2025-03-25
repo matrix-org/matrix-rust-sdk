@@ -23,6 +23,15 @@ impl Widget for &mut HelpView {
         let rows = vec![
             Row::new(vec![Cell::from("F1"), Cell::from("Open Help")]),
             Row::new(vec![Cell::from("F10"), Cell::from("Open the encryption settings")]),
+            Row::new(vec![Cell::from("Ctrl-q"), Cell::from("Quit Multiverse")]),
+            Row::new(vec![
+                Cell::from("Ctrl-j / Ctrl-down"),
+                Cell::from("Switch to the next room in the list"),
+            ]),
+            Row::new(vec![
+                Cell::from("Ctrl-k / Ctrl-up"),
+                Cell::from("Switch to the previous room in the list"),
+            ]),
             Row::new(vec![Cell::from("s"), Cell::from("Resume syncing")]),
             Row::new(vec![Cell::from("S"), Cell::from("Stop syncing")]),
             Row::new(vec![Cell::from("Q"), Cell::from("Enable/disable the send queue")]),
@@ -36,7 +45,7 @@ impl Widget for &mut HelpView {
 
         let help_table = Table::new(rows, widths)
             .block(block)
-            .widths(&[Constraint::Length(10), Constraint::Min(30)]);
+            .widths(&[Constraint::Length(20), Constraint::Min(30)]);
 
         StatefulWidget::render(help_table, area, buf, &mut TableState::default());
     }

@@ -29,7 +29,7 @@ pub struct Status {
     /// message.
     message_sender: mpsc::Sender<String>,
 
-    /// The task listening for messages to be received over the
+    /// The task listening for status messages to be received over the
     /// [mpsc::Receiver].
     _receiver_task: JoinHandle<()>,
 }
