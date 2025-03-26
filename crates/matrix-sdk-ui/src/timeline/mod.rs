@@ -517,13 +517,7 @@ impl Timeline {
                 // Relations are filled by the editing code itself.
                 let new_content: AnyMessageLikeEventContent = match new_content {
                     EditedContent::RoomMessage(message) => {
-                        if matches!(
-                            item.content,
-                            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                                kind: AggregatedTimelineItemContentKind::Message(_),
-                                ..
-                            })
-                        ) {
+                        if item.content.is_message() {
                             AnyMessageLikeEventContent::RoomMessage(message.into())
                         } else {
                             return Err(EditError::ContentMismatch {
@@ -535,13 +529,7 @@ impl Timeline {
                     }
 
                     EditedContent::PollStart { new_content, .. } => {
-                        if matches!(
-                            item.content,
-                            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                                kind: AggregatedTimelineItemContentKind::Poll(_),
-                                ..
-                            })
-                        ) {
+                        if item.content.is_poll() {
                             AnyMessageLikeEventContent::UnstablePollStart(
                                 UnstablePollStartEventContent::New(
                                     NewUnstablePollStartEventContent::new(new_content),

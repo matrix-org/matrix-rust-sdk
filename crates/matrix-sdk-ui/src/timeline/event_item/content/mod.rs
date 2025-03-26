@@ -363,6 +363,30 @@ impl TimelineItemContent {
         matches!(self, Self::UnableToDecrypt(_))
     }
 
+    /// Check whether this item's content is a
+    /// [`Message`][AggregatedTimelineItemContentKind::Message].
+    pub fn is_message(&self) -> bool {
+        matches!(
+            self,
+            Self::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                ..
+            })
+        )
+    }
+
+    /// Check whether this item's content is a
+    /// [`Poll`][AggregatedTimelineItemContentKind::Poll].
+    pub fn is_poll(&self) -> bool {
+        matches!(
+            self,
+            Self::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Poll(_),
+                ..
+            })
+        )
+    }
+
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
