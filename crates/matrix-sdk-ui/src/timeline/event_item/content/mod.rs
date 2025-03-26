@@ -509,34 +509,12 @@ impl TimelineItemContent {
 
     /// Event ID of the thread root, if this is a threaded message.
     pub fn thread_root(&self) -> Option<OwnedEventId> {
-        match self {
-            TimelineItemContent::Aggregated(aggregated) => aggregated.thread_root.clone(),
-            TimelineItemContent::UnableToDecrypt(..)
-            | TimelineItemContent::RedactedMessage
-            | TimelineItemContent::MembershipChange(..)
-            | TimelineItemContent::ProfileChange(..)
-            | TimelineItemContent::OtherState(..)
-            | TimelineItemContent::FailedToParseMessageLike { .. }
-            | TimelineItemContent::FailedToParseState { .. }
-            | TimelineItemContent::CallInvite
-            | TimelineItemContent::CallNotify => None,
-        }
+        as_variant!(self, TimelineItemContent::Aggregated).and_then(|agg| agg.thread_root.clone())
     }
 
     /// Get the event this message is replying to, if any.
     pub fn in_reply_to(&self) -> Option<InReplyToDetails> {
-        match self {
-            TimelineItemContent::Aggregated(aggregated) => aggregated.in_reply_to.clone(),
-            TimelineItemContent::UnableToDecrypt(..)
-            | TimelineItemContent::RedactedMessage
-            | TimelineItemContent::MembershipChange(..)
-            | TimelineItemContent::ProfileChange(..)
-            | TimelineItemContent::OtherState(..)
-            | TimelineItemContent::FailedToParseMessageLike { .. }
-            | TimelineItemContent::FailedToParseState { .. }
-            | TimelineItemContent::CallInvite
-            | TimelineItemContent::CallNotify => None,
-        }
+        as_variant!(self, TimelineItemContent::Aggregated).and_then(|agg| agg.in_reply_to.clone())
     }
 
     /// Return the reactions, grouped by key and then by sender, for a given
