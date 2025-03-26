@@ -229,6 +229,8 @@ simpler methods:
   return an `AccountManagementUrlBuilder`. The final URL can be obtained with
   `AccountManagementUrlBuilder::build()`.
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
+- [**breaking**] `Client::store` is renamed `state_store`
+  ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
 
 ## [0.10.0] - 2025-02-04
 

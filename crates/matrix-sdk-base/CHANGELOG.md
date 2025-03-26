@@ -28,6 +28,13 @@ All notable changes to this project will be documented in this file.
   which returns a value of the new `EncryptionState` enum
   ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777))
 
+### Refactor
+
+- [**breaking**] `BaseClient::with_store_config` is renamed `new`
+  ([#4847](https://github.com/matrix-org/matrix-rust-sdk/pull/4847))
+- [**breaking**] `BaseClient::store` is renamed `state_store`
+  ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
+
 ## [0.10.0] - 2025-02-04
 
 ### Features
