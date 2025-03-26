@@ -110,7 +110,7 @@ impl BaseClient {
 
         trace!("ready to submit e2ee changes to store");
         let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
-        self.store.save_changes(&changes).await?;
+        self.state_store.save_changes(&changes).await?;
         self.apply_changes(&changes, room_info_notable_updates, prev_ignored_user_list);
         trace!("applied e2ee changes");
 
@@ -161,7 +161,7 @@ impl BaseClient {
         let mut room_info_notable_updates =
             BTreeMap::<OwnedRoomId, RoomInfoNotableUpdateReasons>::new();
 
-        let store = self.store.clone();
+        let store = self.state_store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
         let account_data_processor = AccountDataProcessor::process(&extensions.account_data.global);
@@ -260,7 +260,7 @@ impl BaseClient {
             )
             .await;
 
-            if let Some(room) = self.store.room(room_id) {
+            if let Some(room) = self.state_store.room(room_id) {
                 match room.state() {
                     RoomState::Joined => new_rooms
                         .join
@@ -337,7 +337,7 @@ impl BaseClient {
         // live in memory, until the next sync which will saves the room info to
         // disk; we do this to avoid saving that would be redundant with the
         // above. Oh well.
-        new_rooms.update_in_memory_caches(&self.store).await;
+        new_rooms.update_in_memory_caches(&self.state_store).await;
 
         Ok(SyncResponse {
             rooms: new_rooms,
