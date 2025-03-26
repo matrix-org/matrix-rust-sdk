@@ -26,7 +26,7 @@ use matrix_sdk_common::{
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     api::client::media::get_content_thumbnail::v3::Method, events::room::MediaSource, mxc_uri,
-    push::Action, room_id, uint, RoomId,
+    push::Action, room_id, uint, EventId, RoomId,
 };
 
 use super::{media::IgnoreMediaRetentionPolicy, DynEventCacheStore};
@@ -40,6 +40,15 @@ use crate::{
 ///
 /// Keep in sync with [`check_test_event`].
 pub fn make_test_event(room_id: &RoomId, content: &str) -> TimelineEvent {
+    make_test_event_with_event_id(room_id, content, None)
+}
+
+/// Same as [`make_test_event`], with an extra event id.
+pub fn make_test_event_with_event_id(
+    room_id: &RoomId,
+    content: &str,
+    event_id: Option<&EventId>,
+) -> TimelineEvent {
     let encryption_info = EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
@@ -51,12 +60,11 @@ pub fn make_test_event(room_id: &RoomId, content: &str) -> TimelineEvent {
         session_id: Some("mysessionid9".to_owned()),
     };
 
-    let event = EventFactory::new()
-        .text_msg(content)
-        .room(room_id)
-        .sender(*ALICE)
-        .into_raw_timeline()
-        .cast();
+    let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
+    if let Some(event_id) = event_id {
+        builder = builder.event_id(event_id);
+    }
+    let event = builder.into_raw_timeline().cast();
 
     TimelineEvent {
         kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
