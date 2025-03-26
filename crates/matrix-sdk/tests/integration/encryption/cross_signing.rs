@@ -61,6 +61,43 @@ async fn test_reset_legacy_auth() {
 }
 
 #[async_test]
+async fn test_reset_legacy_auth_invalid_password() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().expect("We should be able to access the user ID by now");
+
+    assert!(
+        !client.encryption().cross_signing_status().await.unwrap().is_complete(),
+        "Initially we shouldn't have any cross-signin keys",
+    );
+
+    server.mock_upload_keys().ok().mock_once().mount().await;
+
+    let reset_handle = {
+        let _guard =
+            server.mock_upload_cross_signing_keys().uiaa().expect(1).mount_as_scoped().await;
+
+        client
+            .encryption()
+            .reset_cross_signing()
+            .await
+            .unwrap()
+            .expect("We should have received a reset handle")
+    };
+
+    server.mock_upload_cross_signing_keys().uiaa_invalid_password().expect(1).mount().await;
+
+    assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
+
+    let mut password = uiaa::Password::new(user_id.to_owned().into(), "wrong-password".to_owned());
+    password.session = uiaa_info.session.clone();
+    reset_handle
+        .auth(Some(uiaa::AuthData::Password(password)))
+        .await
+        .expect_err("Resetting with the wrong password should return the error");
+}
+
+#[async_test]
 async fn test_reset_oauth() {
     use assert_matches2::assert_let;
     use matrix_sdk::{encryption::CrossSigningResetAuthType, test_utils::mocks::MatrixMockServer};
