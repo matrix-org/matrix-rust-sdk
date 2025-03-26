@@ -75,7 +75,7 @@ pub enum ReplyError {
     MissingEvent,
     /// The event to reply to could not be deserialized.
     #[error("failed to deserialize event to reply to")]
-    FailedToDeserializeEvent,
+    Deserialization,
     /// State events cannot be replied to.
     #[error("tried to reply to a state event")]
     StateEvent,
@@ -257,7 +257,7 @@ async fn replied_to_info_from_event_id<S: EventSource>(
     let event = source.get_event(event_id).await?;
 
     let raw_event = event.into_raw();
-    let event = raw_event.deserialize().map_err(|_| ReplyError::FailedToDeserializeEvent)?;
+    let event = raw_event.deserialize().map_err(|_| ReplyError::Deserialization)?;
 
     let reply_content = match &event {
         AnySyncTimelineEvent::MessageLike(event) => {
