@@ -31,14 +31,14 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{instrument, trace, warn};
+use tracing::{instrument, trace};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(any(test, feature = "testing", doc))]
 use crate::OlmMachine;
 use crate::{
-    error::{EventError, MismatchedIdentityKeysError, OlmError, OlmResult, SignatureError},
+    error::{MismatchedIdentityKeysError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentityData, UserIdentityData},
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
@@ -695,12 +695,7 @@ impl DeviceData {
                 Ok(None)
             }
         } else {
-            warn!(
-                "Trying to find an Olm session of a device, but the device doesn't have a \
-                Curve25519 key",
-            );
-
-            Err(EventError::MissingSenderKey.into())
+            Ok(None)
         }
     }
 
@@ -846,7 +841,7 @@ impl DeviceData {
                 message: encrypted.cast(),
             }),
 
-            Err(OlmError::MissingSession | OlmError::EventError(EventError::MissingSenderKey)) => {
+            Err(OlmError::MissingSession) => {
                 Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
             }
             Err(e) => Err(e),
