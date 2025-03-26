@@ -12,7 +12,10 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] Optionally allow starting threads with `Timeline::send_reply`.
   ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
-- [**breaking**] Push the reply logic down into matrix_sdk.
+- [**breaking**] Push `RepliedToInfo`, `ReplyContent`, `EnforceThread` and
+  `UnsupportedReplyItem` (becoming `ReplyError`) down into matrix_sdk.
+  [`Timeline::send_reply()`] now takes an event ID rather than a `RepliedToInfo`.
+  `Timeline::replied_to_info_from_event_id` has been made private in `matrix_sdk`.
   ([4842](https://github.com/matrix-org/matrix-rust-sdk/pull/4842))
 
 ### Refactor
