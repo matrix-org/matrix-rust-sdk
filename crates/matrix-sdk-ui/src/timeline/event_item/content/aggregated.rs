@@ -52,7 +52,7 @@ impl AggregatedTimelineItemContent {
         }
     }
 
-    /// Whether this message is part of a thread.
+    /// Whether this item is part of a thread.
     pub fn is_threaded(&self) -> bool {
         self.thread_root.is_some()
     }
