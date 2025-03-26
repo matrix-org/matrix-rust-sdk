@@ -85,10 +85,6 @@ pub enum OAuthError {
     #[error("failed to log out: {0}")]
     Logout(#[from] OAuthTokenRevocationError),
 
-    /// An error occurred building the account management URL.
-    #[error("failed to build account management URL: {0}")]
-    AccountManagementUrl(serde_html_form::ser::Error),
-
     /// An error occurred caused by the cross-process locks.
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]

@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 - Defragment an sqlite state store after removing a room.
   ([#4651](https://github.com/matrix-org/matrix-rust-sdk/pull/4651))
+- Add `SqliteStoreConfig` and the `open_with_config` constructor on all the
+  stores, it allows to control the maximum size of the pool of connections to
+  SQLite for example.
+  ([#4826](https://github.com/matrix-org/matrix-rust-sdk/pull/4826))
 
 ## [0.10.0] - 2025-02-04
 

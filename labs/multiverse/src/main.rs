@@ -27,7 +27,10 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
-    timeline::{TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem},
+    timeline::{
+        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, TimelineItem,
+        TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    },
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
@@ -803,7 +806,10 @@ impl App {
                     let sender = ev.sender();
 
                     match ev.content() {
-                        TimelineItemContent::Message(message) => {
+                        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                            kind: AggregatedTimelineItemContentKind::Message(message),
+                            ..
+                        }) => {
                             if let MessageType::Text(text) = message.msgtype() {
                                 content.push(format!("{}: {}", sender, text.body))
                             }
@@ -815,13 +821,19 @@ impl App {
                         TimelineItemContent::UnableToDecrypt(_) => {
                             content.push(format!("{}: (UTD)", sender))
                         }
-                        TimelineItemContent::Sticker(_)
+                        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                            kind: AggregatedTimelineItemContentKind::Sticker(_),
+                            ..
+                        })
                         | TimelineItemContent::MembershipChange(_)
                         | TimelineItemContent::ProfileChange(_)
                         | TimelineItemContent::OtherState(_)
                         | TimelineItemContent::FailedToParseMessageLike { .. }
                         | TimelineItemContent::FailedToParseState { .. }
-                        | TimelineItemContent::Poll(_)
+                        | TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                            kind: AggregatedTimelineItemContentKind::Poll(_),
+                            ..
+                        })
                         | TimelineItemContent::CallInvite
                         | TimelineItemContent::CallNotify => {
                             continue;
@@ -835,6 +847,9 @@ impl App {
                     }
                     VirtualTimelineItem::ReadMarker => {
                         content.push("Read marker".to_owned());
+                    }
+                    VirtualTimelineItem::TimelineStart => {
+                        content.push("🥳 Timeline start! 🥳".to_owned());
                     }
                 },
             }

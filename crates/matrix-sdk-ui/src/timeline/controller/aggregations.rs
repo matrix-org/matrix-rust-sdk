@@ -44,7 +44,8 @@ use tracing::{trace, warn};
 
 use super::{rfind_event_by_item_id, ObservableItemsTransaction};
 use crate::timeline::{
-    PollState, ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItem, TimelineItemContent,
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, PollState, ReactionInfo,
+    ReactionStatus, TimelineEventItemId, TimelineItem, TimelineItemContent,
 };
 
 /// Which kind of aggregation (related event) is this?
@@ -105,7 +106,10 @@ fn poll_state_from_item(
     content: &mut TimelineItemContent,
 ) -> Result<&mut PollState, AggregationError> {
     match content {
-        TimelineItemContent::Poll(poll_state) => Ok(poll_state),
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+            ..
+        }) => Ok(poll_state),
         _ => Err(AggregationError::InvalidType {
             expected: "a poll".to_owned(),
             actual: content.debug_string().to_owned(),

@@ -3203,6 +3203,7 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
+ "num_cpus",
  "once_cell",
  "rmp-serde",
  "ruma",

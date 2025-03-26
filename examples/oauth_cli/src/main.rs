@@ -389,14 +389,20 @@ impl OAuthCli {
 
     /// Get the account management URL.
     async fn account(&self, action: Option<AccountManagementActionFull>) {
-        match self.client.oauth().fetch_account_management_url(action).await {
-            Ok(Some(url)) => {
-                println!("\nTo manage your account, visit: {url}");
-            }
+        let mut url_builder = match self.client.oauth().fetch_account_management_url().await {
+            Ok(Some(url_builder)) => url_builder,
             _ => {
-                println!("\nThis homeserver does not provide the URL to manage your account")
+                println!("\nThis homeserver does not provide the URL to manage your account");
+                return;
             }
+        };
+
+        if let Some(action) = action {
+            url_builder = url_builder.action(action);
         }
+
+        let url = url_builder.build();
+        println!("\nTo manage your account, visit: {url}");
     }
 
     /// Watch incoming messages.

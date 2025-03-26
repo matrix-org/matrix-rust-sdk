@@ -84,10 +84,19 @@ use crate::{
     RoomStateFilter, SessionMeta,
 };
 
-/// A no IO Client implementation.
+/// A no (network) IO client implementation.
 ///
-/// This Client is a state machine that receives responses and events and
-/// accordingly updates its state.
+/// This client is a state machine that receives responses and events and
+/// accordingly updates its state. It is not designed to be used directly, but
+/// rather through `matrix_sdk::Client`.
+///
+/// ```rust
+/// use matrix_sdk_base::{store::StoreConfig, BaseClient};
+///
+/// let client = BaseClient::new(StoreConfig::new(
+///     "cross-process-holder-name".to_owned(),
+/// ));
+/// ```
 #[derive(Clone)]
 pub struct BaseClient {
     /// Database
@@ -145,9 +154,9 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `config` - An optional session if the user already has one from a
-    ///   previous login call.
-    pub fn with_store_config(config: StoreConfig) -> Self {
+    /// * `config` - the configuration for the stores (state store, event cache
+    ///   store and crypto store).
+    pub fn new(config: StoreConfig) -> Self {
         let store = Store::new(config.state_store);
 
         // Create the channel to receive `RoomInfoNotableUpdate`.
@@ -230,7 +239,7 @@ impl BaseClient {
     ) -> Result<Self> {
         let config = StoreConfig::new(cross_process_store_locks_holder.to_owned())
             .state_store(MemoryStore::new());
-        Ok(Self::with_store_config(config))
+        Ok(Self::new(config))
     }
 
     /// Get the session meta information.
@@ -2241,9 +2250,8 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
             .set_session_meta(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -2301,9 +2309,8 @@ mod tests {
         let inviter_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
             .set_session_meta(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -2363,9 +2370,8 @@ mod tests {
         let inviter_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
             .set_session_meta(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -2435,9 +2441,8 @@ mod tests {
     #[async_test]
     async fn test_ignored_user_list_changes() {
         let user_id = user_id!("@alice:example.org");
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
             .set_session_meta(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },

@@ -606,13 +606,20 @@ impl Client {
             return Ok(None);
         }
 
-        match self.inner.oauth().account_management_url(action.map(Into::into)).await {
-            Ok(url) => Ok(url.map(|u| u.to_string())),
+        let mut url_builder = match self.inner.oauth().account_management_url().await {
+            Ok(Some(url_builder)) => url_builder,
+            Ok(None) => return Ok(None),
             Err(e) => {
-                tracing::error!("Failed retrieving account management URL: {e}");
-                Err(e.into())
+                error!("Failed retrieving account management URL: {e}");
+                return Err(e.into());
             }
+        };
+
+        if let Some(action) = action {
+            url_builder = url_builder.action(action.into());
         }
+
+        Ok(Some(url_builder.build().to_string()))
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
