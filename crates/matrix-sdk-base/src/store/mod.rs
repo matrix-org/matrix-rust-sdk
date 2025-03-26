@@ -479,7 +479,7 @@ impl StateChanges {
 ///
 /// ```
 /// # use matrix_sdk_base::store::StoreConfig;
-///
+/// #
 /// let store_config =
 ///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned());
 /// ```
