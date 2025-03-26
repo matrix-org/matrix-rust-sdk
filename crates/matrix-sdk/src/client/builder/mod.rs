@@ -475,7 +475,7 @@ impl ClientBuilder {
             base_client
         } else {
             #[allow(unused_mut)]
-            let mut client = BaseClient::with_store_config(
+            let mut client = BaseClient::new(
                 build_store_config(self.store_config, &self.cross_process_store_locks_holder_name)
                     .await?,
             );
