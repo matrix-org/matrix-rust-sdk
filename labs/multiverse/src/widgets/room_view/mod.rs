@@ -6,21 +6,21 @@ use matrix_sdk::{
     locks::Mutex,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
-        events::room::message::RoomMessageEventContent, MilliSecondsSinceUnixEpoch, OwnedRoomId,
+        events::room::message::RoomMessageEventContent, OwnedRoomId,
     },
 };
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 
-use self::{details::RoomDetails, timeline::TimelineView};
+use self::{details::RoomDetails, input::Input, timeline::TimelineView};
 use super::status::StatusHandle;
 use crate::{
-    popup_area, widgets::recovery::ShouldExit, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR,
-    TEXT_COLOR,
+    widgets::recovery::ShouldExit, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR,
 };
 
 mod details;
 mod events;
+mod input;
 mod linked_chunk;
 mod read_receipts;
 mod timeline;
@@ -48,6 +48,8 @@ pub struct RoomView {
     current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
 
     mode: Mode,
+
+    input: Input,
 }
 
 impl RoomView {
@@ -59,6 +61,7 @@ impl RoomView {
             status_handle,
             current_pagination: Default::default(),
             mode: Mode::default(),
+            input: Input::new(),
         }
     }
 
@@ -71,14 +74,21 @@ impl RoomView {
 
         match &mut self.mode {
             Mode::Normal => match (key.modifiers, key.code) {
-                (_, Char('M')) => match self.send_message().await {
-                    Ok(_) => {
-                        self.status_handle.set_message("message sent!".to_owned());
+                (KeyModifiers::NONE, Enter) => {
+                    if !self.input.is_empty() {
+                        let message = self.input.get_text();
+
+                        match self.send_message(message).await {
+                            Ok(_) => {
+                                self.input.clear();
+                            }
+                            Err(err) => {
+                                self.status_handle
+                                    .set_message(format!("error when sending event: {err}"));
+                            }
+                        }
                     }
-                    Err(err) => {
-                        self.status_handle.set_message(format!("error when sending event: {err}"));
-                    }
-                },
+                }
 
                 (KeyModifiers::CONTROL, Char('l')) => self.toggle_reaction_to_latest_msg().await,
 
@@ -90,7 +100,7 @@ impl RoomView {
                     }
                 }
 
-                _ => {}
+                _ => self.input.handle_key_press(key),
             },
 
             Mode::Details { view } => match view.handle_key_press(key) {
@@ -169,19 +179,11 @@ impl RoomView {
         };
     }
 
-    pub async fn send_message(&self) -> Result<()> {
+    pub async fn send_message(&self, message: String) -> Result<()> {
         if let Some(sdk_timeline) = self.selected_room.as_deref().and_then(|room_id| {
             self.timelines.lock().get(room_id).map(|timeline| timeline.timeline.clone())
         }) {
-            sdk_timeline
-                .send(
-                    RoomMessageEventContent::text_plain(format!(
-                        "hey {}",
-                        MilliSecondsSinceUnixEpoch::now().get()
-                    ))
-                    .into(),
-                )
-                .await?;
+            sdk_timeline.send(RoomMessageEventContent::text_plain(message).into()).await?;
         } else {
             self.status_handle.set_message("missing timeline for room".to_owned());
         };
@@ -220,36 +222,33 @@ impl Widget for &mut RoomView {
     where
         Self: Sized,
     {
-        // Split the block into two parts:
-        // - outer_block with the title of the block.
-        // - inner_block that will contain the actual details.
-        let outer_block = Block::default()
+        // Create a space for the header, timeline, and input area.
+        let vertical =
+            Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]);
+        let [header_area, timeline_area, input_area] = vertical.areas(area);
+
+        let header_block = Block::default()
             .borders(Borders::NONE)
             .fg(TEXT_COLOR)
             .bg(HEADER_BG)
             .title("Room view")
             .title_alignment(Alignment::Center);
 
-        let inner_block = Block::default()
-            .borders(Borders::NONE)
+        let timeline_block = Block::default()
+            .border_set(symbols::border::THICK)
             .bg(NORMAL_ROW_COLOR)
             .padding(Padding::horizontal(1));
 
-        // This is a similar process to what we did for list. outer_info_area will be
-        // used for header inner_info_area will be used for the list info.
-        let outer_area = area;
-        let inner_area = outer_block.inner(outer_area);
-
-        // We can render the header. Inner area will be rendered later.
-        outer_block.render(outer_area, buf);
-        inner_block.render(inner_area, buf);
+        // Let's render the backgrounds for the header and the timeline.
+        header_block.render(header_area, buf);
+        timeline_block.render(timeline_area, buf);
 
         // Helper to render some string as a paragraph.
         let render_paragraph = |buf: &mut Buffer, content: String| {
             Paragraph::new(content)
                 .fg(TEXT_COLOR)
                 .wrap(Wrap { trim: false })
-                .render(inner_area, buf);
+                .render(timeline_area, buf);
         };
 
         if let Some(room_id) = self.selected_room.as_deref() {
@@ -258,19 +257,21 @@ impl Widget for &mut RoomView {
             {
                 let items = items.lock();
                 let mut timeline = TimelineView::new(items.deref());
-                timeline.render(inner_area, buf);
+                timeline.render(timeline_area, buf);
             } else {
                 render_paragraph(buf, "(room's timeline disappeared)".to_owned())
             };
+
+            let rooms = self.ui_rooms.lock();
+            let mut room = rooms.get(room_id);
+
+            self.input.render(input_area, buf, &mut room);
 
             match &mut self.mode {
                 Mode::Normal => {}
                 Mode::Details { view } => {
                     let details_area = area.inner(Margin::new(0, 1));
                     Clear.render(details_area, buf);
-
-                    let rooms = self.ui_rooms.lock();
-                    let mut room = rooms.get(room_id);
 
                     view.render(details_area, buf, &mut room);
                 }

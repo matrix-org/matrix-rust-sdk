@@ -144,7 +144,8 @@ impl Widget for &mut RoomList {
         // We create two blocks, one is for the header (outer) and the other is for list
         // (inner).
         let outer_block = Block::default()
-            .borders(Borders::NONE)
+            .borders(Borders::RIGHT)
+            .border_set(symbols::border::THICK)
             .fg(TEXT_COLOR)
             .bg(HEADER_BG)
             .title("Room list")
