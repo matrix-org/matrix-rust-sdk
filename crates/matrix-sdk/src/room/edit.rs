@@ -352,8 +352,7 @@ mod tests {
             room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         },
-        owned_mxc_uri, owned_user_id, room_id,
-        user_id, EventId, OwnedEventId,
+        owned_mxc_uri, owned_user_id, room_id, user_id, EventId, OwnedEventId,
     };
 
     use super::{make_edit_event, EditError, EventSource};

@@ -294,7 +294,7 @@ mod tests {
     use serde_json::json;
 
     use super::{make_reply_event, EnforceThread, EventSource, ReplyError};
-    use crate::Error;
+    use crate::{event_cache::EventCacheError, Error};
 
     #[derive(Default)]
     struct TestEventCache {
@@ -303,10 +303,9 @@ mod tests {
 
     impl EventSource for TestEventCache {
         async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, ReplyError> {
-            self.events
-                .get(event_id)
-                .map(|e| e.clone())
-                .ok_or(ReplyError::Fetch(Box::new(Error::BadCryptoStoreState)))
+            self.events.get(event_id).cloned().ok_or(ReplyError::Fetch(Box::new(
+                Error::EventCache(EventCacheError::ClientDropped),
+            )))
         }
     }
 
@@ -474,7 +473,7 @@ mod tests {
 
         assert_eq!(thread.event_id, event_id);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
-        assert_eq!(thread.is_falling_back, true);
+        assert!(thread.is_falling_back);
     }
 
     #[async_test]
@@ -517,7 +516,7 @@ mod tests {
 
         assert_eq!(thread.event_id, thread_root);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
-        assert_eq!(thread.is_falling_back, true);
+        assert!(thread.is_falling_back);
     }
 
     #[async_test]
@@ -560,7 +559,7 @@ mod tests {
 
         assert_eq!(thread.event_id, thread_root);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
-        assert_eq!(thread.is_falling_back, false);
+        assert!(!thread.is_falling_back);
     }
 
     #[async_test]
@@ -603,6 +602,6 @@ mod tests {
 
         assert_eq!(thread.event_id, thread_root);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
-        assert_eq!(thread.is_falling_back, true);
+        assert!(thread.is_falling_back);
     }
 }

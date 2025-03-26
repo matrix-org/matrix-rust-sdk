@@ -10,8 +10,8 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
-    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
-    Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, Error as TimelineError,
+    EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
 };
 use ruma::{
     event_id,
