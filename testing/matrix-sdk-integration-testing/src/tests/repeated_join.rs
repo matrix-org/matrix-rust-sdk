@@ -97,15 +97,15 @@ async fn test_repeated_join_leave() -> Result<()> {
 
     // Now check the underlying state store that it also has the correct information
     // (for when the client restarts).
-    let invited = karl.store().get_user_ids(room_id, RoomMemberships::INVITE).await?;
+    let invited = karl.state_store().get_user_ids(room_id, RoomMemberships::INVITE).await?;
     assert_eq!(invited.len(), 1);
     assert_eq!(invited[0], karl_id);
 
-    let joined = karl.store().get_user_ids(room_id, RoomMemberships::JOIN).await?;
+    let joined = karl.state_store().get_user_ids(room_id, RoomMemberships::JOIN).await?;
     assert!(!joined.contains(&karl_id));
 
     let event = karl
-        .store()
+        .state_store()
         .get_member_event(room_id, &karl_id)
         .await?
         .expect("member event should exist")
