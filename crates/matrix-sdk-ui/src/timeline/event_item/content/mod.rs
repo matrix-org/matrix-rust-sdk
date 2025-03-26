@@ -541,9 +541,6 @@ impl TimelineItemContent {
 
     /// Return the reactions, grouped by key and then by sender, for a given
     /// content.
-    ///
-    /// Some content kinds can't hold reactions; for these, this function will
-    /// return `None`.
     pub fn reactions(&self) -> ReactionsByKeyBySender {
         match self {
             TimelineItemContent::Aggregated(aggregated) => aggregated.reactions.clone(),
