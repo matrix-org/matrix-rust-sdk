@@ -562,3 +562,84 @@ impl StoreConfig {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use matrix_sdk_test::async_test;
+    use ruma::{owned_device_id, owned_user_id};
+    use tokio::sync::broadcast;
+
+    use super::{BaseStateStore, MemoryStore};
+    use crate::SessionMeta;
+
+    #[async_test]
+    async fn test_set_or_reload_session() {
+        let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
+
+        let session_meta = SessionMeta {
+            user_id: owned_user_id!("@mnt_io:matrix.org"),
+            device_id: owned_device_id!("HELLOYOU"),
+        };
+        let (room_info_notable_update_sender, _) = broadcast::channel(1);
+
+        assert!(store.session_meta.get().is_none());
+
+        store
+            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
+            .await
+            .unwrap();
+
+        assert_eq!(store.session_meta.get(), Some(&session_meta));
+    }
+
+    #[async_test]
+    #[should_panic]
+    async fn test_set_or_reload_session_twice() {
+        let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
+
+        let session_meta = SessionMeta {
+            user_id: owned_user_id!("@mnt_io:matrix.org"),
+            device_id: owned_device_id!("HELLOYOU"),
+        };
+        let (room_info_notable_update_sender, _) = broadcast::channel(1);
+
+        store
+            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
+            .await
+            .unwrap();
+
+        // Kaboom.
+        store
+            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
+            .await
+            .unwrap();
+    }
+
+    #[async_test]
+    async fn test_set_or_reload_session_from_other() {
+        // The first store.
+        let other = BaseStateStore::new(Arc::new(MemoryStore::new()));
+
+        let session_meta = SessionMeta {
+            user_id: owned_user_id!("@mnt_io:matrix.org"),
+            device_id: owned_device_id!("HELLOYOU"),
+        };
+        let (room_info_notable_update_sender, _) = broadcast::channel(1);
+
+        other
+            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
+            .await
+            .unwrap();
+
+        // Derive another store.
+        let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
+        store
+            .set_or_reload_session_from_other(&other, &room_info_notable_update_sender)
+            .await
+            .unwrap();
+
+        assert_eq!(store.session_meta.get(), Some(&session_meta));
+    }
+}
