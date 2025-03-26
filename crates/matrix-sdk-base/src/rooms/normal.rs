@@ -2534,9 +2534,8 @@ mod tests {
     #[async_test]
     async fn test_is_favourite() {
         // Given a room,
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
             .set_session_meta(
@@ -2614,9 +2613,8 @@ mod tests {
     #[async_test]
     async fn test_is_low_priority() {
         // Given a room,
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
             .set_session_meta(
@@ -3199,9 +3197,8 @@ mod tests {
         use crate::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
 
         // Given a room,
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
             .set_session_meta(
