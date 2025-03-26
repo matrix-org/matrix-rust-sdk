@@ -12,22 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, SystemTime},
+};
 
 use assert_matches2::assert_let;
 use matrix_sdk_test::async_test;
 use ruma::{
+    device_id,
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEvent},
-    SecondsSinceUnixEpoch,
+    user_id, DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch,
 };
+use vodozemac::Ed25519SecretKey;
 
 use crate::{
     machine::{
         test_helpers::{create_session, get_machine_pair, get_machine_pair_with_session},
         tests,
     },
+    olm::utility::SignJson,
     store::Changes,
-    types::events::ToDeviceEvent,
+    types::{events::ToDeviceEvent, DeviceKeys},
+    DeviceData, OlmMachine,
 };
 
 #[async_test]
@@ -134,6 +141,51 @@ async fn test_getting_most_recent_session() {
         session_id,
         "The session we found is the one that was most recently created"
     );
+}
+
+#[async_test]
+async fn test_get_most_recent_session_of_device_with_no_curve_key() {
+    let alice_machine =
+        OlmMachine::new(user_id!("@alice:example.org"), device_id!("ALICE_DEVICE")).await;
+    let bob_user_id = user_id!("@bob:example.com");
+    let bob_device_id = device_id!("BOB_DEVICE");
+
+    let bob_device_data = {
+        // Create a device with no Curve25519 key. It has to have an Ed25519 key, and be
+        // signed, for us to accept it
+        let bob_signing_key = Ed25519SecretKey::new();
+
+        // Generate the unsigned structure
+        let mut bob_device_keys = DeviceKeys::new(
+            bob_user_id.to_owned(),
+            bob_device_id.to_owned(),
+            vec![],
+            BTreeMap::from([(
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, bob_device_id),
+                bob_signing_key.public_key().into(),
+            )]),
+            Default::default(),
+        );
+
+        // Add the signature
+        bob_device_keys.signatures.add_signature(
+            bob_user_id.to_owned(),
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, bob_device_id),
+            bob_signing_key
+                .sign_json(serde_json::to_value(&bob_device_keys).unwrap())
+                .expect("Could not sign device data"),
+        );
+
+        DeviceData::try_from(&bob_device_keys).unwrap()
+    };
+
+    alice_machine.store().save_device_data(&[bob_device_data]).await.unwrap();
+
+    // Now, fetch the device from the store, and the most recent session should be
+    // None.
+    let device = alice_machine.get_device(bob_user_id, bob_device_id, None).await.unwrap().unwrap();
+    let newest_session = device.get_most_recent_session().await.unwrap();
+    assert!(newest_session.is_none());
 }
 
 async fn olm_encryption_test_helper(use_fallback_key: bool) {
