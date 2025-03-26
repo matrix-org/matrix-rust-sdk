@@ -157,8 +157,8 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `config` - An optional session if the user already has one from a
-    ///   previous login call.
+    /// * `config` - the configuration for the stores (state store, event cache
+    ///   store and crypto store).
     pub fn with_store_config(config: StoreConfig) -> Self {
         let store = Store::new(config.state_store);
 
