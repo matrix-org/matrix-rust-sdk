@@ -146,7 +146,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
 #[derive(Clone)]
-pub(crate) struct Store {
+pub(crate) struct BaseStateStore {
     pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
     /// The current sync token that should be used for the next sync call.
@@ -158,7 +158,7 @@ pub(crate) struct Store {
     sync_lock: Arc<Mutex<()>>,
 }
 
-impl Store {
+impl BaseStateStore {
     /// Create a new store, wrapping the given `StateStore`
     pub fn new(inner: Arc<DynStateStore>) -> Self {
         Self {
@@ -319,7 +319,7 @@ impl Store {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for Store {
+impl fmt::Debug for BaseStateStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Store")
             .field("inner", &self.inner)
@@ -330,7 +330,7 @@ impl fmt::Debug for Store {
     }
 }
 
-impl Deref for Store {
+impl Deref for BaseStateStore {
     type Target = DynStateStore;
 
     fn deref(&self) -> &Self::Target {

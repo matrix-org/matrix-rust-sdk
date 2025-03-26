@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     debug::{DebugInvitedRoom, DebugKnockedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
     deserialized_responses::{AmbiguityChange, RawAnySyncOrStrippedTimelineEvent},
-    store::Store,
+    store::BaseStateStore,
 };
 
 /// Generalized representation of a `/sync` response.
@@ -85,7 +85,7 @@ impl RoomUpdates {
     /// Update the caches for the rooms that received updates.
     ///
     /// This will only fill the in-memory caches, not save the info on disk.
-    pub(crate) async fn update_in_memory_caches(&self, store: &Store) {
+    pub(crate) async fn update_in_memory_caches(&self, store: &BaseStateStore) {
         for room in self
             .leave
             .keys()
