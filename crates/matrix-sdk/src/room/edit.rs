@@ -353,10 +353,8 @@ mod tests {
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         },
         owned_mxc_uri, owned_user_id, room_id,
-        serde::Raw,
         user_id, EventId, OwnedEventId,
     };
-    use serde_json::json;
 
     use super::{make_edit_event, EditError, EventSource};
     use crate::room::edit::EditedContent;
@@ -378,26 +376,10 @@ mod tests {
         let own_user_id = user_id!("@me:saucisse.bzh");
 
         let mut cache = TestEventCache::default();
-
+        let f = EventFactory::new();
         cache.events.insert(
             event_id.to_owned(),
-            // TODO: use the EventFactory for state events too.
-            TimelineEvent::new(
-                Raw::<AnySyncTimelineEvent>::from_json_string(
-                    json!({
-                        "content": {
-                            "name": "The room name"
-                        },
-                        "event_id": event_id,
-                        "sender": own_user_id,
-                        "state_key": "",
-                        "origin_server_ts": 1,
-                        "type": "m.room.name",
-                    })
-                    .to_string(),
-                )
-                .unwrap(),
-            ),
+            f.room_name("The room name").event_id(event_id).sender(own_user_id).into(),
         );
 
         let room_id = room_id!("!galette:saucisse.bzh");
