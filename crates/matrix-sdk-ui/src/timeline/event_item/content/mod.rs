@@ -333,8 +333,8 @@ impl TimelineItemContent {
         }
     }
 
-    /// If `self` is of the [`Message`][Self::Message] variant, return the inner
-    /// [`Message`].
+    /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
+    /// inner [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
         let aggregated = as_variant!(self, Self::Aggregated)
             .map(|f| as_variant!(&f.kind, AggregatedTimelineItemContentKind::Message));
