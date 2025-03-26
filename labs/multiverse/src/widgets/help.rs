@@ -40,7 +40,6 @@ impl Widget for &mut HelpView {
             Row::new(vec![Cell::from("s"), Cell::from("Resume syncing")]),
             Row::new(vec![Cell::from("S"), Cell::from("Stop syncing")]),
             Row::new(vec![Cell::from("Q"), Cell::from("Enable/disable the send queue")]),
-            Row::new(vec![Cell::from("M"), Cell::from("Send a message to the selected room")]),
             Row::new(vec![
                 Cell::from("Ctrl-l"),
                 Cell::from("Like the last message in the selected room"),

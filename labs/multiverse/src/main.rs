@@ -8,7 +8,7 @@ use std::{
 
 use clap::Parser;
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use layout::Flex;
@@ -435,9 +435,9 @@ impl App {
 impl Widget for &mut App {
     /// Render the whole app.
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Create a space for header, todo list and the footer.
+        // Create a space for header, room list and timeline and the footer.
         let vertical =
-            Layout::vertical([Constraint::Length(2), Constraint::Min(0), Constraint::Length(2)]);
+            Layout::vertical([Constraint::Length(2), Constraint::Min(0), Constraint::Length(1)]);
         let [header_area, rest_area, status_area] = vertical.areas(area);
 
         // Create two chunks with equal horizontal screen space. One for the list and
