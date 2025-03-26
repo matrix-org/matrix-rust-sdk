@@ -208,7 +208,7 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
         }
     }
 
-    /// Clear all the chunks, leaving the chunk in an uninitialized state,
+    /// Drop all the chunks, leaving the chunk in an uninitialized state,
     /// because `Self::first` is a dangling pointer.
     ///
     /// SAFETY: the caller is responsible of ensuring that this is the last use
@@ -1020,13 +1020,15 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
 impl<const CAP: usize, Item, Gap> Drop for LinkedChunk<CAP, Item, Gap> {
     fn drop(&mut self) {
-        // Only clear the links. Calling `Self::clear` would be an error as we don't
-        // want to emit an `Update::Clear` when `self` is dropped. Instead, we only care
-        // about freeing memory correctly. Rust can take care of everything except the
+        // Clear the links, which will drop all the chunks.
+        //
+        // Calling `Self::clear` would be an error as we don't want to emit an
+        // `Update::Clear` when `self` is dropped. Instead, we only care about
+        // freeing memory correctly. Rust can take care of everything except the
         // pointers in `self.links`, hence the specific call to `self.links.clear()`.
         //
-        // SAFETY: this is the last use of the linked chunk, so it can be safely
-        // cleared.
+        // SAFETY: this is the last use of the linked chunk, so leaving it in a dangling
+        // state is fine.
         unsafe {
             self.links.clear();
         }
