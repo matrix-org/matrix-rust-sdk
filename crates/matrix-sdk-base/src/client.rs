@@ -84,10 +84,22 @@ use crate::{
     RoomStateFilter, SessionMeta,
 };
 
-/// A no IO Client implementation.
+/// A no (network) IO client implementation.
 ///
-/// This Client is a state machine that receives responses and events and
-/// accordingly updates its state.
+/// This client is a state machine that receives responses and events and
+/// accordingly updates its state. It is not designed to be used directly, but
+/// rather through `matrix_sdk::Client`.
+///
+/// To create a client, one preferably uses the
+/// [`BaseClient::with_store_config`] method:
+///
+/// ```rust
+/// use matrix_sdk_base::{store::StoreConfig, BaseClient};
+///
+/// let client = BaseClient::with_store_config(
+///     StoreConfig::new("cross-process-holder-name".to_owned())
+/// );
+/// ```
 #[derive(Clone)]
 pub struct BaseClient {
     /// Database
