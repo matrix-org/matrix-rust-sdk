@@ -26,14 +26,14 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use crate::{store::Store, RoomInfo, StateChanges};
+use crate::{store::BaseStateStore, RoomInfo, StateChanges};
 
 /// Applies a function to an existing `RoomInfo` if present in changes, or one
 /// loaded from the database.
 fn map_info<F: FnOnce(&mut RoomInfo)>(
     room_id: &RoomId,
     changes: &mut StateChanges,
-    store: &Store,
+    store: &BaseStateStore,
     f: F,
 ) {
     if let Some(info) = changes.room_infos.get_mut(room_id) {
@@ -90,7 +90,7 @@ impl AccountDataProcessor {
     pub(crate) fn process_direct_rooms(
         &self,
         events: &[AnyGlobalAccountDataEvent],
-        store: &Store,
+        store: &BaseStateStore,
         changes: &mut StateChanges,
     ) {
         for event in events {
@@ -136,7 +136,7 @@ impl AccountDataProcessor {
     }
 
     /// Applies the processed data to the state changes.
-    pub async fn apply(mut self, changes: &mut StateChanges, store: &Store) {
+    pub async fn apply(mut self, changes: &mut StateChanges, store: &BaseStateStore) {
         // Fill in the content of `changes.account_data`.
         mem::swap(&mut changes.account_data, &mut self.raw_by_type);
 

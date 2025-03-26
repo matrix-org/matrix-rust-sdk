@@ -46,7 +46,7 @@ use crate::{
         RoomState,
     },
     ruma::assign,
-    store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
+    store::{ambiguity_map::AmbiguityCache, BaseStateStore, StateChanges},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     RequestedRequiredStates, Room, RoomInfo,
 };
@@ -356,7 +356,7 @@ impl BaseClient {
         requested_required_states: &[(StateEventType, String)],
         room_data: &http::response::Room,
         rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
-        store: &Store,
+        store: &BaseStateStore,
         user_id: &UserId,
         account_data_processor: &AccountDataProcessor,
         changes: &mut StateChanges,
@@ -536,7 +536,7 @@ impl BaseClient {
         &self,
         state_events: &[AnySyncStateEvent],
         stripped_state: Option<&Vec<(Raw<AnyStrippedStateEvent>, AnyStrippedStateEvent)>>,
-        store: &Store,
+        store: &BaseStateStore,
         user_id: &UserId,
         room_id: &RoomId,
         room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
@@ -655,7 +655,7 @@ async fn cache_latest_events(
     room_info: &mut RoomInfo,
     events: &[TimelineEvent],
     changes: Option<&StateChanges>,
-    store: Option<&Store>,
+    store: Option<&BaseStateStore>,
 ) {
     use crate::{
         deserialized_responses::DisplayName, store::ambiguity_map::is_display_name_ambiguous,

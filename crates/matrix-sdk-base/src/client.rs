@@ -77,8 +77,9 @@ use crate::{
         Room, RoomInfo, RoomState,
     },
     store::{
-        ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
-        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
+        ambiguity_map::AmbiguityCache, BaseStateStore, DynStateStore, MemoryStore,
+        Result as StoreResult, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
+        StoreConfig,
     },
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
@@ -100,7 +101,7 @@ use crate::{
 #[derive(Clone)]
 pub struct BaseClient {
     /// Database
-    pub(crate) store: Store,
+    pub(crate) store: BaseStateStore,
 
     /// The store used by the event cache.
     event_cache_store: EventCacheStoreLock,
@@ -157,7 +158,7 @@ impl BaseClient {
     /// * `config` - the configuration for the stores (state store, event cache
     ///   store and crypto store).
     pub fn new(config: StoreConfig) -> Self {
-        let store = Store::new(config.state_store);
+        let store = BaseStateStore::new(config.state_store);
 
         // Create the channel to receive `RoomInfoNotableUpdate`.
         //
@@ -202,7 +203,7 @@ impl BaseClient {
         let config = config.crypto_store(self.crypto_store.clone());
 
         let copy = Self {
-            store: Store::new(config.state_store),
+            store: BaseStateStore::new(config.state_store),
             event_cache_store: config.event_cache_store,
             // We copy the crypto store as well as the `OlmMachine` for two reasons:
             // 1. The `self.crypto_store` is the same as the one used inside the `OlmMachine`.
