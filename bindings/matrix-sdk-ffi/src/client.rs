@@ -610,7 +610,7 @@ impl Client {
             Ok(Some(url_builder)) => url_builder,
             Ok(None) => return Ok(None),
             Err(e) => {
-                tracing::error!("Failed retrieving account management URL: {e}");
+                error!("Failed retrieving account management URL: {e}");
                 return Err(e.into());
             }
         };
@@ -622,7 +622,7 @@ impl Client {
         match url_builder.build() {
             Ok(url) => Ok(Some(url.to_string())),
             Err(e) => {
-                tracing::error!("Failed to build account management URL: {e}");
+                error!("Failed to build account management URL: {e}");
                 Err(OAuthError::AccountManagementUrl(e).into())
             }
         }
