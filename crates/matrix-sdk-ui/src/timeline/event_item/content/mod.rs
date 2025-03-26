@@ -327,10 +327,7 @@ impl TimelineItemContent {
     }
 
     pub fn as_aggregated(&self) -> Option<&AggregatedTimelineItemContent> {
-        match self {
-            TimelineItemContent::Aggregated(content) => Some(content),
-            _ => None,
-        }
+        as_variant!(self, TimelineItemContent::Aggregated)
     }
 
     /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
