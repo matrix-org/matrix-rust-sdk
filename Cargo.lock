@@ -2913,6 +2913,8 @@ dependencies = [
  "urlencoding",
  "uuid",
  "vodozemac",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "wiremock",
  "zeroize",

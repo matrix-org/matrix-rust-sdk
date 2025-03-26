@@ -104,6 +104,7 @@ sha2 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
+tokio-util = "0.7.13"
 tower = { version = "0.5.2", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
@@ -117,6 +118,8 @@ zeroize = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 reqwest = { workspace = true, features = ["gzip", "http2"] }
 tokio = { workspace = true, features = ["macros"] }
+wasm-bindgen-futures = { version = "0.4.33", optional = true }
+wasm-bindgen = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
@@ -124,7 +127,6 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
-tokio-util = "0.7.13"
 wiremock = { workspace = true, optional = true }
 
 [dev-dependencies]

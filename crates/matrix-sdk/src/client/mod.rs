@@ -2537,6 +2537,7 @@ pub(crate) mod tests {
         store::{MemoryStore, StoreConfig},
         RoomState,
     };
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
         DEFAULT_TEST_ROOM_ID,
@@ -2551,10 +2552,7 @@ pub(crate) mod tests {
         owned_room_id, room_alias_id, room_id, RoomId, ServerName, UserId,
     };
     use serde_json::json;
-    use tokio::{
-        spawn,
-        time::{sleep, timeout},
-    };
+    use tokio::time::{sleep, timeout};
     use url::Url;
     use wiremock::{
         matchers::{body_json, header, method, path, query_param_is_missing},
