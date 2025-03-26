@@ -58,6 +58,7 @@ use matrix_sdk_common::{
     timeout::timeout,
 };
 use mime::Mime;
+use reply::{EnforceThread, RepliedToInfo};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -2127,7 +2128,7 @@ impl Room {
             }
         }
 
-        let content = Self::make_attachment_event(
+        let content = self.make_attachment_event(
             self.make_attachment_type(
                 content_type,
                 filename,
@@ -2138,6 +2139,8 @@ impl Room {
                 thumbnail,
             ),
             mentions,
+            config.replied_to_info,
+            config.enforce_thread,
         );
 
         let mut fut = self.send(content);
@@ -2239,15 +2242,22 @@ impl Room {
         }
     }
 
-    /// Creates the [`RoomMessageEventContent`] based on the message type and
-    /// mentions.
+    /// Creates the [`RoomMessageEventContent`] based on the message type,
+    /// mentions and reply information.
     pub(crate) fn make_attachment_event(
+        &self,
         msg_type: MessageType,
         mentions: Option<Mentions>,
+        replied_to_info: Option<RepliedToInfo>,
+        enforce_thread: Option<EnforceThread>,
     ) -> RoomMessageEventContent {
         let mut content = RoomMessageEventContent::new(msg_type);
         if let Some(mentions) = mentions {
             content = content.add_mentions(mentions);
+        }
+        if let (Some(replied_to_info), Some(enforce_thread)) = (replied_to_info, enforce_thread) {
+            content =
+                self.make_reply_event_with_info(content.into(), replied_to_info, enforce_thread);
         }
         content
     }

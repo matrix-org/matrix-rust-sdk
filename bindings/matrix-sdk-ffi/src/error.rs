@@ -288,6 +288,8 @@ pub enum RoomError {
     TimelineUnavailable,
     #[error("Invalid thumbnail data")]
     InvalidThumbnailData,
+    #[error("Invalid reply parameters")]
+    InvalidReplyParameters,
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
 }

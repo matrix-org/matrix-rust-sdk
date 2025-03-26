@@ -99,7 +99,7 @@ impl Timeline {
         unsafe { Arc::from_raw(Arc::into_raw(inner) as _) }
     }
 
-    fn send_attachment(
+    async fn send_attachment(
         self: Arc<Self>,
         params: UploadParameters,
         attachment_info: AttachmentInfo,
@@ -116,12 +116,39 @@ impl Timeline {
             params.formatted_caption.map(Into::into),
         );
 
+        let (replied_to_info, enforce_thread) = if let Some(reply_params) = params.reply_params {
+            let event_id = EventId::parse(reply_params.event_id)
+                .map_err(|_| RoomError::InvalidReplyParameters)?;
+            let replied_to_info = self
+                .inner
+                .room()
+                .replied_to_info_from_event_id(&event_id)
+                .await
+                .map_err(|_| RoomError::InvalidReplyParameters)?;
+
+            let enforce_thread = if reply_params.enforce_thread {
+                EnforceThread::Threaded(if reply_params.reply_within_thread {
+                    ReplyWithinThread::Yes
+                } else {
+                    ReplyWithinThread::No
+                })
+            } else {
+                EnforceThread::MaybeThreaded
+            };
+
+            (Some(replied_to_info), Some(enforce_thread))
+        } else {
+            (None, None)
+        };
+
         let attachment_config = AttachmentConfig::new()
             .thumbnail(thumbnail)
             .info(attachment_info)
             .caption(params.caption)
             .formatted_caption(formatted_caption)
-            .mentions(params.mentions.map(Into::into));
+            .mentions(params.mentions.map(Into::into))
+            .replied_to_info(replied_to_info)
+            .enforce_thread(enforce_thread);
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =
@@ -201,12 +228,25 @@ pub struct UploadParameters {
     caption: Option<String>,
     /// Optional HTML-formatted caption, for clients that support it.
     formatted_caption: Option<FormattedBody>,
-    // Optional intentional mentions to be sent with the media.
+    /// Optional intentional mentions to be sent with the media.
     mentions: Option<Mentions>,
+    /// Optional parameters for sending the media as (threaded) reply.
+    reply_params: Option<ReplyParameters>,
     /// Should the media be sent with the send queue, or synchronously?
     ///
     /// Watching progress only works with the synchronous method, at the moment.
     use_send_queue: bool,
+}
+
+#[derive(uniffi::Record)]
+pub struct ReplyParameters {
+    /// The ID of the event to reply to.
+    event_id: String,
+    /// Whether to enforce a thread relation.
+    enforce_thread: bool,
+    /// If enforcing a threaded relation, whether the message is a reply on a
+    /// thread.
+    reply_within_thread: bool,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -324,7 +364,7 @@ impl Timeline {
         }
     }
 
-    pub fn send_image(
+    pub async fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
         thumbnail_path: Option<String>,
@@ -342,9 +382,10 @@ impl Timeline {
             progress_watcher,
             thumbnail,
         )
+        .await
     }
 
-    pub fn send_video(
+    pub async fn send_video(
         self: Arc<Self>,
         params: UploadParameters,
         thumbnail_path: Option<String>,
@@ -362,9 +403,10 @@ impl Timeline {
             progress_watcher,
             thumbnail,
         )
+        .await
     }
 
-    pub fn send_audio(
+    pub async fn send_audio(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
@@ -374,9 +416,10 @@ impl Timeline {
             BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
         self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
+            .await
     }
 
-    pub fn send_voice_message(
+    pub async fn send_voice_message(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
@@ -389,9 +432,10 @@ impl Timeline {
             waveform: Some(waveform),
         };
         self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
+            .await
     }
 
-    pub fn send_file(
+    pub async fn send_file(
         self: Arc<Self>,
         params: UploadParameters,
         file_info: FileInfo,
@@ -401,6 +445,7 @@ impl Timeline {
             BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
         self.send_attachment(params, attachment_info, file_info.mimetype, progress_watcher, None)
+            .await
     }
 
     pub async fn create_poll(
