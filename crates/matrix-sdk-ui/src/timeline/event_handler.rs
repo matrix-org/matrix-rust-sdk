@@ -583,16 +583,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let mut replied_to_event_id = None;
         let mut thread_root = None;
-        let in_reply_to_details = msg.relates_to.clone().and_then(|relation| match relation {
+        let in_reply_to_details = msg.relates_to.as_ref().and_then(|relation| match relation {
             Relation::Reply { in_reply_to } => {
                 replied_to_event_id = Some(in_reply_to.event_id.clone());
-                Some(InReplyToDetails::new(in_reply_to.event_id, self.items))
+                Some(InReplyToDetails::new(in_reply_to.event_id.clone(), self.items))
             }
             Relation::Thread(thread) => {
                 thread_root = Some(thread.event_id.clone());
-                thread.in_reply_to.map(|in_reply_to| {
+                thread.in_reply_to.as_ref().map(|in_reply_to| {
                     replied_to_event_id = Some(in_reply_to.event_id.clone());
-                    InReplyToDetails::new(in_reply_to.event_id, self.items)
+                    InReplyToDetails::new(in_reply_to.event_id.clone(), self.items)
                 })
             }
             _ => None,
@@ -1388,7 +1388,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let Some(event_item) = item.as_event() else { continue };
             let Some(aggregated) = event_item.content.as_aggregated() else { continue };
             let Some(message) = event_item.content.as_message() else { continue };
-            let Some(in_reply_to) = aggregated.in_reply_to.clone() else { continue };
+            let Some(in_reply_to) = aggregated.in_reply_to.as_ref() else { continue };
 
             trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
             let in_reply_to = Some(InReplyToDetails {
