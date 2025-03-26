@@ -67,12 +67,6 @@ pub enum ReplyError {
     /// We couldn't fetch the remote event with /room/event.
     #[error("Couldn't fetch the remote event: {0}")]
     Fetch(Box<crate::Error>),
-    /// Redacted events whose JSON form isn't available cannot be replied to.
-    #[error("redacted events whose JSON form isn't available can't be replied")]
-    MissingJson,
-    /// The event to reply to could not be found.
-    #[error("event to reply to not found")]
-    MissingEvent,
     /// The event to reply to could not be deserialized.
     #[error("failed to deserialize event to reply to")]
     Deserialization,
@@ -290,14 +284,17 @@ mod tests {
     use ruma::{
         event_id,
         events::{
-            room::message::{Relation, RoomMessageEventContentWithoutRelation},
-            AnyMessageLikeEventContent,
+            room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+            AnyMessageLikeEventContent, AnySyncTimelineEvent,
         },
         room_id,
+        serde::Raw,
         user_id, EventId, OwnedEventId,
     };
+    use serde_json::json;
 
     use super::{make_reply_event, EnforceThread, EventSource, ReplyError};
+    use crate::Error;
 
     #[derive(Default)]
     struct TestEventCache {
@@ -306,12 +303,87 @@ mod tests {
 
     impl EventSource for TestEventCache {
         async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, ReplyError> {
-            Ok(self.events.get(event_id).unwrap().clone())
+            self.events
+                .get(event_id)
+                .map(|e| e.clone())
+                .ok_or(ReplyError::Fetch(Box::new(Error::BadCryptoStoreState)))
         }
     }
 
     #[async_test]
-    async fn test_reply_to_state_event() {
+    async fn test_cannot_reply_to_unknown_event() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("hi").event_id(event_id).sender(own_user_id).into(),
+        );
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        assert_matches!(
+            make_reply_event(
+                cache,
+                room_id,
+                own_user_id,
+                content,
+                event_id!("$2"),
+                EnforceThread::Unthreaded,
+            )
+            .await,
+            Err(ReplyError::Fetch(_))
+        );
+    }
+
+    #[async_test]
+    async fn test_cannot_reply_to_invalid_event() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+
+        cache.events.insert(
+            event_id.to_owned(),
+            TimelineEvent::new(
+                Raw::<AnySyncTimelineEvent>::from_json_string(
+                    json!({
+                        "content": {
+                            "body": "hi"
+                        },
+                        "event_id": event_id,
+                        "origin_server_ts": 1,
+                        "type": "m.room.message",
+                        // Invalid because sender is missing
+                    })
+                    .to_string(),
+                )
+                .unwrap(),
+            ),
+        );
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        assert_matches!(
+            make_reply_event(
+                cache,
+                room_id,
+                own_user_id,
+                content,
+                event_id,
+                EnforceThread::Unthreaded,
+            )
+            .await,
+            Err(ReplyError::Deserialization)
+        );
+    }
+
+    #[async_test]
+    async fn test_cannot_reply_to_state_event() {
         let event_id = event_id!("$1");
         let own_user_id = user_id!("@me:saucisse.bzh");
 
@@ -369,5 +441,168 @@ mod tests {
         assert_let!(Some(Relation::Reply { in_reply_to }) = &msg.relates_to);
 
         assert_eq!(in_reply_to.event_id, event_id);
+    }
+
+    #[async_test]
+    async fn test_start_thread() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("hi").event_id(event_id).sender(own_user_id).into(),
+        );
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            room_id,
+            own_user_id,
+            content,
+            event_id,
+            EnforceThread::Threaded(ReplyWithinThread::No),
+        )
+        .await
+        .unwrap();
+
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
+        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+
+        assert_eq!(thread.event_id, event_id);
+        assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
+        assert_eq!(thread.is_falling_back, true);
+    }
+
+    #[async_test]
+    async fn test_reply_on_thread() {
+        let thread_root = event_id!("$1");
+        let event_id = event_id!("$2");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            thread_root.to_owned(),
+            f.text_msg("hi").event_id(thread_root).sender(own_user_id).into(),
+        );
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("ho")
+                .in_thread(thread_root, thread_root)
+                .event_id(event_id)
+                .sender(own_user_id)
+                .into(),
+        );
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            room_id,
+            own_user_id,
+            content,
+            event_id,
+            EnforceThread::Threaded(ReplyWithinThread::No),
+        )
+        .await
+        .unwrap();
+
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
+        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+
+        assert_eq!(thread.event_id, thread_root);
+        assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
+        assert_eq!(thread.is_falling_back, true);
+    }
+
+    #[async_test]
+    async fn test_reply_on_thread_as_reply() {
+        let thread_root = event_id!("$1");
+        let event_id = event_id!("$2");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            thread_root.to_owned(),
+            f.text_msg("hi").event_id(thread_root).sender(own_user_id).into(),
+        );
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("ho")
+                .in_thread(thread_root, thread_root)
+                .event_id(event_id)
+                .sender(own_user_id)
+                .into(),
+        );
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            room_id,
+            own_user_id,
+            content,
+            event_id,
+            EnforceThread::Threaded(ReplyWithinThread::Yes),
+        )
+        .await
+        .unwrap();
+
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
+        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+
+        assert_eq!(thread.event_id, thread_root);
+        assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
+        assert_eq!(thread.is_falling_back, false);
+    }
+
+    #[async_test]
+    async fn test_reply_forwarding_thread() {
+        let thread_root = event_id!("$1");
+        let event_id = event_id!("$2");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            thread_root.to_owned(),
+            f.text_msg("hi").event_id(thread_root).sender(own_user_id).into(),
+        );
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("ho")
+                .in_thread(thread_root, thread_root)
+                .event_id(event_id)
+                .sender(own_user_id)
+                .into(),
+        );
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            room_id,
+            own_user_id,
+            content,
+            event_id,
+            EnforceThread::MaybeThreaded,
+        )
+        .await
+        .unwrap();
+
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
+        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+
+        assert_eq!(thread.event_id, thread_root);
+        assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
+        assert_eq!(thread.is_falling_back, true);
     }
 }
