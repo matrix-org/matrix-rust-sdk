@@ -192,6 +192,48 @@ impl SqliteEventCacheStore {
             row.get::<_, String>(3)?,
         ))
     }
+
+    fn encode_event(&self, event: &TimelineEvent) -> Result<EncodedEvent> {
+        let serialized = serde_json::to_vec(event)?;
+
+        // Extract the relationship info here.
+        let raw_event = event.raw();
+
+        #[derive(serde::Deserialize)]
+        struct RelatesTo {
+            // For the purpose of storing the related event id in the database, a string is
+            // sufficient; we'll lose the static typing of `OwnedEventId` immediately anyways.
+            event_id: String,
+            rel_type: String,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct EventContent {
+            #[serde(rename = "m.relates_to")]
+            rel: Option<RelatesTo>,
+        }
+
+        let (relates_to, rel_type) = match raw_event.get_field::<EventContent>("content") {
+            Ok(event_content) => {
+                event_content.and_then(|c| c.rel).map(|rel| (rel.event_id, rel.rel_type)).unzip()
+            }
+            Err(err) => {
+                error!("when extracting relation data before inserting in database: {err}");
+                (None, None)
+            }
+        };
+
+        // The content may be encrypted.
+        let content = self.encode_value(serialized)?;
+
+        Ok(EncodedEvent { content, rel_type, relates_to })
+    }
+}
+
+struct EncodedEvent {
+    content: Vec<u8>,
+    rel_type: Option<String>,
+    relates_to: Option<String>,
 }
 
 trait TransactionExtForLinkedChunks {
@@ -559,13 +601,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                             chunk_statement.execute((chunk_id, &hashed_room_id, &event_id, index))?;
 
                             // Now, insert the event content into the database.
-                            let serialized = serde_json::to_vec(&event)?;
-                            let content = this.encode_value(serialized)?;
-                            // Extract the relationship information, if any.
-                            // TODO
-                            let relates_to = None::<usize>;
-                            let rel_type = None::<usize>;
-                            content_statement.execute((event_id, content, relates_to, rel_type))?;
+                            let encoded_event = this.encode_event(&event)?;
+                            content_statement.execute((event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
                         }
                     }
 
@@ -582,18 +619,13 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
-                        let serialized = serde_json::to_vec(&event)?;
-                        let content = this.encode_value(serialized)?;
-                        // TODO extract the relationship information here too!
-
                         // Replace the event's content. Really we'd like to update, but in case the
                         // event id changed, we are a bit lenient here and will allow an insertion
                         // of the new event.
-                        let relates_to = None::<usize>;
-                        let rel_type = None::<usize>;
+                        let encoded_event = this.encode_event(&event)?;
                         txn.execute(
                             "INSERT OR REPLACE INTO events(event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?)"
-                        , (&event_id, content, relates_to, rel_type))?;
+                        , (&event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
 
                         // Replace the event id in the linked chunk, in case it changed.
                         txn.execute(
