@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
 use matrix_sdk::{
     authentication::oauth::{
-        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthError, OAuthSession,
+        AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
     event_cache::EventCacheError,
     media::{
@@ -619,13 +619,7 @@ impl Client {
             url_builder = url_builder.action(action.into());
         }
 
-        match url_builder.build() {
-            Ok(url) => Ok(Some(url.to_string())),
-            Err(e) => {
-                error!("Failed to build account management URL: {e}");
-                Err(OAuthError::AccountManagementUrl(e).into())
-            }
-        }
+        Ok(Some(url_builder.build().to_string()))
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {

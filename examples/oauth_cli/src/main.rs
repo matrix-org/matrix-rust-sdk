@@ -401,10 +401,7 @@ impl OAuthCli {
             url_builder = url_builder.action(action);
         }
 
-        // We ignore errors while serializing the action, that way we can always direct
-        // the end user to the URL and they should be able to do what they want there.
-        let url = url_builder.build_or_ignore_action();
-
+        let url = url_builder.build();
         println!("\nTo manage your account, visit: {url}");
     }
 
