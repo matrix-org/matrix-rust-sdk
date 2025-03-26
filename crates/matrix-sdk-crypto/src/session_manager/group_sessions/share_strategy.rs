@@ -156,23 +156,13 @@ pub(crate) async fn collect_session_recipients(
     settings: &EncryptionSettings,
     outbound: &OutboundGroupSession,
 ) -> OlmResult<CollectRecipientsResult> {
-    let users: BTreeSet<&UserId> = users.collect();
-    let mut result = CollectRecipientsResult::default();
-    let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
-
-    trace!(?users, ?settings, "Calculating group session recipients");
-
-    let users_shared_with: BTreeSet<OwnedUserId> =
-        outbound.shared_with_set.read().keys().cloned().collect();
-
-    let users_shared_with: BTreeSet<&UserId> = users_shared_with.iter().map(Deref::deref).collect();
-
-    // A user left if a user is missing from the set of users that should
-    // get the session but is in the set of users that received the session.
-    let user_left = !users_shared_with.difference(&users).collect::<BTreeSet<_>>().is_empty();
-
-    let visibility_changed = outbound.settings().history_visibility != settings.history_visibility;
-    let algorithm_changed = outbound.settings().algorithm != settings.algorithm;
+    let mut result = collect_recipients_for_share_strategy(
+        store,
+        users,
+        &settings.sharing_strategy,
+        Some(outbound),
+    )
+    .await?;
 
     // To protect the room history we need to rotate the session if either:
     //
@@ -181,13 +171,65 @@ pub(crate) async fn collect_session_recipients(
     // 3. The history visibility changed.
     // 4. The encryption algorithm changed.
     //
-    // This is calculated in the following code and stored in this variable.
-    result.should_rotate = user_left || visibility_changed || algorithm_changed;
+    // `result.should_rotate` is true if the first or second in that list is true;
+    // we now need to check for the other two.
+    let device_removed = result.should_rotate;
+
+    let visibility_changed = outbound.settings().history_visibility != settings.history_visibility;
+    let algorithm_changed = outbound.settings().algorithm != settings.algorithm;
+
+    result.should_rotate = device_removed || visibility_changed || algorithm_changed;
+
+    if result.should_rotate {
+        debug!(
+            device_removed,
+            visibility_changed, algorithm_changed, "Rotating room key to protect room history",
+        );
+    }
+
+    Ok(result)
+}
+
+/// Given a list of users and a [`CollectStrategy`], return the list of devices
+/// that cryptographic keys should be shared with, or that withheld notices
+/// should be sent to.
+///
+/// If an existing [`OutboundGroupSession`] is provided, will also check the
+/// list of devices that the session has been *previously* shared with, and
+/// if that list is too broad, returns a flag indicating that the session should
+/// be rotated (e.g., because a device has been deleted or a user has left the
+/// chat).
+pub(crate) async fn collect_recipients_for_share_strategy(
+    store: &Store,
+    users: impl Iterator<Item = &UserId>,
+    share_strategy: &CollectStrategy,
+    outbound: Option<&OutboundGroupSession>,
+) -> OlmResult<CollectRecipientsResult> {
+    let users: BTreeSet<&UserId> = users.collect();
+    trace!(?users, ?share_strategy, "Calculating group session recipients");
+
+    let mut result = CollectRecipientsResult::default();
+    let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
+
+    // If we have an outbound session, check if a user is missing from the set of
+    // users that should get the session but is in the set of users that
+    // received the session.
+    if let Some(outbound) = outbound {
+        let users_shared_with: BTreeSet<OwnedUserId> =
+            outbound.shared_with_set.read().keys().cloned().collect();
+        let users_shared_with: BTreeSet<&UserId> =
+            users_shared_with.iter().map(Deref::deref).collect();
+        let left_users = users_shared_with.difference(&users).collect::<BTreeSet<_>>();
+        if !left_users.is_empty() {
+            trace!(?left_users, "Some users have left the chat: session must be rotated");
+            result.should_rotate = true;
+        }
+    }
 
     let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
     // Get the recipient and withheld devices, based on the collection strategy.
-    match settings.sharing_strategy {
+    match share_strategy {
         CollectStrategy::AllDevices => {
             for user_id in users {
                 trace!(
@@ -325,15 +367,6 @@ pub(crate) async fn collect_session_recipients(
         ));
     }
 
-    if result.should_rotate {
-        debug!(
-            result.should_rotate,
-            user_left,
-            visibility_changed,
-            algorithm_changed,
-            "Rotating room key to protect room history",
-        );
-    }
     trace!(result.should_rotate, "Done calculating group session recipients");
 
     Ok(result)
@@ -343,7 +376,7 @@ pub(crate) async fn collect_session_recipients(
 /// user.
 fn update_recipients_for_user(
     recipients: &mut CollectRecipientsResult,
-    outbound: &OutboundGroupSession,
+    outbound: Option<&OutboundGroupSession>,
     user_id: &UserId,
     recipient_devices: RecipientDevicesForUser,
 ) {
@@ -351,9 +384,14 @@ fn update_recipients_for_user(
     // rotated for other reasons, we also need to check whether any
     // of the devices in the session got deleted or blacklisted in the
     // meantime. If so, we should also rotate the session.
-    if !recipients.should_rotate {
-        recipients.should_rotate =
-            is_session_overshared_for_user(outbound, user_id, &recipient_devices.allowed_devices)
+    if let Some(outbound) = outbound {
+        if !recipients.should_rotate {
+            recipients.should_rotate = is_session_overshared_for_user(
+                outbound,
+                user_id,
+                &recipient_devices.allowed_devices,
+            )
+        }
     }
 
     recipients
