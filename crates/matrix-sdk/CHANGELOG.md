@@ -227,8 +227,7 @@ simpler methods:
 - [**breaking**] - `OAuth::account_management_url()` and
   `OAuth::fetch_account_management_url()` don't take an action anymore but
   return an `AccountManagementUrlBuilder`. The final URL can be obtained with
-  `AccountManagementUrlBuilder::build()` or
-  `AccountManagementUrlBuilder::build_or_ignore_action()`.
+  `AccountManagementUrlBuilder::build()`.
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
 
 ## [0.10.0] - 2025-02-04

@@ -523,7 +523,7 @@ impl OAuth {
     ///
     /// Returns an [`AccountManagementUrlBuilder`] if the URL was found. An
     /// optional action to perform can be added with `.action()`, and the final
-    /// URL is obtained with `.build()` or `.build_or_ignore_action()`.
+    /// URL is obtained with `.build()`.
     ///
     /// Returns `Ok(None)` if the URL was not found.
     ///
@@ -546,7 +546,7 @@ impl OAuth {
     ///
     /// Returns an [`AccountManagementUrlBuilder`] if the URL was found. An
     /// optional action to perform can be added with `.action()`, and the final
-    /// URL is obtained with `.build()` or `.build_or_ignore_action()`.
+    /// URL is obtained with `.build()`.
     ///
     /// Returns `Ok(None)` if the URL was not found.
     ///
