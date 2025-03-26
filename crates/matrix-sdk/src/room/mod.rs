@@ -652,7 +652,7 @@ impl Room {
                 let mut changes = StateChanges::default();
                 changes.add_room(room_info.clone());
 
-                self.client.store().save_changes(&changes).await?;
+                self.client.state_store().save_changes(&changes).await?;
                 self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
                 Ok(())
@@ -805,7 +805,7 @@ impl Room {
         &self,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
+        self.client.state_store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
     }
 
     /// Get all state events of a given statically-known type in this room.
@@ -829,7 +829,7 @@ impl Room {
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
-        Ok(self.client.store().get_state_events_static(self.room_id()).await?)
+        Ok(self.client.state_store().get_state_events_static(self.room_id()).await?)
     }
 
     /// Get the state events of a given type with the given state keys in this
@@ -840,7 +840,7 @@ impl Room {
         state_keys: &[&str],
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         self.client
-            .store()
+            .state_store()
             .get_state_events_for_keys(self.room_id(), event_type, state_keys)
             .await
             .map_err(Into::into)
@@ -877,7 +877,7 @@ impl Room {
         I: IntoIterator<Item = &'a K> + Send,
         I::IntoIter: Send,
     {
-        Ok(self.client.store().get_state_events_for_keys_static(self.room_id(), state_keys).await?)
+        Ok(self.client.state_store().get_state_events_for_keys_static(self.room_id(), state_keys).await?)
     }
 
     /// Get a specific state event in this room.
@@ -887,7 +887,7 @@ impl Room {
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
         self.client
-            .store()
+            .state_store()
             .get_state_event(self.room_id(), event_type, state_key)
             .await
             .map_err(Into::into)
@@ -948,7 +948,7 @@ impl Room {
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
-        Ok(self.client.store().get_state_event_static_for_key(self.room_id(), state_key).await?)
+        Ok(self.client.state_store().get_state_event_static_for_key(self.room_id(), state_key).await?)
     }
 
     /// Returns the parents this room advertises as its parents.
@@ -1032,7 +1032,7 @@ impl Room {
         data_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.client
-            .store()
+            .state_store()
             .get_room_account_data_event(self.room_id(), data_type)
             .await
             .map_err(Into::into)
@@ -1070,7 +1070,7 @@ impl Room {
     #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
         let user_ids =
-            self.client.store().get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
+            self.client.state_store().get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
 
         for user_id in user_ids {
             let devices = self.client.encryption().get_user_devices(&user_id).await?;
@@ -1700,7 +1700,7 @@ impl Room {
                 let mut changes = StateChanges::default();
                 changes.add_room(room_info.clone());
 
-                self.client.store().save_changes(&changes).await?;
+                self.client.state_store().save_changes(&changes).await?;
                 self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
             } else {
                 debug!("room successfully marked as encrypted");
@@ -1734,7 +1734,7 @@ impl Room {
                 {
                     let members = self
                         .client
-                        .store()
+                        .state_store()
                         .get_user_ids(self.room_id(), RoomMemberships::ACTIVE)
                         .await?;
                     self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
@@ -1875,7 +1875,7 @@ impl Room {
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
         let members =
-            self.client.store().get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
+            self.client.state_store().get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
 
         let tracked: HashMap<_, _> = olm
             .store()
@@ -3284,7 +3284,7 @@ impl Room {
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
         self.client
-            .store()
+            .state_store()
             .set_kv_data(
                 StateStoreDataKey::ComposerDraft(self.room_id()),
                 StateStoreDataValue::ComposerDraft(draft),
@@ -3297,7 +3297,7 @@ impl Room {
     pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>> {
         let data = self
             .client
-            .store()
+            .state_store()
             .get_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
             .await?;
         Ok(data.and_then(|d| d.into_composer_draft()))
@@ -3306,7 +3306,7 @@ impl Room {
     /// Remove the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<()> {
         self.client
-            .store()
+            .state_store()
             .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
             .await?;
         Ok(())

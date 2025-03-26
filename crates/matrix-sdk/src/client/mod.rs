@@ -621,8 +621,8 @@ impl Client {
     }
 
     /// Get a reference to the state store.
-    pub fn store(&self) -> &DynStateStore {
-        self.base_client().store()
+    pub fn state_store(&self) -> &DynStateStore {
+        self.base_client().state_store()
     }
 
     /// Get a reference to the event cache store.
@@ -1695,7 +1695,7 @@ impl Client {
     async fn load_or_fetch_server_capabilities(
         &self,
     ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
-        match self.store().get_kv_data(StateStoreDataKey::ServerCapabilities).await {
+        match self.state_store().get_kv_data(StateStoreDataKey::ServerCapabilities).await {
             Ok(Some(stored)) => {
                 if let Some((versions, unstable_features)) =
                     stored.into_server_capabilities().and_then(|cap| cap.maybe_decode())
@@ -1718,7 +1718,7 @@ impl Client {
         {
             let encoded = ServerCapabilities::new(&versions, unstable_features.clone());
             if let Err(err) = self
-                .store()
+                .state_store()
                 .set_kv_data(
                     StateStoreDataKey::ServerCapabilities,
                     StateStoreDataValue::ServerCapabilities(encoded),
@@ -1813,7 +1813,7 @@ impl Client {
         guard.unstable_features = None;
 
         // Empty the store cache.
-        Ok(self.store().remove_kv_data(StateStoreDataKey::ServerCapabilities).await?)
+        Ok(self.state_store().remove_kv_data(StateStoreDataKey::ServerCapabilities).await?)
     }
 
     /// Check whether MSC 4028 is enabled on the homeserver.

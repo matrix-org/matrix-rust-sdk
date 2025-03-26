@@ -278,8 +278,8 @@ impl BaseClient {
         )
     }
 
-    /// Get a reference to the store.
-    pub fn store(&self) -> &DynStateStore {
+    /// Get a reference to the state store.
+    pub fn state_store(&self) -> &DynStateStore {
         self.state_store.deref()
     }
 
@@ -1334,7 +1334,7 @@ impl BaseClient {
     pub(crate) async fn load_previous_ignored_user_list(
         &self,
     ) -> Option<Raw<IgnoredUserListEvent>> {
-        self.store().get_account_data_event_static().await.ok().flatten()
+        self.state_store().get_account_data_event_static().await.ok().flatten()
     }
 
     pub(crate) fn apply_changes(
@@ -2297,7 +2297,7 @@ mod tests {
 
         client.receive_sync_response(response).await.unwrap();
         client
-            .store()
+            .state_store()
             .get_state_event_static::<ruma::events::room::name::RoomNameEventContent>(room_id)
             .await
             .expect("Failed to fetch state event")
