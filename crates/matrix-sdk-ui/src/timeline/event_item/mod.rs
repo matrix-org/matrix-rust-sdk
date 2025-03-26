@@ -51,6 +51,7 @@ pub(super) use self::{
 };
 pub use self::{
     content::{
+        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
         AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
         MembershipChange, Message, OtherState, PollResult, PollState, RepliedToEvent,
         RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineItemContent,
@@ -355,20 +356,24 @@ impl EventTimelineItem {
         }
 
         match self.content() {
-            TimelineItemContent::Message(message) => {
-                matches!(
-                    message.msgtype(),
-                    MessageType::Text(_)
-                        | MessageType::Emote(_)
-                        | MessageType::Audio(_)
-                        | MessageType::File(_)
-                        | MessageType::Image(_)
-                        | MessageType::Video(_)
-                )
-            }
-            TimelineItemContent::Poll(poll) => {
-                poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
-            }
+            TimelineItemContent::Aggregated(aggregated) => match &aggregated.kind {
+                AggregatedTimelineItemContentKind::Message(message) => {
+                    matches!(
+                        message.msgtype(),
+                        MessageType::Text(_)
+                            | MessageType::Emote(_)
+                            | MessageType::Audio(_)
+                            | MessageType::File(_)
+                            | MessageType::Image(_)
+                            | MessageType::Video(_)
+                    )
+                }
+                AggregatedTimelineItemContentKind::Poll(poll) => {
+                    poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
+                }
+                // Other aggregated timeline items can't be edited at the moment.
+                _ => false,
+            },
             _ => {
                 // Other timeline items can't be edited at the moment.
                 false
@@ -424,7 +429,11 @@ impl EventTimelineItem {
         // This must be in sync with the early returns of `Timeline::send_reply`
         if self.event_id().is_none() {
             false
-        } else if let TimelineItemContent::Message(_) = self.content() {
+        } else if let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(_),
+            ..
+        }) = self.content()
+        {
             true
         } else {
             self.latest_json().is_some()
@@ -582,23 +591,25 @@ impl EventTimelineItem {
     /// See `test_emoji_detection` for more examples.
     pub fn contains_only_emojis(&self) -> bool {
         let body = match self.content() {
-            TimelineItemContent::Message(msg) => match msg.msgtype() {
-                MessageType::Text(text) => Some(text.body.as_str()),
-                MessageType::Audio(audio) => audio.caption(),
-                MessageType::File(file) => file.caption(),
-                MessageType::Image(image) => image.caption(),
-                MessageType::Video(video) => video.caption(),
-                _ => None,
+            TimelineItemContent::Aggregated(aggregated) => match &aggregated.kind {
+                AggregatedTimelineItemContentKind::Message(message) => match &message.msgtype {
+                    MessageType::Text(text) => Some(text.body.as_str()),
+                    MessageType::Audio(audio) => audio.caption(),
+                    MessageType::File(file) => file.caption(),
+                    MessageType::Image(image) => image.caption(),
+                    MessageType::Video(video) => video.caption(),
+                    _ => None,
+                },
+                AggregatedTimelineItemContentKind::Sticker(_)
+                | AggregatedTimelineItemContentKind::Poll(_) => None,
             },
             TimelineItemContent::RedactedMessage
-            | TimelineItemContent::Sticker(_)
             | TimelineItemContent::UnableToDecrypt(_)
             | TimelineItemContent::MembershipChange(_)
             | TimelineItemContent::ProfileChange(_)
             | TimelineItemContent::OtherState(_)
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
-            | TimelineItemContent::Poll(_)
             | TimelineItemContent::CallInvite
             | TimelineItemContent::CallNotify => None,
         };

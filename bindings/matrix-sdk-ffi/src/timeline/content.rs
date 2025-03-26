@@ -15,12 +15,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
-use matrix_sdk_ui::timeline::{PollResult, RoomPinnedEventsChange, TimelineDetails};
+use matrix_sdk_ui::timeline::{
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, PollResult,
+    RoomPinnedEventsChange, TimelineDetails,
+};
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent, FullStateEventContent};
 
 use super::ProfileDetails;
 use crate::{
-    error::ClientError,
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
     utils::Timestamp,
 };
@@ -30,13 +32,27 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
         match value {
-            Content::Message(message) => {
-                let msgtype = message.msgtype().msgtype().to_owned();
+            Content::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(message),
+                thread_root,
+                in_reply_to,
+                ..
+            }) => {
+                let message_type_string = message.msgtype().msgtype().to_owned();
 
-                match TryInto::<MessageContent>::try_into(message) {
-                    Ok(message) => TimelineItemContent::Message { content: message },
+                match TryInto::<MessageType>::try_into(message.msgtype().clone()) {
+                    Ok(message_type) => TimelineItemContent::Message {
+                        content: MessageContent {
+                            msg_type: message_type,
+                            body: message.body().to_owned(),
+                            in_reply_to: in_reply_to.map(|r| Arc::new(r.into())),
+                            is_edited: message.is_edited(),
+                            thread_root: thread_root.map(|id| id.to_string()),
+                            mentions: message.mentions().cloned().map(|m| m.into()),
+                        },
+                    },
                     Err(error) => TimelineItemContent::FailedToParseMessageLike {
-                        event_type: msgtype,
+                        event_type: message_type_string,
                         error: error.to_string(),
                     },
                 }
@@ -44,7 +60,10 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::RedactedMessage => TimelineItemContent::RedactedMessage,
 
-            Content::Sticker(sticker) => {
+            Content::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Sticker(sticker),
+                ..
+            }) => {
                 let content = sticker.content();
 
                 let media_source = RumaMediaSource::from(content.source.clone());
@@ -69,7 +88,10 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                 }
             }
 
-            Content::Poll(poll_state) => TimelineItemContent::from(poll_state.results()),
+            Content::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+                ..
+            }) => TimelineItemContent::from(poll_state.results()),
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
@@ -145,21 +167,6 @@ pub struct MessageContent {
     pub thread_root: Option<String>,
     pub is_edited: bool,
     pub mentions: Option<Mentions>,
-}
-
-impl TryFrom<matrix_sdk_ui::timeline::Message> for MessageContent {
-    type Error = ClientError;
-
-    fn try_from(value: matrix_sdk_ui::timeline::Message) -> Result<Self, Self::Error> {
-        Ok(Self {
-            msg_type: value.msgtype().clone().try_into()?,
-            body: value.body().to_owned(),
-            in_reply_to: value.in_reply_to().map(|r| Arc::new(r.clone().into())),
-            is_edited: value.is_edited(),
-            thread_root: value.thread_root().map(|id| id.to_string()),
-            mentions: value.mentions().cloned().map(|m| m.into()),
-        })
-    }
 }
 
 impl From<ruma::events::Mentions> for Mentions {

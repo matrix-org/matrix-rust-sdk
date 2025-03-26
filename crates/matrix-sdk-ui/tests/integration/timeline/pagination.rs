@@ -33,7 +33,10 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
     StateTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::timeline::{AnyOtherFullStateEventContent, RoomExt, TimelineItemContent};
+use matrix_sdk_ui::timeline::{
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
+    AnyOtherFullStateEventContent, RoomExt, TimelineItemContent,
+};
 use once_cell::sync::Lazy;
 use ruma::{
     events::{room::message::MessageType, FullStateEventContent},
@@ -116,7 +119,12 @@ async fn test_back_pagination() {
     // `m.room.message`: “the world is big”
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2]);
-        assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(msg),
+                ..
+            }) = message.as_event().unwrap().content()
+        );
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "the world is big");
     }
@@ -124,7 +132,12 @@ async fn test_back_pagination() {
     // `m.room.message`: “hello world”
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[3]);
-        assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(msg),
+                ..
+            }) = message.as_event().unwrap().content()
+        );
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello world");
     }
@@ -660,7 +673,12 @@ async fn test_empty_chunk() {
     // `m.room.message`: “the world is big”
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2]);
-        assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(msg),
+                ..
+            }) = message.as_event().unwrap().content()
+        );
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "the world is big");
     }
@@ -668,7 +686,12 @@ async fn test_empty_chunk() {
     // `m.room.name`: “hello world”
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[3]);
-        assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(msg),
+                ..
+            }) = message.as_event().unwrap().content()
+        );
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello world");
     }
@@ -770,7 +793,12 @@ async fn test_until_num_items_with_empty_chunk() {
     // `m.room.message`: “the world is big”
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2]);
-        assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(msg),
+                ..
+            }) = message.as_event().unwrap().content()
+        );
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "the world is big");
     }
@@ -778,7 +806,12 @@ async fn test_until_num_items_with_empty_chunk() {
     // `m.room.name`: “hello world”
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[3]);
-        assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(msg),
+                ..
+            }) = message.as_event().unwrap().content()
+        );
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello world");
     }
@@ -803,7 +836,12 @@ async fn test_until_num_items_with_empty_chunk() {
         assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Insert { index: 2, value: message } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(msg) = message.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(msg),
+                ..
+            }) = message.as_event().unwrap().content()
+        );
         assert_let!(MessageType::Text(text) = msg.msgtype());
         assert_eq!(text.body, "hello room then");
     }

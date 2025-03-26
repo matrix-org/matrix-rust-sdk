@@ -25,7 +25,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    event_item::RemoteEventOrigin, AnyOtherFullStateEventContent, TimelineDetails,
+    event_item::RemoteEventOrigin, AggregatedTimelineItemContent,
+    AggregatedTimelineItemContentKind, AnyOtherFullStateEventContent, TimelineDetails,
     TimelineItemContent,
 };
 
@@ -65,7 +66,13 @@ async fn test_redact_replied_to_event() {
     timeline.handle_live_event(f.text_msg("Hello, world!").sender(&ALICE)).await;
 
     let first_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_matches!(first_item.content(), TimelineItemContent::Message(_));
+    assert_matches!(
+        first_item.content(),
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(_),
+            ..
+        })
+    );
     let first_event: OriginalSyncRoomMessageEvent =
         first_item.original_json().unwrap().deserialize_as().unwrap();
 
@@ -74,17 +81,23 @@ async fn test_redact_replied_to_event() {
         .await;
 
     let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let message = second_item.content().as_message().unwrap();
-    let in_reply_to = message.in_reply_to().unwrap();
+    let aggregated = second_item.content().as_aggregated().unwrap();
+    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_matches!(replied_to_event.content(), TimelineItemContent::Message(_));
+    assert_matches!(
+        replied_to_event.content(),
+        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(_),
+            ..
+        })
+    );
 
     timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&ALICE)).await;
 
     let second_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
-    let message = second_item_again.content().as_message().unwrap();
-    let in_reply_to = message.in_reply_to().unwrap();
+    let aggregated = second_item_again.content().as_aggregated().unwrap();
+    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_matches!(replied_to_event.content(), TimelineItemContent::RedactedMessage);
 

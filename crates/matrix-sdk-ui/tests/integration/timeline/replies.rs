@@ -10,8 +10,8 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
-    EnforceThread, Error as TimelineError, EventSendState, RoomExt, TimelineDetails,
-    TimelineItemContent,
+    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EnforceThread,
+    Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
 };
 use ruma::{
     event_id,
@@ -85,13 +85,25 @@ async fn test_in_reply_to_details() {
 
         // We get the original message.
         assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-        assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
+        assert_matches!(
+            first.as_event().unwrap().content(),
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                ..
+            })
+        );
 
         // We get the reply.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[1]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
         assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
@@ -120,8 +132,14 @@ async fn test_in_reply_to_details() {
 
         assert_let!(VectorDiff::PushBack { value: third } = &timeline_updates[1]);
         let third_event = third.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = third_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid2);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -149,14 +167,26 @@ async fn test_in_reply_to_details() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
         assert_eq!(*third.unique_id(), third_unique_id);
 
         // …then it's marked as an error when the request fails.
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Error(_));
         assert_eq!(*third.unique_id(), third_unique_id);
     }
 
@@ -183,14 +213,26 @@ async fn test_in_reply_to_details() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
         assert_eq!(*third.unique_id(), third_unique_id);
 
         // …then it's filled when the request succeeds.
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Ready(_));
         assert_eq!(*third.unique_id(), third_unique_id);
 
         assert_pending!(timeline_stream);
@@ -263,8 +305,14 @@ async fn test_fetch_details_utd() {
         // We get the reply, but with no details.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -282,15 +330,27 @@ async fn test_fetch_details_utd() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is a UTD.
-        let in_reply_to = message.in_reply_to().unwrap();
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
         assert_matches!(replied_to.content(), TimelineItemContent::UnableToDecrypt(_));
@@ -351,8 +411,14 @@ async fn test_fetch_details_poll() {
         // We get the reply, but with no details.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -370,18 +436,35 @@ async fn test_fetch_details_poll() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is the poll.
-        let in_reply_to = message.in_reply_to().unwrap();
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(TimelineItemContent::Poll(poll_state) = replied_to.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+                ..
+            }) = replied_to.content()
+        );
         assert_eq!(
             poll_state.fallback_text().unwrap(),
             "What is the best color? A. Red, B. Blue, C. Green"
@@ -444,8 +527,14 @@ async fn test_fetch_details_sticker() {
         // We get the reply.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -463,18 +552,35 @@ async fn test_fetch_details_sticker() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is a sticker.
-        let in_reply_to = message.in_reply_to().unwrap();
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(TimelineItemContent::Sticker(sticker) = replied_to.content());
+        assert_let!(
+            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Sticker(sticker),
+                ..
+            }) = replied_to.content()
+        );
         assert_eq!(sticker.content().body, "sticker!");
         assert_matches!(&sticker.content().source, StickerMediaSource::Plain(src) => {
             assert_eq!(*src, media_src);
@@ -506,7 +612,8 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     let items = timeline.items().await;
     assert_eq!(items.len(), 2); // date divider, reply
     let event_item = items[1].as_event().unwrap();
-    let in_reply_to = event_item.content().as_message().unwrap().in_reply_to().unwrap();
+    let aggregated = event_item.content().as_aggregated().unwrap();
+    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -524,8 +631,15 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     // (which succeeds)
     let items = timeline.items().await;
     assert_eq!(items.len(), 2);
-    let in_reply_to =
-        items[1].as_event().unwrap().content().as_message().unwrap().in_reply_to().unwrap();
+    let in_reply_to = items[1]
+        .as_event()
+        .unwrap()
+        .content()
+        .as_aggregated()
+        .unwrap()
+        .in_reply_to
+        .clone()
+        .unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
@@ -537,8 +651,15 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     // ... the replied-to event details should remain from when we fetched them
     let items = timeline.items().await;
     assert_eq!(items.len(), 2);
-    let in_reply_to =
-        items[1].as_event().unwrap().content().as_message().unwrap().in_reply_to().unwrap();
+    let in_reply_to = items[1]
+        .as_event()
+        .unwrap()
+        .content()
+        .as_aggregated()
+        .unwrap()
+        .in_reply_to
+        .clone()
+        .unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 }
@@ -614,9 +735,10 @@ async fn test_send_reply() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregated_reply_message = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
     // Right now, we don't pass along the replied-to event to the event handler,
@@ -631,9 +753,10 @@ async fn test_send_reply() {
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let aggregated_reply_message = reply_item_remote_echo.content().as_aggregated().unwrap();
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
     // Same as above.
@@ -713,18 +836,20 @@ async fn test_send_reply_to_self() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregated_reply_message = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to self");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_self);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let aggregated_reply_message = reply_item_remote_echo.content().as_aggregated().unwrap();
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to self");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_self);
 }
 
@@ -778,14 +903,15 @@ async fn test_send_reply_to_threaded() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregated = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
 
     // The reply should be considered part of the thread.
-    assert!(reply_message.is_threaded());
+    assert!(aggregated.is_threaded());
 
     // Some extra assertions.
     assert_eq!(reply_message.body(), "Hello, Bob!");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
@@ -798,10 +924,10 @@ async fn test_send_reply_to_threaded() {
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
 
     // Same assertions as before still hold on the contained message.
-    assert!(reply_message.is_threaded());
+    assert!(aggregated.is_threaded());
 
     assert_eq!(reply_message.body(), "Hello, Bob!");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
@@ -881,18 +1007,20 @@ async fn test_send_reply_with_event_id() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregregated_reply_message = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let aggregregated_reply_message = reply_item_remote_echo.content().as_aggregated().unwrap();
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 }
 
@@ -966,21 +1094,23 @@ async fn test_send_reply_enforce_thread() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregated_reply_message = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
+    assert_eq!(aggregated_reply_message.thread_root.clone().unwrap(), event_id_from_bob);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let aggregated_reply_message = reply_item_remote_echo.content().as_aggregated().unwrap();
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    assert_eq!(reply_message.thread_root().unwrap(), event_id_from_bob);
+    assert_eq!(aggregated_reply_message.thread_root.clone().unwrap(), event_id_from_bob);
 }
 
 #[async_test]
@@ -1062,21 +1192,23 @@ async fn test_send_reply_enforce_thread_is_reply() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregated_reply_message = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    assert_eq!(reply_message.thread_root().unwrap(), &thread_root);
+    assert_eq!(aggregated_reply_message.thread_root.clone().unwrap(), thread_root);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let aggregated_reply_message = reply_item_remote_echo.content().as_aggregated().unwrap();
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
-    assert_eq!(reply_message.thread_root().unwrap(), &thread_root);
+    assert_eq!(aggregated_reply_message.thread_root.clone().unwrap(), thread_root);
 }
 
 #[async_test]
@@ -1155,17 +1287,19 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let aggregregated_reply_message = reply_item.content().as_aggregated().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, redacted_event_id_from_bob);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let aggregregated_reply_message = reply_item_remote_echo.content().as_aggregated().unwrap();
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = aggregregated_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, redacted_event_id_from_bob);
 }

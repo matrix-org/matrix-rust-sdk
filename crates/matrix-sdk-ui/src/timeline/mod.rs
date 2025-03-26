@@ -87,6 +87,7 @@ pub use self::{
     controller::default_event_filter,
     error::*,
     event_item::{
+        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
         AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
         EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
         OtherState, PollResult, PollState, Profile, ReactionInfo, ReactionStatus,
@@ -516,7 +517,7 @@ impl Timeline {
                 // Relations are filled by the editing code itself.
                 let new_content: AnyMessageLikeEventContent = match new_content {
                     EditedContent::RoomMessage(message) => {
-                        if matches!(item.content, TimelineItemContent::Message(_)) {
+                        if item.content.is_message() {
                             AnyMessageLikeEventContent::RoomMessage(message.into())
                         } else {
                             return Err(EditError::ContentMismatch {
@@ -528,7 +529,7 @@ impl Timeline {
                     }
 
                     EditedContent::PollStart { new_content, .. } => {
-                        if matches!(item.content, TimelineItemContent::Poll(_)) {
+                        if item.content.is_poll() {
                             AnyMessageLikeEventContent::UnstablePollStart(
                                 UnstablePollStartEventContent::New(
                                     NewUnstablePollStartEventContent::new(new_content),
