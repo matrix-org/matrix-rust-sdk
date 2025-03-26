@@ -83,7 +83,6 @@ pub enum ReplyError {
 
 /// Whether or not to enforce a [`Relation::Thread`] when sending a reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(clippy::exhaustive_enums)]
 pub enum EnforceThread {
     /// A thread relation is enforced. If the original message does not have a
     /// thread relation itself, a new thread is started.
