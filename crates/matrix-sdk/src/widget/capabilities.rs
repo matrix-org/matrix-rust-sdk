@@ -18,6 +18,10 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use ruma::{
+    events::{AnyTimelineEvent, AnyToDeviceEvent},
+    serde::Raw,
+};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 use tracing::{debug, error};
 
@@ -25,7 +29,6 @@ use crate::widget::filter::ToDeviceEventFilter;
 
 use super::{
     filter::{EventAndRequestFilter, MatrixEventFilterInput, MatrixEventFilterInputData},
-    machine::MatrixEvent,
     EventFilter, MessageLikeEventFilter, StateEventFilter,
 };
 
@@ -62,25 +65,23 @@ pub struct Capabilities {
 
 impl Capabilities {
     /// Tells if a given raw event matches the read filter.
-    pub fn raw_event_matches_read_filter(&self, raw: &MatrixEvent) -> bool {
-        let filter_in = match raw {
-            MatrixEvent::Timeline(raw) => {
-                match raw.deserialize_as::<MatrixEventFilterInputData>() {
-                    Ok(filter) => MatrixEventFilterInput::Timeline(filter),
-                    Err(err) => {
-                        error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
-                        return false;
-                    }
-                }
+    pub fn raw_timeline_event_matches_read_filter(&self, raw: &Raw<AnyTimelineEvent>) -> bool {
+        let filter_in = match raw.deserialize_as::<MatrixEventFilterInputData>() {
+            Ok(filter) => MatrixEventFilterInput::Timeline(filter),
+            Err(err) => {
+                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
+                return false;
             }
-            MatrixEvent::ToDevice(raw) => {
-                match raw.deserialize_as::<MatrixEventFilterInputData>() {
-                    Ok(filter) => MatrixEventFilterInput::ToDevice(filter),
-                    Err(err) => {
-                        error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
-                        return false;
-                    }
-                }
+        };
+
+        self.read.iter().any(|f| f.matches_event(&filter_in))
+    }
+    pub fn raw_to_device_event_matches_read_filter(&self, raw: &Raw<AnyToDeviceEvent>) -> bool {
+        let filter_in = match raw.deserialize_as::<MatrixEventFilterInputData>() {
+            Ok(filter) => MatrixEventFilterInput::ToDevice(filter),
+            Err(err) => {
+                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
+                return false;
             }
         };
 
@@ -88,13 +89,13 @@ impl Capabilities {
     }
 }
 
-const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
-const RECEIVE_EVENT: &str = "org.matrix.msc2762.receive.event";
-const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
-const RECEIVE_STATE: &str = "org.matrix.msc2762.receive.state_event";
-const SEND_TODEVICE: &str = "org.matrix.msc3819.send.to_device";
-const RECEIVE_TODEVICE: &str = "org.matrix.msc3819.receive.to_device";
-const REQUIRES_CLIENT: &str = "io.element.requires_client";
+pub(super) const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
+pub(super) const RECEIVE_EVENT: &str = "org.matrix.msc2762.receive.event";
+pub(super) const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
+pub(super) const RECEIVE_STATE: &str = "org.matrix.msc2762.receive.state_event";
+pub(super) const SEND_TODEVICE: &str = "org.matrix.msc3819.send.to_device";
+pub(super) const RECEIVE_TODEVICE: &str = "org.matrix.msc3819.receive.to_device";
+pub(super) const REQUIRES_CLIENT: &str = "io.element.requires_client";
 pub(super) const SEND_DELAYED_EVENT: &str = "org.matrix.msc4157.send.delayed_event";
 pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed_event";
 

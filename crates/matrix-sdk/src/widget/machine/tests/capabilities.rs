@@ -18,8 +18,12 @@ use ruma::owned_room_id;
 use serde_json::{from_value, json};
 
 use super::{parse_msg, WIDGET_ID};
-use crate::widget::machine::{
-    incoming::MatrixDriverResponse, Action, IncomingMessage, MatrixDriverRequestData, WidgetMachine,
+use crate::widget::{
+    capabilities::{RECEIVE_EVENT, RECEIVE_STATE, RECEIVE_TODEVICE},
+    machine::{
+        incoming::MatrixDriverResponse, Action, IncomingMessage, MatrixDriverRequestData,
+        WidgetMachine,
+    },
 };
 
 #[test]
@@ -191,12 +195,12 @@ pub(super) fn assert_capabilities_dance(
     };
 
     // We get the `Subscribe` command if we requested some reading capabilities.
-    if ["org.matrix.msc2762.receive.state_event", "org.matrix.msc2762.receive.event"]
+    if [RECEIVE_EVENT, RECEIVE_STATE, RECEIVE_TODEVICE]
         .into_iter()
         .any(|c| capability.starts_with(c))
     {
         let action = actions.remove(0);
-        assert_matches!(action, Action::SubscribeTimeline);
+        assert_matches!(action, Action::Subscribe);
     }
 
     // Inform the widget about the acquired capabilities.
