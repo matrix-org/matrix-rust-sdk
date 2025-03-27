@@ -172,7 +172,8 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
             assert_eq!(pinned_event_ids.len(), PINNED_EVENTS_COUNT);
 
             // Reset cache so it always loads the events from the mocked endpoint
-            client.event_cache().empty_immutable_cache().await;
+            // TODO: allow clearing the events table?
+            //client.event_cache().empty_immutable_cache().await;
 
             let timeline = Timeline::builder(&room)
                 .with_focus(TimelineFocus::PinnedEvents {
