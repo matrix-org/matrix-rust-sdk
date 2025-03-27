@@ -59,12 +59,7 @@ async fn test_default_filter() {
 
     // The edit was applied.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
-            ..
-        }) = item.as_event().unwrap().content()
-    );
+    assert_let!(Some(message) = item.as_event().unwrap().content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "The _edited_ first message");
 

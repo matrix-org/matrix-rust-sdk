@@ -22,10 +22,7 @@ use matrix_sdk::{
     assert_let_timeout, attachment::AttachmentConfig, test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
-use matrix_sdk_ui::timeline::{
-    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, AttachmentSource,
-    EventSendState, RoomExt, TimelineItemContent,
-};
+use matrix_sdk_ui::timeline::{AttachmentSource, EventSendState, RoomExt};
 use ruma::{
     event_id,
     events::room::{message::MessageType, MediaSource},
@@ -79,12 +76,7 @@ async fn test_send_attachment_from_file() {
 
     // Sanity check.
     assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            ..
-        }) = item.content()
-    );
+    assert_let!(Some(msg) = item.content().as_message());
     assert_eq!(msg.body(), "hello");
 
     // No other updates.
@@ -113,12 +105,7 @@ async fn test_send_attachment_from_file() {
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
-        assert_let!(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(msg),
-                ..
-            }) = item.content()
-        );
+        assert_let!(Some(msg) = item.content().as_message());
 
         // Body is the caption, because there's both a caption and filename.
         assert_eq!(msg.body(), "caption");
@@ -137,12 +124,7 @@ async fn test_send_attachment_from_file() {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
-        assert_let!(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(msg),
-                ..
-            }) = item.content()
-        );
+        assert_let!(Some(msg) = item.content().as_message());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
         assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", Some("caption")));
 
@@ -191,12 +173,7 @@ async fn test_send_attachment_from_bytes() {
 
     // Sanity check.
     assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            ..
-        }) = item.content()
-    );
+    assert_let!(Some(msg) = item.content().as_message());
     assert_eq!(msg.body(), "hello");
 
     // No other updates.
@@ -227,12 +204,7 @@ async fn test_send_attachment_from_bytes() {
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
-        assert_let!(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(msg),
-                ..
-            }) = item.content()
-        );
+        assert_let!(Some(msg) = item.content().as_message());
 
         // Body is the caption, because there's both a caption and filename.
         assert_eq!(msg.body(), "caption");
@@ -251,12 +223,7 @@ async fn test_send_attachment_from_bytes() {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
-        assert_let!(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(msg),
-                ..
-            }) = item.content()
-        );
+        assert_let!(Some(msg) = item.content().as_message());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
         assert_eq!(get_filename_and_caption(msg.msgtype()), (filename, Some("caption")));
 
@@ -309,12 +276,7 @@ async fn test_react_to_local_media() {
 
     let item_id = {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
-        assert_let!(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(msg),
-                ..
-            }) = item.content()
-        );
+        assert_let!(Some(msg) = item.content().as_message());
         assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", None));
 
         // The item starts with no reactions.
@@ -327,12 +289,7 @@ async fn test_react_to_local_media() {
     timeline.toggle_reaction(&item_id, "🤪").await.unwrap();
 
     assert_let_timeout!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next());
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            ..
-        }) = item.content()
-    );
+    assert_let!(Some(msg) = item.content().as_message());
     assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", None));
 
     // There's a reaction for the current user for the given emoji.

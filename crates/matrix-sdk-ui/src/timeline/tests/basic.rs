@@ -150,13 +150,7 @@ async fn test_sticker() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_matches!(
-        item.content(),
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Sticker(_),
-            ..
-        })
-    );
+    assert!(item.content().is_sticker());
 }
 
 #[async_test]
@@ -351,12 +345,7 @@ async fn test_sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
-            ..
-        }) = event.content()
-    );
+    assert_let!(Some(message) = event.content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(
         text.formatted.as_ref().unwrap().body,

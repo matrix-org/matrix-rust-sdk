@@ -344,6 +344,13 @@ impl TimelineItemContent {
         as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Poll)
     }
 
+    pub fn as_sticker(&self) -> Option<&Sticker> {
+        let aggregated = as_variant!(self, Self::Aggregated)
+            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemContentKind::Sticker));
+
+        aggregated.unwrap_or(None)
+    }
+
     /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
     /// return the inner [`EncryptedMessage`].
     pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
@@ -375,6 +382,18 @@ impl TimelineItemContent {
             self,
             Self::Aggregated(AggregatedTimelineItemContent {
                 kind: AggregatedTimelineItemContentKind::Poll(_),
+                ..
+            })
+        )
+    }
+
+    /// Check whether this item's content is a
+    /// [`Sticker`][AggregatedTimelineItemContentKind::Sticker].
+    pub fn is_sticker(&self) -> bool {
+        matches!(
+            self,
+            Self::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Sticker(_),
                 ..
             })
         )

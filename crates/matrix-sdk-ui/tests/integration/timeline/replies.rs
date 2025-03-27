@@ -85,13 +85,7 @@ async fn test_in_reply_to_details() {
 
         // We get the original message.
         assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-        assert_matches!(
-            first.as_event().unwrap().content(),
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(_),
-                ..
-            })
-        );
+        assert!(first.as_event().unwrap().content().is_message());
 
         // We get the reply.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[1]);
@@ -459,12 +453,7 @@ async fn test_fetch_details_poll() {
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Poll(poll_state),
-                ..
-            }) = replied_to.content()
-        );
+        assert_let!(Some(poll_state) = replied_to.content().as_poll());
         assert_eq!(
             poll_state.fallback_text().unwrap(),
             "What is the best color? A. Red, B. Blue, C. Green"
@@ -575,12 +564,7 @@ async fn test_fetch_details_sticker() {
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Sticker(sticker),
-                ..
-            }) = replied_to.content()
-        );
+        assert_let!(Some(sticker) = replied_to.content().as_sticker());
         assert_eq!(sticker.content().body, "sticker!");
         assert_matches!(&sticker.content().source, StickerMediaSource::Plain(src) => {
             assert_eq!(*src, media_src);

@@ -42,8 +42,8 @@ use matrix_sdk_ui::{
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
     timeline::{
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EventSendState,
-        EventTimelineItem, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent,
+        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineItem,
+        TimelineItemContent,
     },
     Timeline,
 };
@@ -511,10 +511,7 @@ async fn test_enabling_backups_retries_decryption() {
 
     // Yup it's decrypted great.
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
-            ..
-        }) = item.content(),
+        Some(message) = item.content().as_message(),
         "The event should have been decrypted now"
     );
 
@@ -711,10 +708,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
     // Yup it's decrypted great.
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
-            ..
-        }) = item.content(),
+        Some(message) = item.content().as_message(),
         "The event should have been decrypted now"
     );
 
