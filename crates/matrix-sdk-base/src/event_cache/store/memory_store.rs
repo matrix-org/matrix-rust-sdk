@@ -54,7 +54,7 @@ pub struct MemoryStore {
 struct MemoryStoreInner {
     media: RingBuffer<MediaContent>,
     leases: HashMap<String, (String, Instant)>,
-    events: RelationalLinkedChunk<Event, Gap>,
+    events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
     media_retention_policy: Option<MediaRetentionPolicy>,
     last_media_cleanup_time: SystemTime,
 }
@@ -209,12 +209,13 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<(Position, Event)>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event_and_room = inner.events.items().find_map(|(position, event, this_room_id)| {
-            (room_id == this_room_id && event.event_id()? == event_id)
-                .then_some((position, event.clone()))
-        });
+        let pos_and_event =
+            inner.events.items_with_positions().find_map(|(position, event, this_room_id)| {
+                (room_id == this_room_id && event.event_id()? == event_id)
+                    .then_some((position, event.clone()))
+            });
 
-        Ok(event_and_room)
+        Ok(pos_and_event)
     }
 
     async fn add_media_content(
