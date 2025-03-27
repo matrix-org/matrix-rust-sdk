@@ -333,22 +333,29 @@ impl TimelineItemContent {
     /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
     /// inner [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
-        let aggregated = as_variant!(self, Self::Aggregated)?;
-        as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Message)
+        as_variant!(self, Self::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Message(message),
+            ..
+        }) => message)
     }
 
     /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
     /// inner [`PollState`].
     pub fn as_poll(&self) -> Option<&PollState> {
-        let aggregated = as_variant!(self, Self::Aggregated)?;
-        as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Poll)
+        as_variant!(self, Self::Aggregated(AggregatedTimelineItemContent {
+            kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+            ..
+        }) => poll_state)
     }
 
     pub fn as_sticker(&self) -> Option<&Sticker> {
-        let aggregated = as_variant!(self, Self::Aggregated)
-            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemContentKind::Sticker));
-
-        aggregated.unwrap_or(None)
+        as_variant!(
+            self,
+            Self::Aggregated(AggregatedTimelineItemContent {
+                kind: AggregatedTimelineItemContentKind::Sticker(sticker),
+                ..
+            }) => sticker
+        )
     }
 
     /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
