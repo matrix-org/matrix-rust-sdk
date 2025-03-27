@@ -56,4 +56,8 @@ impl AggregatedTimelineItemContent {
     pub fn is_threaded(&self) -> bool {
         self.thread_root.is_some()
     }
+
+    pub fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
+        Self { in_reply_to: Some(in_reply_to), ..self.clone() }
+    }
 }
