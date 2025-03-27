@@ -17,7 +17,6 @@
 use std::{fmt, time::Duration};
 
 use async_channel::{Receiver, Sender};
-use machine::MatrixEvent;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -265,7 +264,7 @@ impl WidgetDriver {
                     .send(IncomingMessage::MatrixDriverResponse { request_id, response })
                     .map_err(|_| ())?;
             }
-            Action::SubscribeTimeline => {
+            Action::Subscribe => {
                 // Only subscribe if we are not already subscribed.
                 if self.event_forwarding_guard.is_some() {
                     return Ok(());
@@ -278,7 +277,8 @@ impl WidgetDriver {
 
                 self.event_forwarding_guard = Some(guard);
 
-                let mut matrix = matrix_driver.events();
+                let mut timeline_receiver = matrix_driver.events();
+                let mut to_device_receiver = matrix_driver.to_device_events();
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
                 tokio::spawn(async move {
@@ -289,43 +289,21 @@ impl WidgetDriver {
                                 return;
                             }
 
-                            Some(event) = matrix.recv() => {
+                            Some(event) = timeline_receiver.recv() => {
                                 // Forward all events to the incoming messages stream.
-                                let _ = incoming_msg_tx.send(IncomingMessage::MatrixEventReceived(MatrixEvent::Timeline(event)));
+                                let _ = incoming_msg_tx.send(IncomingMessage::MatrixEventReceived(event));
+                            }
+
+                            Some(event) = to_device_receiver.recv() => {
+                                // Forward all events to the incoming messages stream.
+                                let _ = incoming_msg_tx.send(IncomingMessage::ToDeviceReceived(event));
                             }
                         }
                     }
                 });
             }
-            Action::UnsubscribeTimeline => {
+            Action::Unsubscribe => {
                 self.event_forwarding_guard = None;
-            }
-            Action::SubscribeToDevice => {
-                // Only subscribe if we are not already subscribed.
-                if self.to_device_event_forwarding_guard.is_none() {
-                    let (stop_forwarding, guard) = {
-                        let token = CancellationToken::new();
-                        (token.child_token(), token.drop_guard())
-                    };
-
-                    self.to_device_event_forwarding_guard = Some(guard);
-                    let (mut matrix, events_tx) =
-                        (matrix_driver.to_device_events(), incoming_msg_tx.clone());
-                    tokio::spawn(async move {
-                        loop {
-                            tokio::select! {
-                                _ = stop_forwarding.cancelled() => { return }
-                                Some(event) = matrix.recv() => {
-                                    let ev = MatrixEvent::ToDevice(event);
-                                    let _ = events_tx.send(IncomingMessage::MatrixEventReceived(ev));
-                                }
-                            }
-                        }
-                    });
-                }
-            }
-            Action::UnsubscribeToDevice => {
-                self.to_device_event_forwarding_guard = None;
             }
         }
 

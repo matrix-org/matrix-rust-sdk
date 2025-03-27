@@ -70,7 +70,7 @@ mod to_widget;
 pub(crate) use self::{
     driver_req::{MatrixDriverRequestData, ReadStateEventRequest, SendEventRequest},
     from_widget::SendEventResponse,
-    incoming::{IncomingMessage, MatrixDriverResponse, MatrixEvent},
+    incoming::{IncomingMessage, MatrixDriverResponse},
 };
 
 /// A command to perform in reaction to an [`IncomingMessage`].
@@ -100,20 +100,12 @@ pub(crate) enum Action {
     /// Subscribe to the events in the *current* room, i.e. a room which this
     /// widget is instantiated with. The client is aware of the room.
     #[allow(dead_code)]
-    SubscribeTimeline,
+    Subscribe,
 
     /// Unsuscribe from the events in the *current* room. Symmetrical to
     /// `Subscribe`.
     #[allow(dead_code)]
-    UnsubscribeTimeline,
-
-    /// Subscribe to to-events events, this widget has access to.
-    #[allow(dead_code)]
-    SubscribeToDevice,
-
-    //// Unsubscribe from to-events events.
-    #[allow(dead_code)]
-    UnsubscribeToDevice,
+    Unsubscribe,
 }
 
 /// No I/O state machine.
@@ -172,28 +164,35 @@ impl WidgetMachine {
         self.pending_matrix_driver_requests.remove_expired();
 
         let vec = match event {
-            IncomingMessage::WidgetMessage(raw) => self.process_widget_message(&raw),
-
+            IncomingMessage::WidgetMessage(widget_message_raw) => {
+                self.process_widget_message(&widget_message_raw)
+            }
             IncomingMessage::MatrixDriverResponse { request_id, response } => {
                 self.process_matrix_driver_response(request_id, response)
             }
-
-            IncomingMessage::MatrixEventReceived(event) => {
+            IncomingMessage::MatrixEventReceived(event_raw) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     error!("Received matrix event before capabilities negotiation");
                     return Vec::new();
                 };
                 capabilities
-                    .raw_event_matches_read_filter(&event)
+                    .raw_timeline_event_matches_read_filter(&event_raw)
                     .then(|| {
-                        let action = match event {
-                            MatrixEvent::Timeline(event) => {
-                                self.send_to_widget_request(NotifyNewMatrixEvent(event)).1
-                            }
-                            MatrixEvent::ToDevice(event) => {
-                                self.send_to_widget_request(NotifyNewToDeviceEvent(event)).1
-                            }
-                        };
+                        let action = self.send_to_widget_request(NotifyNewMatrixEvent(event_raw)).1;
+                        action.map(|a| vec![a]).unwrap_or_default()
+                    })
+                    .unwrap_or_default()
+            }
+            IncomingMessage::ToDeviceReceived(to_device_raw) => {
+                let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+                    error!("Received to device event before capabilities negotiation");
+                    return Vec::new();
+                };
+                capabilities
+                    .raw_to_device_event_matches_read_filter(&to_device_raw)
+                    .then(|| {
+                        let action =
+                            self.send_to_widget_request(NotifyNewToDeviceEvent(to_device_raw)).1;
                         action.map(|a| vec![a]).unwrap_or_default()
                     })
                     .unwrap_or_default()
@@ -374,9 +373,7 @@ impl WidgetMachine {
                         CapabilitiesState::Negotiated(capabilities) => result
                             .map(|mut events| {
                                 events.retain(|e| {
-                                    capabilities.raw_event_matches_read_filter(
-                                        &MatrixEvent::Timeline(e.clone()),
-                                    )
+                                    capabilities.raw_timeline_event_matches_read_filter(&e)
                                 });
                                 ReadEventResponse { events }
                             })
@@ -693,7 +690,7 @@ impl WidgetMachine {
                 let (_request, action) = machine.send_to_widget_request(update);
 
                 (subscribe_required)
-                    .then_some(Action::SubscribeTimeline)
+                    .then_some(Action::Subscribe)
                     .into_iter()
                     .chain(action)
                     .collect()
@@ -702,11 +699,7 @@ impl WidgetMachine {
             action.map(|a| vec![a]).unwrap_or_default()
         });
 
-        unsubscribe_required
-            .then_some(Action::UnsubscribeTimeline)
-            .into_iter()
-            .chain(action)
-            .collect()
+        unsubscribe_required.then_some(Action::Unsubscribe).into_iter().chain(action).collect()
     }
 }
 
