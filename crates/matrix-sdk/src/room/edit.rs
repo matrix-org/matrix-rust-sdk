@@ -14,9 +14,6 @@
 
 //! Facilities to edit existing events.
 
-use std::future::Future;
-
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm};
 use ruma::{
     events::{
         poll::unstable_start::{
@@ -36,6 +33,7 @@ use ruma::{
 use thiserror::Error;
 use tracing::{instrument, warn};
 
+use super::EventSource;
 use crate::Room;
 
 /// The new content that will replace the previous event's content.
@@ -125,21 +123,6 @@ impl Room {
     }
 }
 
-trait EventSource {
-    fn get_event(
-        &self,
-        event_id: &EventId,
-    ) -> impl Future<Output = Result<TimelineEvent, EditError>> + SendOutsideWasm;
-}
-
-impl EventSource for &Room {
-    async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, EditError> {
-        self.load_or_fetch_event(event_id, None)
-            .await
-            .map_err(|err| EditError::Fetch(Box::new(err)))
-    }
-}
-
 async fn make_edit_event<S: EventSource>(
     source: S,
     room_id: &RoomId,
@@ -147,7 +130,7 @@ async fn make_edit_event<S: EventSource>(
     event_id: &EventId,
     new_content: EditedContent,
 ) -> Result<AnyMessageLikeEventContent, EditError> {
-    let target = source.get_event(event_id).await?;
+    let target = source.get_event(event_id).await.map_err(|err| EditError::Fetch(Box::new(err)))?;
 
     let event = target.raw().deserialize().map_err(EditError::Deserialize)?;
 
@@ -352,14 +335,11 @@ mod tests {
             room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         },
-        owned_mxc_uri, owned_user_id, room_id,
-        serde::Raw,
-        user_id, EventId, OwnedEventId,
+        owned_mxc_uri, owned_user_id, room_id, user_id, EventId, OwnedEventId,
     };
-    use serde_json::json;
 
     use super::{make_edit_event, EditError, EventSource};
-    use crate::room::edit::EditedContent;
+    use crate::{room::edit::EditedContent, Error};
 
     #[derive(Default)]
     struct TestEventCache {
@@ -367,7 +347,7 @@ mod tests {
     }
 
     impl EventSource for TestEventCache {
-        async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, EditError> {
+        async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, Error> {
             Ok(self.events.get(event_id).unwrap().clone())
         }
     }
@@ -378,26 +358,10 @@ mod tests {
         let own_user_id = user_id!("@me:saucisse.bzh");
 
         let mut cache = TestEventCache::default();
-
+        let f = EventFactory::new();
         cache.events.insert(
             event_id.to_owned(),
-            // TODO: use the EventFactory for state events too.
-            TimelineEvent::new(
-                Raw::<AnySyncTimelineEvent>::from_json_string(
-                    json!({
-                        "content": {
-                            "name": "The room name"
-                        },
-                        "event_id": event_id,
-                        "sender": own_user_id,
-                        "state_key": "",
-                        "origin_server_ts": 1,
-                        "type": "m.room.name",
-                    })
-                    .to_string(),
-                )
-                .unwrap(),
-            ),
+            f.room_name("The room name").event_id(event_id).sender(own_user_id).into(),
         );
 
         let room_id = room_id!("!galette:saucisse.bzh");
