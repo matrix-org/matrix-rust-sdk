@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use as_variant::as_variant;
 use ruma::OwnedEventId;
 
 use super::{InReplyToDetails, Message, PollState, Sticker};
@@ -59,5 +60,11 @@ impl MsgLikeContent {
 
     pub fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
         Self { in_reply_to: Some(in_reply_to), ..self.clone() }
+    }
+
+    /// If `kind` is of the [`MsgLikeKind`][MsgLikeKind::Message] variant,
+    /// return the inner [`Message`].
+    pub fn as_message(&self) -> Option<Message> {
+        as_variant!(&self.kind, MsgLikeKind::Message(message) => message.clone())
     }
 }

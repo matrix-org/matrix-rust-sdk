@@ -840,7 +840,7 @@ async fn test_retry_decryption_updates_response() {
     {
         let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
         let msglike = event.content().as_msglike().unwrap();
-        let msg = event.content().as_message().unwrap();
+        let msg = msglike.as_message().unwrap();
         assert_eq!(msg.body(), "well said!");
 
         let reply_details = msglike.in_reply_to.clone().unwrap();
@@ -875,7 +875,7 @@ async fn test_retry_decryption_updates_response() {
         );
 
         let msglike = event.content().as_msglike().unwrap();
-        let msg = event.content().as_message().unwrap();
+        let msg = msglike.as_message().unwrap();
         assert_eq!(msg.body(), "well said!");
 
         let reply_details = msglike.in_reply_to.clone().unwrap();

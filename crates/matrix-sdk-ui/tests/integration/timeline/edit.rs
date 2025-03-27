@@ -372,7 +372,7 @@ async fn test_send_reply_edit() {
     // Reply message.
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
     let msglike = reply_item.content().as_msglike().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let reply_message = msglike.as_message().unwrap();
     assert!(!reply_message.is_edited());
     assert!(reply_item.is_editable());
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
@@ -455,7 +455,7 @@ async fn test_edit_to_replied_updates_reply() {
 
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: reply_item } => {
         let msglike = reply_item.content().as_msglike().unwrap();
-        let reply_message = reply_item.content().as_message().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "hi back");
 
         let in_reply_to = msglike.in_reply_to.clone().unwrap();
@@ -467,7 +467,7 @@ async fn test_edit_to_replied_updates_reply() {
 
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: reply_item } => {
         let msglike = reply_item.content().as_msglike().unwrap();
-        let reply_message = reply_item.content().as_message().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "yo");
 
         let in_reply_to = msglike.in_reply_to.clone().unwrap();
@@ -495,7 +495,7 @@ async fn test_edit_to_replied_updates_reply() {
     // The reply events are updated with the edited replied-to content.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         let msglike = value.content().as_msglike().unwrap();
-        let reply_message = value.content().as_message().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "hi back");
         assert!(!reply_message.is_edited());
 
@@ -507,7 +507,7 @@ async fn test_edit_to_replied_updates_reply() {
 
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
         let msglike = value.content().as_msglike().unwrap();
-        let reply_message = value.content().as_message().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "yo");
         assert!(!reply_message.is_edited());
 

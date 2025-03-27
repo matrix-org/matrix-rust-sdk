@@ -805,7 +805,7 @@ async fn test_send_reply_to_self() {
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
     let msglike_reply_message = reply_item.content().as_msglike().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to self");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_self);
@@ -815,7 +815,7 @@ async fn test_send_reply_to_self() {
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
     let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to self");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_self);
@@ -871,7 +871,7 @@ async fn test_send_reply_to_threaded() {
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
     let msglike = reply_item.content().as_msglike().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let reply_message = msglike.as_message().unwrap();
 
     // The reply should be considered part of the thread.
     assert!(msglike.is_threaded());
@@ -974,7 +974,7 @@ async fn test_send_reply_with_event_id() {
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
     let msglike_reply_message = reply_item.content().as_msglike().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
@@ -984,7 +984,7 @@ async fn test_send_reply_with_event_id() {
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
     let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
@@ -1060,7 +1060,7 @@ async fn test_send_reply_enforce_thread() {
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
     let msglike_reply_message = reply_item.content().as_msglike().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
@@ -1071,7 +1071,7 @@ async fn test_send_reply_enforce_thread() {
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
     let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
@@ -1157,7 +1157,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
     let msglike_reply_message = reply_item.content().as_msglike().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
@@ -1168,7 +1168,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
     let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
@@ -1250,7 +1250,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
     let msglike_reply_message = reply_item.content().as_msglike().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, redacted_event_id_from_bob);
@@ -1260,7 +1260,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
     let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, redacted_event_id_from_bob);

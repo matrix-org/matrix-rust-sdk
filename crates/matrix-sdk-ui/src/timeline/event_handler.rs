@@ -1382,7 +1382,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             let Some(event_item) = item.as_event() else { continue };
             let Some(msglike) = event_item.content.as_msglike() else { continue };
-            let Some(message) = event_item.content.as_message() else { continue };
+            let Some(message) = msglike.as_message() else { continue };
             let Some(in_reply_to) = msglike.in_reply_to.as_ref() else { continue };
 
             trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
