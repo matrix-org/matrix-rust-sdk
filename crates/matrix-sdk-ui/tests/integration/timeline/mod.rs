@@ -28,7 +28,6 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::{
     timeline::{
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
         AnyOtherFullStateEventContent, Error, EventSendState, RedactError, RoomExt,
         TimelineEventItemId, TimelineItemContent, VirtualTimelineItem,
     },
@@ -100,25 +99,14 @@ async fn test_reaction() {
     // The new message starts with their author's read receipt.
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
     let event_item = message.as_event().unwrap();
-    assert_matches!(
-        event_item.content(),
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(_),
-            ..
-        })
-    );
+    assert!(event_item.content().is_message());
     assert_eq!(event_item.read_receipts().len(), 1);
 
     // The new message is getting the reaction, which implies an implicit read
     // receipt that's obtained first.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[1]);
     let event_item = updated_message.as_event().unwrap();
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            ..
-        }) = event_item.content()
-    );
+    assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
     assert_eq!(event_item.content().reactions().len(), 0);
@@ -126,12 +114,7 @@ async fn test_reaction() {
     // Then the reaction is taken into account.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[2]);
     let event_item = updated_message.as_event().unwrap();
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            ..
-        }) = event_item.content()
-    );
+    assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
     assert_eq!(event_item.content().reactions().len(), 1);
@@ -159,12 +142,7 @@ async fn test_reaction() {
 
     assert_let!(VectorDiff::Set { index: 1, value: updated_message } = &timeline_updates[0]);
     let event_item = updated_message.as_event().unwrap();
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            ..
-        }) = event_item.content()
-    );
+    assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
     assert_eq!(event_item.content().reactions().len(), 0);
 
@@ -395,13 +373,7 @@ async fn test_read_marker() {
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
-    assert_matches!(
-        message.as_event().unwrap().content(),
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(_),
-            ..
-        })
-    );
+    assert!(message.as_event().unwrap().content().is_message());
 
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
@@ -431,13 +403,7 @@ async fn test_read_marker() {
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
-    assert_matches!(
-        message.as_event().unwrap().content(),
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(_),
-            ..
-        })
-    );
+    assert!(message.as_event().unwrap().content().is_message());
 
     assert_let!(VectorDiff::Insert { index: 2, value: marker } = &timeline_updates[1]);
     assert_matches!(marker.as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);

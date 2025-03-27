@@ -121,13 +121,7 @@ async fn test_edit() {
     assert!(item.original_json().is_some());
     assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
 
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            in_reply_to,
-            ..
-        }) = item.content()
-    );
+    assert_let!(Some(msg) = item.content().as_message());
     assert_matches!(item.latest_edit_json(), None);
     assert_let!(MessageType::Text(TextMessageEventContent { body, .. }) = msg.msgtype());
     assert_eq!(body, "Test");
@@ -569,12 +563,7 @@ async fn test_send_edit_poll() {
         .await;
 
     let poll_event = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Poll(poll),
-            ..
-        }) = poll_event.content()
-    );
+    assert_let!(Some(poll) = poll_event.content().as_poll());
     let poll_results = poll.results();
     assert_eq!(poll_results.question, "Test");
     assert_eq!(poll_results.answers.len(), 2);
@@ -611,12 +600,7 @@ async fn test_send_edit_poll() {
     // a separate edit send state.
     assert_matches!(edit_item.send_state(), None);
 
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Poll(edited_poll),
-            ..
-        }) = edit_item.content()
-    );
+    assert_let!(Some(edited_poll) = edit_item.content().as_poll());
     let edited_poll_results = edited_poll.results();
     assert_eq!(edited_poll_results.question, "Edited Test");
     assert_eq!(edited_poll_results.answers.len(), 3);

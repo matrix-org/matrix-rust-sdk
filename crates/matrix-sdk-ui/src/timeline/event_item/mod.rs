@@ -429,11 +429,7 @@ impl EventTimelineItem {
         // This must be in sync with the early returns of `Timeline::send_reply`
         if self.event_id().is_none() {
             false
-        } else if let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(_),
-            ..
-        }) = self.content()
-        {
+        } else if self.content.is_message() {
             true
         } else {
             self.latest_json().is_some()
