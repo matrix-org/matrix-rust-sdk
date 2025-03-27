@@ -31,10 +31,7 @@ use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
-use widgets::{
-    recovery::{RecoveryView, RecoveryViewState},
-    room_view::RoomView,
-};
+use widgets::{room_view::RoomView, settings::SettingsView};
 
 use crate::widgets::{
     help::HelpView,
@@ -74,8 +71,8 @@ pub enum GlobalMode {
     Default,
     /// Mode where we have opened the help screen.
     Help,
-    /// Mode where we have opened the recovery screen.
-    Recovery { state: RecoveryViewState },
+    /// Mode where we have opened the settings screen.
+    Settings { view: SettingsView },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -316,8 +313,8 @@ impl App {
         match (key.modifiers, key.code) {
             (KeyModifiers::NONE, F(1)) => self.set_global_mode(GlobalMode::Help),
 
-            (KeyModifiers::NONE, F(10)) => self.set_global_mode(GlobalMode::Recovery {
-                state: RecoveryViewState::new(self.client.clone()),
+            (KeyModifiers::NONE, F(10)) => self.set_global_mode(GlobalMode::Settings {
+                view: SettingsView::new(self.client.clone(), self.sync_service.clone()),
             }),
 
             (KeyModifiers::CONTROL, Char('j') | Down) => {
@@ -343,32 +340,14 @@ impl App {
             _ => self.room_view.handle_key_press(key).await,
         }
 
-        // TODO: Remove the remaining keys.
-        if key.kind == KeyEventKind::Press && key.modifiers == KeyModifiers::NONE {
-            match key.code {
-                Char('s') => self.sync_service.start().await,
-
-                Char('S') => self.sync_service.stop().await,
-
-                Char('Q') => {
-                    let q = self.client.send_queue();
-                    let enabled = q.is_enabled();
-                    q.set_enabled(!enabled).await;
-                }
-
-                _ => {}
-            }
-        }
-
         Ok(false)
     }
 
     fn on_tick(&mut self) {
         match &mut self.state.global_mode {
             GlobalMode::Help | GlobalMode::Default => {}
-
-            GlobalMode::Recovery { state } => {
-                state.on_tick();
+            GlobalMode::Settings { view } => {
+                view.on_tick();
             }
         }
     }
@@ -393,8 +372,8 @@ impl App {
                             }
                             _ => (),
                         },
-                        GlobalMode::Recovery { state } => {
-                            if state.handle_key_press(key) {
+                        GlobalMode::Settings { view } => {
+                            if view.handle_key_press(key).await {
                                 self.set_global_mode(GlobalMode::Default);
                             }
                         }
@@ -453,9 +432,8 @@ impl Widget for &mut App {
 
         match &mut self.state.global_mode {
             GlobalMode::Default => {}
-            GlobalMode::Recovery { state } => {
-                let mut recovery_view = RecoveryView::new();
-                recovery_view.render(area, buf, state);
+            GlobalMode::Settings { view } => {
+                view.render(area, buf);
             }
             GlobalMode::Help => {
                 let mut help_view = HelpView::new();

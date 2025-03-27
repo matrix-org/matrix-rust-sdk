@@ -122,7 +122,7 @@ impl StatefulWidget for &mut Status {
 
             match global_mode {
                 GlobalMode::Help => "Press q to exit the help screen",
-                GlobalMode::Recovery { .. } => "Press ESC to exit the recovery screen",
+                GlobalMode::Settings { .. } => "Press ESC to exit the settings screen",
                 GlobalMode::Default => "Press F1 to show the help screen",
             }
         };

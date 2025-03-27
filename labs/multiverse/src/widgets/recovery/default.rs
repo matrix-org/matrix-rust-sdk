@@ -80,7 +80,7 @@ impl DefaultRecoveryView {
 
         match self.mode {
             Mode::Default => match key.code {
-                KeyCode::Esc => Yes,
+                KeyCode::Esc | KeyCode::Char('q') => Yes,
                 KeyCode::Char('j') | KeyCode::Down => {
                     self.state.select_next();
                     No
