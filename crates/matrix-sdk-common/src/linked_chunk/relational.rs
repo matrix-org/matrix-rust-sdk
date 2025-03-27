@@ -379,6 +379,12 @@ where
             }
         })
     }
+
+    /// Save a single item "out-of-band" in the relational linked chunk.
+    pub fn save_item(&mut self, room_id: OwnedRoomId, item: Item) {
+        let id = item.id();
+        self.items.entry(room_id).or_default().insert(id, item);
+    }
 }
 
 impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>

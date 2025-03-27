@@ -218,6 +218,11 @@ impl EventCacheStore for MemoryStore {
         Ok(pos_and_event)
     }
 
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        self.inner.write().unwrap().events.save_item(room_id.to_owned(), event);
+        Ok(())
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
