@@ -630,7 +630,6 @@ async fn test_send_edit_when_timeline_is_clear() {
     // expectations).
 
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
-    client.event_cache().empty_immutable_cache().await;
 
     yield_now().await;
     assert_next_matches!(timeline_stream, VectorDiff::Clear);

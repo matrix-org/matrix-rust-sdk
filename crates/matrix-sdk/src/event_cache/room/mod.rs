@@ -44,8 +44,8 @@ use tokio::sync::{
 use tracing::{instrument, trace, warn};
 
 use super::{
-    deduplicator::DeduplicationOutcome, AllEventsCache, AutoShrinkChannelPayload, EventsOrigin,
-    Result, RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
+    deduplicator::DeduplicationOutcome, AutoShrinkChannelPayload, EventsOrigin, Result,
+    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -145,7 +145,6 @@ impl RoomEventCache {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
         Self {
@@ -154,7 +153,6 @@ impl RoomEventCache {
                 state,
                 pagination_status,
                 room_id,
-                all_events_cache,
                 auto_shrink_sender,
             )),
         }
@@ -188,21 +186,15 @@ impl RoomEventCache {
 
     /// Try to find an event by id in this room.
     pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
-        // Search in all loaded or stored events.
-        if let Ok(Some((_location, event))) =
-            self.inner.state.read().await.find_event(event_id).await
-        {
-            return Some(event);
-        }
-
-        // Search in `AllEventsCache` for known events that are not stored.
-        if let Some((room_id, event)) =
-            self.inner.all_events.read().await.events.get(event_id).cloned()
-        {
-            (room_id == self.inner.room_id).then_some(event)
-        } else {
-            None
-        }
+        self.inner
+            .state
+            .read()
+            .await
+            .find_event(event_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|(_loc, event)| event)
     }
 
     /// Try to find an event by id in this room, along with its related events.
@@ -215,19 +207,14 @@ impl RoomEventCache {
         filter: Option<Vec<RelationType>>,
     ) -> Option<(TimelineEvent, Vec<TimelineEvent>)> {
         // Search in all loaded or stored events.
-        if let Ok(Some(found)) =
-            self.inner.state.read().await.find_event_with_relations(event_id, filter.clone()).await
-        {
-            return Some(found);
-        }
-
-        let cache = self.inner.all_events.read().await;
-        if let Some((_, event)) = cache.events.get(event_id) {
-            let related_events = cache.collect_related_events(event_id, filter.as_deref());
-            Some((event.clone(), related_events))
-        } else {
-            None
-        }
+        self.inner
+            .state
+            .read()
+            .await
+            .find_event_with_relations(event_id, filter.clone())
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Clear all the storage for this [`RoomEventCache`].
@@ -237,9 +224,6 @@ impl RoomEventCache {
     pub async fn clear(&self) -> Result<()> {
         // Clear the linked chunk and persisted storage.
         let updates_as_vector_diffs = self.inner.state.write().await.reset().await?;
-
-        // Clear the (temporary) events mappings.
-        self.inner.all_events.write().await.clear();
 
         // Notify observers about the update.
         let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
@@ -278,12 +262,6 @@ pub(super) struct RoomEventCacheInner {
     /// State for this room's event cache.
     pub state: RwLock<RoomEventCacheState>,
 
-    /// See comment of [`super::EventCacheInner::all_events`].
-    ///
-    /// This is shared between the [`super::EventCacheInner`] singleton and all
-    /// [`RoomEventCacheInner`] instances.
-    all_events: Arc<RwLock<AllEventsCache>>,
-
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
 
@@ -304,7 +282,6 @@ impl RoomEventCacheInner {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
         let sender = Sender::new(32);
@@ -313,7 +290,6 @@ impl RoomEventCacheInner {
             room_id: weak_room.room_id().to_owned(),
             weak_room,
             state: RwLock::new(state),
-            all_events: all_events_cache,
             sender,
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
@@ -568,20 +544,6 @@ impl RoomEventCacheInner {
                     // Override the diffs with the new ones, as per `shrink_to_last_chunk`'s API
                     // contract.
                     timeline_event_diffs = diffs;
-                }
-            }
-
-            {
-                // Fill the AllEventsCache.
-                let mut all_events_cache = self.all_events.write().await;
-
-                for event in events {
-                    if let Some(event_id) = event.event_id() {
-                        all_events_cache.append_related_event(&event);
-                        all_events_cache
-                            .events
-                            .insert(event_id.to_owned(), (self.room_id.clone(), event));
-                    }
                 }
             }
 
@@ -1594,6 +1556,7 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -2298,6 +2261,7 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
