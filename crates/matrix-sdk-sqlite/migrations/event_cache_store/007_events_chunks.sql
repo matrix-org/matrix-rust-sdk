@@ -11,6 +11,9 @@ DROP TABLE "events";
 
 -- Events and their content.
 CREATE TABLE "events" (
+    -- The room in which the event is located.
+    "room_id" BLOB NOT NULL,
+
     -- `OwnedEventId` for events.
     "event_id" BLOB NOT NULL,
 
