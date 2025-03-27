@@ -37,7 +37,10 @@ use matrix_sdk_base::{
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId};
+use ruma::{
+    events::relation::RelationType, time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri,
+    OwnedEventId, RoomId,
+};
 use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::fs;
 use tracing::{debug, error, trace};
@@ -968,6 +971,70 @@ impl EventCacheStore for SqliteEventCacheStore {
                 let event = serde_json::from_slice(&this.decode_value(&event)?)?;
 
                 Ok(Some(event))
+            })
+            .await
+    }
+
+    async fn find_event_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        filters: Option<Vec<RelationType>>,
+    ) -> Result<Option<(Event, Vec<Event>)>, Self::Error> {
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let event_id = event_id.to_owned();
+        let this = self.clone();
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let Some(target) = txn
+                    .prepare("SELECT content FROM events WHERE event_id = ? AND room_id = ?")?
+                    .query_row((event_id.as_str(), &hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
+                    .optional()?
+                else {
+                    // Event is not found.
+                    return Ok(None);
+                };
+
+                let filter_query = if let Some(filters) = filters {
+                    let filters = filters
+                        .into_iter()
+                        .map(|f| {
+                            // TODO: get Ruma fix from https://github.com/ruma/ruma/pull/2052
+                            if f == RelationType::Replacement {
+                                "m.replace".to_owned()
+                            } else {
+                                f.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    format!(" AND rel_type IN ({})", filters.join(" AND "))
+                } else {
+                    "".to_owned()
+                };
+
+                let query = format!(
+                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {}",
+                    filter_query
+                );
+
+                // Collect related events.
+                let mut rel = Vec::new();
+                for ev in
+                    txn.prepare(&query)?.query_map((event_id.as_str(), hashed_room_id), |row| {
+                        row.get::<_, Vec<u8>>(0)
+                    })?
+                {
+                    let ev = ev?;
+                    let ev = serde_json::from_slice(&this.decode_value(&ev)?)?;
+                    rel.push(ev);
+                }
+
+                let target = serde_json::from_slice(&this.decode_value(&target)?)?;
+
+                Ok(Some((target, rel)))
             })
             .await
     }
