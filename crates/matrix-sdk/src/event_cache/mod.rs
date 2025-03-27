@@ -987,7 +987,7 @@ mod tests {
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        room_event_cache.save_event(f.text_msg("hey there").event_id(event_id).into()).await;
+        room_event_cache.save_events([f.text_msg("hey there").event_id(event_id).into()]).await;
 
         // Retrieving the event at the room-wide cache works.
         assert!(room_event_cache.event(event_id).await.is_some());

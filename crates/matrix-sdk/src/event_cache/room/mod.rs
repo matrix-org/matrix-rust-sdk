@@ -214,6 +214,13 @@ impl RoomEventCache {
         event_id: &EventId,
         filter: Option<Vec<RelationType>>,
     ) -> Option<(TimelineEvent, Vec<TimelineEvent>)> {
+        // Search in all loaded or stored events.
+        if let Ok(Some(found)) =
+            self.inner.state.read().await.find_event_with_relations(event_id, filter.clone()).await
+        {
+            return Some(found);
+        }
+
         let cache = self.inner.all_events.read().await;
         if let Some((_, event)) = cache.events.get(event_id) {
             let related_events = cache.collect_related_events(event_id, filter.as_deref());
@@ -243,37 +250,11 @@ impl RoomEventCache {
         Ok(())
     }
 
-    /// Save a single event in the event cache, for further retrieval with
-    /// [`Self::event`].
-    // TODO: This doesn't insert the event into the linked chunk. In the future
-    // there'll be no distinction between the linked chunk and the separate
-    // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
-    pub(crate) async fn save_event(&self, event: TimelineEvent) {
-        if let Some(event_id) = event.event_id() {
-            let mut cache = self.inner.all_events.write().await;
-
-            cache.append_related_event(&event);
-            cache.events.insert(event_id, (self.inner.room_id.clone(), event));
-        } else {
-            warn!("couldn't save event without event id in the event cache");
-        }
-    }
-
     /// Save some events in the event cache, for further retrieval with
-    /// [`Self::event`]. This function will save them using a single lock,
-    /// as opposed to [`Self::save_event`].
-    // TODO: This doesn't insert the event into the linked chunk. In the future
-    // there'll be no distinction between the linked chunk and the separate
-    // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
+    /// [`Self::event`].
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = TimelineEvent>) {
-        let mut cache = self.inner.all_events.write().await;
-        for event in events {
-            if let Some(event_id) = event.event_id() {
-                cache.append_related_event(&event);
-                cache.events.insert(event_id, (self.inner.room_id.clone(), event));
-            } else {
-                warn!("couldn't save event without event id in the event cache");
-            }
+        if let Err(err) = self.inner.state.write().await.save_event(events).await {
+            warn!("couldn't save event in the event cache: {err}");
         }
     }
 
@@ -678,7 +659,8 @@ mod private {
     use once_cell::sync::OnceCell;
     use ruma::{
         events::{
-            room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType,
+            relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
+            MessageLikeEventType,
         },
         serde::Raw,
         EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
@@ -1261,6 +1243,26 @@ mod private {
                 .map(|event| (EventLocation::Store, event)))
         }
 
+        /// Find an event and all its relations in the persisted storage.
+        ///
+        /// This goes straight to the database, as a simplification; we don't
+        /// expect to need to have to look up in memory events, or that
+        /// all the related events are actually loaded.
+        pub async fn find_event_with_relations(
+            &self,
+            event_id: &EventId,
+            filters: Option<Vec<RelationType>>,
+        ) -> Result<Option<(TimelineEvent, Vec<TimelineEvent>)>, EventCacheError> {
+            let Some(store) = self.store.get() else {
+                // No store, event is not present.
+                return Ok(None);
+            };
+
+            let store = store.lock().await?;
+
+            Ok(store.find_event_with_relations(&self.room, event_id, filters).await?)
+        }
+
         /// Gives a temporary mutable handle to the underlying in-memory events,
         /// and will propagate changes to the storage once done.
         ///
@@ -1371,20 +1373,7 @@ mod private {
                                 .replace_event_at(position, copy)
                                 .expect("should have been a valid position of an item");
                         }
-                        EventLocation::Store => {
-                            if let Some(store) = self.store.get() {
-                                let store = store.clone();
-                                let room_id = self.room.clone();
-                                // Spawn a task so the save is uninterrupted by task cancellation.
-                                spawn(async move {
-                                    let store = store.lock().await?;
-                                    store.save_event(&room_id, copy).await?;
-                                    super::Result::Ok(())
-                                })
-                                .await
-                                .expect("joining failed")?;
-                            }
-                        }
+                        EventLocation::Store => self.save_event([copy]).await?,
                     }
                 }
             } else {
@@ -1392,6 +1381,31 @@ mod private {
             }
 
             // TODO: remove all related events too!
+
+            Ok(())
+        }
+
+        /// Save a single event into the database, without notifying observers.
+        pub async fn save_event(
+            &self,
+            events: impl IntoIterator<Item = TimelineEvent>,
+        ) -> Result<(), EventCacheError> {
+            let Some(store) = self.store.get() else { return Ok(()) };
+
+            let store = store.clone();
+            let room_id = self.room.clone();
+            let events = events.into_iter().collect::<Vec<_>>();
+
+            // Spawn a task so the save is uninterrupted by task cancellation.
+            spawn(async move {
+                let store = store.lock().await?;
+                for event in events {
+                    store.save_event(&room_id, event).await?;
+                }
+                super::Result::Ok(())
+            })
+            .await
+            .expect("joining failed")?;
 
             Ok(())
         }
@@ -1587,13 +1601,13 @@ mod tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Save the original event.
-        room_event_cache.save_event(original_event).await;
+        room_event_cache.save_events([original_event]).await;
 
         // Save the related event.
-        room_event_cache.save_event(related_event).await;
+        room_event_cache.save_events([related_event]).await;
 
         // Save the associated related event, which redacts the related event.
-        room_event_cache.save_event(associated_related_event).await;
+        room_event_cache.save_events([associated_related_event]).await;
 
         let filter = Some(vec![RelationType::Replacement]);
         let (event, related_events) =
@@ -1649,13 +1663,13 @@ mod tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Save the original event.
-        room_event_cache.save_event(original_event).await;
+        room_event_cache.save_events([original_event]).await;
 
         // Save the related event.
-        room_event_cache.save_event(related_event).await;
+        room_event_cache.save_events([related_event]).await;
 
         // Save the associated related event, which redacts the related event.
-        room_event_cache.save_event(associated_related_event).await;
+        room_event_cache.save_events([associated_related_event]).await;
 
         let (event, related_events) =
             room_event_cache.event_with_relations(original_id, None).await.unwrap();
@@ -2292,17 +2306,20 @@ mod tests {
 
         // Save the original event.
         let original_event_id = original_event.event_id().unwrap();
-        room_event_cache.save_event(original_event).await;
+        room_event_cache.save_events([original_event]).await;
 
         // Save an unrelated event to check it's not in the related events list.
         let unrelated_id = event_id!("$2");
         room_event_cache
-            .save_event(event_factory.text_msg("An unrelated event").event_id(unrelated_id).into())
+            .save_events([event_factory
+                .text_msg("An unrelated event")
+                .event_id(unrelated_id)
+                .into()])
             .await;
 
         // Save the related event.
         let related_id = related_event.event_id().unwrap();
-        room_event_cache.save_event(related_event).await;
+        room_event_cache.save_events([related_event]).await;
 
         let (event, related_events) =
             room_event_cache.event_with_relations(&original_event_id, None).await.unwrap();
