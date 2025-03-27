@@ -388,7 +388,7 @@ impl App {
                             }
                         }
                         GlobalMode::Help => match (key.modifiers, key.code) {
-                            (KeyModifiers::NONE, Char('q')) => {
+                            (KeyModifiers::NONE, Char('q') | Esc) => {
                                 self.set_global_mode(GlobalMode::Default)
                             }
                             _ => (),
