@@ -40,8 +40,8 @@ use crate::timeline::{
     controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
-    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, MembershipChange,
-    TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
+    TimelineItemKind, VirtualTimelineItem,
 };
 
 #[async_test]
@@ -401,8 +401,8 @@ async fn test_reply() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
             in_reply_to,
             ..
         }) = item.as_event().unwrap().content()
@@ -443,8 +443,8 @@ async fn test_thread() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
             in_reply_to,
             ..
         }) = item.as_event().unwrap().content()

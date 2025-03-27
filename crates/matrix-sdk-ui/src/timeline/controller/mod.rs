@@ -79,7 +79,7 @@ use crate::{
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, TimelineEventFilterFn,
+        MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -1343,11 +1343,11 @@ impl TimelineController {
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?
             .clone();
 
-        let TimelineItemContent::Aggregated(aggregated) = item.content().clone() else {
+        let TimelineItemContent::MsgLike(msglike) = item.content().clone() else {
             debug!("Event is not a message");
             return Ok(());
         };
-        let Some(in_reply_to) = aggregated.in_reply_to.clone() else {
+        let Some(in_reply_to) = msglike.in_reply_to.clone() else {
             debug!("Event is not a reply");
             return Ok(());
         };
@@ -1367,7 +1367,7 @@ impl TimelineController {
             index,
             &item,
             internal_id,
-            &aggregated,
+            &msglike,
             &in_reply_to.event_id,
             self.room(),
         )
@@ -1381,8 +1381,8 @@ impl TimelineController {
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
-        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
+        let TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
             reactions,
             thread_root,
             in_reply_to,
@@ -1401,8 +1401,8 @@ impl TimelineController {
         trace!("Updating in-reply-to details");
         let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
-        item.set_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
+        item.set_content(TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
             reactions,
             thread_root,
             in_reply_to: Some(InReplyToDetails { event_id: in_reply_to.event_id, event }),
@@ -1519,7 +1519,7 @@ async fn fetch_replied_to_event(
     index: usize,
     item: &EventTimelineItem,
     internal_id: TimelineUniqueId,
-    aggregated: &AggregatedTimelineItemContent,
+    msglike: &MsgLikeContent,
     in_reply_to: &EventId,
     room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
@@ -1535,9 +1535,8 @@ async fn fetch_replied_to_event(
     let in_reply_to_details =
         InReplyToDetails { event_id: in_reply_to.to_owned(), event: TimelineDetails::Pending };
 
-    let event_item = item.with_content(TimelineItemContent::Aggregated(
-        aggregated.with_in_reply_to(in_reply_to_details),
-    ));
+    let event_item = item
+        .with_content(TimelineItemContent::MsgLike(msglike.with_in_reply_to(in_reply_to_details)));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
     state.items.replace(index, new_timeline_item);

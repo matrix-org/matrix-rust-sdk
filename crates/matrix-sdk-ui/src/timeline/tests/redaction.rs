@@ -74,8 +74,8 @@ async fn test_redact_replied_to_event() {
         .await;
 
     let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let aggregated = second_item.content().as_aggregated().unwrap();
-    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+    let msglike = second_item.content().as_msglike().unwrap();
+    let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content().is_message());
 
@@ -83,8 +83,8 @@ async fn test_redact_replied_to_event() {
 
     let second_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
-    let aggregated = second_item_again.content().as_aggregated().unwrap();
-    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+    let msglike = second_item_again.content().as_msglike().unwrap();
+    let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_matches!(replied_to_event.content(), TimelineItemContent::RedactedMessage);
 
