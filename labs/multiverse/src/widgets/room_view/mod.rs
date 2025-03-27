@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use color_eyre::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use matrix_sdk::{
     locks::Mutex,
     ruma::{
@@ -65,10 +65,6 @@ impl RoomView {
     pub async fn handle_key_press(&mut self, key: KeyEvent) {
         use KeyCode::*;
 
-        if key.kind != KeyEventKind::Press {
-            return;
-        }
-
         match &mut self.mode {
             Mode::Normal => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, Enter) => {
@@ -91,7 +87,7 @@ impl RoomView {
 
                 (KeyModifiers::NONE, PageUp) => self.back_paginate(),
 
-                (KeyModifiers::CONTROL, Char('d')) => {
+                (KeyModifiers::NONE, F(8)) => {
                     if self.selected_room.is_some() {
                         self.mode = Mode::Details { view: RoomDetails::new() }
                     }
