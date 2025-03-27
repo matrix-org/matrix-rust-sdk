@@ -335,7 +335,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
                 r#"
                     SELECT content
                     FROM events_chunks ec
-                    INNER JOIN events USING (event_id)
+                    INNER JOIN events USING (event_id, room_id)
                     WHERE ec.chunk_id = ? AND ec.room_id = ?
                     ORDER BY ec.position ASC
                 "#,
@@ -583,7 +583,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // already inserted in the database. This is the case when an event is
                         // deduplicated and moved to another position.
                         let mut content_statement = txn.prepare(
-                            "INSERT OR REPLACE INTO events(event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?)"
+                            "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -602,7 +602,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                             // Now, insert the event content into the database.
                             let encoded_event = this.encode_event(&event)?;
-                            content_statement.execute((event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                            content_statement.execute((&hashed_room_id, event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
                         }
                     }
 
@@ -624,8 +624,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // of the new event.
                         let encoded_event = this.encode_event(&event)?;
                         txn.execute(
-                            "INSERT OR REPLACE INTO events(event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?)"
-                        , (&event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                            "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
+                        , (&hashed_room_id, &event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
 
                         // Replace the event id in the linked chunk, in case it changed.
                         txn.execute(
@@ -965,7 +965,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error> {
+    ) -> Result<Option<Event>, Self::Error> {
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
         let event_id = event_id.to_owned();
         let this = self.clone();
@@ -973,22 +973,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                let Some((chunk_identifier, index, event)) = txn
-                    .prepare(
-                        r#"
-                            SELECT chunk_id, position, content
-                            FROM events_chunks ec
-                            INNER JOIN events USING (event_id)
-                            WHERE ec.room_id = ? AND ec.event_id = ?
-                        "#,
-                    )?
-                    .query_row((hashed_room_id, event_id.as_str()), |row| {
-                        Ok((
-                            row.get::<_, u64>(0)?,
-                            row.get::<_, usize>(1)?,
-                            row.get::<_, Vec<u8>>(2)?,
-                        ))
-                    })
+                let Some(event) = txn
+                    .prepare("SELECT content FROM events WHERE event_id = ? AND room_id = ?")?
+                    .query_row((event_id.as_str(), hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
                     .optional()?
                 else {
                     // Event is not found.
@@ -997,7 +984,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 let event = serde_json::from_slice(&this.decode_value(&event)?)?;
 
-                Ok(Some((Position::new(ChunkIdentifier::new(chunk_identifier), index), event)))
+                Ok(Some(event))
             })
             .await
     }
@@ -1008,6 +995,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             return Ok(());
         };
 
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
         let event_id = event_id.to_string();
         let encoded_event = self.encode_event(&event)?;
 
@@ -1015,8 +1003,8 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?
             .with_transaction(move |txn| -> Result<_> {
                 txn.execute(
-                    "INSERT OR REPLACE INTO events(event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?)"
-                    , (&event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                    "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
+                    , (&hashed_room_id, &event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
 
                 Ok(())
             })

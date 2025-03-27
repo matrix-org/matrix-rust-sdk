@@ -114,7 +114,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error>;
+    ) -> Result<Option<Event>, Self::Error>;
 
     /// Save an event, that might or might not be part of an existing linked
     /// chunk.
@@ -319,7 +319,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error> {
+    ) -> Result<Option<Event>, Self::Error> {
         self.0.find_event(room_id, event_id).await.map_err(Into::into)
     }
 

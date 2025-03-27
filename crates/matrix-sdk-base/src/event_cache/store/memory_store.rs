@@ -206,16 +206,14 @@ impl EventCacheStore for MemoryStore {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error> {
+    ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let pos_and_event =
-            inner.events.items_with_positions().find_map(|(position, event, this_room_id)| {
-                (room_id == this_room_id && event.event_id()? == event_id)
-                    .then_some((position, event.clone()))
-            });
+        let event = inner.events.items().find_map(|(event, this_room_id)| {
+            (room_id == this_room_id && event.event_id()? == event_id).then_some(event.clone())
+        });
 
-        Ok(pos_and_event)
+        Ok(event)
     }
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {

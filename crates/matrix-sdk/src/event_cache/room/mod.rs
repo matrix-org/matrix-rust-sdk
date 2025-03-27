@@ -29,6 +29,7 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
+    linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -40,7 +41,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{error, instrument, trace, warn};
+use tracing::{instrument, trace, warn};
 
 use super::{
     deduplicator::DeduplicationOutcome, AllEventsCache, AutoShrinkChannelPayload, EventsOrigin,
@@ -188,17 +189,14 @@ impl RoomEventCache {
     /// Try to find an event by id in this room.
     pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
         // Search in all loaded or stored events.
-        let Ok(maybe_position_and_event) = self.inner.state.read().await.find_event(event_id).await
-        else {
-            error!("Failed to find the event");
-
-            return None;
-        };
+        if let Ok(Some((_location, event))) =
+            self.inner.state.read().await.find_event(event_id).await
+        {
+            return Some(event);
+        }
 
         // Search in `AllEventsCache` for known events that are not stored.
-        if let Some(event) = maybe_position_and_event.map(|(_location, _position, event)| event) {
-            Some(event)
-        } else if let Some((room_id, event)) =
+        if let Some((room_id, event)) =
             self.inner.all_events.read().await.events.get(event_id).cloned()
         {
             (room_id == self.inner.room_id).then_some(event)
@@ -1241,14 +1239,12 @@ mod private {
         pub async fn find_event(
             &self,
             event_id: &EventId,
-        ) -> Result<Option<(EventLocation, Position, TimelineEvent)>, EventCacheError> {
-            let room_id = self.room.as_ref();
-
+        ) -> Result<Option<(EventLocation, TimelineEvent)>, EventCacheError> {
             // There are supposedly fewer events loaded in memory than in the store. Let's
             // start by looking up in the `RoomEvents`.
             for (position, event) in self.events().revents() {
                 if event.event_id().as_deref() == Some(event_id) {
-                    return Ok(Some((EventLocation::Memory, position, event.clone())));
+                    return Ok(Some((EventLocation::Memory(position), event.clone())));
                 }
             }
 
@@ -1260,9 +1256,9 @@ mod private {
             let store = store.lock().await?;
 
             Ok(store
-                .find_event(room_id, event_id)
+                .find_event(&self.room, event_id)
                 .await?
-                .map(|(position, event)| (EventLocation::Store, position, event)))
+                .map(|event| (EventLocation::Store, event)))
         }
 
         /// Gives a temporary mutable handle to the underlying in-memory events,
@@ -1339,7 +1335,7 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            if let Some((location, position, target_event)) = self.find_event(event_id).await? {
+            if let Some((location, target_event)) = self.find_event(event_id).await? {
                 // Don't redact already redacted events.
                 if let Ok(deserialized) = target_event.raw().deserialize() {
                     match deserialized {
@@ -1370,17 +1366,24 @@ mod private {
                     copy.replace_raw(redacted_event.cast());
 
                     match location {
-                        EventLocation::Memory => {
+                        EventLocation::Memory(position) => {
                             self.events
                                 .replace_event_at(position, copy)
                                 .expect("should have been a valid position of an item");
                         }
                         EventLocation::Store => {
-                            self.send_updates_to_store(vec![Update::ReplaceItem {
-                                at: position,
-                                item: copy,
-                            }])
-                            .await?;
+                            if let Some(store) = self.store.get() {
+                                let store = store.clone();
+                                let room_id = self.room.clone();
+                                // Spawn a task so the save is uninterrupted by task cancellation.
+                                spawn(async move {
+                                    let store = store.lock().await?;
+                                    store.save_event(&room_id, copy).await?;
+                                    super::Result::Ok(())
+                                })
+                                .await
+                                .expect("joining failed")?;
+                            }
                         }
                     }
                 }
@@ -1398,7 +1401,7 @@ mod private {
 /// An enum representing where an event has been found.
 pub(super) enum EventLocation {
     /// Event lives in memory (and likely in the store!).
-    Memory,
+    Memory(Position),
 
     /// Event lives in the store only, it has not been loaded in memory yet.
     Store,
@@ -1943,9 +1946,11 @@ mod tests {
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
 
-        // The room event cache has forgotten about the events.
-        assert!(room_event_cache.event(event_id1).await.is_none());
+        // Events individually are not forgotten by the event cache, after clearing a
+        // room.
+        assert!(room_event_cache.event(event_id1).await.is_some());
 
+        // But their presence in a linked chunk is forgotten.
         let (items, _) = room_event_cache.subscribe().await;
         assert!(items.is_empty());
 

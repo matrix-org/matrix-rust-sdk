@@ -862,14 +862,12 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // Now let's find the event.
-        let (position, event) = self
+        let event = self
             .find_event(room_id, event_comte.event_id().unwrap().as_ref())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find an event");
 
-        assert_eq!(position.chunk_identifier(), 0);
-        assert_eq!(position.index(), 0);
         assert_eq!(event.event_id(), event_comte.event_id());
 
         // Now let's try to find an event that exists, but not in the expected room.

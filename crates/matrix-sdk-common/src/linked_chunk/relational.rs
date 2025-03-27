@@ -363,23 +363,6 @@ where
             .flat_map(|(room_id, items)| items.values().map(|item| (item, room_id.as_ref())))
     }
 
-    /// Return an iterator over all items of all rooms, with their actual
-    /// positions, in no particular order.
-    ///
-    /// This will *not* include out of band items.
-    // TODO(bnjbvr): see if I can delete this one — reviewier, if this comment is
-    // still here during review, please let me know.
-    pub fn items_with_positions(&self) -> impl Iterator<Item = (Position, &Item, &RoomId)> {
-        self.items_chunks.iter().filter_map(|item_row| {
-            if let Either::Item(item_id) = &item_row.item {
-                let item = self.items.get(&item_row.room_id)?.get(item_id)?;
-                Some((item_row.position, item, item_row.room_id.as_ref()))
-            } else {
-                None
-            }
-        })
-    }
-
     /// Save a single item "out-of-band" in the relational linked chunk.
     pub fn save_item(&mut self, room_id: OwnedRoomId, item: Item) {
         let id = item.id();
