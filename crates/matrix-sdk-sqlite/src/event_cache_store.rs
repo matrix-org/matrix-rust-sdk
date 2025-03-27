@@ -22,6 +22,7 @@ use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         store::{
+            extract_event_relation,
             media::{
                 EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
                 MediaService,
@@ -198,35 +199,16 @@ impl SqliteEventCacheStore {
 
         // Extract the relationship info here.
         let raw_event = event.raw();
-
-        #[derive(serde::Deserialize)]
-        struct RelatesTo {
-            // For the purpose of storing the related event id in the database, a string is
-            // sufficient; we'll lose the static typing of `OwnedEventId` immediately anyways.
-            event_id: String,
-            rel_type: String,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct EventContent {
-            #[serde(rename = "m.relates_to")]
-            rel: Option<RelatesTo>,
-        }
-
-        let (relates_to, rel_type) = match raw_event.get_field::<EventContent>("content") {
-            Ok(event_content) => {
-                event_content.and_then(|c| c.rel).map(|rel| (rel.event_id, rel.rel_type)).unzip()
-            }
-            Err(err) => {
-                error!("when extracting relation data before inserting in database: {err}");
-                (None, None)
-            }
-        };
+        let (relates_to, rel_type) = extract_event_relation(raw_event).unzip();
 
         // The content may be encrypted.
         let content = self.encode_value(serialized)?;
 
-        Ok(EncodedEvent { content, rel_type, relates_to })
+        Ok(EncodedEvent {
+            content,
+            rel_type,
+            relates_to: relates_to.map(|relates_to| relates_to.to_string()),
+        })
     }
 }
 
