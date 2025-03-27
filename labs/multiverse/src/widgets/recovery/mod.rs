@@ -1,9 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use layout::Flex;
 use matrix_sdk::{encryption::recovery::RecoveryState, Client};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Clear, Padding},
+    widgets::{Block, Borders, Padding},
 };
 use recovering::RecoveringView;
 use throbber_widgets_tui::{Throbber, ThrobberState};
@@ -104,7 +103,7 @@ impl RecoveryViewState {
 
         match &mut self.mode {
             Mode::Unknown => match (key.modifiers, key.code) {
-                (_, Esc) => true,
+                (_, Esc | Char('q')) => true,
                 _ => false,
             },
             Mode::Incomplete { view } => match view.handle_key(key) {
@@ -162,23 +161,6 @@ impl StatefulWidget for &mut RecoveryView {
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         state.update_state();
-
-        // Create a centered popout with 8 lines and 70 rows. This size is picked so the
-        // recovery view looks a bit like a settings screen.
-        let vertical =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(10), Constraint::Fill(1)])
-                .flex(Flex::Center);
-
-        let horizontal =
-            Layout::horizontal([Constraint::Fill(1), Constraint::Min(50), Constraint::Fill(1)])
-                .flex(Flex::Center);
-
-        let [_, area, _] = vertical.areas(area);
-        let [_, area, _] = horizontal.areas(area);
-
-        // Clear that part of the screen so we can draw our bounding block and other
-        // widgets inside the block.
-        Clear.render(area, buf);
 
         // Render our block, mainly for the border.
         let block = Block::bordered()
