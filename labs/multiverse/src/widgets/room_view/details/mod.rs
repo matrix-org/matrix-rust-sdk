@@ -4,8 +4,12 @@ use ratatui::{prelude::*, widgets::*};
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 use style::palette::tailwind;
 
-use super::{events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts};
+use self::{events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts};
 use crate::widgets::recovery::ShouldExit;
+
+mod events;
+mod linked_chunk;
+mod read_receipts;
 
 #[derive(Clone, Copy, Default, Display, FromRepr, EnumIter)]
 enum SelectedTab {

@@ -19,10 +19,7 @@ use crate::{
 };
 
 mod details;
-mod events;
 mod input;
-mod linked_chunk;
-mod read_receipts;
 mod timeline;
 
 #[derive(Default)]
