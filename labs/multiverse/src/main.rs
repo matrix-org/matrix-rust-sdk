@@ -8,7 +8,7 @@ use std::{
 
 use clap::Parser;
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use layout::Flex;
@@ -28,10 +28,13 @@ use matrix_sdk_ui::{
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
+use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::{spawn, task::JoinHandle};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
-use widgets::{room_view::RoomView, settings::SettingsView};
+use widgets::{
+    recovery::create_centered_throbber_area, room_view::RoomView, settings::SettingsView,
+};
 
 use crate::widgets::{
     help::HelpView,
@@ -73,6 +76,8 @@ pub enum GlobalMode {
     Help,
     /// Mode where we have opened the settings screen.
     Settings { view: SettingsView },
+    /// Mode where we are shutting our tasks down and exiting multiverse.
+    Exiting { shutdown_task: JoinHandle<()> },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -121,6 +126,9 @@ pub struct AppState {
     /// What popup are we showing that is covering the majority of the screen,
     /// mainly used for help and settings screens.
     global_mode: GlobalMode,
+
+    /// State for a global throbber.
+    throbber_state: ThrobberState,
 }
 
 struct App {
@@ -344,8 +352,10 @@ impl App {
     }
 
     fn on_tick(&mut self) {
+        self.state.throbber_state.calc_next();
+
         match &mut self.state.global_mode {
-            GlobalMode::Help | GlobalMode::Default => {}
+            GlobalMode::Help | GlobalMode::Default | GlobalMode::Exiting { .. } => {}
             GlobalMode::Settings { view } => {
                 view.on_tick();
             }
@@ -360,23 +370,49 @@ impl App {
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
-                    match &mut self.state.global_mode {
-                        GlobalMode::Default => {
-                            if self.handle_global_key_press(key).await? {
-                                break;
+                    if key.kind == KeyEventKind::Press {
+                        match &mut self.state.global_mode {
+                            GlobalMode::Default => {
+                                if self.handle_global_key_press(key).await? {
+                                    let sync_service = self.sync_service.clone();
+                                    let timelines = self.timelines.clone();
+                                    let listen_task = self.listen_task.abort_handle();
+
+                                    let shutdown_task = spawn(async move {
+                                        sync_service.stop().await;
+
+                                        listen_task.abort();
+
+                                        for timeline in timelines.lock().values() {
+                                            timeline.task.abort();
+                                        }
+                                    });
+
+                                    self.set_global_mode(GlobalMode::Exiting { shutdown_task });
+                                }
                             }
+                            GlobalMode::Help => match (key.modifiers, key.code) {
+                                (KeyModifiers::NONE, Char('q') | Esc) => {
+                                    self.set_global_mode(GlobalMode::Default)
+                                }
+                                _ => (),
+                            },
+                            GlobalMode::Settings { view } => {
+                                if view.handle_key_press(key).await {
+                                    self.set_global_mode(GlobalMode::Default);
+                                }
+                            }
+                            GlobalMode::Exiting { .. } => {}
                         }
-                        GlobalMode::Help => match (key.modifiers, key.code) {
-                            (KeyModifiers::NONE, Char('q') | Esc) => {
-                                self.set_global_mode(GlobalMode::Default)
-                            }
-                            _ => (),
-                        },
-                        GlobalMode::Settings { view } => {
-                            if view.handle_key_press(key).await {
-                                self.set_global_mode(GlobalMode::Default);
-                            }
-                        }
+                    }
+                }
+            }
+
+            match &self.state.global_mode {
+                GlobalMode::Default | GlobalMode::Help | GlobalMode::Settings { .. } => {}
+                GlobalMode::Exiting { shutdown_task } => {
+                    if shutdown_task.is_finished() {
+                        break;
                     }
                 }
             }
@@ -395,17 +431,6 @@ impl App {
 
         // At this point the user has exited the loop, so shut down the application.
         ratatui::restore();
-
-        println!("Stopping the sync service...");
-
-        self.sync_service.stop().await;
-        self.listen_task.abort();
-
-        for timeline in self.timelines.lock().values() {
-            timeline.task.abort();
-        }
-
-        println!("okthxbye!");
 
         Ok(())
     }
@@ -432,6 +457,14 @@ impl Widget for &mut App {
 
         match &mut self.state.global_mode {
             GlobalMode::Default => {}
+            GlobalMode::Exiting { .. } => {
+                Clear.render(rest_area, buf);
+                let centered = create_centered_throbber_area(area);
+                let throbber = Throbber::default()
+                    .label("Exiting")
+                    .throbber_set(throbber_widgets_tui::BRAILLE_EIGHT_DOUBLE);
+                StatefulWidget::render(throbber, centered, buf, &mut self.state.throbber_state);
+            }
             GlobalMode::Settings { view } => {
                 view.render(area, buf);
             }
@@ -490,11 +523,8 @@ async fn log_in_or_restore_session(client: &Client, session_path: &Path) -> Resu
     if let Ok(serialized) = std::fs::read_to_string(&session_path) {
         let session: MatrixSession = serde_json::from_str(&serialized)?;
         client.restore_session(session).await?;
-
-        println!("restored session");
     } else {
         login_with_password(client).await?;
-        println!("new login");
 
         // Immediately save the session to disk.
         if let Some(session) = client.session() {

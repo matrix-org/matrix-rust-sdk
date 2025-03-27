@@ -118,12 +118,13 @@ impl StatefulWidget for &mut Status {
         let content = if let Some(status_message) = status_message.as_deref() {
             status_message
         } else {
-            let AppState { global_mode } = state;
+            let AppState { global_mode, throbber_state: _ } = state;
 
             match global_mode {
                 GlobalMode::Help => "Press q to exit the help screen",
                 GlobalMode::Settings { .. } => "Press ESC to exit the settings screen",
                 GlobalMode::Default => "Press F1 to show the help screen",
+                GlobalMode::Exiting { .. } => "",
             }
         };
 
