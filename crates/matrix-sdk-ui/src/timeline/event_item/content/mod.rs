@@ -333,19 +333,15 @@ impl TimelineItemContent {
     /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
     /// inner [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
-        let aggregated = as_variant!(self, Self::Aggregated)
-            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemContentKind::Message));
-
-        aggregated.unwrap_or(None)
+        let aggregated = as_variant!(self, Self::Aggregated)?;
+        as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Message)
     }
 
     /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
     /// inner [`PollState`].
     pub fn as_poll(&self) -> Option<&PollState> {
-        let aggregated = as_variant!(self, Self::Aggregated)
-            .map(|f| as_variant!(&f.kind, AggregatedTimelineItemContentKind::Poll));
-
-        aggregated.unwrap_or(None)
+        let aggregated = as_variant!(self, Self::Aggregated)?;
+        as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Poll)
     }
 
     /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
@@ -509,12 +505,12 @@ impl TimelineItemContent {
 
     /// Event ID of the thread root, if this is a threaded message.
     pub fn thread_root(&self) -> Option<OwnedEventId> {
-        as_variant!(self, TimelineItemContent::Aggregated).and_then(|agg| agg.thread_root.clone())
+        as_variant!(self, Self::Aggregated)?.thread_root.clone()
     }
 
     /// Get the event this message is replying to, if any.
     pub fn in_reply_to(&self) -> Option<InReplyToDetails> {
-        as_variant!(self, TimelineItemContent::Aggregated).and_then(|agg| agg.in_reply_to.clone())
+        as_variant!(self, Self::Aggregated)?.in_reply_to.clone()
     }
 
     /// Return the reactions, grouped by key and then by sender, for a given
