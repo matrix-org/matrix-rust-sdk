@@ -116,6 +116,15 @@ pub trait EventCacheStore: AsyncTraitDeps {
         event_id: &EventId,
     ) -> Result<Option<(Position, Event)>, Self::Error>;
 
+    /// Save an event, that might or might not be part of an existing linked
+    /// chunk.
+    ///
+    /// If the event has no event id, it may not be saved.
+    ///
+    /// If the event was already stored with the same id, it must be replaced,
+    /// without causing an error.
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
+
     /// Add a media file's content in the media store.
     ///
     /// # Arguments
@@ -312,6 +321,10 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         event_id: &EventId,
     ) -> Result<Option<(Position, Event)>, Self::Error> {
         self.0.find_event(room_id, event_id).await.map_err(Into::into)
+    }
+
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        self.0.save_event(room_id, event).await.map_err(Into::into)
     }
 
     async fn add_media_content(

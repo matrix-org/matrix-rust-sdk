@@ -1002,6 +1002,27 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        let Some(event_id) = event.event_id() else {
+            error!(%room_id, "Trying to save an event with no ID");
+            return Ok(());
+        };
+
+        let event_id = event_id.to_string();
+        let encoded_event = self.encode_event(&event)?;
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.execute(
+                    "INSERT OR REPLACE INTO events(event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?)"
+                    , (&event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+
+                Ok(())
+            })
+            .await
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
