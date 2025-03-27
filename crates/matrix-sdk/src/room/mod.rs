@@ -489,7 +489,7 @@ impl Room {
 
         // Save the event into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
-            cache.save_event(event.clone()).await;
+            cache.save_events([event.clone()]).await;
         }
 
         Ok(event)
