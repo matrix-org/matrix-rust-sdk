@@ -140,7 +140,7 @@ impl RecoveryViewState {
     }
 }
 
-fn create_centered_throbber_area<'a>(area: Rect) -> Rect {
+pub fn create_centered_throbber_area<'a>(area: Rect) -> Rect {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1)
