@@ -28,11 +28,13 @@ use matrix_sdk_common::{
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
+    events::relation::RelationType,
     time::{Instant, SystemTime},
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
 };
 
 use super::{
+    extract_event_relation,
     media::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService},
     EventCacheStore, EventCacheStoreError, Result,
 };
@@ -214,6 +216,66 @@ impl EventCacheStore for MemoryStore {
         });
 
         Ok(event)
+    }
+
+    async fn find_event_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        filters: Option<Vec<RelationType>>,
+    ) -> Result<Option<(Event, Vec<Event>)>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        let event = inner.events.items().find_map(|(event, this_room_id)| {
+            (room_id == this_room_id && event.event_id()? == event_id).then_some(event.clone())
+        });
+
+        let Some(event) = event else {
+            // Not found.
+            return Ok(None);
+        };
+
+        let filters = filters.map(|filter| {
+            filter
+                .into_iter()
+                .map(|f| {
+                    // TODO: get Ruma fix from https://github.com/ruma/ruma/pull/2052
+                    if f == RelationType::Replacement {
+                        "m.replace".to_owned()
+                    } else {
+                        f.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let related_events = inner
+            .events
+            .items()
+            .filter_map(|(event, this_room_id)| {
+                // Must be in the same room.
+                if room_id != this_room_id {
+                    return None;
+                }
+
+                // Must have a relation.
+                let (related_to, rel_type) = extract_event_relation(event.raw())?;
+
+                // Must relate to the target item.
+                if related_to != event_id {
+                    return None;
+                }
+
+                // Must not be filtered out.
+                if let Some(filters) = &filters {
+                    filters.iter().any(|f| *f == rel_type).then_some(event.clone())
+                } else {
+                    Some(event.clone())
+                }
+            })
+            .collect();
+
+        Ok(Some((event, related_events)))
     }
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {

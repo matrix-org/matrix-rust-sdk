@@ -688,6 +688,7 @@ async fn test_event_with_context() {
     let (client, server) = logged_in_client_with_server().await;
     let cache = client.event_cache();
     let _ = cache.subscribe();
+    cache.enable_storage().unwrap();
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
