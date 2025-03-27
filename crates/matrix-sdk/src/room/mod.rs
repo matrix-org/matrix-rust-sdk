@@ -17,6 +17,7 @@
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, HashMap},
+    future::Future,
     ops::Deref,
     sync::Arc,
     time::Duration,
@@ -46,8 +47,8 @@ use matrix_sdk_base::{
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::MediaThumbnailSettings,
     store::StateStoreExt,
-    ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges,
-    StateStoreDataKey, StateStoreDataValue,
+    ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
+    StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_common::BoxFuture;
@@ -3771,6 +3772,19 @@ impl TryFrom<Int> for ReportedContentScore {
     fn try_from(value: Int) -> std::prelude::v1::Result<Self, Self::Error> {
         let value = i8::try_from(value).map_err(|_| TryFromReportedContentScoreError(()))?;
         value.try_into()
+    }
+}
+
+trait EventSource {
+    fn get_event(
+        &self,
+        event_id: &EventId,
+    ) -> impl Future<Output = Result<TimelineEvent, Error>> + SendOutsideWasm;
+}
+
+impl EventSource for &Room {
+    async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, Error> {
+        self.load_or_fetch_event(event_id, None).await
     }
 }
 

@@ -14,9 +14,6 @@
 
 //! Facilities to reply to existing events.
 
-use std::future::Future;
-
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm};
 use ruma::{
     events::{
         relation::Thread,
@@ -37,7 +34,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tracing::{error, instrument};
 
-use super::Room;
+use super::{EventSource, Room};
 
 /// Information needed to reply to an event.
 #[derive(Debug, Clone)]
@@ -113,21 +110,6 @@ impl Room {
             enforce_thread,
         )
         .await
-    }
-}
-
-trait EventSource {
-    fn get_event(
-        &self,
-        event_id: &EventId,
-    ) -> impl Future<Output = Result<TimelineEvent, ReplyError>> + SendOutsideWasm;
-}
-
-impl EventSource for &Room {
-    async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, ReplyError> {
-        self.load_or_fetch_event(event_id, None)
-            .await
-            .map_err(|err| ReplyError::Fetch(Box::new(err)))
     }
 }
 
@@ -247,7 +229,7 @@ async fn replied_to_info_from_event_id<S: EventSource>(
     source: S,
     event_id: &EventId,
 ) -> Result<RepliedToInfo, ReplyError> {
-    let event = source.get_event(event_id).await?;
+    let event = source.get_event(event_id).await.map_err(|err| ReplyError::Fetch(Box::new(err)))?;
 
     let raw_event = event.into_raw();
     let event = raw_event.deserialize().map_err(|_| ReplyError::Deserialization)?;
@@ -302,10 +284,11 @@ mod tests {
     }
 
     impl EventSource for TestEventCache {
-        async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, ReplyError> {
-            self.events.get(event_id).cloned().ok_or(ReplyError::Fetch(Box::new(
-                Error::EventCache(EventCacheError::ClientDropped),
-            )))
+        async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, Error> {
+            self.events
+                .get(event_id)
+                .cloned()
+                .ok_or(Error::EventCache(EventCacheError::ClientDropped))
         }
     }
 
