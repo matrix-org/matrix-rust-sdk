@@ -389,8 +389,8 @@ mod observable_items_tests {
     use crate::timeline::{
         controller::{EventTimelineItemKind, RemoteEventOrigin},
         event_item::RemoteEventTimelineItem,
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EventTimelineItem,
-        Message, TimelineDetails, TimelineItemContent, TimelineUniqueId,
+        EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
+        TimelineItemContent, TimelineUniqueId,
     };
 
     fn item(event_id: &str) -> Arc<TimelineItem> {
@@ -399,8 +399,8 @@ mod observable_items_tests {
                 owned_user_id!("@ivan:mnt.io"),
                 TimelineDetails::Unavailable,
                 MilliSecondsSinceUnixEpoch(0u32.into()),
-                TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                    kind: AggregatedTimelineItemContentKind::Message(Message {
+                TimelineItemContent::MsgLike(MsgLikeContent {
+                    kind: MsgLikeKind::Message(Message {
                         msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
                         edited: false,
                         mentions: None,

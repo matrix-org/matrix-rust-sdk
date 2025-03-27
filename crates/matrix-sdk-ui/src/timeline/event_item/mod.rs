@@ -51,10 +51,9 @@ pub(super) use self::{
 };
 pub use self::{
     content::{
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind,
         AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
-        MembershipChange, Message, OtherState, PollResult, PollState, RepliedToEvent,
-        RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineItemContent,
+        MembershipChange, Message, MsgLikeContent, MsgLikeKind, OtherState, PollResult, PollState,
+        RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineItemContent,
     },
     local::EventSendState,
 };
@@ -356,8 +355,8 @@ impl EventTimelineItem {
         }
 
         match self.content() {
-            TimelineItemContent::Aggregated(aggregated) => match &aggregated.kind {
-                AggregatedTimelineItemContentKind::Message(message) => {
+            TimelineItemContent::MsgLike(msglike) => match &msglike.kind {
+                MsgLikeKind::Message(message) => {
                     matches!(
                         message.msgtype(),
                         MessageType::Text(_)
@@ -368,10 +367,10 @@ impl EventTimelineItem {
                             | MessageType::Video(_)
                     )
                 }
-                AggregatedTimelineItemContentKind::Poll(poll) => {
+                MsgLikeKind::Poll(poll) => {
                     poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
                 }
-                // Other aggregated timeline items can't be edited at the moment.
+                // Other MsgLike timeline items can't be edited at the moment.
                 _ => false,
             },
             _ => {
@@ -587,8 +586,8 @@ impl EventTimelineItem {
     /// See `test_emoji_detection` for more examples.
     pub fn contains_only_emojis(&self) -> bool {
         let body = match self.content() {
-            TimelineItemContent::Aggregated(aggregated) => match &aggregated.kind {
-                AggregatedTimelineItemContentKind::Message(message) => match &message.msgtype {
+            TimelineItemContent::MsgLike(msglike) => match &msglike.kind {
+                MsgLikeKind::Message(message) => match &message.msgtype {
                     MessageType::Text(text) => Some(text.body.as_str()),
                     MessageType::Audio(audio) => audio.caption(),
                     MessageType::File(file) => file.caption(),
@@ -596,8 +595,7 @@ impl EventTimelineItem {
                     MessageType::Video(video) => video.caption(),
                     _ => None,
                 },
-                AggregatedTimelineItemContentKind::Sticker(_)
-                | AggregatedTimelineItemContentKind::Poll(_) => None,
+                MsgLikeKind::Sticker(_) | MsgLikeKind::Poll(_) => None,
             },
             TimelineItemContent::RedactedMessage
             | TimelineItemContent::UnableToDecrypt(_)

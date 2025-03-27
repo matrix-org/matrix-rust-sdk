@@ -30,9 +30,9 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::TimelineSettings, tests::TestTimelineBuilder, AggregatedTimelineItemContent,
-    AggregatedTimelineItemContentKind, AnyOtherFullStateEventContent, TimelineEventTypeFilter,
-    TimelineItem, TimelineItemContent, TimelineItemKind,
+    controller::TimelineSettings, tests::TestTimelineBuilder, AnyOtherFullStateEventContent,
+    MsgLikeContent, MsgLikeKind, TimelineEventTypeFilter, TimelineItem, TimelineItemContent,
+    TimelineItemKind,
 };
 
 #[async_test]
@@ -247,8 +247,8 @@ impl TestTimeline {
 fn is_text_message_item(item: &&Arc<TimelineItem>) -> bool {
     match item.kind() {
         TimelineItemKind::Event(event) => match &event.content {
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(message),
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(message),
                 ..
             }) => {
                 matches!(message.msgtype, MessageType::Text(_))

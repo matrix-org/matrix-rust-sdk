@@ -18,7 +18,7 @@ use super::{InReplyToDetails, Message, PollState, Sticker};
 use crate::timeline::ReactionsByKeyBySender;
 
 #[derive(Clone, Debug)]
-pub enum AggregatedTimelineItemContentKind {
+pub enum MsgLikeKind {
     /// An `m.room.message` event or extensible event, including edits.
     Message(Message),
 
@@ -33,8 +33,8 @@ pub enum AggregatedTimelineItemContentKind {
 /// different room message types with their respective reactions and thread
 /// information.
 #[derive(Clone, Debug)]
-pub struct AggregatedTimelineItemContent {
-    pub kind: AggregatedTimelineItemContentKind,
+pub struct MsgLikeContent {
+    pub kind: MsgLikeKind,
     pub reactions: ReactionsByKeyBySender,
     /// Event ID of the thread root, if this is a threaded message.
     pub thread_root: Option<OwnedEventId>,
@@ -42,13 +42,13 @@ pub struct AggregatedTimelineItemContent {
     pub in_reply_to: Option<InReplyToDetails>,
 }
 
-impl AggregatedTimelineItemContent {
+impl MsgLikeContent {
     #[cfg(not(tarpaulin_include))] // debug-logging functionality
     pub(crate) fn debug_string(&self) -> &'static str {
         match self.kind {
-            AggregatedTimelineItemContentKind::Message(_) => "a message",
-            AggregatedTimelineItemContentKind::Sticker(_) => "a sticker",
-            AggregatedTimelineItemContentKind::Poll(_) => "a poll",
+            MsgLikeKind::Message(_) => "a message",
+            MsgLikeKind::Sticker(_) => "a sticker",
+            MsgLikeKind::Poll(_) => "a poll",
         }
     }
 
