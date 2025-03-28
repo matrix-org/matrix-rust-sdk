@@ -63,7 +63,7 @@ async fn test_login_username_refresh_token() {
         .await
         .unwrap();
 
-    assert!(client.is_activated(), "Client should be activated");
+    assert!(client.is_active(), "Client should be active");
     res.refresh_token.unwrap();
 }
 
@@ -107,7 +107,7 @@ async fn test_login_sso_refresh_token() {
         .await
         .unwrap();
 
-    assert!(client.is_activated(), "Client should be activated");
+    assert!(client.is_active(), "Client should be active");
     res.refresh_token.unwrap();
 }
 
