@@ -1,10 +1,19 @@
-use std::time::Duration;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use futures_util::FutureExt as _;
 use layout::Flex;
 use matrix_sdk::{
-    encryption::recovery::{RecoveryError, RecoveryState},
+    encryption::{
+        backups::BackupState,
+        recovery::{RecoveryError, RecoveryState},
+    },
     Client,
 };
 use ratatui::{
@@ -20,8 +29,22 @@ use super::{create_centered_throbber_area, ShouldExit};
 pub struct DefaultRecoveryView {
     client: Client,
     recovery_state: RecoveryState,
+    backup_info: BackupInfo,
     state: ListState,
     mode: Mode,
+}
+
+#[derive(Debug)]
+struct BackupInfo {
+    backup_state: BackupState,
+    backup_exists: Arc<AtomicBool>,
+    backup_update_task: JoinHandle<()>,
+}
+
+impl Drop for BackupInfo {
+    fn drop(&mut self) {
+        self.backup_update_task.abort();
+    }
 }
 
 #[derive(Debug, Default)]
@@ -66,12 +89,72 @@ impl DefaultRecoveryView {
     pub fn new(client: Client) -> Self {
         let mut state = ListState::default();
         state.select_first();
-        let recovery_state = client.encryption().recovery().state();
 
-        Self { client, state, recovery_state, mode: Mode::default() }
+        let recovery_state = client.encryption().recovery().state();
+        let backup_state = client.encryption().backups().state();
+        let backup_exists = Arc::new(AtomicBool::default());
+
+        let backup_update_task = tokio::spawn({
+            let client = client.clone();
+            let backup_exists = backup_exists.clone();
+
+            async move {
+                loop {
+                    if let Ok(exists) = client.encryption().backups().fetch_exists_on_server().await
+                    {
+                        backup_exists.store(exists, Ordering::SeqCst);
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            }
+        });
+
+        let backup_info = BackupInfo { backup_state, backup_exists, backup_update_task };
+
+        Self { client, state, recovery_state, backup_info, mode: Mode::default() }
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> ShouldExit {
+    fn handle_recovery_action(&mut self) {
+        let client = self.client.clone();
+
+        if matches!(self.recovery_state, RecoveryState::Disabled) {
+            let enable_task =
+                tokio::spawn(async move { client.encryption().recovery().enable().await });
+
+            self.mode = Mode::Enabling { enable_task, throbber_state: ThrobberState::default() };
+        } else {
+            let disable_task = tokio::spawn(async move {
+                // TODO: Handle errors here?
+                let _ = client.encryption().recovery().disable().await;
+                Ok(())
+            });
+
+            self.mode = Mode::Disabling { disable_task, throbber_state: ThrobberState::default() };
+        }
+    }
+
+    async fn handle_backup_action(&mut self) {
+        let backup_state = self.backup_info.backup_state;
+        let backup_exists = self.backup_info.backup_exists.load(Ordering::SeqCst);
+
+        match (backup_state, backup_exists) {
+            (BackupState::Unknown, false) => {
+                let _ = self.client.encryption().backups().create().await;
+            }
+            (BackupState::Unknown, true) | (BackupState::Enabled, _) => {
+                let _ = self.client.encryption().backups().disable_and_delete().await;
+                self.backup_info.backup_exists.store(false, Ordering::SeqCst);
+            }
+            (BackupState::Creating, _)
+            | (BackupState::Enabling, _)
+            | (BackupState::Resuming, _)
+            | (BackupState::Downloading, _)
+            | (BackupState::Disabling, _) => {}
+        }
+    }
+
+    pub async fn handle_key(&mut self, key: KeyEvent) -> ShouldExit {
         use ShouldExit::*;
 
         if key.kind != KeyEventKind::Press {
@@ -92,40 +175,8 @@ impl DefaultRecoveryView {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if let Some(selected) = self.state.selected() {
                         match selected.into() {
-                            MenuEntries::Recovery => {
-                                // TODO: Enable the client here.
-                                // let client = self.client.clone();
-
-                                if matches!(self.recovery_state, RecoveryState::Disabled) {
-                                    let enable_task = tokio::spawn(async move {
-                                        // TODO: Enable the client here.
-                                        // client.encryption().recovery().enable().await
-                                        tokio::time::sleep(Duration::from_secs(3)).await;
-                                        Ok("HELLO WORLD".to_owned())
-                                    });
-
-                                    self.mode = Mode::Enabling {
-                                        enable_task,
-                                        throbber_state: ThrobberState::default(),
-                                    };
-                                } else {
-                                    let disable_task = tokio::spawn(async move {
-                                        // TODO: Enable the client here.
-                                        // client.encryption().recovery().disable().await;
-                                        tokio::time::sleep(Duration::from_secs(3)).await;
-                                        Ok(())
-                                    });
-
-                                    self.mode = Mode::Disabling {
-                                        disable_task,
-                                        throbber_state: ThrobberState::default(),
-                                    };
-                                }
-                            }
-                            MenuEntries::KeyStorage => {
-                                // TODO: Support the enabling and disabling of
-                                // backups.
-                            }
+                            MenuEntries::Recovery => self.handle_recovery_action(),
+                            MenuEntries::KeyStorage => self.handle_backup_action().await,
                         }
                     }
 
@@ -154,12 +205,21 @@ impl DefaultRecoveryView {
         }
     }
 
+    pub fn is_idle(&self) -> bool {
+        match self.mode {
+            Mode::Default => true,
+            Mode::Enabling { .. } | Mode::Disabling { .. } | Mode::Done { .. } => false,
+        }
+    }
+
     fn update_state(&mut self) {
         use Mode::*;
 
         let recovery_state = self.client.encryption().recovery().state();
+        let backup_state = self.client.encryption().backups().state();
 
         self.recovery_state = recovery_state;
+        self.backup_info.backup_state = backup_state;
 
         match &mut self.mode {
             Default => {}
@@ -204,15 +264,34 @@ impl Widget for &mut DefaultRecoveryView {
         };
 
         let recovery_item = match self.recovery_state {
-            RecoveryState::Unknown => ListItem::new("Recovery [?]").style(Style::default().dim()),
-            RecoveryState::Enabled => ListItem::new("Recovery [x]").style(style),
+            RecoveryState::Unknown => {
+                ListItem::new("Recovery    [?]").style(Style::default().dim())
+            }
+            RecoveryState::Enabled => ListItem::new("Recovery    [x]").style(style),
             RecoveryState::Disabled | RecoveryState::Incomplete => {
-                ListItem::new("Recovery [ ]").style(style)
+                ListItem::new("Recovery    [ ]").style(style)
             }
         };
 
-        let backups =
-            ListItem::new("Key storage [ ] (not yet supported)").style(Style::default().dim());
+        let backup_state = self.backup_info.backup_state;
+        let backup_exists = self.backup_info.backup_exists.load(Ordering::SeqCst);
+
+        let backups = match (backup_state, backup_exists) {
+            (BackupState::Unknown, true) => {
+                ListItem::new("Key storage [~] (a backup exists but we don't have access to it)")
+                    .dim()
+            }
+            (BackupState::Unknown, false) => ListItem::new("Key storage [ ]"),
+            (BackupState::Creating, _)
+            | (BackupState::Enabling, _)
+            | (BackupState::Resuming, _) => ListItem::new("Key storage [x]").dim(),
+            (BackupState::Enabled, true) => ListItem::new("Key storage [x]"),
+            (BackupState::Enabled, false) => ListItem::new("Key storage [x]"),
+            (BackupState::Downloading, _) | (BackupState::Disabling, _) => {
+                ListItem::new("Key storage [ ]").dim()
+            }
+        };
+
         let list = List::new(vec![recovery_item, backups])
             .highlight_symbol("> ")
             .highlight_spacing(ratatui::widgets::HighlightSpacing::Always);
