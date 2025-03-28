@@ -175,10 +175,43 @@ impl BaseStateStore {
         &self.sync_lock
     }
 
-    /// Load the room infos from the inner `StateStore`.
+    /// Set the `SessionMeta` into [`BaseStateStore::session_meta`].
     ///
-    /// Applies migrations to the room infos if needed.
-    async fn load_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    /// # Panics
+    ///
+    /// Panics if called twice.
+    pub(crate) fn set_session_meta(&self, session_meta: SessionMeta) {
+        self.session_meta.set(session_meta).expect("`SessionMeta` was already set");
+    }
+
+    /// Loads rooms from the `StateStore` into [`BaseStateStore::rooms`].
+    pub(crate) async fn load_rooms(
+        &self,
+        user_id: &UserId,
+        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
+    ) -> Result<()> {
+        let room_infos = self.load_and_migrate_room_infos().await?;
+
+        let mut rooms = self.rooms.write().unwrap();
+
+        for room_info in room_infos {
+            let new_room = Room::restore(
+                user_id,
+                self.inner.clone(),
+                room_info,
+                room_info_notable_update_sender.clone(),
+            );
+            let new_room_id = new_room.room_id().to_owned();
+
+            rooms.insert(new_room_id, new_room);
+        }
+
+        Ok(())
+    }
+
+    /// Load room infos from the [`StateStore`] and applies migrations onto
+    /// them.
+    async fn load_and_migrate_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let mut room_infos = self.inner.get_room_infos().await?;
         let mut migrated_room_infos = Vec::with_capacity(room_infos.len());
 
@@ -205,50 +238,20 @@ impl BaseStateStore {
         Ok(room_infos)
     }
 
-    /// Set a [`SessionMeta`] and, if a previous state exists, reload the
-    /// session.
-    ///
-    /// Reloading a session means: reload all rooms from the state store.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if it is called twice.
-    pub async fn set_or_reload_session(
-        &self,
-        session_meta: SessionMeta,
-        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
-    ) -> Result<()> {
-        {
-            let room_infos = self.load_room_infos().await?;
-
-            let mut rooms = self.rooms.write().unwrap();
-
-            for room_info in room_infos {
-                let new_room = Room::restore(
-                    &session_meta.user_id,
-                    self.inner.clone(),
-                    room_info,
-                    room_info_notable_update_sender.clone(),
-                );
-                let new_room_id = new_room.room_id().to_owned();
-
-                rooms.insert(new_room_id, new_room);
-            }
-        }
-
+    /// Load sync token from the [`StateStore`], and put it in
+    /// [`BaseStateStore::sync_token`].
+    pub(crate) async fn load_sync_token(&self) -> Result<()> {
         let token =
             self.get_kv_data(StateStoreDataKey::SyncToken).await?.and_then(|s| s.into_sync_token());
         *self.sync_token.write().await = token;
 
-        self.session_meta.set(session_meta).expect("Session Meta was already set");
-
         Ok(())
     }
 
-    /// Similar to [`Store::set_or_reload_session`] but takes values from
-    /// another existing [`Store`].
+    /// Restore the session meta, sync token and rooms from an existing
+    /// [`BaseStateStore`].
     #[cfg(any(feature = "e2e-encryption", test))]
-    pub(crate) async fn set_or_reload_session_from_other(
+    pub(crate) async fn derive_from_other(
         &self,
         other: &Self,
         room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
@@ -257,7 +260,11 @@ impl BaseStateStore {
             return Ok(());
         };
 
-        self.set_or_reload_session(session_meta.clone(), room_info_notable_update_sender).await
+        self.load_rooms(&session_meta.user_id, room_info_notable_update_sender).await?;
+        self.load_sync_token().await?;
+        self.set_session_meta(session_meta.clone());
+
+        Ok(())
     }
 
     /// The current [`SessionMeta`] containing our user ID and device ID.
@@ -575,50 +582,38 @@ mod tests {
     use crate::SessionMeta;
 
     #[async_test]
-    async fn test_set_or_reload_session() {
+    async fn test_set_session_meta() {
         let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
 
         let session_meta = SessionMeta {
             user_id: owned_user_id!("@mnt_io:matrix.org"),
             device_id: owned_device_id!("HELLOYOU"),
         };
-        let (room_info_notable_update_sender, _) = broadcast::channel(1);
 
         assert!(store.session_meta.get().is_none());
 
-        store
-            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
-            .await
-            .unwrap();
+        store.set_session_meta(session_meta.clone());
 
         assert_eq!(store.session_meta.get(), Some(&session_meta));
     }
 
     #[async_test]
     #[should_panic]
-    async fn test_set_or_reload_session_twice() {
+    async fn test_set_session_meta_twice() {
         let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
 
         let session_meta = SessionMeta {
             user_id: owned_user_id!("@mnt_io:matrix.org"),
             device_id: owned_device_id!("HELLOYOU"),
         };
-        let (room_info_notable_update_sender, _) = broadcast::channel(1);
 
-        store
-            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
-            .await
-            .unwrap();
-
+        store.set_session_meta(session_meta.clone());
         // Kaboom.
-        store
-            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
-            .await
-            .unwrap();
+        store.set_session_meta(session_meta);
     }
 
     #[async_test]
-    async fn test_set_or_reload_session_from_other() {
+    async fn test_derive_from_other() {
         // The first store.
         let other = BaseStateStore::new(Arc::new(MemoryStore::new()));
 
@@ -628,17 +623,11 @@ mod tests {
         };
         let (room_info_notable_update_sender, _) = broadcast::channel(1);
 
-        other
-            .set_or_reload_session(session_meta.clone(), &room_info_notable_update_sender)
-            .await
-            .unwrap();
+        other.set_session_meta(session_meta.clone());
 
         // Derive another store.
         let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
-        store
-            .set_or_reload_session_from_other(&other, &room_info_notable_update_sender)
-            .await
-            .unwrap();
+        store.derive_from_other(&other, &room_info_notable_update_sender).await.unwrap();
 
         assert_eq!(store.session_meta.get(), Some(&session_meta));
     }

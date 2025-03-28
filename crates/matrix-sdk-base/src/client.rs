@@ -221,10 +221,7 @@ impl BaseClient {
         };
 
         copy.state_store
-            .set_or_reload_session_from_other(
-                &self.state_store,
-                &copy.room_info_notable_update_sender,
-            )
+            .derive_from_other(&self.state_store, &copy.room_info_notable_update_sender)
             .await?;
 
         Ok(copy)
@@ -292,7 +289,7 @@ impl BaseClient {
     /// Check whether the client has been activated.
     ///
     /// See [`BaseClient::activate`] to know what it means.
-    pub fn is_activated(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         self.state_store.session_meta().is_some()
     }
 
@@ -330,9 +327,12 @@ impl BaseClient {
         >,
     ) -> Result<()> {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Activating the client");
+
         self.state_store
-            .set_or_reload_session(session_meta.clone(), &self.room_info_notable_update_sender)
+            .load_rooms(&session_meta.user_id, &self.room_info_notable_update_sender)
             .await?;
+        self.state_store.load_sync_token().await?;
+        self.state_store.set_session_meta(session_meta);
 
         #[cfg(feature = "e2e-encryption")]
         self.regenerate_olm(custom_account).await?;

@@ -511,8 +511,8 @@ impl Client {
     /// 2. Has loaded cached data from storage,
     /// 3. If encryption is enabled, it also initialized or restored its
     ///    `OlmMachine`.
-    pub fn is_activated(&self) -> bool {
-        self.inner.base_client.is_activated()
+    pub fn is_active(&self) -> bool {
+        self.inner.base_client.is_active()
     }
 
     /// The server used by the client.
