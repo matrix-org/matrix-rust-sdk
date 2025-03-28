@@ -300,9 +300,16 @@ impl Widget for &mut DefaultRecoveryView {
 
         match &mut self.mode {
             Mode::Default => {}
-            Mode::Enabling { throbber_state, .. } | Mode::Disabling { throbber_state, .. } => {
+            Mode::Enabling { throbber_state, .. } => {
                 let throbber = Throbber::default()
-                    .label("Recovering")
+                    .label("Enabling recovery")
+                    .throbber_set(throbber_widgets_tui::BRAILLE_EIGHT_DOUBLE);
+                let centered_area = create_centered_throbber_area(area);
+                StatefulWidget::render(throbber, centered_area, buf, throbber_state);
+            }
+            Mode::Disabling { throbber_state, .. } => {
+                let throbber = Throbber::default()
+                    .label("Disabling recovery")
                     .throbber_set(throbber_widgets_tui::BRAILLE_EIGHT_DOUBLE);
                 let centered_area = create_centered_throbber_area(area);
                 StatefulWidget::render(throbber, centered_area, buf, throbber_state);
