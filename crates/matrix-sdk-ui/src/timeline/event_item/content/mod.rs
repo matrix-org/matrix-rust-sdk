@@ -217,7 +217,7 @@ impl TimelineItemContent {
             }
 
             SyncRoomMessageEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
         }
     }
@@ -236,7 +236,7 @@ impl TimelineItemContent {
                 )
             }
             SyncRoomMemberEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
         }
     }
@@ -265,7 +265,7 @@ impl TimelineItemContent {
                 TimelineItemContent::MsgLike(msglike)
             }
             SyncStickerEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
         }
     }
@@ -276,7 +276,7 @@ impl TimelineItemContent {
         event: &SyncUnstablePollStartEvent,
     ) -> TimelineItemContent {
         let SyncUnstablePollStartEvent::Original(event) = event else {
-            return TimelineItemContent::MsgLike(MsgLikeContent::redacted_message());
+            return TimelineItemContent::MsgLike(MsgLikeContent::redacted());
         };
 
         // Feed the bundled edit, if present, or we might miss showing edited content.
@@ -315,7 +315,7 @@ impl TimelineItemContent {
         match event {
             SyncCallInviteEvent::Original(_) => TimelineItemContent::CallInvite,
             SyncCallInviteEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
         }
     }
@@ -326,7 +326,7 @@ impl TimelineItemContent {
         match event {
             SyncCallNotifyEvent::Original(_) => TimelineItemContent::CallNotify,
             SyncCallNotifyEvent::Redacted(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
         }
     }
@@ -394,7 +394,7 @@ impl TimelineItemContent {
     }
 
     pub fn is_redacted(&self) -> bool {
-        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::RedactedMessage, .. }))
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted, .. }))
     }
 
     // These constructors could also be `From` implementations, but that would
@@ -504,7 +504,7 @@ impl TimelineItemContent {
     pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
         match self {
             Self::MsgLike(_) | Self::CallInvite | Self::CallNotify | Self::UnableToDecrypt(_) => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),

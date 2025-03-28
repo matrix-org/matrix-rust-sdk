@@ -57,7 +57,7 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                 }
             }
 
-            Content::MsgLike(MsgLikeContent { kind: MsgLikeKind::RedactedMessage, .. }) => {
+            Content::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted, .. }) => {
                 TimelineItemContent::RedactedMessage
             }
 

@@ -816,7 +816,7 @@ impl App {
                         }
 
                         TimelineItemContent::MsgLike(MsgLikeContent {
-                            kind: MsgLikeKind::RedactedMessage,
+                            kind: MsgLikeKind::Redacted,
                             ..
                         }) => content.push(format!("{}: -- redacted --", sender)),
                         TimelineItemContent::UnableToDecrypt(_) => {
