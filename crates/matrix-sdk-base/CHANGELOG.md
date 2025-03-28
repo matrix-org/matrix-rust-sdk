@@ -30,10 +30,12 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
-- [**breaking**] `BaseClient::with_store_config` is renamed `new`
-  ([#4847](https://github.com/matrix-org/matrix-rust-sdk/pull/4847))
 - [**breaking**] `BaseClient::store` is renamed `state_store`
   ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
+- [**breaking**] `BaseClient::with_store_config` is renamed `new`
+  ([#4847](https://github.com/matrix-org/matrix-rust-sdk/pull/4847))
+- [**breaking**] `BaseClient::set_session_metadata` is renamed `set_or_reload_session`
+  ([#4850](https://github.com/matrix-org/matrix-rust-sdk/pull/4850))
 
 ## [0.10.0] - 2025-02-04
 
