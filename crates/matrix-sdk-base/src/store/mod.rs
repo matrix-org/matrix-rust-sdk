@@ -245,6 +245,21 @@ impl BaseStateStore {
         Ok(())
     }
 
+    /// Similar to [`Store::set_or_reload_session`] but takes values from
+    /// another existing [`Store`].
+    #[cfg(any(feature = "e2e-encryption", test))]
+    pub(crate) async fn set_or_reload_session_from_other(
+        &self,
+        other: &Self,
+        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
+    ) -> Result<()> {
+        let Some(session_meta) = other.session_meta.get() else {
+            return Ok(());
+        };
+
+        self.set_or_reload_session(session_meta.clone(), room_info_notable_update_sender).await
+    }
+
     /// The current [`SessionMeta`] containing our user ID and device ID.
     pub fn session_meta(&self) -> Option<&SessionMeta> {
         self.session_meta.get()

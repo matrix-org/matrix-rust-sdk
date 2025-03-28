@@ -220,14 +220,12 @@ impl BaseClient {
             handle_verification_events,
         };
 
-        if let Some(session_meta) = self.session_meta().cloned() {
-            copy.state_store
-                .set_session_meta_and_reload_state(
-                    session_meta,
-                    &copy.room_info_notable_update_sender,
-                )
-                .await?;
-        }
+        copy.state_store
+            .set_or_reload_session_from_other(
+                &self.state_store,
+                &copy.room_info_notable_update_sender,
+            )
+            .await?;
 
         Ok(copy)
     }
