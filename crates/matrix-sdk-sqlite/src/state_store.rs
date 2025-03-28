@@ -2146,7 +2146,7 @@ mod encrypted_tests {
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteStateStore;
-    use crate::SqliteStoreConfig;
+    use crate::{utils::SqliteAsyncConnExt, SqliteStoreConfig};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2174,6 +2174,41 @@ mod encrypted_tests {
         let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
 
         assert_eq!(store.pool.status().max_size, 42);
+    }
+
+    #[async_test]
+    async fn test_cache_size() {
+        let tmpdir_path = new_state_store_workspace();
+        let store_open_config = SqliteStoreConfig::new(tmpdir_path).cache_size(1500);
+
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+
+        let conn = store.pool.get().await.unwrap();
+        let cache_size =
+            conn.query_row("PRAGMA cache_size", (), |row| row.get::<_, i32>(0)).await.unwrap();
+
+        // The value passed to  `SqliteStoreConfig` is in bytes. Check it is converted
+        // to kibibytes. Also, it must be a negative value because it _is_ the size in
+        // kibibytes, not in page size.
+        assert_eq!(cache_size, -(1500 / 1024));
+    }
+
+    #[async_test]
+    async fn test_journal_size_limit() {
+        let tmpdir_path = new_state_store_workspace();
+        let store_open_config = SqliteStoreConfig::new(tmpdir_path).journal_size_limit(1500);
+
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+
+        let conn = store.pool.get().await.unwrap();
+        let journal_size_limit = conn
+            .query_row("PRAGMA journal_size_limit", (), |row| row.get::<_, u32>(0))
+            .await
+            .unwrap();
+
+        // The value passed to  `SqliteStoreConfig` is in bytes. It stays in bytes in
+        // SQLite.
+        assert_eq!(journal_size_limit, 1500);
     }
 
     statestore_integration_tests!();
