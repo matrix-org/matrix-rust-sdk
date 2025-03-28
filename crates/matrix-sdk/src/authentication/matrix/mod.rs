@@ -760,7 +760,8 @@ impl MatrixAuth {
             .expect("Client authentication data was already set");
         self.client.auth_ctx().set_session_tokens(session.tokens);
         self.client
-            .set_session_meta(
+            .base_client()
+            .set_or_reload_session(
                 session.meta,
                 #[cfg(feature = "e2e-encryption")]
                 None,

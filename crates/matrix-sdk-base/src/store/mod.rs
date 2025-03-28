@@ -205,13 +205,15 @@ impl BaseStateStore {
         Ok(room_infos)
     }
 
-    /// Set the meta of the session.
+    /// Set a [`SessionMeta`] and, if a previous state exists, reload the
+    /// session.
     ///
-    /// Restores the state of this `Store` from the given `SessionMeta` and the
-    /// inner `StateStore`.
+    /// Reloading a session means: reload all rooms from the state store.
+    ///
+    /// # Panics
     ///
     /// This method panics if it is called twice.
-    pub async fn set_session_meta(
+    pub async fn set_or_reload_session(
         &self,
         session_meta: SessionMeta,
         room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,

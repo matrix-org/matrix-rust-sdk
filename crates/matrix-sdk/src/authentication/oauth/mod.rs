@@ -290,8 +290,7 @@ impl OAuth {
         lock_value: String,
     ) -> Result<(), OAuthError> {
         // FIXME: it must be deferred only because we're using the crypto store and it's
-        // initialized only in `set_session_meta`, not if we use a dedicated
-        // store.
+        // initialized only in `set_or_reload_session`, not if we use a dedicated store.
         let mut lock = self.ctx().deferred_cross_process_lock_init.lock().await;
         if lock.is_some() {
             return Err(CrossProcessRefreshLockError::DuplicatedLock.into());
@@ -304,7 +303,7 @@ impl OAuth {
     /// Performs a deferred cross-process refresh-lock, if needs be, after an
     /// olm machine has been initialized.
     ///
-    /// Must be called after `set_session_meta`.
+    /// Must be called after [`BaseClient::set_or_reload_session`].
     #[cfg(feature = "e2e-encryption")]
     async fn deferred_enable_cross_process_refresh_lock(&self) {
         let deferred_init_lock = self.ctx().deferred_cross_process_lock_init.lock().await;
@@ -807,7 +806,8 @@ impl OAuth {
 
         self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
-            .set_session_meta(
+            .base_client()
+            .set_or_reload_session(
                 meta,
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -1045,7 +1045,8 @@ impl OAuth {
             }
         } else {
             self.client
-                .set_session_meta(
+                .base_client()
+                .set_or_reload_session(
                     new_session,
                     #[cfg(feature = "e2e-encryption")]
                     None,

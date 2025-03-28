@@ -199,7 +199,8 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
             let whoami_response =
                 self.client.whoami().await.map_err(QRCodeLoginError::UserIdDiscovery)?;
             self.client
-                .set_session_meta(
+                .base_client()
+                .set_or_reload_session(
                     SessionMeta {
                         user_id: whoami_response.user_id,
                         device_id: OwnedDeviceId::from(device_id.to_base64()),
@@ -207,7 +208,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
                     Some(account),
                 )
                 .await
-                .map_err(QRCodeLoginError::SessionTokens)?;
+                .map_err(|error| QRCodeLoginError::SessionTokens(error.into()))?;
 
             self.client.oauth().enable_cross_process_lock().await?;
 
