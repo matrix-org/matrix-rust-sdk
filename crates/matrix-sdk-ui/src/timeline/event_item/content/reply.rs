@@ -177,8 +177,8 @@ impl RepliedToEvent {
                         _ => UtdCause::Unknown,
                     };
 
-                    TimelineItemContent::UnableToDecrypt(EncryptedMessage::from_content(
-                        content, utd_cause,
+                    TimelineItemContent::MsgLike(MsgLikeContent::unable_to_decrypt(
+                        EncryptedMessage::from_content(content, utd_cause),
                     ))
                 }
 

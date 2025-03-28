@@ -41,10 +41,7 @@ use matrix_sdk_ui::{
     notification_client::NotificationClient,
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
-    timeline::{
-        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineItem,
-        TimelineItemContent,
-    },
+    timeline::{EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineItem},
     Timeline,
 };
 use similar_asserts::assert_eq;
@@ -474,7 +471,7 @@ async fn test_enabling_backups_retries_decryption() {
         timeline.item_by_event_id(&event_id).await.expect("The event should be in the timeline");
 
     // The event is not decrypted yet.
-    assert_matches!(item.content(), TimelineItemContent::UnableToDecrypt(_));
+    assert!(item.content().is_unable_to_decrypt());
 
     // We now connect to the backup which will not give us the room key right away,
     // we first need to encounter a UTD to attempt the download.
@@ -667,7 +664,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     let item = item.expect("The event should be in the timeline by now");
 
     // The event is not decrypted yet.
-    assert_matches!(item.content(), TimelineItemContent::UnableToDecrypt(_));
+    assert!(item.content().is_unable_to_decrypt());
 
     // Let's subscribe to our timeline so we don't miss the transition from UTD to
     // decrypted event.

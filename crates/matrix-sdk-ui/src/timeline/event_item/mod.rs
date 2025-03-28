@@ -404,7 +404,7 @@ impl EventTimelineItem {
         }
 
         // An unable-to-decrypt message has no authenticity shield.
-        if let TimelineItemContent::UnableToDecrypt(_) = self.content() {
+        if self.content().is_unable_to_decrypt() {
             return None;
         }
 
@@ -595,12 +595,12 @@ impl EventTimelineItem {
                     MessageType::Video(video) => video.caption(),
                     _ => None,
                 },
-                MsgLikeKind::Sticker(_) | MsgLikeKind::Poll(_) | MsgLikeKind::Redacted => {
-                    None
-                }
+                MsgLikeKind::Sticker(_)
+                | MsgLikeKind::Poll(_)
+                | MsgLikeKind::Redacted
+                | MsgLikeKind::UnableToDecrypt(_) => None,
             },
-            TimelineItemContent::UnableToDecrypt(_)
-            | TimelineItemContent::MembershipChange(_)
+            TimelineItemContent::MembershipChange(_)
             | TimelineItemContent::ProfileChange(_)
             | TimelineItemContent::OtherState(_)
             | TimelineItemContent::FailedToParseMessageLike { .. }

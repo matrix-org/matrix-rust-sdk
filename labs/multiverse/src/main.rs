@@ -819,9 +819,12 @@ impl App {
                             kind: MsgLikeKind::Redacted,
                             ..
                         }) => content.push(format!("{}: -- redacted --", sender)),
-                        TimelineItemContent::UnableToDecrypt(_) => {
-                            content.push(format!("{}: (UTD)", sender))
-                        }
+
+                        TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::UnableToDecrypt(_),
+                            ..
+                        }) => content.push(format!("{}: (UTD)", sender)),
+
                         TimelineItemContent::MsgLike(MsgLikeContent {
                             kind: MsgLikeKind::Sticker(_),
                             ..

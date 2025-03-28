@@ -65,8 +65,8 @@ use super::{
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
-    EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState, ReactionStatus,
-    RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
+    EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
+    ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -464,7 +464,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineEventKind::UnableToDecrypt { content, utd_cause } => {
                 // TODO: Handle replacements if the replaced event is also UTD
                 if should_add {
-                    self.add_item(TimelineItemContent::unable_to_decrypt(content, utd_cause), None);
+                    self.add_item(
+                        TimelineItemContent::MsgLike(MsgLikeContent::unable_to_decrypt(
+                            EncryptedMessage::from_content(content, utd_cause),
+                        )),
+                        None,
+                    );
                 }
 
                 // Let the hook know that we ran into an unable-to-decrypt that is added to the
@@ -479,10 +484,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction && should_add {
-                    self.add_item(
-                        TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
-                        None,
-                    );
+                    self.add_item(TimelineItemContent::MsgLike(MsgLikeContent::redacted()), None);
                 }
             }
 
