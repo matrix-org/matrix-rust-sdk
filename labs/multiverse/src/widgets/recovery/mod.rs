@@ -1,9 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use matrix_sdk::{encryption::recovery::RecoveryState, Client};
-use ratatui::{
-    prelude::*,
-    widgets::{Block, Borders, Padding},
-};
+use ratatui::prelude::*;
 use recovering::RecoveringView;
 use throbber_widgets_tui::{Throbber, ThrobberState};
 
@@ -172,29 +169,18 @@ impl StatefulWidget for &mut RecoveryView {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         state.update_state();
 
-        // Render our block, mainly for the border.
-        let block = Block::bordered()
-            .title(Line::from("Encryption").centered())
-            .borders(Borders::ALL)
-            .padding(Padding::left(2));
-        block.render(area, buf);
-
-        // The block uses borders so let's add margins so new widgets don't draw over
-        // the block.
-        let usable_area = area.inner(Margin { horizontal: 2, vertical: 1 });
-
         // Let's now render our current screen.
         match &mut state.mode {
             Mode::Unknown => {
                 let throbber = state.get_throbber("Loading");
-                let centered_area = create_centered_throbber_area(usable_area);
+                let centered_area = create_centered_throbber_area(area);
                 StatefulWidget::render(throbber, centered_area, buf, &mut state.throbber_state);
             }
             Mode::Default { view } => {
-                view.render(usable_area, buf);
+                view.render(area, buf);
             }
             Mode::Incomplete { view } => {
-                view.render(usable_area, buf);
+                view.render(area, buf);
             }
         }
     }
