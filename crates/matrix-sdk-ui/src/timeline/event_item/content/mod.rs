@@ -337,6 +337,12 @@ impl TimelineItemContent {
         }) => message)
     }
 
+    /// Check whether this item's content is a
+    /// [`Message`][MsgLikeKind::Message].
+    pub fn is_message(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. }))
+    }
+
     /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
     /// inner [`PollState`].
     pub fn as_poll(&self) -> Option<&PollState> {
@@ -344,6 +350,12 @@ impl TimelineItemContent {
             kind: MsgLikeKind::Poll(poll_state),
             ..
         }) => poll_state)
+    }
+
+    /// Check whether this item's content is a
+    /// [`Poll`][MsgLikeKind::Poll].
+    pub fn is_poll(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(_), .. }))
     }
 
     pub fn as_sticker(&self) -> Option<&Sticker> {
@@ -356,6 +368,12 @@ impl TimelineItemContent {
         )
     }
 
+    /// Check whether this item's content is a
+    /// [`Sticker`][MsgLikeKind::Sticker].
+    pub fn is_sticker(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Sticker(_), .. }))
+    }
+
     /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
     /// return the inner [`EncryptedMessage`].
     pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
@@ -366,24 +384,6 @@ impl TimelineItemContent {
     /// [`UnableToDecrypt`][Self::UnableToDecrypt].
     pub fn is_unable_to_decrypt(&self) -> bool {
         matches!(self, Self::UnableToDecrypt(_))
-    }
-
-    /// Check whether this item's content is a
-    /// [`Message`][MsgLikeKind::Message].
-    pub fn is_message(&self) -> bool {
-        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. }))
-    }
-
-    /// Check whether this item's content is a
-    /// [`Poll`][MsgLikeKind::Poll].
-    pub fn is_poll(&self) -> bool {
-        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(_), .. }))
-    }
-
-    /// Check whether this item's content is a
-    /// [`Sticker`][MsgLikeKind::Sticker].
-    pub fn is_sticker(&self) -> bool {
-        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Sticker(_), .. }))
     }
 
     // These constructors could also be `From` implementations, but that would
