@@ -29,7 +29,7 @@ use crate::timeline::{
     controller::{TimelineSettings, TimelineState},
     event_item::EventTimelineItemKind,
     traits::{Decryptor, RoomDataProvider},
-    EncryptedMessage, EventTimelineItem, TimelineItem, TimelineItemContent, TimelineItemKind,
+    EncryptedMessage, EventTimelineItem, TimelineItem, TimelineItemKind,
 };
 
 /// Holds a long-running task that is used to retry decryption of items in the
@@ -168,18 +168,17 @@ fn compute_event_indices_to_retry_decryption(
 
     // We retry an event if its session ID should be retried
     let should_retry_event = |event: &EventTimelineItem| {
-        let session_id =
-            if let TimelineItemContent::UnableToDecrypt(encrypted_message) = event.content() {
-                // UTDs carry their session ID inside the content
-                encrypted_message.session_id()
-            } else {
-                // Non-UTDs only have a session ID if they are remote and have it in the
-                // EncryptionInfo
-                event
-                    .as_remote()
-                    .and_then(|remote| remote.encryption_info.as_ref()?.session_id.as_ref())
-                    .map(String::as_str)
-            };
+        let session_id = if let Some(encrypted_message) = event.content().as_unable_to_decrypt() {
+            // UTDs carry their session ID inside the content
+            encrypted_message.session_id()
+        } else {
+            // Non-UTDs only have a session ID if they are remote and have it in the
+            // EncryptionInfo
+            event
+                .as_remote()
+                .and_then(|remote| remote.encryption_info.as_ref()?.session_id.as_ref())
+                .map(String::as_str)
+        };
 
         if let Some(session_id) = session_id {
             // Should we retry this session ID?
@@ -359,8 +358,9 @@ mod tests {
             EventTimelineItemKind, LocalEventTimelineItem, RemoteEventOrigin,
             RemoteEventTimelineItem,
         },
-        EventSendState, EventTimelineItem, MsgLikeContent, ReactionsByKeyBySender, TimelineDetails,
-        TimelineItem, TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
+        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeContent,
+        ReactionsByKeyBySender, TimelineDetails, TimelineItem, TimelineItemContent,
+        TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
     };
 
     #[test]
@@ -486,20 +486,22 @@ mod tests {
                 owned_user_id!("@u:s.to"),
                 TimelineDetails::Pending,
                 timestamp(),
-                TimelineItemContent::unable_to_decrypt(
-                    RoomEncryptedEventContent::new(
-                        EncryptedEventScheme::MegolmV1AesSha2(MegolmV1AesSha2Content::from(
-                            MegolmV1AesSha2ContentInit {
-                                ciphertext: "cyf".to_owned(),
-                                sender_key: "sendk".to_owned(),
-                                device_id: owned_device_id!("DEV"),
-                                session_id: session_id.to_owned(),
-                            },
-                        )),
-                        None,
+                TimelineItemContent::MsgLike(MsgLikeContent::unable_to_decrypt(
+                    EncryptedMessage::from_content(
+                        RoomEncryptedEventContent::new(
+                            EncryptedEventScheme::MegolmV1AesSha2(MegolmV1AesSha2Content::from(
+                                MegolmV1AesSha2ContentInit {
+                                    ciphertext: "cyf".to_owned(),
+                                    sender_key: "sendk".to_owned(),
+                                    device_id: owned_device_id!("DEV"),
+                                    session_id: session_id.to_owned(),
+                                },
+                            )),
+                            None,
+                        ),
+                        UtdCause::Unknown,
                     ),
-                    UtdCause::Unknown,
-                ),
+                )),
                 event_kind,
                 true,
             )),

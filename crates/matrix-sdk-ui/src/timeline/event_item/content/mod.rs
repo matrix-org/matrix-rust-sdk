@@ -85,9 +85,6 @@ use super::ReactionsByKeyBySender;
 pub enum TimelineItemContent {
     MsgLike(MsgLikeContent),
 
-    /// An `m.room.encrypted` event that could not be decrypted.
-    UnableToDecrypt(EncryptedMessage),
-
     /// A room membership change.
     MembershipChange(RoomMembershipChange),
 
@@ -381,16 +378,22 @@ impl TimelineItemContent {
         matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Sticker(_), .. }))
     }
 
-    /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
-    /// return the inner [`EncryptedMessage`].
+    /// If `self` is of the [`UnableToDecrypt`][MsgLikeKind::UnableToDecrypt]
+    /// variant, return the inner [`EncryptedMessage`].
     pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
-        as_variant!(self, Self::UnableToDecrypt)
+        as_variant!(
+            self,
+            Self::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::UnableToDecrypt(encrypted_message),
+                ..
+            }) => encrypted_message
+        )
     }
 
     /// Check whether this item's content is a
-    /// [`UnableToDecrypt`][Self::UnableToDecrypt].
+    /// [`UnableToDecrypt`][MsgLikeKind::UnableToDecrypt].
     pub fn is_unable_to_decrypt(&self) -> bool {
-        matches!(self, Self::UnableToDecrypt(_))
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::UnableToDecrypt(_), .. }))
     }
 
     pub fn is_redacted(&self) -> bool {
@@ -421,7 +424,6 @@ impl TimelineItemContent {
     pub(crate) fn debug_string(&self) -> &'static str {
         match self {
             TimelineItemContent::MsgLike(msglike) => msglike.debug_string(),
-            TimelineItemContent::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
             TimelineItemContent::MembershipChange(_) => "a membership change",
             TimelineItemContent::ProfileChange(_) => "a profile change",
             TimelineItemContent::OtherState(_) => "a state event",
@@ -430,10 +432,6 @@ impl TimelineItemContent {
             TimelineItemContent::CallInvite => "a call invite",
             TimelineItemContent::CallNotify => "a call notification",
         }
-    }
-
-    pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
-        Self::UnableToDecrypt(EncryptedMessage::from_content(content, cause))
     }
 
     pub(crate) fn room_member(
@@ -503,7 +501,7 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::CallNotify | Self::UnableToDecrypt(_) => {
+            Self::MsgLike(_) | Self::CallInvite | Self::CallNotify => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
@@ -528,10 +526,6 @@ impl TimelineItemContent {
     pub fn reactions(&self) -> ReactionsByKeyBySender {
         match self {
             TimelineItemContent::MsgLike(msglike) => msglike.reactions.clone(),
-            TimelineItemContent::UnableToDecrypt(..) => {
-                // No reactions for redacted messages or UTDs.
-                Default::default()
-            }
 
             TimelineItemContent::MembershipChange(..)
             | TimelineItemContent::ProfileChange(..)
@@ -552,11 +546,6 @@ impl TimelineItemContent {
     pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
         match self {
             TimelineItemContent::MsgLike(msglike) => Some(&mut msglike.reactions),
-
-            TimelineItemContent::UnableToDecrypt(..) => {
-                // No reactions for redacted messages or UTDs.
-                None
-            }
 
             TimelineItemContent::MembershipChange(..)
             | TimelineItemContent::ProfileChange(..)
@@ -613,7 +602,7 @@ pub enum EncryptedMessage {
 }
 
 impl EncryptedMessage {
-    fn from_content(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
+    pub(crate) fn from_content(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
         match content.scheme {
             EncryptedEventScheme::OlmV1Curve25519AesSha2(s) => {
                 Self::OlmV1Curve25519AesSha2 { sender_key: s.sender_key }

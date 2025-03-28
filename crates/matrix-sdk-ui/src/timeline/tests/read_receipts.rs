@@ -29,7 +29,9 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider};
-use crate::timeline::{controller::TimelineSettings, tests::TestTimelineBuilder};
+use crate::timeline::{
+    controller::TimelineSettings, tests::TestTimelineBuilder, MsgLikeContent, MsgLikeKind,
+};
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -459,12 +461,17 @@ async fn test_read_receipts_updates_on_message_decryption() {
     // The second event is encrypted and only has Bob's receipt.
     let encrypted_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let encrypted_event = encrypted_item.as_event().unwrap();
+
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
-            session_id,
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
+                session_id,
+                ..
+            }),
             ..
         }) = encrypted_event.content()
     );
+
     assert_eq!(session_id, SESSION_ID);
     assert_eq!(encrypted_event.read_receipts().len(), 1);
     assert!(encrypted_event.read_receipts().get(*BOB).is_some());

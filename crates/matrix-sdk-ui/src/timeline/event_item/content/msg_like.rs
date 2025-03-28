@@ -15,7 +15,7 @@
 use as_variant::as_variant;
 use ruma::OwnedEventId;
 
-use super::{InReplyToDetails, Message, PollState, Sticker};
+use super::{EncryptedMessage, InReplyToDetails, Message, PollState, Sticker};
 use crate::timeline::ReactionsByKeyBySender;
 
 #[derive(Clone, Debug)]
@@ -31,6 +31,9 @@ pub enum MsgLikeKind {
 
     /// A redacted message.
     Redacted,
+
+    /// An `m.room.encrypted` event that could not be decrypted.
+    UnableToDecrypt(EncryptedMessage),
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together
@@ -54,12 +57,22 @@ impl MsgLikeContent {
             MsgLikeKind::Sticker(_) => "a sticker",
             MsgLikeKind::Poll(_) => "a poll",
             MsgLikeKind::Redacted => "a redacted message",
+            MsgLikeKind::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
         }
     }
 
     pub fn redacted() -> Self {
         Self {
             kind: MsgLikeKind::Redacted,
+            reactions: Default::default(),
+            thread_root: None,
+            in_reply_to: None,
+        }
+    }
+
+    pub fn unable_to_decrypt(encrypted_message: EncryptedMessage) -> Self {
+        Self {
+            kind: MsgLikeKind::UnableToDecrypt(encrypted_message),
             reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
