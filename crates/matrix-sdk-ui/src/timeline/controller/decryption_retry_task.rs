@@ -359,8 +359,8 @@ mod tests {
             EventTimelineItemKind, LocalEventTimelineItem, RemoteEventOrigin,
             RemoteEventTimelineItem,
         },
-        EventSendState, EventTimelineItem, ReactionsByKeyBySender, TimelineDetails, TimelineItem,
-        TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
+        EventSendState, EventTimelineItem, MsgLikeContent, ReactionsByKeyBySender, TimelineDetails,
+        TimelineItem, TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
     };
 
     #[test]
@@ -460,7 +460,7 @@ mod tests {
                 owned_user_id!("@u:s.to"),
                 TimelineDetails::Pending,
                 timestamp(),
-                TimelineItemContent::RedactedMessage,
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message()),
                 event_kind,
                 true,
             )),

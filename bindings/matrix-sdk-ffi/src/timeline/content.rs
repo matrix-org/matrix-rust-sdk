@@ -57,7 +57,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                 }
             }
 
-            Content::RedactedMessage => TimelineItemContent::RedactedMessage,
+            Content::MsgLike(MsgLikeContent { kind: MsgLikeKind::RedactedMessage, .. }) => {
+                TimelineItemContent::RedactedMessage
+            }
 
             Content::MsgLike(MsgLikeContent { kind: MsgLikeKind::Sticker(sticker), .. }) => {
                 let content = sticker.content();

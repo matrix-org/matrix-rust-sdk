@@ -479,7 +479,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction && should_add {
-                    self.add_item(TimelineItemContent::RedactedMessage, None);
+                    self.add_item(
+                        TimelineItemContent::MsgLike(MsgLikeContent::redacted_message()),
+                        None,
+                    );
                 }
             }
 
@@ -969,7 +972,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // General path: redact another kind of (non-reaction) event.
         if let Some((idx, item)) = rfind_event_by_id(self.items, &redacted) {
             if item.as_remote().is_some() {
-                if let TimelineItemContent::RedactedMessage = &item.content {
+                if item.content.is_redacted() {
                     debug!("event item is already redacted");
                 } else {
                     let new_item = item.redact(&self.meta.room_version);

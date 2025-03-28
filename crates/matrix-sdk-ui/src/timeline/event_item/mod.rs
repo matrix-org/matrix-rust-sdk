@@ -595,10 +595,11 @@ impl EventTimelineItem {
                     MessageType::Video(video) => video.caption(),
                     _ => None,
                 },
-                MsgLikeKind::Sticker(_) | MsgLikeKind::Poll(_) => None,
+                MsgLikeKind::Sticker(_) | MsgLikeKind::Poll(_) | MsgLikeKind::RedactedMessage => {
+                    None
+                }
             },
-            TimelineItemContent::RedactedMessage
-            | TimelineItemContent::UnableToDecrypt(_)
+            TimelineItemContent::UnableToDecrypt(_)
             | TimelineItemContent::MembershipChange(_)
             | TimelineItemContent::ProfileChange(_)
             | TimelineItemContent::OtherState(_)
