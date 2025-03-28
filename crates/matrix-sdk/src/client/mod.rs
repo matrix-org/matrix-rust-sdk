@@ -502,9 +502,17 @@ impl Client {
         self.inner.http_client.request_config
     }
 
-    /// Is the client logged in.
-    pub fn logged_in(&self) -> bool {
-        self.inner.base_client.logged_in()
+    /// Check whether the client has been activated.
+    ///
+    /// A client is considered active when:
+    ///
+    /// 1. It has a `SessionMeta` (user ID, device ID and access token), i.e. it
+    ///    is logged in,
+    /// 2. Has loaded cached data from storage,
+    /// 3. If encryption is enabled, it also initialized or restored its
+    ///    `OlmMachine`.
+    pub fn is_activated(&self) -> bool {
+        self.inner.base_client.is_activated()
     }
 
     /// The server used by the client.

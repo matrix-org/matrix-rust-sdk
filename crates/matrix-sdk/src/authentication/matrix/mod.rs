@@ -761,7 +761,7 @@ impl MatrixAuth {
         self.client.auth_ctx().set_session_tokens(session.tokens);
         self.client
             .base_client()
-            .set_or_reload_session(
+            .activate(
                 session.meta,
                 #[cfg(feature = "e2e-encryption")]
                 None,
