@@ -1271,22 +1271,6 @@ impl Client {
         }
     }
 
-    pub(crate) async fn set_session_meta(
-        &self,
-        session_meta: SessionMeta,
-        #[cfg(feature = "e2e-encryption")] custom_account: Option<vodozemac::olm::Account>,
-    ) -> Result<()> {
-        self.base_client()
-            .set_session_meta(
-                session_meta,
-                #[cfg(feature = "e2e-encryption")]
-                custom_account,
-            )
-            .await?;
-
-        Ok(())
-    }
-
     /// Refresh the access token using the authentication API used to log into
     /// this session.
     ///

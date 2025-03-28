@@ -61,7 +61,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     );
 
     runtime
-        .block_on(base_client.set_session_meta(
+        .block_on(base_client.set_or_reload_session(
             SessionMeta {
                 user_id: user_id!("@somebody:example.com").to_owned(),
                 device_id: device_id!("DEVICE_ID").to_owned(),

@@ -115,7 +115,7 @@ pub struct BaseClient {
 
     /// The olm-machine that is created once the
     /// [`SessionMeta`][crate::session::SessionMeta] is set via
-    /// [`BaseClient::set_session_meta`]
+    /// [`BaseClient::set_or_reload_session`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
 
@@ -222,7 +222,10 @@ impl BaseClient {
 
         if let Some(session_meta) = self.session_meta().cloned() {
             copy.state_store
-                .set_session_meta(session_meta, &copy.room_info_notable_update_sender)
+                .set_session_meta_and_reload_state(
+                    session_meta,
+                    &copy.room_info_notable_update_sender,
+                )
                 .await?;
         }
 
@@ -293,7 +296,8 @@ impl BaseClient {
         self.state_store.session_meta().is_some()
     }
 
-    /// Set the meta of the session.
+    /// Set the [`SessionMeta`] for this client, and if a state exists for this
+    /// session, reload it.
     ///
     /// If encryption is enabled, this also initializes or restores the
     /// `OlmMachine`.
@@ -312,8 +316,10 @@ impl BaseClient {
     ///   useful if one wishes to create identity keys before knowing the
     ///   user/device IDs, e.g., to use the identity key as the device ID.
     ///
+    /// # Panics
+    ///
     /// This method panics if it is called twice.
-    pub async fn set_session_meta(
+    pub async fn set_or_reload_session(
         &self,
         session_meta: SessionMeta,
         #[cfg(feature = "e2e-encryption")] custom_account: Option<
@@ -322,7 +328,7 @@ impl BaseClient {
     ) -> Result<()> {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
         self.state_store
-            .set_session_meta(session_meta.clone(), &self.room_info_notable_update_sender)
+            .set_or_reload_session(session_meta.clone(), &self.room_info_notable_update_sender)
             .await?;
 
         #[cfg(feature = "e2e-encryption")]
@@ -808,9 +814,9 @@ impl BaseClient {
 
             Ok(events)
         } else {
-            // If we have no OlmMachine, just return the events that were passed in.
+            // If we have no `OlmMachine`, just return the events that were passed in.
             // This should not happen unless we forget to set things up by calling
-            // set_session_meta().
+            // `Self::set_or_reload_session()`.
             Ok(encryption_sync_changes.to_device_events)
         }
     }
@@ -2256,7 +2262,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_session_meta(
+            .set_or_reload_session(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -2315,7 +2321,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_session_meta(
+            .set_or_reload_session(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -2376,7 +2382,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_session_meta(
+            .set_or_reload_session(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -2447,7 +2453,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_session_meta(
+            .set_or_reload_session(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,
