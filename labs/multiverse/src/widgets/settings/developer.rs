@@ -34,7 +34,8 @@ pub struct DeveloperSettingsView {
 
 impl DeveloperSettingsView {
     pub fn new(client: Client, sync_service: Arc<SyncService>) -> Self {
-        Self { client, sync_service, state: ListState::default() }
+        let state = ListState::default().with_selected(Some(0));
+        Self { client, sync_service, state }
     }
 
     pub async fn handle_key_press(&mut self, key: KeyEvent) {
