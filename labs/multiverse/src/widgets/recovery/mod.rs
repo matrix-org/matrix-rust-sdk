@@ -60,9 +60,6 @@ impl RecoveryViewState {
             //
             // Let's switch to our default view which allows recovery to be disabled or enabled.
             (Mode::Unknown, RecoveryState::Disabled | RecoveryState::Enabled) => {
-                // let view = RecoveringView::new(self.client.clone());
-                // self.mode = Mode::Incomplete { view }
-
                 self.mode = Mode::Default { view: DefaultRecoveryView::new(self.client.clone()) };
             }
 
@@ -75,13 +72,26 @@ impl RecoveryViewState {
 
             // We were showing the incomplete view but someone disabled recovery on another device,
             // let's change the screen to reflect that.
-            (Mode::Incomplete { .. }, RecoveryState::Disabled) => {
-                self.mode = Mode::Default { view: DefaultRecoveryView::new(self.client.clone()) }
+            (Mode::Incomplete { view }, RecoveryState::Disabled) => {
+                if view.is_idle() {
+                    self.mode =
+                        Mode::Default { view: DefaultRecoveryView::new(self.client.clone()) }
+                }
             }
 
-            (Mode::Incomplete { .. }, RecoveryState::Enabled) => todo!(),
+            (Mode::Incomplete { view }, RecoveryState::Enabled) => {
+                if view.is_idle() {
+                    self.mode =
+                        Mode::Default { view: DefaultRecoveryView::new(self.client.clone()) }
+                }
+            }
 
-            (Mode::Default { .. }, RecoveryState::Incomplete) => todo!(),
+            (Mode::Default { view }, RecoveryState::Incomplete) => {
+                if view.is_idle() {
+                    let view = RecoveringView::new(self.client.clone());
+                    self.mode = Mode::Incomplete { view }
+                }
+            }
 
             // The recovery state didn't change in comparison to our desired view.
             (Mode::Incomplete { .. }, RecoveryState::Incomplete)
@@ -98,7 +108,7 @@ impl RecoveryViewState {
         }
     }
 
-    pub fn handle_key_press(&mut self, key: KeyEvent) -> bool {
+    pub async fn handle_key_press(&mut self, key: KeyEvent) -> bool {
         use KeyCode::*;
 
         match &mut self.mode {
@@ -106,7 +116,7 @@ impl RecoveryViewState {
                 (_, Esc | Char('q')) => true,
                 _ => false,
             },
-            Mode::Incomplete { view } => match view.handle_key(key) {
+            Mode::Incomplete { view } => match view.handle_key(key).await {
                 ShouldExit::No => false,
                 ShouldExit::OnlySubScreen => {
                     self.mode = Mode::Unknown;
@@ -114,7 +124,7 @@ impl RecoveryViewState {
                 }
                 ShouldExit::Yes => true,
             },
-            Mode::Default { view } => match view.handle_key(key) {
+            Mode::Default { view } => match view.handle_key(key).await {
                 ShouldExit::No => false,
                 ShouldExit::OnlySubScreen => {
                     self.mode = Mode::Unknown;

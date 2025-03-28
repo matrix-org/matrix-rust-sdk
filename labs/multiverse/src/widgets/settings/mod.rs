@@ -117,7 +117,7 @@ impl SettingsView {
 
             Char('q') | Esc => match self.selected_tab {
                 SelectedTab::Developer => true,
-                SelectedTab::Encryption => self.recovery_view_state.handle_key_press(event),
+                SelectedTab::Encryption => self.recovery_view_state.handle_key_press(event).await,
             },
 
             _ => match self.selected_tab {
@@ -125,7 +125,7 @@ impl SettingsView {
                     self.developer_settings_view.handle_key_press(event).await;
                     false
                 }
-                SelectedTab::Encryption => self.recovery_view_state.handle_key_press(event),
+                SelectedTab::Encryption => self.recovery_view_state.handle_key_press(event).await,
             },
         }
     }
