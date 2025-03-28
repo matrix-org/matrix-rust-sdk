@@ -595,7 +595,7 @@ impl EventTimelineItem {
                     MessageType::Video(video) => video.caption(),
                     _ => None,
                 },
-                MsgLikeKind::Sticker(_) | MsgLikeKind::Poll(_) | MsgLikeKind::RedactedMessage => {
+                MsgLikeKind::Sticker(_) | MsgLikeKind::Poll(_) | MsgLikeKind::Redacted => {
                     None
                 }
             },

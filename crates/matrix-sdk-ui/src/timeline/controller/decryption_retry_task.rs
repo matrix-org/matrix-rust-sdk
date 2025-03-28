@@ -460,7 +460,7 @@ mod tests {
                 owned_user_id!("@u:s.to"),
                 TimelineDetails::Pending,
                 timestamp(),
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message()),
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
                 event_kind,
                 true,
             )),

@@ -480,7 +480,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction && should_add {
                     self.add_item(
-                        TimelineItemContent::MsgLike(MsgLikeContent::redacted_message()),
+                        TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
                         None,
                     );
                 }

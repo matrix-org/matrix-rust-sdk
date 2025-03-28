@@ -206,7 +206,7 @@ impl RepliedToEvent {
                 }
             },
 
-            None => TimelineItemContent::MsgLike(MsgLikeContent::redacted_message()),
+            None => TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
         };
 
         let sender = event.sender().to_owned();

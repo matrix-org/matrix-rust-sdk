@@ -674,7 +674,7 @@ mod tests {
             owned_user_id!("@alice:example.org"),
             crate::timeline::TimelineDetails::Pending,
             timestamp,
-            TimelineItemContent::MsgLike(MsgLikeContent::redacted_message()),
+            TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
             event_kind,
             false,
         )

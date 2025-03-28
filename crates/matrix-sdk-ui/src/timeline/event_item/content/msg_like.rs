@@ -30,7 +30,7 @@ pub enum MsgLikeKind {
     Poll(PollState),
 
     /// A redacted message.
-    RedactedMessage,
+    Redacted,
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together
@@ -53,13 +53,13 @@ impl MsgLikeContent {
             MsgLikeKind::Message(_) => "a message",
             MsgLikeKind::Sticker(_) => "a sticker",
             MsgLikeKind::Poll(_) => "a poll",
-            MsgLikeKind::RedactedMessage => "a redacted message",
+            MsgLikeKind::Redacted => "a redacted message",
         }
     }
 
-    pub fn redacted_message() -> Self {
+    pub fn redacted() -> Self {
         Self {
-            kind: MsgLikeKind::RedactedMessage,
+            kind: MsgLikeKind::Redacted,
             reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
