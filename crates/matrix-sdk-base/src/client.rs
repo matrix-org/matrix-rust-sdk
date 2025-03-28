@@ -115,7 +115,7 @@ pub struct BaseClient {
 
     /// The olm-machine that is created once the
     /// [`SessionMeta`][crate::session::SessionMeta] is set via
-    /// [`BaseClient::set_or_reload_session`]
+    /// [`BaseClient::activate`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
 
@@ -289,16 +289,21 @@ impl BaseClient {
         &self.event_cache_store
     }
 
-    /// Is the client logged in.
-    pub fn logged_in(&self) -> bool {
+    /// Check whether the client has been activated.
+    ///
+    /// See [`BaseClient::activate`] to know what it means.
+    pub fn is_activated(&self) -> bool {
         self.state_store.session_meta().is_some()
     }
 
-    /// Set the [`SessionMeta`] for this client, and if a state exists for this
-    /// session, reload it.
+    /// Activate the client.
     ///
-    /// If encryption is enabled, this also initializes or restores the
-    /// `OlmMachine`.
+    /// A client is considered active when:
+    ///
+    /// 1. It has a `SessionMeta` (user ID, device ID and access token),
+    /// 2. Has loaded cached data from storage,
+    /// 3. If encryption is enabled, it also initialized or restored its
+    ///    `OlmMachine`.
     ///
     /// # Arguments
     ///
@@ -317,14 +322,14 @@ impl BaseClient {
     /// # Panics
     ///
     /// This method panics if it is called twice.
-    pub async fn set_or_reload_session(
+    pub async fn activate(
         &self,
         session_meta: SessionMeta,
         #[cfg(feature = "e2e-encryption")] custom_account: Option<
             crate::crypto::vodozemac::olm::Account,
         >,
     ) -> Result<()> {
-        debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
+        debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Activating the client");
         self.state_store
             .set_or_reload_session(session_meta.clone(), &self.room_info_notable_update_sender)
             .await?;
@@ -814,7 +819,7 @@ impl BaseClient {
         } else {
             // If we have no `OlmMachine`, just return the events that were passed in.
             // This should not happen unless we forget to set things up by calling
-            // `Self::set_or_reload_session()`.
+            // `Self::activate()`.
             Ok(encryption_sync_changes.to_device_events)
         }
     }
@@ -2260,7 +2265,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_or_reload_session(
+            .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -2319,7 +2324,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_or_reload_session(
+            .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -2380,7 +2385,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_or_reload_session(
+            .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -2451,7 +2456,7 @@ mod tests {
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
         client
-            .set_or_reload_session(
+            .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 #[cfg(feature = "e2e-encryption")]
                 None,

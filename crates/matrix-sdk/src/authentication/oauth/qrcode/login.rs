@@ -200,7 +200,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
                 self.client.whoami().await.map_err(QRCodeLoginError::UserIdDiscovery)?;
             self.client
                 .base_client()
-                .set_or_reload_session(
+                .activate(
                     SessionMeta {
                         user_id: whoami_response.user_id,
                         device_id: OwnedDeviceId::from(device_id.to_base64()),

@@ -807,7 +807,7 @@ impl OAuth {
         self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
             .base_client()
-            .set_or_reload_session(
+            .activate(
                 meta,
                 #[cfg(feature = "e2e-encryption")]
                 None,
@@ -1046,7 +1046,7 @@ impl OAuth {
         } else {
             self.client
                 .base_client()
-                .set_or_reload_session(
+                .activate(
                     new_session,
                     #[cfg(feature = "e2e-encryption")]
                     None,

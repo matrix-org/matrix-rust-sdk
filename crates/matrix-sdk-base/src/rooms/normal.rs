@@ -2538,7 +2538,7 @@ mod tests {
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
-            .set_or_reload_session(
+            .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
                     device_id: ruma::device_id!("AYEAYEAYE").into(),
@@ -2617,7 +2617,7 @@ mod tests {
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
-            .set_or_reload_session(
+            .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
                     device_id: ruma::device_id!("AYEAYEAYE").into(),
@@ -3201,7 +3201,7 @@ mod tests {
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
-            .set_or_reload_session(
+            .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
                     device_id: ruma::device_id!("AYEAYEAYE").into(),
