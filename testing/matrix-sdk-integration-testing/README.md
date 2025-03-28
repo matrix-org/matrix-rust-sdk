@@ -36,7 +36,7 @@ template; if you haven't touched it, you don't need to manually set those enviro
 To stop the services and drop the database of your docker-compose cluster, run:
 
 ```bash
-docker compose -f assets/docker-compose.yml down --volumes --remove-orphan -t 0
+docker compose -f assets/docker-compose.yml down --volumes --remove-orphans -t 0
 ```
 
 ### Rebuild the synapse image
