@@ -86,7 +86,7 @@ pub(crate) struct AmbiguityCache {
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
-#[instrument(ret, level = "trace")]
+#[instrument(ret(level = "trace"))]
 pub(crate) fn is_display_name_ambiguous(
     display_name: &DisplayName,
     users_with_display_name: &BTreeSet<OwnedUserId>,
