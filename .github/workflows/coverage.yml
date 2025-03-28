@@ -26,26 +26,9 @@ jobs:
     name: Code Coverage
     runs-on: "ubuntu-latest"
 
-    # run several docker containers with the same networking stack so the hostname 'postgres'
-    # maps to the postgres container, etc.
+    # run several docker containers with the same networking stack so the hostname 'synapse'
+    # maps to the synapse container, etc.
     services:
-      postgres:
-        # Docker Hub image
-        image: postgres
-        # Provide the password for postgres
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: syncv3
-        # Set health checks to wait until postgres has started
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          # Maps tcp port 5432 on service container to the host
-          - 5432:5432
       # tests need a synapse: this is a service and not michaelkaye/setup-matrix-synapse@main as the
       # latter does not provide networking for services to communicate with it.
       synapse:
