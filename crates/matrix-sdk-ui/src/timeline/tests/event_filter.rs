@@ -14,7 +14,6 @@
 
 use std::sync::Arc;
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -72,7 +71,7 @@ async fn test_default_filter() {
 
     timeline.handle_live_event(f.redaction(second_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
-    assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
+    assert!(item.as_event().unwrap().content().is_redacted());
 
     // TODO: After adding raw timeline items, check for one here.
 

@@ -86,11 +86,11 @@ async fn test_redact_replied_to_event() {
     let msglike = second_item_again.content().as_msglike().unwrap();
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_matches!(replied_to_event.content(), TimelineItemContent::RedactedMessage);
+    assert!(replied_to_event.content().is_redacted());
 
     let first_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_matches!(first_item_again.content(), TimelineItemContent::RedactedMessage);
+    assert!(first_item_again.content().is_redacted());
     assert_matches!(first_item_again.original_json(), None);
 }
 

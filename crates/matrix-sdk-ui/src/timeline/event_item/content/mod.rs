@@ -85,9 +85,6 @@ use super::ReactionsByKeyBySender;
 pub enum TimelineItemContent {
     MsgLike(MsgLikeContent),
 
-    /// A redacted message.
-    RedactedMessage,
-
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
 
@@ -219,7 +216,9 @@ impl TimelineItemContent {
                 TimelineItemContent::MsgLike(msglike)
             }
 
-            SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncRoomMessageEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+            }
         }
     }
 
@@ -236,7 +235,9 @@ impl TimelineItemContent {
                     event.sender.to_owned(),
                 )
             }
-            SyncRoomMemberEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncRoomMemberEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+            }
         }
     }
 
@@ -263,7 +264,9 @@ impl TimelineItemContent {
 
                 TimelineItemContent::MsgLike(msglike)
             }
-            SyncStickerEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncStickerEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+            }
         }
     }
 
@@ -273,7 +276,7 @@ impl TimelineItemContent {
         event: &SyncUnstablePollStartEvent,
     ) -> TimelineItemContent {
         let SyncUnstablePollStartEvent::Original(event) = event else {
-            return TimelineItemContent::RedactedMessage;
+            return TimelineItemContent::MsgLike(MsgLikeContent::redacted_message());
         };
 
         // Feed the bundled edit, if present, or we might miss showing edited content.
@@ -311,7 +314,9 @@ impl TimelineItemContent {
     ) -> TimelineItemContent {
         match event {
             SyncCallInviteEvent::Original(_) => TimelineItemContent::CallInvite,
-            SyncCallInviteEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncCallInviteEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+            }
         }
     }
 
@@ -320,7 +325,9 @@ impl TimelineItemContent {
     ) -> TimelineItemContent {
         match event {
             SyncCallNotifyEvent::Original(_) => TimelineItemContent::CallNotify,
-            SyncCallNotifyEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncCallNotifyEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+            }
         }
     }
 
@@ -386,6 +393,10 @@ impl TimelineItemContent {
         matches!(self, Self::UnableToDecrypt(_))
     }
 
+    pub fn is_redacted(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::RedactedMessage, .. }))
+    }
+
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
@@ -410,7 +421,6 @@ impl TimelineItemContent {
     pub(crate) fn debug_string(&self) -> &'static str {
         match self {
             TimelineItemContent::MsgLike(msglike) => msglike.debug_string(),
-            TimelineItemContent::RedactedMessage => "a redacted messages",
             TimelineItemContent::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
             TimelineItemContent::MembershipChange(_) => "a membership change",
             TimelineItemContent::ProfileChange(_) => "a profile change",
@@ -493,11 +503,9 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
         match self {
-            Self::MsgLike(_)
-            | Self::RedactedMessage
-            | Self::CallInvite
-            | Self::CallNotify
-            | Self::UnableToDecrypt(_) => Self::RedactedMessage,
+            Self::MsgLike(_) | Self::CallInvite | Self::CallNotify | Self::UnableToDecrypt(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted_message())
+            }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),
             Self::OtherState(ev) => Self::OtherState(ev.redact(room_version)),
@@ -520,7 +528,7 @@ impl TimelineItemContent {
     pub fn reactions(&self) -> ReactionsByKeyBySender {
         match self {
             TimelineItemContent::MsgLike(msglike) => msglike.reactions.clone(),
-            TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
+            TimelineItemContent::UnableToDecrypt(..) => {
                 // No reactions for redacted messages or UTDs.
                 Default::default()
             }
@@ -545,7 +553,7 @@ impl TimelineItemContent {
         match self {
             TimelineItemContent::MsgLike(msglike) => Some(&mut msglike.reactions),
 
-            TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
+            TimelineItemContent::UnableToDecrypt(..) => {
                 // No reactions for redacted messages or UTDs.
                 None
             }

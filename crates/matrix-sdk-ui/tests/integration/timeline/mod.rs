@@ -179,7 +179,7 @@ async fn test_redacted_message() {
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-    assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
+    assert!(first.as_event().unwrap().content().is_redacted());
 
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
