@@ -212,7 +212,7 @@ impl TimelineBuilder {
             let room_event_cache = room_event_cache.clone();
             let inner = controller.clone();
 
-            let span = trace_span!(
+            let span = info_span!(
                 parent: Span::none(),
                 "live_update_handler",
                 room_id = ?room.room_id(),
@@ -315,7 +315,7 @@ impl TimelineBuilder {
                     timeline.handle_local_echo(echo).await;
                 }
 
-                let span = trace_span!(
+                let span = info_span!(
                     parent: Span::none(),
                     "local_echo_handler",
                     room_id = ?room.room_id(),
