@@ -805,7 +805,11 @@ impl Room {
         &self,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        self.client.state_store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
+        self.client
+            .state_store()
+            .get_state_events(self.room_id(), event_type)
+            .await
+            .map_err(Into::into)
     }
 
     /// Get all state events of a given statically-known type in this room.
@@ -877,7 +881,11 @@ impl Room {
         I: IntoIterator<Item = &'a K> + Send,
         I::IntoIter: Send,
     {
-        Ok(self.client.state_store().get_state_events_for_keys_static(self.room_id(), state_keys).await?)
+        Ok(self
+            .client
+            .state_store()
+            .get_state_events_for_keys_static(self.room_id(), state_keys)
+            .await?)
     }
 
     /// Get a specific state event in this room.
@@ -948,7 +956,11 @@ impl Room {
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
-        Ok(self.client.state_store().get_state_event_static_for_key(self.room_id(), state_key).await?)
+        Ok(self
+            .client
+            .state_store()
+            .get_state_event_static_for_key(self.room_id(), state_key)
+            .await?)
     }
 
     /// Returns the parents this room advertises as its parents.
@@ -1069,8 +1081,11 @@ impl Room {
     /// Returns true if all devices in the room are verified, otherwise false.
     #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
-        let user_ids =
-            self.client.state_store().get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
+        let user_ids = self
+            .client
+            .state_store()
+            .get_user_ids(self.room_id(), RoomMemberships::empty())
+            .await?;
 
         for user_id in user_ids {
             let devices = self.client.encryption().get_user_devices(&user_id).await?;
