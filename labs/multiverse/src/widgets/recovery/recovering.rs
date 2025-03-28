@@ -21,7 +21,7 @@ use tokio::{
 use tui_textarea::TextArea;
 
 use super::ShouldExit;
-use crate::widgets::recovery::create_centered_throbber_area;
+use crate::widgets::{recovery::create_centered_throbber_area, Hyperlink};
 
 #[derive(Debug)]
 enum ResetState {
@@ -203,7 +203,13 @@ impl RecoveringView {
             Resetting { reset_state, .. } => match reset_state {
                 ResetState::Waiting { .. }
                 | ResetState::ResettingOauth { .. }
-                | ResetState::ResettingMatrixAuth => No,
+                | ResetState::ResettingMatrixAuth => match (key.modifiers, key.code) {
+                    (_, Esc) => {
+                        *self = Self::new(self.client.clone());
+                        No
+                    }
+                    _ => No,
+                },
                 ResetState::InputtingMatrixAuthInfo { sender, text_area } => {
                     match (key.modifiers, key.code) {
                         (_, Enter) => {
@@ -292,15 +298,39 @@ impl Widget for &mut RecoveringView {
                     text_area.render(right, buf);
                 }
                 ResetState::ResettingOauth { approval_url } => {
-                    let hyperlink =
-                        format!("\x1b]8;;{approval_url}\x1b\\approval URL\x1b]8;;\x1b\\");
-                    Paragraph::new(Line::default().spans(vec![
-                        Span::raw("Please go to the "),
-                        Span::raw(hyperlink),
-                        Span::raw(" to approve the reset"),
-                    ]))
-                    .centered()
-                    .render(area, buf);
+                    let chunks = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .margin(1)
+                        .constraints([
+                            Constraint::Fill(1),
+                            Constraint::Length(65),
+                            Constraint::Fill(1),
+                        ])
+                        .split(area);
+
+                    let chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .margin(1)
+                        .constraints([
+                            Constraint::Fill(1),
+                            Constraint::Length(1),
+                            Constraint::Fill(1),
+                        ])
+                        .split(chunks[1]);
+
+                    let centered_area = chunks[1];
+
+                    let [left, right] =
+                        Layout::horizontal([Constraint::Length(38), Constraint::Length(22)])
+                            .areas(centered_area);
+
+                    let hyperlink = Hyperlink::new(
+                        Text::from("account management URL").blue(),
+                        approval_url.to_string(),
+                    );
+
+                    Text::from("To finish the reset approve it at the ").render(left, buf);
+                    hyperlink.render(right, buf);
                 }
                 ResetState::Waiting { .. } | ResetState::ResettingMatrixAuth => {
                     let throbber = Throbber::default()
