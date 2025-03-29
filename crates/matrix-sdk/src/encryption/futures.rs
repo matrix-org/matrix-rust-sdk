@@ -17,7 +17,7 @@
 
 #![deny(unreachable_pub)]
 
-use std::{future::IntoFuture, io::Read};
+use std::{future::IntoFuture, io::Read, iter};
 
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,7 +28,10 @@ use ruma::{
     OwnedUserId,
 };
 
-use crate::{config::RequestConfig, Client, Media, Result, Room, TransmissionProgress};
+use crate::{
+    config::RequestConfig, crypto::types::events::room_key_bundle::RoomKeyBundleContent, Client,
+    Media, Result, Room, TransmissionProgress,
+};
 
 /// Future returned by [`Client::upload_encrypted_file`].
 #[allow(missing_debug_implementations)]
@@ -149,10 +152,11 @@ impl<'a> IntoFuture for ShareRoomHistory<'a> {
         let Self { room, user_id } = self;
         Box::pin(async move {
             tracing::info!("Sharing message history in {} with {}", room.room_id(), user_id);
+            let client = &room.client;
 
             // 1. Construct the key bundle
             let bundle = {
-                let olm_machine = room.client.olm_machine().await;
+                let olm_machine = client.olm_machine().await;
                 let olm_machine = olm_machine
                     .as_ref()
                     .expect("This should only be called once we have an OlmMachine");
@@ -178,9 +182,22 @@ impl<'a> IntoFuture for ShareRoomHistory<'a> {
                 "Uploaded encrypted key blob"
             );
 
-            // 3. Send to-device messages to the recipient to share the keys.
-            // TODO
+            // 3. Establish Olm sessions with all of the recipient's devices.
+            client.claim_one_time_keys(iter::once(user_id.as_ref())).await?;
 
+            // 4. Send to-device messages to the recipient to share the keys.
+            let requests = client
+                .base_client()
+                .share_room_key_bundle_data(
+                    &user_id,
+                    RoomKeyBundleContent { room_id: room.room_id().to_owned(), file: upload },
+                )
+                .await?;
+
+            for request in requests {
+                let response = client.send_to_device(&request).await?;
+                client.mark_request_as_sent(&request.txn_id, &response).await?;
+            }
             Ok(())
         })
     }

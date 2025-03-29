@@ -26,11 +26,10 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, EncryptionSettings,
-    OlmError, OlmMachine, TrustRequirement,
+    store::DynCryptoStore, types::events::room_key_bundle::RoomKeyBundleContent,
+    types::requests::ToDeviceRequest, CollectStrategy, EncryptionSettings, OlmError, OlmMachine,
+    TrustRequirement,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 #[cfg(doc)]
 use ruma::DeviceId;
 use ruma::{
@@ -44,6 +43,11 @@ use ruma::{
     serde::Raw,
     time::Instant,
     OwnedRoomId, OwnedUserId, RoomId,
+};
+#[cfg(feature = "e2e-encryption")]
+use ruma::{
+    events::room::{history_visibility::HistoryVisibility, member::MembershipState},
+    UserId,
 };
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
@@ -1129,6 +1133,22 @@ impl BaseClient {
             }
             None => panic!("Olm machine wasn't started"),
         }
+    }
+
+    /// Get to-device requests that will share the details of a room key history
+    /// bundle with a user.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn share_room_key_bundle_data(
+        &self,
+        user_id: &UserId,
+        bundle_data: RoomKeyBundleContent,
+    ) -> Result<Vec<ToDeviceRequest>> {
+        let olm = self.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+        Ok(olm
+            .share_room_key_bundle_data(user_id, &self.room_key_recipient_strategy, bundle_data)
+            .await?)
     }
 
     /// Get the room with the given room id.
