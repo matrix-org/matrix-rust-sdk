@@ -28,6 +28,8 @@ use ruma::{
     OwnedTransactionId, TransactionId, UInt,
 };
 
+use crate::room::reply::{EnforceThread, RepliedToInfo};
+
 /// Base metadata about an image.
 #[derive(Debug, Clone, Default)]
 pub struct BaseImageInfo {
@@ -188,6 +190,8 @@ pub struct AttachmentConfig {
     pub(crate) caption: Option<String>,
     pub(crate) formatted_caption: Option<FormattedBody>,
     pub(crate) mentions: Option<Mentions>,
+    pub(crate) replied_to_info: Option<RepliedToInfo>,
+    pub(crate) enforce_thread: Option<EnforceThread>,
 }
 
 impl AttachmentConfig {
@@ -260,6 +264,26 @@ impl AttachmentConfig {
     /// * `mentions` - The mentions of the message
     pub fn mentions(mut self, mentions: Option<Mentions>) -> Self {
         self.mentions = mentions;
+        self
+    }
+
+    /// Set the reply information of the message.
+    ///
+    /// # Arguments
+    ///
+    /// * `replied_to_info` - The reply information of the message
+    pub fn replied_to_info(mut self, replied_to_info: Option<RepliedToInfo>) -> Self {
+        self.replied_to_info = replied_to_info;
+        self
+    }
+
+    /// Set whether to enforce a thread relation on the message.
+    ///
+    /// # Arguments
+    ///
+    /// * `enforce_thread` - Whether to enforce a thread relation on the message
+    pub fn enforce_thread(mut self, enforce_thread: Option<EnforceThread>) -> Self {
+        self.enforce_thread = enforce_thread;
         self
     }
 }
