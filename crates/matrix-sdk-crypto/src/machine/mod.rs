@@ -85,6 +85,7 @@ use crate::{
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
             },
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
+            room_key_bundle::RoomKeyBundleContent,
             room_key_withheld::{
                 MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
             },
@@ -98,8 +99,8 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
-    RoomEventDecryptionResult, SignatureError, TrustRequirement,
+    CollectStrategy, CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData,
+    LocalTrust, RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1087,6 +1088,22 @@ impl OlmMachine {
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         self.inner.group_session_manager.share_room_key(room_id, users, encryption_settings).await
+    }
+
+    /// Collect the devices belonging to the given user, and send the details of
+    /// a room key bundle to those devices.
+    ///
+    /// Returns a list of to-device requests which must be sent.
+    pub async fn share_room_key_bundle_data(
+        &self,
+        user_id: &UserId,
+        collect_strategy: &CollectStrategy,
+        bundle_data: RoomKeyBundleContent,
+    ) -> OlmResult<Vec<ToDeviceRequest>> {
+        self.inner
+            .group_session_manager
+            .share_room_key_bundle_data(user_id, collect_strategy, bundle_data)
+            .await
     }
 
     /// Receive an unencrypted verification event.
