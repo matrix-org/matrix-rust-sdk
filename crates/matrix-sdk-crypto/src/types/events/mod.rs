@@ -23,6 +23,7 @@ pub mod forwarded_room_key;
 pub mod olm_v1;
 pub mod room;
 pub mod room_key;
+pub mod room_key_bundle;
 pub mod room_key_request;
 pub mod room_key_withheld;
 pub mod secret_send;
