@@ -24,6 +24,7 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
+use matrix_sdk_crypto::types::events::room_key_bundle::RoomKeyBundleContent;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, DecryptionSettings,
@@ -1592,6 +1593,22 @@ impl BaseClient {
             }
             None => panic!("Olm machine wasn't started"),
         }
+    }
+
+    /// Get to-device requests that will share the details of a room key history
+    /// bundle with a user.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn share_room_key_bundle_data(
+        &self,
+        user_id: &UserId,
+        bundle_data: RoomKeyBundleContent,
+    ) -> Result<Vec<ToDeviceRequest>> {
+        let olm = self.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+        Ok(olm
+            .share_room_key_bundle_data(&user_id, &self.room_key_recipient_strategy, bundle_data)
+            .await?)
     }
 
     /// Get the room with the given room id.
