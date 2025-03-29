@@ -47,6 +47,13 @@ pub struct RoomKeyBundle {
     pub withheld: Vec<RoomKeyWithheldContent>,
 }
 
+impl RoomKeyBundle {
+    /// Returns true if there is nothing of value in this bundle.
+    pub fn is_empty(&self) -> bool {
+        self.room_keys.is_empty() && self.withheld.is_empty()
+    }
+}
+
 /// An [`InboundGroupSession`] for sharing as part of a [`RoomKeyBundle`].
 ///
 /// Note: unlike a room key received via an `m.room_key` message (i.e., a
