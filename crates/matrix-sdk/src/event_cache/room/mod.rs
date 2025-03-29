@@ -29,6 +29,7 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
+    linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -40,11 +41,11 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{error, instrument, trace, warn};
+use tracing::{instrument, trace, warn};
 
 use super::{
-    deduplicator::DeduplicationOutcome, AllEventsCache, AutoShrinkChannelPayload, EventsOrigin,
-    Result, RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
+    deduplicator::DeduplicationOutcome, AutoShrinkChannelPayload, EventsOrigin, Result,
+    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -144,7 +145,6 @@ impl RoomEventCache {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
         Self {
@@ -153,7 +153,6 @@ impl RoomEventCache {
                 state,
                 pagination_status,
                 room_id,
-                all_events_cache,
                 auto_shrink_sender,
             )),
         }
@@ -187,24 +186,15 @@ impl RoomEventCache {
 
     /// Try to find an event by id in this room.
     pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
-        // Search in all loaded or stored events.
-        let Ok(maybe_position_and_event) = self.inner.state.read().await.find_event(event_id).await
-        else {
-            error!("Failed to find the event");
-
-            return None;
-        };
-
-        // Search in `AllEventsCache` for known events that are not stored.
-        if let Some(event) = maybe_position_and_event.map(|(_location, _position, event)| event) {
-            Some(event)
-        } else if let Some((room_id, event)) =
-            self.inner.all_events.read().await.events.get(event_id).cloned()
-        {
-            (room_id == self.inner.room_id).then_some(event)
-        } else {
-            None
-        }
+        self.inner
+            .state
+            .read()
+            .await
+            .find_event(event_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|(_loc, event)| event)
     }
 
     /// Try to find an event by id in this room, along with its related events.
@@ -216,13 +206,15 @@ impl RoomEventCache {
         event_id: &EventId,
         filter: Option<Vec<RelationType>>,
     ) -> Option<(TimelineEvent, Vec<TimelineEvent>)> {
-        let cache = self.inner.all_events.read().await;
-        if let Some((_, event)) = cache.events.get(event_id) {
-            let related_events = cache.collect_related_events(event_id, filter.as_deref());
-            Some((event.clone(), related_events))
-        } else {
-            None
-        }
+        // Search in all loaded or stored events.
+        self.inner
+            .state
+            .read()
+            .await
+            .find_event_with_relations(event_id, filter.clone())
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Clear all the storage for this [`RoomEventCache`].
@@ -233,9 +225,6 @@ impl RoomEventCache {
         // Clear the linked chunk and persisted storage.
         let updates_as_vector_diffs = self.inner.state.write().await.reset().await?;
 
-        // Clear the (temporary) events mappings.
-        self.inner.all_events.write().await.clear();
-
         // Notify observers about the update.
         let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
@@ -245,37 +234,11 @@ impl RoomEventCache {
         Ok(())
     }
 
-    /// Save a single event in the event cache, for further retrieval with
-    /// [`Self::event`].
-    // TODO: This doesn't insert the event into the linked chunk. In the future
-    // there'll be no distinction between the linked chunk and the separate
-    // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
-    pub(crate) async fn save_event(&self, event: TimelineEvent) {
-        if let Some(event_id) = event.event_id() {
-            let mut cache = self.inner.all_events.write().await;
-
-            cache.append_related_event(&event);
-            cache.events.insert(event_id, (self.inner.room_id.clone(), event));
-        } else {
-            warn!("couldn't save event without event id in the event cache");
-        }
-    }
-
     /// Save some events in the event cache, for further retrieval with
-    /// [`Self::event`]. This function will save them using a single lock,
-    /// as opposed to [`Self::save_event`].
-    // TODO: This doesn't insert the event into the linked chunk. In the future
-    // there'll be no distinction between the linked chunk and the separate
-    // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
+    /// [`Self::event`].
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = TimelineEvent>) {
-        let mut cache = self.inner.all_events.write().await;
-        for event in events {
-            if let Some(event_id) = event.event_id() {
-                cache.append_related_event(&event);
-                cache.events.insert(event_id, (self.inner.room_id.clone(), event));
-            } else {
-                warn!("couldn't save event without event id in the event cache");
-            }
+        if let Err(err) = self.inner.state.write().await.save_event(events).await {
+            warn!("couldn't save event in the event cache: {err}");
         }
     }
 
@@ -299,12 +262,6 @@ pub(super) struct RoomEventCacheInner {
     /// State for this room's event cache.
     pub state: RwLock<RoomEventCacheState>,
 
-    /// See comment of [`super::EventCacheInner::all_events`].
-    ///
-    /// This is shared between the [`super::EventCacheInner`] singleton and all
-    /// [`RoomEventCacheInner`] instances.
-    all_events: Arc<RwLock<AllEventsCache>>,
-
     /// A notifier that we received a new pagination token.
     pub pagination_batch_token_notifier: Notify,
 
@@ -325,7 +282,6 @@ impl RoomEventCacheInner {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
         let sender = Sender::new(32);
@@ -334,7 +290,6 @@ impl RoomEventCacheInner {
             room_id: weak_room.room_id().to_owned(),
             weak_room,
             state: RwLock::new(state),
-            all_events: all_events_cache,
             sender,
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
@@ -592,20 +547,6 @@ impl RoomEventCacheInner {
                 }
             }
 
-            {
-                // Fill the AllEventsCache.
-                let mut all_events_cache = self.all_events.write().await;
-
-                for event in events {
-                    if let Some(event_id) = event.event_id() {
-                        all_events_cache.append_related_event(&event);
-                        all_events_cache
-                            .events
-                            .insert(event_id.to_owned(), (self.room_id.clone(), event));
-                    }
-                }
-            }
-
             timeline_event_diffs
         };
 
@@ -680,7 +621,8 @@ mod private {
     use once_cell::sync::OnceCell;
     use ruma::{
         events::{
-            room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType,
+            relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
+            MessageLikeEventType,
         },
         serde::Raw,
         EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
@@ -1241,14 +1183,12 @@ mod private {
         pub async fn find_event(
             &self,
             event_id: &EventId,
-        ) -> Result<Option<(EventLocation, Position, TimelineEvent)>, EventCacheError> {
-            let room_id = self.room.as_ref();
-
+        ) -> Result<Option<(EventLocation, TimelineEvent)>, EventCacheError> {
             // There are supposedly fewer events loaded in memory than in the store. Let's
             // start by looking up in the `RoomEvents`.
             for (position, event) in self.events().revents() {
                 if event.event_id().as_deref() == Some(event_id) {
-                    return Ok(Some((EventLocation::Memory, position, event.clone())));
+                    return Ok(Some((EventLocation::Memory(position), event.clone())));
                 }
             }
 
@@ -1260,9 +1200,29 @@ mod private {
             let store = store.lock().await?;
 
             Ok(store
-                .find_event(room_id, event_id)
+                .find_event(&self.room, event_id)
                 .await?
-                .map(|(position, event)| (EventLocation::Store, position, event)))
+                .map(|event| (EventLocation::Store, event)))
+        }
+
+        /// Find an event and all its relations in the persisted storage.
+        ///
+        /// This goes straight to the database, as a simplification; we don't
+        /// expect to need to have to look up in memory events, or that
+        /// all the related events are actually loaded.
+        pub async fn find_event_with_relations(
+            &self,
+            event_id: &EventId,
+            filters: Option<Vec<RelationType>>,
+        ) -> Result<Option<(TimelineEvent, Vec<TimelineEvent>)>, EventCacheError> {
+            let Some(store) = self.store.get() else {
+                // No store, event is not present.
+                return Ok(None);
+            };
+
+            let store = store.lock().await?;
+
+            Ok(store.find_event_with_relations(&self.room, event_id, filters).await?)
         }
 
         /// Gives a temporary mutable handle to the underlying in-memory events,
@@ -1339,7 +1299,7 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            if let Some((location, position, target_event)) = self.find_event(event_id).await? {
+            if let Some((location, target_event)) = self.find_event(event_id).await? {
                 // Don't redact already redacted events.
                 if let Ok(deserialized) = target_event.raw().deserialize() {
                     match deserialized {
@@ -1370,18 +1330,12 @@ mod private {
                     copy.replace_raw(redacted_event.cast());
 
                     match location {
-                        EventLocation::Memory => {
+                        EventLocation::Memory(position) => {
                             self.events
                                 .replace_event_at(position, copy)
                                 .expect("should have been a valid position of an item");
                         }
-                        EventLocation::Store => {
-                            self.send_updates_to_store(vec![Update::ReplaceItem {
-                                at: position,
-                                item: copy,
-                            }])
-                            .await?;
-                        }
+                        EventLocation::Store => self.save_event([copy]).await?,
                     }
                 }
             } else {
@@ -1392,13 +1346,38 @@ mod private {
 
             Ok(())
         }
+
+        /// Save a single event into the database, without notifying observers.
+        pub async fn save_event(
+            &self,
+            events: impl IntoIterator<Item = TimelineEvent>,
+        ) -> Result<(), EventCacheError> {
+            let Some(store) = self.store.get() else { return Ok(()) };
+
+            let store = store.clone();
+            let room_id = self.room.clone();
+            let events = events.into_iter().collect::<Vec<_>>();
+
+            // Spawn a task so the save is uninterrupted by task cancellation.
+            spawn(async move {
+                let store = store.lock().await?;
+                for event in events {
+                    store.save_event(&room_id, event).await?;
+                }
+                super::Result::Ok(())
+            })
+            .await
+            .expect("joining failed")?;
+
+            Ok(())
+        }
     }
 }
 
 /// An enum representing where an event has been found.
 pub(super) enum EventLocation {
     /// Event lives in memory (and likely in the store!).
-    Memory,
+    Memory(Position),
 
     /// Event lives in the store only, it has not been loaded in memory yet.
     Store,
@@ -1577,6 +1556,7 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1584,13 +1564,13 @@ mod tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Save the original event.
-        room_event_cache.save_event(original_event).await;
+        room_event_cache.save_events([original_event]).await;
 
         // Save the related event.
-        room_event_cache.save_event(related_event).await;
+        room_event_cache.save_events([related_event]).await;
 
         // Save the associated related event, which redacts the related event.
-        room_event_cache.save_event(associated_related_event).await;
+        room_event_cache.save_events([associated_related_event]).await;
 
         let filter = Some(vec![RelationType::Replacement]);
         let (event, related_events) =
@@ -1646,13 +1626,13 @@ mod tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Save the original event.
-        room_event_cache.save_event(original_event).await;
+        room_event_cache.save_events([original_event]).await;
 
         // Save the related event.
-        room_event_cache.save_event(related_event).await;
+        room_event_cache.save_events([related_event]).await;
 
         // Save the associated related event, which redacts the related event.
-        room_event_cache.save_event(associated_related_event).await;
+        room_event_cache.save_events([associated_related_event]).await;
 
         let (event, related_events) =
             room_event_cache.event_with_relations(original_id, None).await.unwrap();
@@ -1943,9 +1923,11 @@ mod tests {
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
 
-        // The room event cache has forgotten about the events.
-        assert!(room_event_cache.event(event_id1).await.is_none());
+        // Events individually are not forgotten by the event cache, after clearing a
+        // room.
+        assert!(room_event_cache.event(event_id1).await.is_some());
 
+        // But their presence in a linked chunk is forgotten.
         let (items, _) = room_event_cache.subscribe().await;
         assert!(items.is_empty());
 
@@ -2279,6 +2261,7 @@ mod tests {
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -2287,17 +2270,20 @@ mod tests {
 
         // Save the original event.
         let original_event_id = original_event.event_id().unwrap();
-        room_event_cache.save_event(original_event).await;
+        room_event_cache.save_events([original_event]).await;
 
         // Save an unrelated event to check it's not in the related events list.
         let unrelated_id = event_id!("$2");
         room_event_cache
-            .save_event(event_factory.text_msg("An unrelated event").event_id(unrelated_id).into())
+            .save_events([event_factory
+                .text_msg("An unrelated event")
+                .event_id(unrelated_id)
+                .into()])
             .await;
 
         // Save the related event.
         let related_id = related_event.event_id().unwrap();
-        room_event_cache.save_event(related_event).await;
+        room_event_cache.save_events([related_event]).await;
 
         let (event, related_events) =
             room_event_cache.event_with_relations(&original_event_id, None).await.unwrap();
