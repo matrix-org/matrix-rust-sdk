@@ -30,7 +30,7 @@ use matrix_sdk::{
 use ruma::{events::AnySyncTimelineEvent, OwnedEventId, RoomVersionId};
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{trace, info_span, warn, Instrument, Span};
+use tracing::{info_span, trace, warn, Instrument, Span};
 
 use super::{
     controller::{TimelineController, TimelineSettings},
