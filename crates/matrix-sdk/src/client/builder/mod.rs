@@ -234,6 +234,22 @@ impl ClientBuilder {
         self
     }
 
+    /// Set up the store configuration for a SQLite store with a store config,
+    /// and with an optional cache data separated out from state/crypto data.
+    #[cfg(feature = "sqlite")]
+    pub fn sqlite_store_with_config_and_cache_path(
+        mut self,
+        config: SqliteStoreConfig,
+        cache_path: Option<impl AsRef<Path>>,
+    ) -> Self {
+        self.store_config = BuilderStoreConfig::Sqlite {
+            config,
+            cache_path: cache_path.map(|cache_path| cache_path.as_ref().to_owned()),
+        };
+
+        self
+    }
+
     /// Set up the store configuration for a IndexedDB store.
     #[cfg(feature = "indexeddb")]
     pub fn indexeddb_store(mut self, name: &str, passphrase: Option<&str>) -> Self {
