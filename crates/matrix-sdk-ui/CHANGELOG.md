@@ -17,8 +17,8 @@ All notable changes to this project will be documented in this file.
   [`Timeline::send_reply()`] now takes an event ID rather than a `RepliedToInfo`.
   `Timeline::replied_to_info_from_event_id` has been made private in `matrix_sdk`.
   ([4842](https://github.com/matrix-org/matrix-rust-sdk/pull/4842))
-- [**breaking**] Allow sending media as (thread) replies. The reply behaviour
-  can be configured through new fields on [`AttachmentConfig`].
+- Allow sending media as (thread) replies. The reply behaviour can be configured
+  through new fields on [`AttachmentConfig`].
   ([4852](https://github.com/matrix-org/matrix-rust-sdk/pull/4852))
 
 ### Refactor
