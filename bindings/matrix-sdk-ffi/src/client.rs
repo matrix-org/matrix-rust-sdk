@@ -467,7 +467,7 @@ impl Client {
         let sliding_sync_version = session.sliding_sync_version.clone();
         let auth_session: AuthSession = session.try_into()?;
 
-        self.restore_session_inner(auth_session).await?;
+        self.inner.restore_session(auth_session).await?;
         self.inner.set_sliding_sync_version(sliding_sync_version.try_into()?);
 
         Ok(())
@@ -531,15 +531,6 @@ impl Client {
 }
 
 impl Client {
-    /// Restores the client from an `AuthSession`.
-    pub(crate) async fn restore_session_inner(
-        &self,
-        session: impl Into<AuthSession>,
-    ) -> anyhow::Result<()> {
-        self.inner.restore_session(session).await?;
-        Ok(())
-    }
-
     /// Whether or not the client's homeserver supports the password login flow.
     pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.inner.matrix_auth().get_login_types().await?;
