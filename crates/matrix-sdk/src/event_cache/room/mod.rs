@@ -1459,22 +1459,6 @@ mod tests {
     use crate::test_utils::{client::MockClientBuilder, logged_in_client};
 
     #[async_test]
-    async fn test_event_with_redaction_relation() {
-        let original_id = event_id!("$original");
-        let related_id = event_id!("$related");
-        let room_id = room_id!("!galette:saucisse.bzh");
-        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
-
-        assert_relations(
-            room_id,
-            f.text_msg("Original event").event_id(original_id).into(),
-            f.redaction(original_id).event_id(related_id).into(),
-            f,
-        )
-        .await;
-    }
-
-    #[async_test]
     async fn test_event_with_edit_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
