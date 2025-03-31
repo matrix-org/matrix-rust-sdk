@@ -149,6 +149,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 pub(crate) struct BaseStateStore {
     pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
+    room_load_settings: Arc<RwLock<RoomLoadSettings>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     /// All rooms the store knows about.
@@ -164,6 +165,7 @@ impl BaseStateStore {
         Self {
             inner,
             session_meta: Default::default(),
+            room_load_settings: Default::default(),
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
             sync_lock: Default::default(),
@@ -175,7 +177,7 @@ impl BaseStateStore {
         &self.sync_lock
     }
 
-    /// Set the `SessionMeta` into [`BaseStateStore::session_meta`].
+    /// Set the [`SessionMeta`] into [`BaseStateStore::session_meta`].
     ///
     /// # Panics
     ///
@@ -184,12 +186,16 @@ impl BaseStateStore {
         self.session_meta.set(session_meta).expect("`SessionMeta` was already set");
     }
 
-    /// Loads rooms from the `StateStore` into [`BaseStateStore::rooms`].
+    /// Loads rooms from the given [`DynStateStore`] (in
+    /// [`BaseStateStore::new`]) into [`BaseStateStore::rooms`].
     pub(crate) async fn load_rooms(
         &self,
         user_id: &UserId,
+        room_load_settings: RoomLoadSettings,
         room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Result<()> {
+        *self.room_load_settings.write().await = room_load_settings;
+
         let room_infos = self.load_and_migrate_room_infos().await?;
 
         let mut rooms = self.rooms.write().unwrap();
@@ -260,7 +266,10 @@ impl BaseStateStore {
             return Ok(());
         };
 
-        self.load_rooms(&session_meta.user_id, room_info_notable_update_sender).await?;
+        let room_load_settings = other.room_load_settings.read().await.clone();
+
+        self.load_rooms(&session_meta.user_id, room_load_settings, room_info_notable_update_sender)
+            .await?;
         self.load_sync_token().await?;
         self.set_session_meta(session_meta.clone());
 
@@ -360,6 +369,57 @@ impl Deref for BaseStateStore {
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
+}
+
+/// Configure how many rooms will be restored when restoring the session with
+/// `BaseStateStore::load_rooms`.
+///
+/// <div class="warning">
+///
+/// # ⚠️ Be careful!
+///
+/// When loading a single room with [`RoomLoadSettings::One`], the in-memory
+/// state may not reflect the store state (in the databases). Thus, when one
+/// will get a room that exists in the store state but _not_ in the in-memory
+/// state, it will be created from scratch and, when saved, will override the
+/// data in the store state (in the databases). This can lead to weird
+/// behaviours.
+///
+/// This option is aimed for being used as follows:
+///
+/// 1. Create a `BaseStateStore` with a [`StateStore`] based on SQLite for
+///    example,
+/// 2. Restore a session and load one room from the [`StateStore`] (in the case
+///    of dealing with a notification for example),
+/// 3. Derive the `BaseStateStore`, with `BaseStateStore::derive_from_other`,
+///    into another one with an in-memory [`StateStore`], such as
+///    [`MemoryStore`],
+/// 4. Work on this derived `BaseStateStore`.
+///
+/// Now, all operations happen in the [`MemoryStore`], not on the original store
+/// (SQLite in this example), thus protecting original data.
+///
+/// From a higher-level point of view, this is what
+/// [`BaseClient::clone_with_in_memory_state_store`] does.
+///
+/// </div>
+///
+/// [`BaseClient::clone_with_in_memory_state_store`]: crate::BaseClient::clone_with_in_memory_state_store
+#[derive(Clone, Debug, Default)]
+pub enum RoomLoadSettings {
+    /// Load all rooms from the [`StateStore`] into the in-memory state store
+    /// `BaseStateStore`.
+    ///
+    /// This is the default variant.
+    #[default]
+    All,
+
+    /// Load a single room from the [`StateStore`] into the in-memory state
+    /// store `BaseStateStore`.
+    ///
+    /// Please, be careful with this option. Read the documentation of
+    /// [`RoomLoadSettings`].
+    One(OwnedRoomId),
 }
 
 /// Store state changes and pass them to the StateStore.

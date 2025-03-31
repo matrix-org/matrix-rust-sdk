@@ -249,7 +249,7 @@ mod tests {
 
     use anyhow::Context as _;
     use futures_util::future::join_all;
-    use matrix_sdk_base::SessionMeta;
+    use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
     use matrix_sdk_test::async_test;
     use ruma::{owned_device_id, owned_user_id};
 
@@ -293,7 +293,10 @@ mod tests {
         let session_hash = compute_session_hash(&tokens);
         client
             .oauth()
-            .restore_session(mock_session(tokens.clone(), "https://oauth.example.com/issuer"))
+            .restore_session(
+                mock_session(tokens.clone(), "https://oauth.example.com/issuer"),
+                RoomLoadSettings::default(),
+            )
             .await?;
 
         assert_eq!(client.session_tokens().unwrap(), tokens);
@@ -385,10 +388,10 @@ mod tests {
 
         // Restore the session.
         oauth
-            .restore_session(mock_session(
-                mock_prev_session_tokens_with_refresh(),
-                server.server().uri(),
-            ))
+            .restore_session(
+                mock_session(mock_prev_session_tokens_with_refresh(), server.server().uri()),
+                RoomLoadSettings::default(),
+            )
             .await?;
 
         // Immediately try to refresh the access token twice in parallel.
@@ -430,7 +433,12 @@ mod tests {
         let oauth = client.oauth();
         oauth.enable_cross_process_refresh_lock("client1".to_owned()).await?;
 
-        oauth.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
+        oauth
+            .restore_session(
+                mock_session(prev_tokens.clone(), issuer.clone()),
+                RoomLoadSettings::default(),
+            )
+            .await?;
 
         // Create a second client, without restoring it, to test that a token update
         // before restoration doesn't cause new issues.
@@ -446,7 +454,12 @@ mod tests {
 
             let oauth3 = client3.oauth();
             oauth3.enable_cross_process_refresh_lock("client3".to_owned()).await?;
-            oauth3.restore_session(mock_session(prev_tokens.clone(), issuer.clone())).await?;
+            oauth3
+                .restore_session(
+                    mock_session(prev_tokens.clone(), issuer.clone()),
+                    RoomLoadSettings::default(),
+                )
+                .await?;
 
             // Run a refresh in the second client; this will invalidate the tokens from the
             // first token.
@@ -478,7 +491,12 @@ mod tests {
                 Box::new(|_| panic!("save_session_callback shouldn't be called here")),
             )?;
 
-            oauth.restore_session(mock_session(prev_tokens.clone(), issuer)).await?;
+            oauth
+                .restore_session(
+                    mock_session(prev_tokens.clone(), issuer),
+                    RoomLoadSettings::default(),
+                )
+                .await?;
 
             // And this client is now aware of the latest tokens.
             let xp_manager =
@@ -554,7 +572,12 @@ mod tests {
 
         // Restore the session.
         let tokens = mock_session_tokens_with_refresh();
-        oauth.restore_session(mock_session(tokens.clone(), server.server().uri())).await?;
+        oauth
+            .restore_session(
+                mock_session(tokens.clone(), server.server().uri()),
+                RoomLoadSettings::default(),
+            )
+            .await?;
 
         oauth.logout().await.unwrap();
 

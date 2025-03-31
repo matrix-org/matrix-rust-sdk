@@ -9,6 +9,7 @@ use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::RequestConfig,
     executor::spawn,
+    store::RoomLoadSettings,
     test_utils::{
         client::mock_session_meta, logged_in_client_with_server, no_retry_test_client_with_server,
         test_client_builder_with_server,
@@ -181,7 +182,7 @@ async fn test_refresh_token() {
     let mut session_changes = client.subscribe_to_session_changes();
 
     let session = session();
-    auth.restore_session(session).await.unwrap();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 0);
     assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
@@ -242,7 +243,7 @@ async fn test_refresh_token_not_handled() {
     let auth = client.matrix_auth();
 
     let session = session();
-    auth.restore_session(session).await.unwrap();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -277,7 +278,7 @@ async fn test_refresh_token_handled_success() {
     let auth = client.matrix_auth();
 
     let session = session();
-    auth.restore_session(session).await.unwrap();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     let mut session_changes = client.subscribe_to_session_changes();
 
@@ -328,7 +329,7 @@ async fn test_refresh_token_handled_failure() {
     let auth = client.matrix_auth();
 
     let session = session();
-    auth.restore_session(session).await.unwrap();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     let mut session_changes = client.subscribe_to_session_changes();
 
@@ -386,7 +387,7 @@ async fn test_refresh_token_handled_multi_success() {
     let auth = client.matrix_auth();
 
     let session = session();
-    auth.restore_session(session).await.unwrap();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -459,7 +460,7 @@ async fn test_refresh_token_handled_multi_failure() {
     let auth = client.matrix_auth();
 
     let session = session();
-    auth.restore_session(session).await.unwrap();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -532,7 +533,7 @@ async fn test_refresh_token_handled_other_error() {
     let auth = client.matrix_auth();
 
     let session = session();
-    auth.restore_session(session).await.unwrap();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/refresh"))
@@ -581,7 +582,10 @@ async fn test_oauth_refresh_token_handled_success() {
     let oauth = client.oauth();
 
     oauth
-        .restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+        .restore_session(
+            mock_session(mock_prev_session_tokens_with_refresh(), issuer),
+            RoomLoadSettings::default(),
+        )
         .await
         .unwrap();
 
@@ -633,7 +637,10 @@ async fn test_oauth_refresh_token_handled_failure() {
     let oauth = client.oauth();
 
     oauth
-        .restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+        .restore_session(
+            mock_session(mock_prev_session_tokens_with_refresh(), issuer),
+            RoomLoadSettings::default(),
+        )
         .await
         .unwrap();
 
@@ -684,7 +691,10 @@ async fn test_oauth_handle_refresh_tokens() {
 
     let oauth = client.oauth();
     oauth
-        .restore_session(mock_session(mock_prev_session_tokens_with_refresh(), issuer))
+        .restore_session(
+            mock_session(mock_prev_session_tokens_with_refresh(), issuer),
+            RoomLoadSettings::default(),
+        )
         .await
         .unwrap();
 

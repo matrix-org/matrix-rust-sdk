@@ -78,8 +78,8 @@ use crate::{
     },
     store::{
         ambiguity_map::AmbiguityCache, BaseStateStore, DynStateStore, MemoryStore,
-        Result as StoreResult, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
-        StoreConfig,
+        Result as StoreResult, RoomLoadSettings, StateChanges, StateStoreDataKey,
+        StateStoreDataValue, StateStoreExt, StoreConfig,
     },
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
@@ -316,12 +316,16 @@ impl BaseClient {
     ///   useful if one wishes to create identity keys before knowing the
     ///   user/device IDs, e.g., to use the identity key as the device ID.
     ///
+    /// * `room_load_settings` — Specify how many rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
+    ///
     /// # Panics
     ///
     /// This method panics if it is called twice.
     pub async fn activate(
         &self,
         session_meta: SessionMeta,
+        room_load_settings: RoomLoadSettings,
         #[cfg(feature = "e2e-encryption")] custom_account: Option<
             crate::crypto::vodozemac::olm::Account,
         >,
@@ -329,7 +333,11 @@ impl BaseClient {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Activating the client");
 
         self.state_store
-            .load_rooms(&session_meta.user_id, &self.room_info_notable_update_sender)
+            .load_rooms(
+                &session_meta.user_id,
+                room_load_settings,
+                &self.room_info_notable_update_sender,
+            )
             .await?;
         self.state_store.load_sync_token().await?;
         self.state_store.set_session_meta(session_meta);
@@ -1916,7 +1924,7 @@ mod tests {
 
     use super::{BaseClient, RequestedRequiredStates};
     use crate::{
-        store::{StateStoreExt, StoreConfig},
+        store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
         RoomDisplayName, RoomState, SessionMeta,
     };
@@ -2267,6 +2275,7 @@ mod tests {
         client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )
@@ -2326,6 +2335,7 @@ mod tests {
         client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )
@@ -2387,6 +2397,7 @@ mod tests {
         client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )
@@ -2455,9 +2466,11 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let client =
             BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
+
         client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )

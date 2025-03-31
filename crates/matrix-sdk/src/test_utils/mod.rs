@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use assert_matches2::assert_let;
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::RoomLoadSettings};
 use ruma::{
     api::MatrixVersion,
     events::{room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -51,7 +51,11 @@ pub async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
 
 /// Restore the common (Matrix-auth) user session for a client.
 pub async fn set_client_session(client: &Client) {
-    client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
+    client
+        .matrix_auth()
+        .restore_session(mock_matrix_session(), RoomLoadSettings::default())
+        .await
+        .unwrap();
 }
 
 /// A [`Client`] using the given `homeserver_url` (or localhost:1234), that will

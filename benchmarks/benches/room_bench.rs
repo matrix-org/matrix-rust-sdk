@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk::{store::RoomLoadSettings, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::{
     store::StoreConfig, BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
 };
@@ -66,6 +66,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
                 user_id: user_id!("@somebody:example.com").to_owned(),
                 device_id: device_id!("DEVICE_ID").to_owned(),
             },
+            RoomLoadSettings::default(),
             None,
         ))
         .expect("Could not set session meta");

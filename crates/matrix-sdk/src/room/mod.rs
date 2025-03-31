@@ -3833,6 +3833,7 @@ mod tests {
     #[cfg(all(feature = "sqlite", feature = "e2e-encryption"))]
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
+        use matrix_sdk_base::store::RoomLoadSettings;
         use matrix_sdk_test::{message_like_event_content, DEFAULT_TEST_ROOM_ID};
 
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
@@ -3845,7 +3846,11 @@ mod tests {
             .build()
             .await
             .unwrap();
-        client.matrix_auth().restore_session(session.clone()).await.unwrap();
+        client
+            .matrix_auth()
+            .restore_session(session.clone(), RoomLoadSettings::default())
+            .await
+            .unwrap();
 
         client.encryption().enable_cross_process_store_lock("client1".to_owned()).await.unwrap();
 
@@ -3887,7 +3892,11 @@ mod tests {
                 .build()
                 .await
                 .unwrap();
-            client.matrix_auth().restore_session(session.clone()).await.unwrap();
+            client
+                .matrix_auth()
+                .restore_session(session.clone(), RoomLoadSettings::default())
+                .await
+                .unwrap();
             client
                 .encryption()
                 .enable_cross_process_store_lock("client2".to_owned())
