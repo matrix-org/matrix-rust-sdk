@@ -34,6 +34,7 @@ use matrix_sdk::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
+    store::RoomLoadSettings as SdkRoomLoadSettings,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::{
@@ -463,11 +464,34 @@ impl Client {
     }
 
     /// Restores the client from a `Session`.
+    ///
+    /// It reloads the entire set of rooms from the previous session.
+    ///
+    /// If you want to control the amount of rooms to reloads, check
+    /// [`Client::restore_session_with`].
     pub async fn restore_session(&self, session: Session) -> Result<(), ClientError> {
+        self.restore_session_with(session, RoomLoadSettings::All).await
+    }
+
+    /// Restores the client from a `Session`.
+    ///
+    /// It reloads a set of rooms controlled by [`RoomLoadSettings`].
+    pub async fn restore_session_with(
+        &self,
+        session: Session,
+        room_load_settings: RoomLoadSettings,
+    ) -> Result<(), ClientError> {
         let sliding_sync_version = session.sliding_sync_version.clone();
         let auth_session: AuthSession = session.try_into()?;
 
-        self.inner.restore_session(auth_session).await?;
+        self.inner
+            .restore_session_with(
+                auth_session,
+                room_load_settings
+                    .try_into()
+                    .map_err(|error| ClientError::Generic { msg: error })?,
+            )
+            .await?;
         self.inner.set_sliding_sync_version(sliding_sync_version.try_into()?);
 
         Ok(())
@@ -1315,6 +1339,38 @@ impl Client {
         let session = Self::session_inner(client)?;
         session_delegate.save_session_in_keychain(session);
         Ok(())
+    }
+}
+
+/// Configure how many rooms will be restored when restoring the session with
+/// [`Client::restore_session_with`].
+///
+/// Please, see the documentation of [`matrix_sdk::store::RoomLoadSettings`] to
+/// learn more.
+#[derive(uniffi::Enum)]
+pub enum RoomLoadSettings {
+    /// Load all rooms from the `StateStore` into the in-memory state store
+    /// `BaseStateStore`.
+    All,
+
+    /// Load a single room from the `StateStore` into the in-memory state
+    /// store `BaseStateStore`.
+    ///
+    /// Please, be careful with this option. Read the documentation of
+    /// [`RoomLoadSettings`].
+    One { room_id: String },
+}
+
+impl TryInto<SdkRoomLoadSettings> for RoomLoadSettings {
+    type Error = String;
+
+    fn try_into(self) -> Result<SdkRoomLoadSettings, Self::Error> {
+        Ok(match self {
+            Self::All => SdkRoomLoadSettings::All,
+            Self::One { room_id } => {
+                SdkRoomLoadSettings::One(RoomId::parse(room_id).map_err(|error| error.to_string())?)
+            }
+        })
     }
 }
 
