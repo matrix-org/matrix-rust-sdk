@@ -2256,6 +2256,8 @@ impl Room {
             content = content.add_mentions(mentions);
         }
         if let (Some(replied_to_info), Some(enforce_thread)) = (replied_to_info, enforce_thread) {
+            // Since we just created the event, there is no relation attached to it. Thus,
+            // it is safe to add the reply relation without overriding anything.
             content =
                 self.make_reply_event_with_info(content.into(), replied_to_info, enforce_thread);
         }
