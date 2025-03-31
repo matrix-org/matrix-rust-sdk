@@ -255,9 +255,9 @@ impl From<ClientError> for ClientBuildError {
 #[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
     session_paths: Option<SessionPaths>,
+    session_passphrase: Zeroizing<Option<String>>,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
-    passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
     proxy: Option<String>,
@@ -286,7 +286,7 @@ impl ClientBuilder {
             session_paths: None,
             username: None,
             homeserver_cfg: None,
-            passphrase: Zeroizing::new(None),
+            session_passphrase: Zeroizing::new(None),
             user_agent: None,
             sliding_sync_version_builder: SlidingSyncVersionBuilder::None,
             proxy: None,
@@ -363,6 +363,14 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set the passphrase for the stores given to
+    /// [`ClientBuilder::session_paths`].
+    pub fn session_passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.session_passphrase = Zeroizing::new(passphrase);
+        Arc::new(builder)
+    }
+
     pub fn username(self: Arc<Self>, username: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.username = Some(username);
@@ -384,12 +392,6 @@ impl ClientBuilder {
     pub fn server_name_or_homeserver_url(self: Arc<Self>, server_name_or_url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_cfg = Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url));
-        Arc::new(builder)
-    }
-
-    pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.passphrase = Zeroizing::new(passphrase);
         Arc::new(builder)
     }
 
@@ -524,7 +526,7 @@ impl ClientBuilder {
             inner_builder = inner_builder.sqlite_store_with_cache_path(
                 data_path,
                 cache_path,
-                builder.passphrase.as_deref(),
+                builder.session_passphrase.as_deref(),
             );
         } else {
             debug!("Not using a store path.");
@@ -712,8 +714,8 @@ impl ClientBuilder {
     }
 }
 
-#[derive(Clone)]
 /// The store paths the client will use when built.
+#[derive(Clone)]
 struct SessionPaths {
     /// The path that the client will use to store its data.
     data_path: String,
