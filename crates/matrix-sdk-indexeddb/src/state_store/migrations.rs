@@ -801,9 +801,10 @@ mod tests {
     use assert_matches2::assert_let;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_base::{
-        deserialized_responses::RawMemberEvent, store::StateStoreExt,
-        sync::UnreadNotificationsCount, RoomMemberships, RoomState, StateStore, StateStoreDataKey,
-        StoreError,
+        deserialized_responses::RawMemberEvent,
+        store::{RoomLoadSettings, StateStoreExt},
+        sync::UnreadNotificationsCount,
+        RoomMemberships, RoomState, StateStore, StateStoreDataKey, StoreError,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -1480,7 +1481,7 @@ mod tests {
         // this transparently migrates to the latest version
         let store = IndexeddbStateStore::builder().name(name).build().await?;
 
-        assert_eq!(store.get_room_infos().await.unwrap().len(), 2);
+        assert_eq!(store.get_room_infos(&RoomLoadSettings::default()).await.unwrap().len(), 2);
 
         Ok(())
     }
@@ -1586,7 +1587,7 @@ mod tests {
         let store = IndexeddbStateStore::builder().name(name).build().await?;
 
         // Check all room infos are there.
-        let room_infos = store.get_room_infos().await?;
+        let room_infos = store.get_room_infos(&RoomLoadSettings::default()).await?;
         assert_eq!(room_infos.len(), 3);
 
         let room_a = room_infos.iter().find(|r| r.room_id() == room_a_id).unwrap();

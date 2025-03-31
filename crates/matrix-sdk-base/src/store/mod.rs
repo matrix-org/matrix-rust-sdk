@@ -194,9 +194,9 @@ impl BaseStateStore {
         room_load_settings: RoomLoadSettings,
         room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Result<()> {
-        *self.room_load_settings.write().await = room_load_settings;
+        *self.room_load_settings.write().await = room_load_settings.clone();
 
-        let room_infos = self.load_and_migrate_room_infos().await?;
+        let room_infos = self.load_and_migrate_room_infos(room_load_settings).await?;
 
         let mut rooms = self.rooms.write().unwrap();
 
@@ -217,8 +217,11 @@ impl BaseStateStore {
 
     /// Load room infos from the [`StateStore`] and applies migrations onto
     /// them.
-    async fn load_and_migrate_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        let mut room_infos = self.inner.get_room_infos().await?;
+    async fn load_and_migrate_room_infos(
+        &self,
+        room_load_settings: RoomLoadSettings,
+    ) -> Result<Vec<RoomInfo>> {
+        let mut room_infos = self.inner.get_room_infos(&room_load_settings).await?;
         let mut migrated_room_infos = Vec::with_capacity(room_infos.len());
 
         for room_info in room_infos.iter_mut() {
@@ -385,7 +388,7 @@ impl Deref for BaseStateStore {
 /// data in the store state (in the databases). This can lead to weird
 /// behaviours.
 ///
-/// This option is aimed for being used as follows:
+/// This option is expected to be used as follows:
 ///
 /// 1. Create a `BaseStateStore` with a [`StateStore`] based on SQLite for
 ///    example,

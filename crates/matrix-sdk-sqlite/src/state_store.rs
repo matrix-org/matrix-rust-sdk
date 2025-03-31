@@ -13,7 +13,7 @@ use matrix_sdk_base::{
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
         DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentRequestKey,
+        RoomLoadSettings, SentRequestKey,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -797,12 +797,22 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         Ok(())
     }
 
-    async fn get_room_infos(&self) -> Result<Vec<Vec<u8>>> {
-        Ok(self
-            .prepare("SELECT data FROM room_info", move |mut stmt| {
-                stmt.query_map((), |row| row.get(0))?.collect()
-            })
-            .await?)
+    async fn get_room_infos(&self, room_id: Option<Key>) -> Result<Vec<Vec<u8>>> {
+        Ok(match room_id {
+            None => {
+                self.prepare("SELECT data FROM room_info", move |mut stmt| {
+                    stmt.query_map((), |row| row.get(0))?.collect()
+                })
+                .await?
+            }
+
+            Some(room_id) => {
+                self.prepare("SELECT data FROM room_info WHERE room_id = ?", move |mut stmt| {
+                    stmt.query((room_id,))?.mapped(|row| row.get(0)).collect()
+                })
+                .await?
+            }
+        })
     }
 
     async fn get_maybe_stripped_state_events_for_keys(
@@ -1557,10 +1567,13 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    async fn get_room_infos(&self, room_load_settings: &RoomLoadSettings) -> Result<Vec<RoomInfo>> {
         self.acquire()
             .await?
-            .get_room_infos()
+            .get_room_infos(match room_load_settings {
+                RoomLoadSettings::All => None,
+                RoomLoadSettings::One(room_id) => Some(self.encode_key(keys::ROOM_INFO, room_id)),
+            })
             .await?
             .into_iter()
             .map(|data| self.deserialize_json(&data))
@@ -2226,7 +2239,10 @@ mod migration_tests {
 
     use deadpool_sqlite::Runtime;
     use matrix_sdk_base::{
-        store::{ChildTransactionId, DependentQueuedRequestKind, SerializableEventContent},
+        store::{
+            ChildTransactionId, DependentQueuedRequestKind, RoomLoadSettings,
+            SerializableEventContent,
+        },
         sync::UnreadNotificationsCount,
         RoomState, StateStore,
     };
@@ -2359,7 +2375,7 @@ mod migration_tests {
         let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
 
         // Check all room infos are there.
-        assert_eq!(store.get_room_infos().await.unwrap().len(), 5);
+        assert_eq!(store.get_room_infos(&RoomLoadSettings::default()).await.unwrap().len(), 5);
     }
 
     // Add a room in version 2 format of the state store.
@@ -2477,7 +2493,7 @@ mod migration_tests {
         let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
 
         // Check all room infos are there.
-        let room_infos = store.get_room_infos().await.unwrap();
+        let room_infos = store.get_room_infos(&RoomLoadSettings::default()).await.unwrap();
         assert_eq!(room_infos.len(), 3);
 
         let room_a = room_infos.iter().find(|r| r.room_id() == room_a_id).unwrap();
