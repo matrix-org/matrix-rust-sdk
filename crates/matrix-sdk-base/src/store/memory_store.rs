@@ -39,7 +39,7 @@ use super::{
     send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
     traits::{ComposerDraft, ServerCapabilities},
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
-    StateChanges, StateStore, StoreError,
+    RoomLoadSettings, StateChanges, StateStore, StoreError,
 };
 use crate::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
@@ -635,8 +635,18 @@ impl StateStore for MemoryStore {
         Ok(get_user_ids_inner(&inner.members, room_id, memberships))
     }
 
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        Ok(self.inner.read().unwrap().room_info.values().cloned().collect())
+    async fn get_room_infos(&self, room_load_settings: &RoomLoadSettings) -> Result<Vec<RoomInfo>> {
+        let memory_store_inner = self.inner.read().unwrap();
+        let room_infos = &memory_store_inner.room_info;
+
+        Ok(match room_load_settings {
+            RoomLoadSettings::All => room_infos.values().cloned().collect(),
+
+            RoomLoadSettings::One(room_id) => match room_infos.get(room_id) {
+                Some(room_info) => vec![room_info.clone()],
+                None => vec![],
+            },
+        })
     }
 
     async fn get_users_with_display_name(
