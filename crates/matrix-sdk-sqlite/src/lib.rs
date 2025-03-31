@@ -81,6 +81,15 @@ impl SqliteStoreConfig {
         }
     }
 
+    /// Override the path.
+    pub fn path<P>(mut self, path: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        self.path = path.as_ref().to_path_buf();
+        self
+    }
+
     /// Define the passphrase if the store is encoded.
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
         self.passphrase = passphrase.map(|passphrase| passphrase.to_owned());
@@ -190,19 +199,26 @@ mod tests {
     use super::SqliteStoreConfig;
 
     #[test]
-    fn test_store_open_config() {
-        let store_open_config = SqliteStoreConfig::new(Path::new("foo"))
+    fn test_store_config() {
+        let store_config = SqliteStoreConfig::new(Path::new("foo"))
             .passphrase(Some("bar"))
             .pool_max_size(42)
             .optimize(false)
             .cache_size(43)
             .journal_size_limit(44);
 
-        assert_eq!(store_open_config.path, PathBuf::from("foo"));
-        assert_eq!(store_open_config.passphrase, Some("bar".to_owned()));
-        assert_eq!(store_open_config.pool_config.max_size, 42);
-        assert!(store_open_config.runtime_config.optimize.not());
-        assert_eq!(store_open_config.runtime_config.cache_size, 43);
-        assert_eq!(store_open_config.runtime_config.journal_size_limit, 44);
+        assert_eq!(store_config.path, PathBuf::from("foo"));
+        assert_eq!(store_config.passphrase, Some("bar".to_owned()));
+        assert_eq!(store_config.pool_config.max_size, 42);
+        assert!(store_config.runtime_config.optimize.not());
+        assert_eq!(store_config.runtime_config.cache_size, 43);
+        assert_eq!(store_config.runtime_config.journal_size_limit, 44);
+    }
+
+    #[test]
+    fn test_store_config_path() {
+        let store_config = SqliteStoreConfig::new(Path::new("foo")).path(Path::new("bar"));
+
+        assert_eq!(store_config.path, PathBuf::from("bar"));
     }
 }
