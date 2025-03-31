@@ -24,7 +24,10 @@ mod event_cache_store;
 #[cfg(feature = "state-store")]
 mod state_store;
 mod utils;
-use std::path::{Path, PathBuf};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use deadpool_sqlite::PoolConfig;
 
@@ -40,6 +43,7 @@ pub use self::state_store::SqliteStateStore;
 matrix_sdk_test::init_tracing_for_tests!();
 
 /// A configuration structure used for opening a store.
+#[derive(Clone)]
 pub struct SqliteStoreConfig {
     /// Path to the database, without the file name.
     path: PathBuf,
@@ -49,6 +53,17 @@ pub struct SqliteStoreConfig {
     pool_config: PoolConfig,
     /// The runtime configuration to apply when opening an SQLite connection.
     runtime_config: RuntimeConfig,
+}
+
+impl fmt::Debug for SqliteStoreConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SqliteStoreConfig")
+            .field("path", &self.path)
+            .field("pool_config", &self.pool_config)
+            .field("runtime_config", &self.runtime_config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SqliteStoreConfig {
@@ -137,6 +152,7 @@ impl SqliteStoreConfig {
 ///
 /// This configuration is applied by
 /// [`utils::SqliteAsyncConnExt::apply_runtime_config`].
+#[derive(Clone, Debug)]
 struct RuntimeConfig {
     /// If `true`, [`utils::SqliteAsyncConnExt::optimize`] will be called.
     optimize: bool,
