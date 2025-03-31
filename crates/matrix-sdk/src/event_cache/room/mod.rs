@@ -607,7 +607,10 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 
 // Use a private module to hide `events` to this parent module.
 mod private {
-    use std::sync::{atomic::AtomicUsize, Arc};
+    use std::{
+        collections::HashSet,
+        sync::{atomic::AtomicUsize, Arc},
+    };
 
     use eyeball::SharedObservable;
     use eyeball_im::VectorDiff;
@@ -1222,7 +1225,49 @@ mod private {
 
             let store = store.lock().await?;
 
-            Ok(store.find_event_with_relations(&self.room, event_id, filters).await?)
+            // First, hit storage to get the target event and its related events.
+            let found =
+                store.find_event_with_relations(&self.room, event_id, filters.clone()).await?;
+
+            let Some((target, mut related)) = found else {
+                // We haven't found the event: return early.
+                return Ok(None);
+            };
+
+            // Then, initialize the stack with all the related events, to find the
+            // transitive closure of all the related events.
+            let mut stack = related.iter().filter_map(|event| event.event_id()).collect::<Vec<_>>();
+
+            // Also keep track of already seen events, in case there's a loop in the
+            // relation graph.
+            let mut already_seen = HashSet::new();
+            already_seen.insert(event_id.to_owned());
+
+            let mut num_iters = 1;
+
+            // Find the related event for each previously-related event.
+            while let Some(event_id) = stack.pop() {
+                if !already_seen.insert(event_id.clone()) {
+                    // Skip events we've already seen.
+                    continue;
+                }
+
+                let Some((_, other_related)) =
+                    store.find_event_with_relations(&self.room, &event_id, filters.clone()).await?
+                else {
+                    // Related event wasn't stored in the database: skip it.
+                    continue;
+                };
+
+                stack.extend(other_related.iter().filter_map(|event| event.event_id()));
+                related.extend(other_related);
+
+                num_iters += 1;
+            }
+
+            trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
+
+            Ok(Some((target, related)))
         }
 
         /// Gives a temporary mutable handle to the underlying in-memory events,
@@ -1550,7 +1595,7 @@ mod tests {
             .event_id(related_id)
             .into();
         let associated_related_event =
-            event_factory.redaction(related_id).event_id(associated_related_id).into();
+            event_factory.reaction(related_id, "🤡").event_id(associated_related_id).into();
 
         let client = logged_in_client(None).await;
 
@@ -1579,13 +1624,11 @@ mod tests {
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
 
-        // There are both the related id and the associatively related id
-        assert_eq!(related_events.len(), 2);
+        // There's only the edit event (an edit event can't have its own edit event).
+        assert_eq!(related_events.len(), 1);
 
         let related_event_id = related_events[0].event_id().unwrap();
         assert_eq!(related_event_id, related_id);
-        let related_event_id = related_events[1].event_id().unwrap();
-        assert_eq!(related_event_id, associated_related_id);
 
         // Now we'll filter threads instead, there should be no related events
         let filter = Some(vec![RelationType::Thread]);
@@ -1613,12 +1656,13 @@ mod tests {
             .event_id(related_id)
             .into();
         let associated_related_event =
-            event_factory.redaction(related_id).event_id(associated_related_id).into();
+            event_factory.reaction(related_id, "👍").event_id(associated_related_id).into();
 
         let client = logged_in_client(None).await;
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
 
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -2292,7 +2336,6 @@ mod tests {
         assert_eq!(cached_event_id, original_event_id);
 
         // There is only the actually related event in the related ones
-        assert_eq!(related_events.len(), 1);
         let related_event_id = related_events[0].event_id().unwrap();
         assert_eq!(related_event_id, related_id);
     }
