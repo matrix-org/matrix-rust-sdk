@@ -94,6 +94,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_update_send_queue_dependent(&self);
     /// Test saving/restoring server capabilities.
     async fn test_server_capabilities_saving(&self);
+    /// Test fetching room infos based on [`RoomLoadSettings`].
+    async fn test_get_room_infos(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -1691,6 +1693,54 @@ impl StateStoreIntegrationTests for DynStateStore {
             }
         );
     }
+
+    async fn test_get_room_infos(&self) {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+        let room_id_2 = room_id!("!r2");
+
+        // There is no room for the moment.
+        {
+            assert_eq!(self.get_room_infos(&RoomLoadSettings::default()).await.unwrap().len(), 0);
+        }
+
+        // Save rooms.
+        let mut changes = StateChanges::default();
+        changes.add_room(RoomInfo::new(room_id_0, RoomState::Joined));
+        changes.add_room(RoomInfo::new(room_id_1, RoomState::Joined));
+        self.save_changes(&changes).await.unwrap();
+
+        // We can find all the rooms with `RoomLoadSettings::All`.
+        {
+            let mut all_rooms = self.get_room_infos(&RoomLoadSettings::All).await.unwrap();
+
+            // (We need to sort by `room_id` so that the test is stable across all
+            // `StateStore` implementations).
+            all_rooms.sort_by(|a, b| a.room_id.cmp(&b.room_id));
+
+            assert_eq!(all_rooms.len(), 2);
+            assert_eq!(all_rooms[0].room_id, room_id_0);
+            assert_eq!(all_rooms[1].room_id, room_id_1);
+        }
+
+        // We can find a single room with `RoomLoadSettings::One`.
+        {
+            let all_rooms =
+                self.get_room_infos(&RoomLoadSettings::One(room_id_1.to_owned())).await.unwrap();
+
+            assert_eq!(all_rooms.len(), 1);
+            assert_eq!(all_rooms[0].room_id, room_id_1);
+        }
+
+        // `RoomLoadSetting::One` can result in loading zero room if the room is
+        // unknown.
+        {
+            let all_rooms =
+                self.get_room_infos(&RoomLoadSettings::One(room_id_2.to_owned())).await.unwrap();
+
+            assert_eq!(all_rooms.len(), 0);
+        }
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1854,6 +1904,12 @@ macro_rules! statestore_integration_tests {
             async fn test_update_send_queue_dependent() {
                 let store = get_store().await.expect("creating store failed").into_state_store();
                 store.test_update_send_queue_dependent().await;
+            }
+
+            #[async_test]
+            async fn test_get_room_infos() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_get_room_infos().await;
             }
         }
     };
