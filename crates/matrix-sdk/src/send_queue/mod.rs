@@ -522,7 +522,7 @@ impl RoomSendQueue {
         global_error_reporter: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
     ) {
-        info!("spawned the sending task");
+        trace!("spawned the sending task");
 
         loop {
             // A request to shut down should be preferred above everything else.

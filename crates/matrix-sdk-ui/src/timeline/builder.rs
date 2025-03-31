@@ -30,7 +30,7 @@ use matrix_sdk::{
 use ruma::{events::AnySyncTimelineEvent, OwnedEventId, RoomVersionId};
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{info, info_span, trace, warn, Instrument, Span};
+use tracing::{info_span, trace, warn, Instrument, Span};
 
 use super::{
     controller::{TimelineController, TimelineSettings},
@@ -423,7 +423,7 @@ async fn room_send_queue_update_task(
     mut send_queue_stream: Receiver<RoomSendQueueUpdate>,
     timeline_controller: TimelineController,
 ) {
-    info!("spawned the local echo task!");
+    trace!("spawned the local echo task!");
 
     loop {
         match send_queue_stream.recv().await {
@@ -434,7 +434,7 @@ async fn room_send_queue_update_task(
             }
 
             Err(RecvError::Closed) => {
-                info!("channel closed, exiting the local echo handler");
+                trace!("channel closed, exiting the local echo handler");
                 break;
             }
         }
