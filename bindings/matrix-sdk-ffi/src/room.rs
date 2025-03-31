@@ -14,7 +14,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
 use mime::Mime;
 use ruma::{
-    api::client::room::{report_content, report_room},
+    api::client::room::report_content,
     assign,
     events::{
         call::notify,
@@ -409,10 +409,7 @@ impl Room {
     ///
     /// Returns an error if the room is not found or on rate limit
     pub async fn report_room(&self, reason: Option<String>) -> Result<(), ClientError> {
-        let mut request = report_room::v3::Request::new(self.inner.room_id().into());
-        request.reason = reason;
-
-        self.inner.client().send(request).await?;
+        self.inner.report_room(reason).await?;
         Ok(())
     }
 

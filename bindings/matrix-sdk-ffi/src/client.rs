@@ -1206,6 +1206,33 @@ impl Client {
 
         Ok(closure().await?)
     }
+
+    /// Reports a room as inappropriate to the server.
+    /// The caller is not required to be joined to the room to report it.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room to report.
+    /// * `reason` - The reason the room is being reported.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not found or on rate limit
+    pub async fn report_room(
+        &self,
+        room_id: String,
+        reason: Option<String>,
+    ) -> Result<(), ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        if let Some(room) = self.inner.get_room(&room_id) {
+            room.report_room(reason).await?;
+        } else {
+            return Err(ClientError::Generic {
+                msg: format!("Room with identifier {} not found", room_id),
+            });
+        }
+        Ok(())
+    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
