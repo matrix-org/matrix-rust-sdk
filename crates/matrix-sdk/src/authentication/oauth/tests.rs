@@ -1,6 +1,7 @@
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
+use matrix_sdk_base::store::RoomLoadSettings;
 use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl};
 use ruma::{
@@ -525,7 +526,7 @@ async fn test_oauth_session() -> anyhow::Result<()> {
     let tokens = mock_session_tokens_with_refresh();
     let issuer = "https://oauth.example.com/issuer";
     let session = mock_session(tokens.clone(), issuer);
-    oauth.restore_session(session.clone()).await?;
+    oauth.restore_session(session.clone(), RoomLoadSettings::default()).await?;
 
     // Test a few extra getters.
     assert_eq!(client.session_tokens().unwrap(), tokens);
@@ -574,7 +575,12 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
         let oauth = client.oauth();
 
         // Restore the previous session so we have an existing set of refresh tokens.
-        oauth.restore_session(mock_session(prev_tokens.clone(), &server_url)).await?;
+        oauth
+            .restore_session(
+                mock_session(prev_tokens.clone(), &server_url),
+                RoomLoadSettings::default(),
+            )
+            .await?;
 
         let mut session_changes = client.subscribe_to_session_changes();
 

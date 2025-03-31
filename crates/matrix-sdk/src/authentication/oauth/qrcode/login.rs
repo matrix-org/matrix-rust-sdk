@@ -19,6 +19,7 @@ use futures_core::Stream;
 use matrix_sdk_base::{
     boxed_into_future,
     crypto::types::qr_login::{QrCodeData, QrCodeMode},
+    store::RoomLoadSettings,
     SessionMeta,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
@@ -205,6 +206,7 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
                         user_id: whoami_response.user_id,
                         device_id: OwnedDeviceId::from(device_id.to_base64()),
                     },
+                    RoomLoadSettings::default(),
                     Some(account),
                 )
                 .await

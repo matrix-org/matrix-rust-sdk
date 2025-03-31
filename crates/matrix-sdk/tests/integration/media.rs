@@ -1,6 +1,7 @@
 use matrix_sdk::{
     config::RequestConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    store::RoomLoadSettings,
     test_utils::{client::mock_matrix_session, logged_in_client_with_server},
     Client,
 };
@@ -215,7 +216,11 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
         .unwrap();
 
     // Restore session.
-    client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
+    client
+        .matrix_auth()
+        .restore_session(mock_matrix_session(), RoomLoadSettings::default())
+        .await
+        .unwrap();
 
     // Build event content.
     let event_content = ImageMessageEventContent::plain(
@@ -320,7 +325,11 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
         .unwrap();
 
     // Restore session.
-    client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
+    client
+        .matrix_auth()
+        .restore_session(mock_matrix_session(), RoomLoadSettings::default())
+        .await
+        .unwrap();
 
     // Build event content.
     let event_content = ImageMessageEventContent::plain(

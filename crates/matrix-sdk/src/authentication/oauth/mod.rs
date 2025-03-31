@@ -143,7 +143,7 @@ use error::{
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::once_cell::sync::OnceCell;
-use matrix_sdk_base::SessionMeta;
+use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
 use oauth2::{
     basic::BasicClient as OAuthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
     RevocationUrl, Scope, StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
@@ -795,11 +795,17 @@ impl OAuth {
     /// # Arguments
     ///
     /// * `session` - The session to restore.
+    /// * `room_load_settings` — Specify how many rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
     ///
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub async fn restore_session(&self, session: OAuthSession) -> Result<()> {
+    pub async fn restore_session(
+        &self,
+        session: OAuthSession,
+        room_load_settings: RoomLoadSettings,
+    ) -> Result<()> {
         let OAuthSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
 
         let data = OAuthAuthData { issuer, client_id, authorization_data: Default::default() };
@@ -809,6 +815,7 @@ impl OAuth {
             .base_client()
             .activate(
                 meta,
+                room_load_settings,
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )
@@ -1048,6 +1055,7 @@ impl OAuth {
                 .base_client()
                 .activate(
                     new_session,
+                    RoomLoadSettings::default(),
                     #[cfg(feature = "e2e-encryption")]
                     None,
                 )

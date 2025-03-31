@@ -31,7 +31,7 @@ use futures_util::StreamExt;
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLock,
-    store::{DynStateStore, ServerCapabilities},
+    store::{DynStateStore, RoomLoadSettings, ServerCapabilities},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
@@ -1261,8 +1261,20 @@ impl Client {
         }
     }
 
+    /// Similar to [`Client::restore_session_with`], with
+    /// [`RoomLoadSettings::default()`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if a session was already restored or logged in.
+    #[instrument(skip_all)]
+    pub async fn restore_session(&self, session: impl Into<AuthSession>) -> Result<()> {
+        self.restore_session_with(session, RoomLoadSettings::default()).await
+    }
+
     /// Restore a session previously logged-in using one of the available
-    /// authentication APIs.
+    /// authentication APIs. The number of rooms to restore is controlled by
+    /// [`RoomLoadSettings`].
     ///
     /// See the documentation of the corresponding authentication API's
     /// `restore_session` method for more information.
@@ -1271,11 +1283,19 @@ impl Client {
     ///
     /// Panics if a session was already restored or logged in.
     #[instrument(skip_all)]
-    pub async fn restore_session(&self, session: impl Into<AuthSession>) -> Result<()> {
+    pub async fn restore_session_with(
+        &self,
+        session: impl Into<AuthSession>,
+        room_load_settings: RoomLoadSettings,
+    ) -> Result<()> {
         let session = session.into();
         match session {
-            AuthSession::Matrix(s) => Box::pin(self.matrix_auth().restore_session(s)).await,
-            AuthSession::OAuth(s) => Box::pin(self.oauth().restore_session(*s)).await,
+            AuthSession::Matrix(session) => {
+                Box::pin(self.matrix_auth().restore_session(session, room_load_settings)).await
+            }
+            AuthSession::OAuth(session) => {
+                Box::pin(self.oauth().restore_session(*session, room_load_settings)).await
+            }
         }
     }
 

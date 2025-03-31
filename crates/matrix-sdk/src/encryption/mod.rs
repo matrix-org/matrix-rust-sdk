@@ -1898,6 +1898,8 @@ mod tests {
     #[async_test]
     async fn test_generation_counter_invalidates_olm_machine() {
         // Create two clients using the same sqlite database.
+
+        use matrix_sdk_base::store::RoomLoadSettings;
         let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
         let session = mock_matrix_session();
 
@@ -1908,7 +1910,11 @@ mod tests {
             .build()
             .await
             .unwrap();
-        client1.matrix_auth().restore_session(session.clone()).await.unwrap();
+        client1
+            .matrix_auth()
+            .restore_session(session.clone(), RoomLoadSettings::default())
+            .await
+            .unwrap();
 
         let client2 = Client::builder()
             .homeserver_url("http://localhost:1234")
@@ -1917,7 +1923,7 @@ mod tests {
             .build()
             .await
             .unwrap();
-        client2.matrix_auth().restore_session(session).await.unwrap();
+        client2.matrix_auth().restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
         // When the lock isn't enabled, any attempt at locking won't return a guard.
         let guard = client1.encryption().try_lock_store_once().await.unwrap();
@@ -1999,6 +2005,8 @@ mod tests {
     #[async_test]
     async fn test_generation_counter_no_spurious_invalidation() {
         // Create two clients using the same sqlite database.
+
+        use matrix_sdk_base::store::RoomLoadSettings;
         let sqlite_path =
             std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
         let session = mock_matrix_session();
@@ -2010,7 +2018,11 @@ mod tests {
             .build()
             .await
             .unwrap();
-        client.matrix_auth().restore_session(session.clone()).await.unwrap();
+        client
+            .matrix_auth()
+            .restore_session(session.clone(), RoomLoadSettings::default())
+            .await
+            .unwrap();
 
         let initial_olm_machine = client.olm_machine().await.as_ref().unwrap().clone();
 
@@ -2029,7 +2041,11 @@ mod tests {
                 .build()
                 .await
                 .unwrap();
-            client2.matrix_auth().restore_session(session).await.unwrap();
+            client2
+                .matrix_auth()
+                .restore_session(session, RoomLoadSettings::default())
+                .await
+                .unwrap();
 
             client2
                 .encryption()
