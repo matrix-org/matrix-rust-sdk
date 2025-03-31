@@ -1839,6 +1839,10 @@ pub enum RoomSendQueueError {
     /// Error coming from storage.
     #[error(transparent)]
     StorageError(#[from] RoomSendQueueStorageError),
+
+    /// The attachment event failed to be created.
+    #[error("the attachment event could not be created")]
+    AttachmentError,
 }
 
 /// An error triggered by the send queue storage.

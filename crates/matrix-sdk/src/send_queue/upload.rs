@@ -183,20 +183,22 @@ impl RoomSendQueue {
         };
 
         // Create the content for the media event.
-        let event_content = room.make_attachment_event(
-            room.make_attachment_type(
-                &content_type,
-                filename,
-                file_media_request.source.clone(),
-                config.caption,
-                config.formatted_caption,
-                config.info,
-                event_thumbnail_info,
-            ),
-            config.mentions,
-            config.replied_to_info,
-            config.enforce_thread,
-        );
+        let event_content = room
+            .make_attachment_event(
+                room.make_attachment_type(
+                    &content_type,
+                    filename,
+                    file_media_request.source.clone(),
+                    config.caption,
+                    config.formatted_caption,
+                    config.info,
+                    event_thumbnail_info,
+                ),
+                config.mentions,
+                config.reply,
+            )
+            .await
+            .map_err(|_| RoomSendQueueError::AttachmentError)?;
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
 

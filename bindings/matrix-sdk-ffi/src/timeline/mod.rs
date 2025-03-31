@@ -23,7 +23,7 @@ use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseVideoInfo, Thumbnail,
+        BaseVideoInfo, Reply, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
@@ -116,16 +116,9 @@ impl Timeline {
             params.formatted_caption.map(Into::into),
         );
 
-        let (replied_to_info, enforce_thread) = if let Some(reply_params) = params.reply_params {
+        let reply = if let Some(reply_params) = params.reply_params {
             let event_id = EventId::parse(reply_params.event_id)
                 .map_err(|_| RoomError::InvalidReplyParameters)?;
-            let replied_to_info = self
-                .inner
-                .room()
-                .replied_to_info_from_event_id(&event_id)
-                .await
-                .map_err(|_| RoomError::InvalidReplyParameters)?;
-
             let enforce_thread = if reply_params.enforce_thread {
                 EnforceThread::Threaded(if reply_params.reply_within_thread {
                     ReplyWithinThread::Yes
@@ -136,9 +129,9 @@ impl Timeline {
                 EnforceThread::MaybeThreaded
             };
 
-            (Some(replied_to_info), Some(enforce_thread))
+            Some(Reply { event_id, enforce_thread })
         } else {
-            (None, None)
+            None
         };
 
         let attachment_config = AttachmentConfig::new()
@@ -147,8 +140,7 @@ impl Timeline {
             .caption(params.caption)
             .formatted_caption(formatted_caption)
             .mentions(params.mentions.map(Into::into))
-            .replied_to_info(replied_to_info)
-            .enforce_thread(enforce_thread);
+            .reply(reply);
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =

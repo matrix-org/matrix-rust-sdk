@@ -45,7 +45,10 @@ use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
 
-use crate::{event_cache::EventCacheError, media::MediaError, store_locks::LockStoreError};
+use crate::{
+    event_cache::EventCacheError, media::MediaError, room::reply::ReplyError,
+    store_locks::LockStoreError,
+};
 
 /// Result type of the matrix-sdk.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -381,6 +384,10 @@ pub enum Error {
     /// An error happened during handling of a media subrequest.
     #[error(transparent)]
     Media(#[from] MediaError),
+
+    /// An error happened while attempting to reply to an event.
+    #[error(transparent)]
+    ReplyError(#[from] ReplyError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

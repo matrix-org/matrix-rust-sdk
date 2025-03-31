@@ -25,10 +25,10 @@ use ruma::{
         },
         Mentions,
     },
-    OwnedTransactionId, TransactionId, UInt,
+    OwnedEventId, OwnedTransactionId, TransactionId, UInt,
 };
 
-use crate::room::reply::{EnforceThread, RepliedToInfo};
+use crate::room::reply::EnforceThread;
 
 /// Base metadata about an image.
 #[derive(Debug, Clone, Default)]
@@ -181,6 +181,15 @@ impl Thumbnail {
     }
 }
 
+/// Information needed to reply to an event.
+#[derive(Debug)]
+pub struct Reply {
+    /// The event ID of the event to reply to.
+    pub event_id: OwnedEventId,
+    /// Whether to enforce a thread relation.
+    pub enforce_thread: EnforceThread,
+}
+
 /// Configuration for sending an attachment.
 #[derive(Debug, Default)]
 pub struct AttachmentConfig {
@@ -190,8 +199,7 @@ pub struct AttachmentConfig {
     pub(crate) caption: Option<String>,
     pub(crate) formatted_caption: Option<FormattedBody>,
     pub(crate) mentions: Option<Mentions>,
-    pub(crate) replied_to_info: Option<RepliedToInfo>,
-    pub(crate) enforce_thread: Option<EnforceThread>,
+    pub(crate) reply: Option<Reply>,
 }
 
 impl AttachmentConfig {
@@ -271,19 +279,9 @@ impl AttachmentConfig {
     ///
     /// # Arguments
     ///
-    /// * `replied_to_info` - The reply information of the message
-    pub fn replied_to_info(mut self, replied_to_info: Option<RepliedToInfo>) -> Self {
-        self.replied_to_info = replied_to_info;
-        self
-    }
-
-    /// Set whether to enforce a thread relation on the message.
-    ///
-    /// # Arguments
-    ///
-    /// * `enforce_thread` - Whether to enforce a thread relation on the message
-    pub fn enforce_thread(mut self, enforce_thread: Option<EnforceThread>) -> Self {
-        self.enforce_thread = enforce_thread;
+    /// * `reply` - The reply information of the message
+    pub fn reply(mut self, reply: Option<Reply>) -> Self {
+        self.reply = reply;
         self
     }
 }

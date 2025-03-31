@@ -58,7 +58,6 @@ use matrix_sdk_common::{
     timeout::timeout,
 };
 use mime::Mime;
-use reply::{EnforceThread, RepliedToInfo};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -139,7 +138,7 @@ pub use self::{
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 use crate::{
-    attachment::{AttachmentConfig, AttachmentInfo},
+    attachment::{AttachmentConfig, AttachmentInfo, Reply},
     client::WeakClient,
     config::RequestConfig,
     error::{BeaconError, WrongRoomState},
@@ -2128,20 +2127,21 @@ impl Room {
             }
         }
 
-        let content = self.make_attachment_event(
-            self.make_attachment_type(
-                content_type,
-                filename,
-                media_source,
-                config.caption,
-                config.formatted_caption,
-                config.info,
-                thumbnail,
-            ),
-            mentions,
-            config.replied_to_info,
-            config.enforce_thread,
-        );
+        let content = self
+            .make_attachment_event(
+                self.make_attachment_type(
+                    content_type,
+                    filename,
+                    media_source,
+                    config.caption,
+                    config.formatted_caption,
+                    config.info,
+                    thumbnail,
+                ),
+                mentions,
+                config.reply,
+            )
+            .await?;
 
         let mut fut = self.send(content);
         if let Some(txn_id) = txn_id {
@@ -2244,24 +2244,24 @@ impl Room {
 
     /// Creates the [`RoomMessageEventContent`] based on the message type,
     /// mentions and reply information.
-    pub(crate) fn make_attachment_event(
+    pub(crate) async fn make_attachment_event(
         &self,
         msg_type: MessageType,
         mentions: Option<Mentions>,
-        replied_to_info: Option<RepliedToInfo>,
-        enforce_thread: Option<EnforceThread>,
-    ) -> RoomMessageEventContent {
+        reply: Option<Reply>,
+    ) -> Result<RoomMessageEventContent> {
         let mut content = RoomMessageEventContent::new(msg_type);
         if let Some(mentions) = mentions {
             content = content.add_mentions(mentions);
         }
-        if let (Some(replied_to_info), Some(enforce_thread)) = (replied_to_info, enforce_thread) {
+        if let Some(reply) = reply {
             // Since we just created the event, there is no relation attached to it. Thus,
             // it is safe to add the reply relation without overriding anything.
-            content =
-                self.make_reply_event_with_info(content.into(), replied_to_info, enforce_thread);
+            content = self
+                .make_reply_event(content.into(), &reply.event_id, reply.enforce_thread)
+                .await?;
         }
-        content
+        Ok(content)
     }
 
     /// Update the power levels of a select set of users of this room.

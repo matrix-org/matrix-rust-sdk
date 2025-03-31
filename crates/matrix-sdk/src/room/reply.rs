@@ -37,7 +37,7 @@ use super::{EventSource, Room};
 
 /// Information needed to reply to an event.
 #[derive(Debug, Clone)]
-pub struct RepliedToInfo {
+struct RepliedToInfo {
     /// The event ID of the event to reply to.
     event_id: OwnedEventId,
     /// The sender of the event to reply to.
@@ -116,45 +116,6 @@ impl Room {
         )
         .await
     }
-
-    /// Create a new reply event for the specified [`RepliedToInfo`] and
-    /// content.
-    ///
-    /// The event can then be sent with [`Room::send`] or a
-    /// [`crate::send_queue::RoomSendQueue`].
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content to reply with
-    /// * `replied_to_info` - Information about the event to reply to
-    /// * `enforce_thread` - Whether to enforce a thread relation
-    #[instrument(skip(self, content), fields(room = %self.room_id()))]
-    pub fn make_reply_event_with_info(
-        &self,
-        content: RoomMessageEventContentWithoutRelation,
-        replied_to_info: RepliedToInfo,
-        enforce_thread: EnforceThread,
-    ) -> RoomMessageEventContent {
-        make_reply_event_with_info(
-            self.room_id(),
-            self.own_user_id(),
-            content,
-            replied_to_info,
-            enforce_thread,
-        )
-    }
-
-    /// Retrieve the information needed to reply to an event.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_id` - ID of the event to reply to
-    pub async fn replied_to_info_from_event_id(
-        &self,
-        event_id: &EventId,
-    ) -> Result<RepliedToInfo, ReplyError> {
-        replied_to_info_from_event_id(self, event_id).await
-    }
 }
 
 async fn make_reply_event<S: EventSource>(
@@ -166,16 +127,7 @@ async fn make_reply_event<S: EventSource>(
     enforce_thread: EnforceThread,
 ) -> Result<RoomMessageEventContent, ReplyError> {
     let replied_to_info = replied_to_info_from_event_id(source, event_id).await?;
-    Ok(make_reply_event_with_info(room_id, own_user_id, content, replied_to_info, enforce_thread))
-}
 
-fn make_reply_event_with_info(
-    room_id: &RoomId,
-    own_user_id: &UserId,
-    content: RoomMessageEventContentWithoutRelation,
-    replied_to_info: RepliedToInfo,
-    enforce_thread: EnforceThread,
-) -> RoomMessageEventContent {
     // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
     //
     // > Users should not add their own Matrix ID to the `m.mentions` property as
@@ -275,7 +227,7 @@ fn make_reply_event_with_info(
         }
     };
 
-    content
+    Ok(content)
 }
 
 async fn replied_to_info_from_event_id<S: EventSource>(

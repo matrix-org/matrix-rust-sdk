@@ -19,7 +19,9 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    assert_let_timeout, attachment::AttachmentConfig, room::reply::EnforceThread,
+    assert_let_timeout,
+    attachment::{AttachmentConfig, Reply},
+    room::reply::EnforceThread,
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
@@ -113,10 +115,10 @@ async fn test_send_attachment_from_file() {
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
 
     // Queue sending of an attachment.
-    let config = AttachmentConfig::new()
-        .caption(Some("caption".to_owned()))
-        .replied_to_info(Some(room.replied_to_info_from_event_id(event_id).await.unwrap()))
-        .enforce_thread(Some(EnforceThread::Threaded(ReplyWithinThread::No)));
+    let config = AttachmentConfig::new().caption(Some("caption".to_owned())).reply(Some(Reply {
+        event_id: event_id.to_owned(),
+        enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+    }));
     timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
 
     {
