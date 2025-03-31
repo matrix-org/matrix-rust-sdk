@@ -637,12 +637,13 @@ impl StoreConfig {
 mod tests {
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use ruma::{owned_device_id, owned_user_id};
+    use ruma::{owned_device_id, owned_user_id, room_id, user_id};
     use tokio::sync::broadcast;
 
-    use super::{BaseStateStore, MemoryStore};
-    use crate::SessionMeta;
+    use super::{BaseStateStore, MemoryStore, RoomLoadSettings};
+    use crate::{RoomInfo, RoomState, SessionMeta, StateChanges};
 
     #[async_test]
     async fn test_set_session_meta() {
@@ -685,13 +686,134 @@ mod tests {
             device_id: owned_device_id!("HELLOYOU"),
         };
         let (room_info_notable_update_sender, _) = broadcast::channel(1);
+        let room_id_0 = room_id!("!r0");
 
+        other
+            .load_rooms(
+                &session_meta.user_id,
+                RoomLoadSettings::One(room_id_0.to_owned()),
+                &room_info_notable_update_sender,
+            )
+            .await
+            .unwrap();
         other.set_session_meta(session_meta.clone());
 
         // Derive another store.
         let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
         store.derive_from_other(&other, &room_info_notable_update_sender).await.unwrap();
 
+        // `SessionMeta` is derived.
         assert_eq!(store.session_meta.get(), Some(&session_meta));
+        // `RoomLoadSettings` is derived.
+        assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::One(ref room_id) => {
+            assert_eq!(room_id, room_id_0);
+        });
+    }
+
+    #[test]
+    fn test_room_load_settings_default() {
+        assert_matches!(RoomLoadSettings::default(), RoomLoadSettings::All);
+    }
+
+    #[async_test]
+    async fn test_load_all_rooms() {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+        let user_id = user_id!("@mnt_io:matrix.org");
+
+        let memory_state_store = Arc::new(MemoryStore::new());
+
+        // Initial state.
+        {
+            let store = BaseStateStore::new(memory_state_store.clone());
+            let mut changes = StateChanges::default();
+            changes.add_room(RoomInfo::new(room_id_0, RoomState::Joined));
+            changes.add_room(RoomInfo::new(room_id_1, RoomState::Joined));
+
+            store.inner.save_changes(&changes).await.unwrap();
+        }
+
+        // Check a `BaseStateStore` is able to load all rooms.
+        {
+            let store = BaseStateStore::new(memory_state_store.clone());
+            let (room_info_notable_update_sender, _) = broadcast::channel(2);
+
+            // Default value.
+            assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::All);
+
+            // Load rooms.
+            store
+                .load_rooms(user_id, RoomLoadSettings::All, &room_info_notable_update_sender)
+                .await
+                .unwrap();
+
+            // Check the last room load settings.
+            assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::All);
+
+            // Check the loaded rooms.
+            let mut rooms = store.rooms();
+            rooms.sort_by(|a, b| a.room_id().cmp(b.room_id()));
+
+            assert_eq!(rooms.len(), 2);
+
+            assert_eq!(rooms[0].room_id(), room_id_0);
+            assert_eq!(rooms[0].own_user_id(), user_id);
+
+            assert_eq!(rooms[1].room_id(), room_id_1);
+            assert_eq!(rooms[1].own_user_id(), user_id);
+        }
+    }
+
+    #[async_test]
+    async fn test_load_one_room() {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+        let user_id = user_id!("@mnt_io:matrix.org");
+
+        let memory_state_store = Arc::new(MemoryStore::new());
+
+        // Initial state.
+        {
+            let store = BaseStateStore::new(memory_state_store.clone());
+            let mut changes = StateChanges::default();
+            changes.add_room(RoomInfo::new(room_id_0, RoomState::Joined));
+            changes.add_room(RoomInfo::new(room_id_1, RoomState::Joined));
+
+            store.inner.save_changes(&changes).await.unwrap();
+        }
+
+        // Check a `BaseStateStore` is able to load one room.
+        {
+            let store = BaseStateStore::new(memory_state_store.clone());
+            let (room_info_notable_update_sender, _) = broadcast::channel(2);
+
+            // Default value.
+            assert_matches!(*store.room_load_settings.read().await, RoomLoadSettings::All);
+
+            // Load rooms.
+            store
+                .load_rooms(
+                    user_id,
+                    RoomLoadSettings::One(room_id_1.to_owned()),
+                    &room_info_notable_update_sender,
+                )
+                .await
+                .unwrap();
+
+            // Check the last room load settings.
+            assert_matches!(
+                *store.room_load_settings.read().await,
+                RoomLoadSettings::One(ref room_id) => {
+                    assert_eq!(room_id, room_id_1);
+                }
+            );
+
+            // Check the loaded rooms.
+            let rooms = store.rooms();
+            assert_eq!(rooms.len(), 1);
+
+            assert_eq!(rooms[0].room_id(), room_id_1);
+            assert_eq!(rooms[0].own_user_id(), user_id);
+        }
     }
 }
