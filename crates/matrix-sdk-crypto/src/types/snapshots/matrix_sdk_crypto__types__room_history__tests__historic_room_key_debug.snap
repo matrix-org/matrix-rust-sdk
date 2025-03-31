@@ -1,0 +1,18 @@
+---
+source: crates/matrix-sdk-crypto/src/types/room_history.rs
+expression: key
+---
+SharedRoomKey {
+    algorithm: "m.megolm.v1.aes-sha2",
+    room_id: "!room:id",
+    sender_key: "curve25519:2n4iKRAGOTwcw54MuivfjtU/KZl1Fslme/b1FZMMRQM",
+    session_id: "id1234",
+    sender_claimed_keys: SigningKeys(
+        {
+            "ed25519": Ed25519(
+                "ed25519:kbNLK/pAgXV57gwDRd/0TjMp4BsqwtWXgPmSxgHVnpk",
+            ),
+        },
+    ),
+    ..
+}

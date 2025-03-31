@@ -51,8 +51,11 @@ use crate::{
         repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
-    OpenStoreError,
+    OpenStoreError, SqliteStoreConfig,
 };
+
+/// The database name.
+const DATABASE_NAME: &str = "matrix-sdk-crypto.sqlite3";
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -79,26 +82,36 @@ impl SqliteCryptoStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let path = path.as_ref();
-        fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-        let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-crypto.sqlite3"));
-        let pool = cfg.create_pool(Runtime::Tokio1)?;
+        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+    }
 
-        Self::open_with_pool(pool, passphrase).await
+    /// Open the sqlite-based crypto store with the config open config.
+    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+        let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
+
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+
+        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        config.pool = Some(pool_config);
+
+        let pool = config.create_pool(Runtime::Tokio1)?;
+
+        let this = Self::open_with_pool(pool, passphrase.as_deref()).await?;
+        this.pool.get().await?.apply_runtime_config(runtime_config).await?;
+
+        Ok(this)
     }
 
     /// Create a sqlite-based crypto store using the given sqlite database pool.
     /// The given passphrase will be used to encrypt private data.
-    pub async fn open_with_pool(
+    async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        conn.set_journal_size_limit().await?;
 
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
-        conn.optimize().await?;
 
         let store_cipher = match passphrase {
             Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
@@ -1421,6 +1434,7 @@ mod tests {
     use tokio::fs;
 
     use super::SqliteCryptoStore;
+    use crate::SqliteStoreConfig;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
@@ -1431,8 +1445,8 @@ mod tests {
         database: SqliteCryptoStore,
     }
 
-    async fn get_test_db(data_path: &str, passphrase: Option<&str>) -> TestDb {
-        let db_name = "matrix-sdk-crypto.sqlite3";
+    fn copy_db(data_path: &str) -> TempDir {
+        let db_name = super::DATABASE_NAME;
 
         let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let database_path = manifest_path.join(data_path).join(db_name);
@@ -1443,11 +1457,27 @@ mod tests {
         // Copy the test database to the tempdir so our test runs are idempotent.
         std::fs::copy(&database_path, destination).unwrap();
 
+        tmpdir
+    }
+
+    async fn get_test_db(data_path: &str, passphrase: Option<&str>) -> TestDb {
+        let tmpdir = copy_db(data_path);
+
         let database = SqliteCryptoStore::open(tmpdir.path(), passphrase)
             .await
             .expect("Can't open the test store");
 
         TestDb { _dir: tmpdir, database }
+    }
+
+    #[async_test]
+    async fn test_pool_size() {
+        let store_open_config =
+            SqliteStoreConfig::new(TMP_DIR.path().join("test_pool_size")).pool_max_size(42);
+
+        let store = SqliteCryptoStore::open_with_config(store_open_config).await.unwrap();
+
+        assert_eq!(store.pool.status().max_size, 42);
     }
 
     /// Test that we didn't regress in our storage layer by loading data from a
@@ -1787,6 +1817,7 @@ mod tests {
         assert_eq!(backup_keys.backup_version.unwrap(), "6");
         assert!(backup_keys.decryption_key.is_some());
     }
+
     async fn get_store(
         name: &str,
         passphrase: Option<&str>,

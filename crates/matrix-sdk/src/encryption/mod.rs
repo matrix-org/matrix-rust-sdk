@@ -275,7 +275,7 @@ impl CrossSigningResetHandle {
     }
 
     /// Continue the cross-signing reset by either waiting for the
-    /// authentication to be done on the side of the OIDC issuer or by
+    /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
     pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
         let mut upload_request = self.upload_request.clone();
@@ -286,8 +286,13 @@ impl CrossSigningResetHandle {
                 return Ok(());
             }
 
-            if e.as_uiaa_response().is_none() {
-                return Err(e.into());
+            match e.as_uiaa_response() {
+                Some(uiaa_info) => {
+                    if uiaa_info.auth_error.is_some() {
+                        return Err(e.into());
+                    }
+                }
+                None => return Err(e.into()),
             }
         }
 
@@ -308,71 +313,55 @@ impl CrossSigningResetHandle {
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
     Uiaa(UiaaInfo),
-    /// OIDC is used for authentication and the user needs to open a URL to
+    /// OAuth 2.0 is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
-    Oidc(OidcCrossSigningResetInfo),
+    OAuth(OAuthCrossSigningResetInfo),
 }
 
 impl CrossSigningResetAuthType {
-    #[allow(clippy::unused_async)]
-    async fn new(
-        #[allow(unused_variables)] client: &Client,
-        error: &HttpError,
-    ) -> Result<Option<Self>> {
+    fn new(error: &HttpError) -> Result<Option<Self>> {
         if let Some(auth_info) = error.as_uiaa_response() {
-            #[cfg(feature = "experimental-oidc")]
-            if client.oidc().issuer().is_some() {
-                OidcCrossSigningResetInfo::from_auth_info(client, auth_info)
-                    .map(|t| Some(CrossSigningResetAuthType::Oidc(t)))
+            if let Ok(auth_info) = OAuthCrossSigningResetInfo::from_auth_info(auth_info) {
+                Ok(Some(CrossSigningResetAuthType::OAuth(auth_info)))
             } else {
                 Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
             }
-
-            #[cfg(not(feature = "experimental-oidc"))]
-            Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
         } else {
             Ok(None)
         }
     }
 }
 
-/// OIDC specific information about the required authentication for the upload
-/// of cross-signing keys.
+/// OAuth 2.0 specific information about the required authentication for the
+/// upload of cross-signing keys.
 #[derive(Debug, Clone, Deserialize)]
-pub struct OidcCrossSigningResetInfo {
+pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: Url,
 }
 
-impl OidcCrossSigningResetInfo {
-    #[cfg(feature = "experimental-oidc")]
-    fn from_auth_info(
-        // This is used if the OIDC feature is enabled.
-        #[allow(unused_variables)] client: &Client,
-        auth_info: &UiaaInfo,
-    ) -> Result<Self> {
+impl OAuthCrossSigningResetInfo {
+    fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
         let parameters =
-            serde_json::from_str::<OidcCrossSigningResetUiaaParameters>(auth_info.params.get())?;
+            serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(auth_info.params.get())?;
 
-        Ok(OidcCrossSigningResetInfo { approval_url: parameters.reset.url })
+        Ok(OAuthCrossSigningResetInfo { approval_url: parameters.reset.url })
     }
 }
 
 /// The parsed `parameters` part of a [`ruma::api::client::uiaa::UiaaInfo`]
 /// response
-#[cfg(feature = "experimental-oidc")]
 #[derive(Debug, Deserialize)]
-struct OidcCrossSigningResetUiaaParameters {
+struct OAuthCrossSigningResetUiaaParameters {
     /// The URL where the user can approve the reset of the cross-signing keys.
     #[serde(rename = "org.matrix.cross_signing_reset")]
-    reset: OidcCrossSigningResetUiaaResetParameter,
+    reset: OAuthCrossSigningResetUiaaResetParameter,
 }
 
 /// The `org.matrix.cross_signing_reset` part of the Uiaa response `parameters``
 /// dictionary.
-#[cfg(feature = "experimental-oidc")]
 #[derive(Debug, Deserialize)]
-struct OidcCrossSigningResetUiaaResetParameter {
+struct OAuthCrossSigningResetUiaaResetParameter {
     /// The URL where the user can approve the reset of the cross-signing keys.
     url: Url,
 }
@@ -729,7 +718,7 @@ impl Encryption {
         }
     }
 
-    #[cfg(feature = "experimental-oidc")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn import_secrets_bundle(
         &self,
         bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
@@ -1176,7 +1165,7 @@ impl Encryption {
     ///
     ///             handle.auth(Some(uiaa::AuthData::Password(password))).await?;
     ///         }
-    ///         CrossSigningResetAuthType::Oidc(o) => {
+    ///         CrossSigningResetAuthType::OAuth(o) => {
     ///             println!(
     ///                 "To reset your end-to-end encryption cross-signing identity, \
     ///                 you first need to approve it at {}",
@@ -1210,7 +1199,7 @@ impl Encryption {
         }
 
         if let Err(error) = self.client.send(upload_signing_keys_req.clone()).await {
-            if let Some(auth_type) = CrossSigningResetAuthType::new(&self.client, &error).await? {
+            if let Ok(Some(auth_type)) = CrossSigningResetAuthType::new(&error) {
                 let client = self.client.clone();
 
                 Ok(Some(CrossSigningResetHandle::new(
@@ -1688,7 +1677,7 @@ impl Encryption {
         }
     }
 
-    /// Upload the device keys and initial set of one-tim keys to the server.
+    /// Upload the device keys and initial set of one-time keys to the server.
     ///
     /// This should only be called when the user logs in for the first time,
     /// the method will ensure that other devices see our own device as an
@@ -1697,7 +1686,7 @@ impl Encryption {
     /// **Warning**: Do not use this method if we're already calling
     /// [`Client::send_outgoing_request()`]. This method is intended for
     /// explicitly uploading the device keys before starting a sync.
-    #[cfg(feature = "experimental-oidc")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn ensure_device_keys_upload(&self) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -1760,13 +1749,12 @@ mod tests {
         time::Duration,
     };
 
-    use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
         async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use ruma::{
-        device_id, event_id,
+        event_id,
         events::{reaction::ReactionEventContent, relation::Annotation},
         user_id,
     };
@@ -1778,10 +1766,11 @@ mod tests {
 
     use crate::{
         assert_next_matches_with_timeout,
-        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        encryption::VerificationState,
-        test_utils::{logged_in_client, no_retry_test_client, set_client_session},
+        encryption::{OAuthCrossSigningResetInfo, VerificationState},
+        test_utils::{
+            client::mock_matrix_session, logged_in_client, no_retry_test_client, set_client_session,
+        },
         Client,
     };
 
@@ -1822,7 +1811,11 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
-        assert!(room.is_encrypted().await.expect("Getting encryption state"));
+        assert!(room
+            .latest_encryption_state()
+            .await
+            .expect("Getting encryption state")
+            .is_encrypted());
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));
@@ -1906,13 +1899,7 @@ mod tests {
     async fn test_generation_counter_invalidates_olm_machine() {
         // Create two clients using the same sqlite database.
         let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
-        let session = MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        };
+        let session = mock_matrix_session();
 
         let client1 = Client::builder()
             .homeserver_url("http://localhost:1234")
@@ -2014,13 +2001,7 @@ mod tests {
         // Create two clients using the same sqlite database.
         let sqlite_path =
             std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
-        let session = MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        };
+        let session = mock_matrix_session();
 
         let client = Client::builder()
             .homeserver_url("http://localhost:1234")
@@ -2116,5 +2097,30 @@ mod tests {
         // Then we can get an updated value without waiting for any network requests
         assert!(keys_requested.load(Ordering::SeqCst).not());
         assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
+    }
+
+    #[test]
+    fn test_oauth_reset_info_from_uiaa_info() {
+        let auth_info = json!({
+            "session": "dummy",
+            "flows": [
+                {
+                    "stages": [
+                        "org.matrix.cross_signing_reset"
+                    ]
+                }
+            ],
+            "params": {
+                "org.matrix.cross_signing_reset": {
+                    "url": "https://example.org/account/account?action=org.matrix.cross_signing_reset"
+                }
+            },
+            "msg": "To reset..."
+        });
+
+        let auth_info = serde_json::from_value(auth_info)
+            .expect("We should be able to deserialize the UiaaInfo");
+        OAuthCrossSigningResetInfo::from_auth_info(&auth_info)
+            .expect("We should be able to fetch the cross-signing reset info from the auth info");
     }
 }

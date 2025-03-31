@@ -1,0 +1,5 @@
+---
+source: crates/matrix-sdk-common/src/deserialized_responses.rs
+expression: "ShieldStateCode::VerificationViolation"
+---
+"VerificationViolation"

@@ -14,29 +14,38 @@
 
 //! Types and functions related to authentication in Matrix.
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
-use as_variant::as_variant;
-use matrix_sdk_base::SessionMeta;
-use tokio::sync::{broadcast, Mutex, OnceCell};
+use matrix_sdk_base::{locks::Mutex, SessionMeta};
+use serde::{Deserialize, Serialize};
+use tokio::sync::{broadcast, Mutex as AsyncMutex, OnceCell};
 
 pub mod matrix;
-#[cfg(feature = "experimental-oidc")]
-pub mod oidc;
+pub mod oauth;
 
-use self::matrix::{MatrixAuth, MatrixAuthData};
-#[cfg(feature = "experimental-oidc")]
-use self::oidc::{Oidc, OidcAuthData, OidcCtx};
+use self::{
+    matrix::MatrixAuth,
+    oauth::{OAuth, OAuthAuthData, OAuthCtx},
+};
 use crate::{Client, RefreshTokenError, SessionChange};
 
-/// Session tokens, for any kind of authentication.
-#[allow(missing_debug_implementations, clippy::large_enum_variant)]
-pub enum SessionTokens {
-    /// Tokens for a [`matrix`] session.
-    Matrix(matrix::MatrixSessionTokens),
-    #[cfg(feature = "experimental-oidc")]
-    /// Tokens for an [`oidc`] session.
-    Oidc(oidc::OidcSessionTokens),
+/// The tokens for a user session.
+#[derive(Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[allow(missing_debug_implementations)]
+pub struct SessionTokens {
+    /// The access token used for this session.
+    pub access_token: String,
+
+    /// The token used for refreshing the access token, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for SessionTokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionTokens").finish_non_exhaustive()
+    }
 }
 
 pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
@@ -48,15 +57,14 @@ pub(crate) type ReloadSessionCallback =
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.
 pub(crate) struct AuthCtx {
-    #[cfg(feature = "experimental-oidc")]
-    pub(crate) oidc: OidcCtx,
+    pub(crate) oauth: OAuthCtx,
 
     /// Whether to try to refresh the access token automatically when an
     /// `M_UNKNOWN_TOKEN` error is encountered.
     pub(crate) handle_refresh_tokens: bool,
 
     /// Lock making sure we're only doing one token refresh at a time.
-    pub(crate) refresh_token_lock: Arc<Mutex<Result<(), RefreshTokenError>>>,
+    pub(crate) refresh_token_lock: Arc<AsyncMutex<Result<(), RefreshTokenError>>>,
 
     /// Session change publisher. Allows the subscriber to handle changes to the
     /// session such as logging out when the access token is invalid or
@@ -65,6 +73,9 @@ pub(crate) struct AuthCtx {
 
     /// Authentication data to keep in memory.
     pub(crate) auth_data: OnceCell<AuthData>,
+
+    /// The current session tokens.
+    pub(crate) tokens: OnceCell<Mutex<SessionTokens>>,
 
     /// A callback called whenever we need an absolute source of truth for the
     /// current session tokens.
@@ -82,6 +93,27 @@ pub(crate) struct AuthCtx {
     pub(crate) save_session_callback: OnceCell<Box<SaveSessionCallback>>,
 }
 
+impl AuthCtx {
+    /// The current session tokens.
+    pub(crate) fn session_tokens(&self) -> Option<SessionTokens> {
+        Some(self.tokens.get()?.lock().clone())
+    }
+
+    /// The current access token.
+    pub(crate) fn access_token(&self) -> Option<String> {
+        Some(self.tokens.get()?.lock().access_token.clone())
+    }
+
+    /// Set the current session tokens.
+    pub(crate) fn set_session_tokens(&self, session_tokens: SessionTokens) {
+        if let Some(tokens) = self.tokens.get() {
+            *tokens.lock() = session_tokens;
+        } else {
+            let _ = self.tokens.set(Mutex::new(session_tokens));
+        }
+    }
+}
+
 /// An enum over all the possible authentication APIs.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -89,9 +121,8 @@ pub enum AuthApi {
     /// The native Matrix authentication API.
     Matrix(MatrixAuth),
 
-    /// The OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
-    Oidc(Oidc),
+    /// The OAuth 2.0 API.
+    OAuth(OAuth),
 }
 
 /// A user session using one of the available authentication APIs.
@@ -101,9 +132,8 @@ pub enum AuthSession {
     /// A session using the native Matrix authentication API.
     Matrix(matrix::MatrixSession),
 
-    /// A session using the OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
-    Oidc(Box<oidc::OidcSession>),
+    /// A session using the OAuth 2.0 API.
+    OAuth(Box<oauth::OAuthSession>),
 }
 
 impl AuthSession {
@@ -111,8 +141,7 @@ impl AuthSession {
     pub fn meta(&self) -> &SessionMeta {
         match self {
             AuthSession::Matrix(session) => &session.meta,
-            #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => &session.user.meta,
+            AuthSession::OAuth(session) => &session.user.meta,
         }
     }
 
@@ -120,8 +149,7 @@ impl AuthSession {
     pub fn into_meta(self) -> SessionMeta {
         match self {
             AuthSession::Matrix(session) => session.meta,
-            #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => session.user.meta,
+            AuthSession::OAuth(session) => session.user.meta,
         }
     }
 
@@ -129,8 +157,7 @@ impl AuthSession {
     pub fn access_token(&self) -> &str {
         match self {
             AuthSession::Matrix(session) => &session.tokens.access_token,
-            #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => &session.user.tokens.access_token,
+            AuthSession::OAuth(session) => &session.user.tokens.access_token,
         }
     }
 
@@ -138,8 +165,7 @@ impl AuthSession {
     pub fn get_refresh_token(&self) -> Option<&str> {
         match self {
             AuthSession::Matrix(session) => session.tokens.refresh_token.as_deref(),
-            #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(session) => session.user.tokens.refresh_token.as_deref(),
+            AuthSession::OAuth(session) => session.user.tokens.refresh_token.as_deref(),
         }
     }
 }
@@ -150,10 +176,9 @@ impl From<matrix::MatrixSession> for AuthSession {
     }
 }
 
-#[cfg(feature = "experimental-oidc")]
-impl From<oidc::OidcSession> for AuthSession {
-    fn from(session: oidc::OidcSession) -> Self {
-        Self::Oidc(session.into())
+impl From<oauth::OAuthSession> for AuthSession {
+    fn from(session: oauth::OAuthSession) -> Self {
+        Self::OAuth(session.into())
     }
 }
 
@@ -161,24 +186,7 @@ impl From<oidc::OidcSession> for AuthSession {
 #[derive(Debug)]
 pub(crate) enum AuthData {
     /// Data for the native Matrix authentication API.
-    Matrix(MatrixAuthData),
-    /// Data for the OpenID Connect API.
-    #[cfg(feature = "experimental-oidc")]
-    Oidc(OidcAuthData),
-}
-
-impl AuthData {
-    pub(crate) fn as_matrix(&self) -> Option<&MatrixAuthData> {
-        as_variant!(self, Self::Matrix)
-    }
-
-    pub(crate) fn access_token(&self) -> Option<String> {
-        let token = match self {
-            Self::Matrix(d) => d.tokens.get().access_token,
-            #[cfg(feature = "experimental-oidc")]
-            Self::Oidc(d) => d.tokens.get()?.get().access_token,
-        };
-
-        Some(token)
-    }
+    Matrix,
+    /// Data for the OAuth 2.0 API.
+    OAuth(OAuthAuthData),
 }

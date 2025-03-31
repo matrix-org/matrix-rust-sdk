@@ -4,13 +4,14 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk::{room::reply::EnforceThread, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
-    Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
+    Error as TimelineError, EventSendState, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
+    TimelineItemContent,
 };
 use ruma::{
     event_id,
@@ -21,7 +22,7 @@ use ruma::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
-            message::{ForwardThread, Relation, RoomMessageEventContentWithoutRelation},
+            message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
             ImageInfo,
         },
         sticker::{StickerEventContent, StickerMediaSource},
@@ -84,13 +85,19 @@ async fn test_in_reply_to_details() {
 
         // We get the original message.
         assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
-        assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::Message(_));
+        assert!(first.as_event().unwrap().content().is_message());
 
         // We get the reply.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[1]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
         assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
@@ -119,8 +126,14 @@ async fn test_in_reply_to_details() {
 
         assert_let!(VectorDiff::PushBack { value: third } = &timeline_updates[1]);
         let third_event = third.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = third_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid2);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -148,14 +161,26 @@ async fn test_in_reply_to_details() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
         assert_eq!(*third.unique_id(), third_unique_id);
 
         // …then it's marked as an error when the request fails.
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Error(_));
         assert_eq!(*third.unique_id(), third_unique_id);
     }
 
@@ -182,14 +207,26 @@ async fn test_in_reply_to_details() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
         assert_eq!(*third.unique_id(), third_unique_id);
 
         // …then it's filled when the request succeeds.
         assert_let!(VectorDiff::Set { index: 3, value: third } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = third.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Ready(_));
         assert_eq!(*third.unique_id(), third_unique_id);
 
         assert_pending!(timeline_stream);
@@ -262,8 +299,14 @@ async fn test_fetch_details_utd() {
         // We get the reply, but with no details.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -281,18 +324,30 @@ async fn test_fetch_details_utd() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is a UTD.
-        let in_reply_to = message.in_reply_to().unwrap();
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_matches!(replied_to.content(), TimelineItemContent::UnableToDecrypt(_));
+        assert!(replied_to.content().is_unable_to_decrypt());
     }
 }
 
@@ -350,8 +405,14 @@ async fn test_fetch_details_poll() {
         // We get the reply, but with no details.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -369,18 +430,30 @@ async fn test_fetch_details_poll() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is the poll.
-        let in_reply_to = message.in_reply_to().unwrap();
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(TimelineItemContent::Poll(poll_state) = replied_to.content());
+        assert_let!(Some(poll_state) = replied_to.content().as_poll());
         assert_eq!(
             poll_state.fallback_text().unwrap(),
             "What is the best color? A. Red, B. Blue, C. Green"
@@ -443,8 +516,14 @@ async fn test_fetch_details_sticker() {
         // We get the reply.
         assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
         let second_event = second.as_event().unwrap();
-        assert_let!(TimelineItemContent::Message(message) = second_event.content());
-        let in_reply_to = message.in_reply_to().unwrap();
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = second_event.content()
+        );
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, replied_to_event_id);
         assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -462,18 +541,30 @@ async fn test_fetch_details_sticker() {
 
         // First it's set to pending, because we're starting the request…
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
-        assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
+        assert_matches!(in_reply_to.clone().unwrap().event, TimelineDetails::Pending);
 
         // …then it's filled as the request succeeds.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
-        assert_let!(TimelineItemContent::Message(message) = value.as_event().unwrap().content());
+        assert_let!(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                in_reply_to,
+                ..
+            }) = value.as_event().unwrap().content()
+        );
 
         // The replied-to event is available, and is a sticker.
-        let in_reply_to = message.in_reply_to().unwrap();
+        let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(TimelineItemContent::Sticker(sticker) = replied_to.content());
+        assert_let!(Some(sticker) = replied_to.content().as_sticker());
         assert_eq!(sticker.content().body, "sticker!");
         assert_matches!(&sticker.content().source, StickerMediaSource::Plain(src) => {
             assert_eq!(*src, media_src);
@@ -505,7 +596,8 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     let items = timeline.items().await;
     assert_eq!(items.len(), 2); // date divider, reply
     let event_item = items[1].as_event().unwrap();
-    let in_reply_to = event_item.content().as_message().unwrap().in_reply_to().unwrap();
+    let msglike = event_item.content().as_msglike().unwrap();
+    let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Unavailable);
 
@@ -524,7 +616,7 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     let items = timeline.items().await;
     assert_eq!(items.len(), 2);
     let in_reply_to =
-        items[1].as_event().unwrap().content().as_message().unwrap().in_reply_to().unwrap();
+        items[1].as_event().unwrap().content().as_msglike().unwrap().in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
@@ -537,7 +629,7 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     let items = timeline.items().await;
     assert_eq!(items.len(), 2);
     let in_reply_to =
-        items[1].as_event().unwrap().content().as_message().unwrap().in_reply_to().unwrap();
+        items[1].as_event().unwrap().content().as_msglike().unwrap().in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 }
@@ -567,8 +659,7 @@ async fn test_send_reply() {
         )
         .await;
 
-    let event_from_bob =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
@@ -576,8 +667,7 @@ async fn test_send_reply() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -596,15 +686,14 @@ async fn test_send_reply() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
-    let replied_to_info = event_from_bob.replied_to_info().unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            replied_to_info,
-            ForwardThread::Yes,
+            event_id_from_bob.to_owned(),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -615,9 +704,10 @@ async fn test_send_reply() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let msglike_reply_message = reply_item.content().as_msglike().unwrap();
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
     // Right now, we don't pass along the replied-to event to the event handler,
@@ -632,9 +722,10 @@ async fn test_send_reply() {
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
     let reply_message = reply_item_remote_echo.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
     // Same as above.
@@ -671,8 +762,7 @@ async fn test_send_reply_to_self() {
         )
         .await;
 
-    let event_from_self =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     // Clear the timeline to make sure the old item does not need to be
     // available in it for the reply to work.
@@ -680,8 +770,7 @@ async fn test_send_reply_to_self() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by the current user.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -697,15 +786,14 @@ async fn test_send_reply_to_self() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
-    let replied_to_info = event_from_self.replied_to_info().unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
-            replied_to_info,
-            ForwardThread::Yes,
+            event_id_from_self.to_owned(),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -716,18 +804,20 @@ async fn test_send_reply_to_self() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
-    let reply_message = reply_item.content().as_message().unwrap();
+    let msglike_reply_message = reply_item.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to self");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_self);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to self");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_self);
 }
 
@@ -761,17 +851,15 @@ async fn test_send_reply_to_threaded() {
         )
         .await;
 
-    let hello_world_item =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
 
     server.mock_room_send().ok(event_id!("$reply_event")).mock_once().mount().await;
 
-    let replied_to_info = hello_world_item.replied_to_info().unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
-            replied_to_info,
-            ForwardThread::Yes,
+            event_id_1.to_owned(),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -782,14 +870,15 @@ async fn test_send_reply_to_threaded() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
-    let reply_message = reply_item.content().as_message().unwrap();
+    let msglike = reply_item.content().as_msglike().unwrap();
+    let reply_message = msglike.as_message().unwrap();
 
     // The reply should be considered part of the thread.
-    assert!(reply_message.is_threaded());
+    assert!(msglike.is_threaded());
 
     // Some extra assertions.
     assert_eq!(reply_message.body(), "Hello, Bob!");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
@@ -802,10 +891,10 @@ async fn test_send_reply_to_threaded() {
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
 
     // Same assertions as before still hold on the contained message.
-    assert!(reply_message.is_threaded());
+    assert!(msglike.is_threaded());
 
     assert_eq!(reply_message.body(), "Hello, Bob!");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
@@ -847,8 +936,7 @@ async fn test_send_reply_with_event_id() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -867,20 +955,14 @@ async fn test_send_reply_with_event_id() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
-    // Since we assume we can't use the timeline item directly in this use case, the
-    // API will fetch the event from the server directly so we need to mock the
-    // response.
-    server.mock_room_event().ok(bob_event).named("event_1").mock_once().mount().await;
-
-    let replied_to_info = timeline.replied_to_info_from_event_id(event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            replied_to_info,
-            ForwardThread::Yes,
+            event_id_from_bob.to_owned(),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -891,19 +973,206 @@ async fn test_send_reply_with_event_id() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
-    let reply_message = reply_item.content().as_message().unwrap();
+    let msglike_reply_message = reply_item.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_from_bob);
+}
+
+#[async_test]
+async fn test_send_reply_enforce_thread() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let event_id_from_bob = event_id!("$event_from_bob");
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob),
+            ),
+        )
+        .await;
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
+
+    // Clear the timeline to make sure the old item does not need to be
+    // available in it for the reply to work.
+    timeline.clear().await;
+    assert_next_matches!(timeline_stream, VectorDiff::Clear);
+
+    // Now, let's reply to a message sent by `BOB`.
+    server
+        .mock_room_send()
+        .respond_with(move |req: &Request| {
+            use ruma::events::room::message::RoomMessageEventContent;
+
+            let reply_event = req
+                .body_json::<RoomMessageEventContent>()
+                .expect("Failed to deserialize the event");
+
+            assert_matches!(reply_event.relates_to, Some(Relation::Thread(thread)) => {
+                assert_eq!(thread.event_id, event_id_from_bob);
+                assert_eq!(thread.in_reply_to.unwrap().event_id, event_id_from_bob);
+            });
+            assert_matches!(reply_event.mentions, None);
+
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
+        })
+        .expect(1)
+        .mount()
+        .await;
+
+    timeline
+        .send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
+            event_id_from_bob.to_owned(),
+            EnforceThread::Threaded(ReplyWithinThread::No),
+        )
+        .await
+        .unwrap();
+
+    // Let the send queue handle the event.
+    yield_now().await;
+
+    let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let msglike_reply_message = reply_item.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
+    assert_eq!(reply_message.body(), "Replying to Bob");
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(msglike_reply_message.thread_root.clone().unwrap(), event_id_from_bob);
+
+    let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
+    assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
+
+    assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
+    assert_eq!(reply_message.body(), "Replying to Bob");
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(msglike_reply_message.thread_root.clone().unwrap(), event_id_from_bob);
+}
+
+#[async_test]
+async fn test_send_reply_enforce_thread_is_reply() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let thread_root = owned_event_id!("$thread_root");
+
+    let event_id_from_bob = event_id!("$event_from_bob");
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello from Bob")
+                    .sender(&BOB)
+                    .event_id(event_id_from_bob)
+                    .in_thread(&thread_root, &thread_root),
+            ),
+        )
+        .await;
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
+
+    // Clear the timeline to make sure the old item does not need to be
+    // available in it for the reply to work.
+    timeline.clear().await;
+    assert_next_matches!(timeline_stream, VectorDiff::Clear);
+
+    // Now, let's reply to a message sent by `BOB`.
+    let thread_root_for_closure = thread_root.clone();
+    server
+        .mock_room_send()
+        .respond_with(move |req: &Request| {
+            use ruma::events::room::message::RoomMessageEventContent;
+
+            let reply_event = req
+                .body_json::<RoomMessageEventContent>()
+                .expect("Failed to deserialize the event");
+
+            assert_matches!(reply_event.relates_to, Some(Relation::Thread(thread)) => {
+                assert_eq!(thread.event_id, thread_root_for_closure);
+                assert_eq!(thread.in_reply_to.unwrap().event_id, event_id_from_bob);
+            });
+            assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
+                assert_eq!(user_ids.len(), 1);
+                assert!(user_ids.contains(*BOB));
+            });
+
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
+        })
+        .expect(1)
+        .mount()
+        .await;
+
+    timeline
+        .send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
+            event_id_from_bob.to_owned(),
+            EnforceThread::Threaded(ReplyWithinThread::Yes),
+        )
+        .await
+        .unwrap();
+
+    // Let the send queue handle the event.
+    yield_now().await;
+
+    let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
+
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    let msglike_reply_message = reply_item.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
+    assert_eq!(reply_message.body(), "Replying to Bob");
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(msglike_reply_message.thread_root.clone().unwrap(), thread_root);
+
+    let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
+    assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
+
+    assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
+    let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
+    assert_eq!(reply_message.body(), "Replying to Bob");
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
+    assert_eq!(in_reply_to.event_id, event_id_from_bob);
+    assert_eq!(msglike_reply_message.thread_root.clone().unwrap(), thread_root);
 }
 
 #[async_test]
@@ -943,8 +1212,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
+    server.mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -963,21 +1231,14 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
         })
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
-    // Since we assume we can't use the timeline item directly in this use case, the
-    // API will fetch the event from the server directly so we need to mock the
-    // response.
-    server.mock_room_event().ok(event_from_bob).mock_once().named("event_1").mount().await;
-
-    let replied_to_info =
-        timeline.replied_to_info_from_event_id(redacted_event_id_from_bob).await.unwrap();
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            replied_to_info,
-            ForwardThread::Yes,
+            redacted_event_id_from_bob.to_owned(),
+            EnforceThread::MaybeThreaded,
         )
         .await
         .unwrap();
@@ -988,17 +1249,19 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
     assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
-    let reply_message = reply_item.content().as_message().unwrap();
+    let msglike_reply_message = reply_item.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, redacted_event_id_from_bob);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
-    let reply_message = reply_item_remote_echo.content().as_message().unwrap();
+    let msglike_reply_message = reply_item_remote_echo.content().as_msglike().unwrap();
+    let reply_message = msglike_reply_message.as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
-    let in_reply_to = reply_message.in_reply_to().unwrap();
+    let in_reply_to = msglike_reply_message.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, redacted_event_id_from_bob);
 }

@@ -46,7 +46,7 @@ use crate::{
         repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
-    OpenStoreError,
+    OpenStoreError, SqliteStoreConfig,
 };
 
 mod keys {
@@ -63,6 +63,8 @@ mod keys {
     pub const SEND_QUEUE: &str = "send_queue_events";
     pub const DEPENDENTS_SEND_QUEUE: &str = "dependent_send_queue_events";
 }
+
+const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 
 /// Identifier of the latest database version.
 ///
@@ -92,19 +94,33 @@ impl SqliteStateStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        let pool = create_pool(path.as_ref()).await?;
+        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+    }
 
-        Self::open_with_pool(pool, passphrase).await
+    /// Open the sqlite-based state store with the config open config.
+    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+        let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
+
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
+
+        let mut config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        config.pool = Some(pool_config);
+
+        let pool = config.create_pool(Runtime::Tokio1)?;
+
+        let this = Self::open_with_pool(pool, passphrase.as_deref()).await?;
+        this.pool.get().await?.apply_runtime_config(runtime_config).await?;
+
+        Ok(this)
     }
 
     /// Create a sqlite-based state store using the given sqlite database pool.
     /// The given passphrase will be used to encrypt private data.
-    pub async fn open_with_pool(
+    async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        conn.set_journal_size_limit().await?;
 
         let mut version = conn.db_version().await?;
 
@@ -119,7 +135,6 @@ impl SqliteStateStore {
         };
         let this = Self { store_cipher, pool };
         this.run_migrations(&conn, version, None).await?;
-        conn.optimize().await?;
 
         Ok(this)
     }
@@ -446,12 +461,6 @@ impl SqliteStateStore {
         let member_room_id = self.encode_key(keys::MEMBER, room_id);
         txn.remove_room_members(&member_room_id, Some(stripped))
     }
-}
-
-async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
-    fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-    let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-state.sqlite3"));
-    Ok(cfg.create_pool(Runtime::Tokio1)?)
 }
 
 /// Initialize the database.
@@ -2126,26 +2135,80 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
-    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+    use std::{
+        path::PathBuf,
+        sync::atomic::{AtomicU32, Ordering::SeqCst},
+    };
 
     use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+    use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteStateStore;
+    use crate::{utils::SqliteAsyncConnExt, SqliteStoreConfig};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
-    async fn get_store() -> Result<impl StateStore, StoreError> {
+    fn new_state_store_workspace() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
-        let tmpdir_path = TMP_DIR.path().join(name);
+        TMP_DIR.path().join(name)
+    }
+
+    async fn get_store() -> Result<impl StateStore, StoreError> {
+        let tmpdir_path = new_state_store_workspace();
 
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), Some("default_test_password"))
             .await
             .unwrap())
+    }
+
+    #[async_test]
+    async fn test_pool_size() {
+        let tmpdir_path = new_state_store_workspace();
+        let store_open_config = SqliteStoreConfig::new(tmpdir_path).pool_max_size(42);
+
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+
+        assert_eq!(store.pool.status().max_size, 42);
+    }
+
+    #[async_test]
+    async fn test_cache_size() {
+        let tmpdir_path = new_state_store_workspace();
+        let store_open_config = SqliteStoreConfig::new(tmpdir_path).cache_size(1500);
+
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+
+        let conn = store.pool.get().await.unwrap();
+        let cache_size =
+            conn.query_row("PRAGMA cache_size", (), |row| row.get::<_, i32>(0)).await.unwrap();
+
+        // The value passed to  `SqliteStoreConfig` is in bytes. Check it is converted
+        // to kibibytes. Also, it must be a negative value because it _is_ the size in
+        // kibibytes, not in page size.
+        assert_eq!(cache_size, -(1500 / 1024));
+    }
+
+    #[async_test]
+    async fn test_journal_size_limit() {
+        let tmpdir_path = new_state_store_workspace();
+        let store_open_config = SqliteStoreConfig::new(tmpdir_path).journal_size_limit(1500);
+
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+
+        let conn = store.pool.get().await.unwrap();
+        let journal_size_limit = conn
+            .query_row("PRAGMA journal_size_limit", (), |row| row.get::<_, u32>(0))
+            .await
+            .unwrap();
+
+        // The value passed to  `SqliteStoreConfig` is in bytes. It stays in bytes in
+        // SQLite.
+        assert_eq!(journal_size_limit, 1500);
     }
 
     statestore_integration_tests!();
@@ -2161,6 +2224,7 @@ mod migration_tests {
         },
     };
 
+    use deadpool_sqlite::Runtime;
     use matrix_sdk_base::{
         store::{ChildTransactionId, DependentQueuedRequestKind, SerializableEventContent},
         sync::UnreadNotificationsCount,
@@ -2179,11 +2243,13 @@ mod migration_tests {
     use rusqlite::Transaction;
     use serde_json::json;
     use tempfile::{tempdir, TempDir};
+    use tokio::fs;
 
-    use super::{create_pool, init, keys, SqliteStateStore};
+    use super::{init, keys, SqliteStateStore, DATABASE_NAME};
     use crate::{
         error::{Error, Result},
         utils::{SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+        OpenStoreError,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
@@ -2196,7 +2262,12 @@ mod migration_tests {
     }
 
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
-        let pool = create_pool(path).await.unwrap();
+        fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir).unwrap();
+
+        let config = deadpool_sqlite::Config::new(path.join(DATABASE_NAME));
+        // use default pool config
+
+        let pool = config.create_pool(Runtime::Tokio1).unwrap();
         let conn = pool.get().await?;
 
         init(&conn).await?;

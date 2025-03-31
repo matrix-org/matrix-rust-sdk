@@ -204,10 +204,12 @@ impl SendQueue {
         }
 
         let room_ids =
-            self.client.store().load_rooms_with_unsent_requests().await.unwrap_or_else(|err| {
-                warn!("error when loading rooms with unsent requests: {err}");
-                Vec::new()
-            });
+            self.client.state_store().load_rooms_with_unsent_requests().await.unwrap_or_else(
+                |err| {
+                    warn!("error when loading rooms with unsent requests: {err}");
+                    Vec::new()
+                },
+            );
 
         // Getting the [`RoomSendQueue`] is sufficient to spawn the task if needs be.
         for room_id in room_ids {
@@ -719,7 +721,7 @@ impl RoomSendQueue {
                         ))?;
 
                     #[cfg(feature = "e2e-encryption")]
-                    let media_source = if room.is_encrypted().await? {
+                    let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
                         let mut cursor = std::io::Cursor::new(data);
                         let encrypted_file = room
@@ -959,7 +961,7 @@ impl QueueStorage {
             .lock()
             .await
             .client()?
-            .store()
+            .state_store()
             .save_send_queue_request(
                 &self.room_id,
                 transaction_id.clone(),
@@ -982,7 +984,7 @@ impl QueueStorage {
     {
         let mut guard = self.store.lock().await;
         let queued_requests =
-            guard.client()?.store().load_send_queue_requests(&self.room_id).await?;
+            guard.client()?.state_store().load_send_queue_requests(&self.room_id).await?;
 
         if let Some(request) = queued_requests.iter().find(|queued| !queued.is_wedged()) {
             let (cancel_upload_tx, cancel_upload_rx) =
@@ -1042,7 +1044,7 @@ impl QueueStorage {
 
         Ok(guard
             .client()?
-            .store()
+            .state_store()
             .update_send_queue_request_status(&self.room_id, transaction_id, Some(reason))
             .await?)
     }
@@ -1058,7 +1060,7 @@ impl QueueStorage {
             .lock()
             .await
             .client()?
-            .store()
+            .state_store()
             .update_send_queue_request_status(&self.room_id, transaction_id, None)
             .await?)
     }
@@ -1080,7 +1082,7 @@ impl QueueStorage {
         }
 
         let client = guard.client()?;
-        let store = client.store();
+        let store = client.state_store();
 
         // Update all dependent requests.
         store
@@ -1114,7 +1116,7 @@ impl QueueStorage {
             // Save the intent to redact the event.
             guard
                 .client()?
-                .store()
+                .state_store()
                 .save_dependent_queued_request(
                     &self.room_id,
                     transaction_id,
@@ -1129,7 +1131,7 @@ impl QueueStorage {
 
         let removed = guard
             .client()?
-            .store()
+            .state_store()
             .remove_send_queue_request(&self.room_id, transaction_id)
             .await?;
 
@@ -1155,7 +1157,7 @@ impl QueueStorage {
             // Save the intent to edit the associated event.
             guard
                 .client()?
-                .store()
+                .state_store()
                 .save_dependent_queued_request(
                     &self.room_id,
                     transaction_id,
@@ -1170,7 +1172,7 @@ impl QueueStorage {
 
         let edited = guard
             .client()?
-            .store()
+            .state_store()
             .update_send_queue_request(&self.room_id, transaction_id, serializable.into())
             .await?;
 
@@ -1193,7 +1195,7 @@ impl QueueStorage {
     ) -> Result<(), RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
-        let store = client.store();
+        let store = client.state_store();
         let thumbnail_info =
             if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
                 thumbnail
@@ -1280,7 +1282,7 @@ impl QueueStorage {
     ) -> Result<Option<ChildTransactionId>, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
-        let store = client.store();
+        let store = client.state_store();
 
         let requests = store.load_send_queue_requests(&self.room_id).await?;
 
@@ -1322,7 +1324,7 @@ impl QueueStorage {
     ) -> Result<Vec<LocalEcho>, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
-        let store = client.store();
+        let store = client.state_store();
 
         let local_requests =
             store.load_send_queue_requests(&self.room_id).await?.into_iter().filter_map(|queued| {
@@ -1420,7 +1422,7 @@ impl QueueStorage {
         dependent_request: DependentQueuedRequest,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
     ) -> Result<bool, RoomSendQueueError> {
-        let store = client.store();
+        let store = client.state_store();
 
         let parent_key = dependent_request.parent_key;
 
@@ -1638,7 +1640,7 @@ impl QueueStorage {
         let guard = self.store.lock().await;
 
         let client = guard.client()?;
-        let store = client.store();
+        let store = client.state_store();
 
         let dependent_requests = store
             .load_dependent_queued_requests(&self.room_id)
@@ -1713,7 +1715,7 @@ impl QueueStorage {
             .lock()
             .await
             .client()?
-            .store()
+            .state_store()
             .remove_dependent_queued_request(&self.room_id, dependent_event_id)
             .await?)
     }

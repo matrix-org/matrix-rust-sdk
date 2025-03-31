@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] The `Client::subscribe_to_ignore_user_list_changes()` method will now only trigger
+  whenever the ignored user list has changed from what was previously known, instead of triggering
+  every time an ignore-user-list event has been received from sync.
+  ([#4779](https://github.com/matrix-org/matrix-rust-sdk/pull/4779))
 - [**breaking**] The `MediaRetentionPolicy` can now trigger regular cleanups
   with its new `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
@@ -15,6 +19,24 @@ All notable changes to this project will be documented in this file.
   - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
   - There are new `'static` bounds in `MediaService` for the media cache stores
 - `event_cache::store::MemoryStore` implements `Clone`.
+- `BaseClient` now has a `handle_verification_events` field which is `true` by 
+  default and can be negated so the `NotificationClient` won't handle received 
+  verification events too, causing errors in the `VerificationMachine`.
+- [**breaking**] `Room::is_encryption_state_synced` has been removed
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777))
+- [**breaking**] `Room::is_encrypted` is replaced by `Room::encryption_state`
+  which returns a value of the new `EncryptionState` enum
+  ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777))
+
+### Refactor
+
+- [**breaking**] `BaseClient::store` is renamed `state_store`
+  ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
+- [**breaking**] `BaseClient::with_store_config` is renamed `new`
+  ([#4847](https://github.com/matrix-org/matrix-rust-sdk/pull/4847))
+- [**breaking**] `BaseClient::set_session_metadata` is renamed
+  `activate`, and `BaseClient::logged_in` is renamed `is_activated`
+  ([#4850](https://github.com/matrix-org/matrix-rust-sdk/pull/4850))
 
 ## [0.10.0] - 2025-02-04
 

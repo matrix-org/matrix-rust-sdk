@@ -2,7 +2,10 @@ use std::{iter, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
-use matrix_sdk::{config::SyncSettings, room::RoomMember, RoomDisplayName, RoomMemberships};
+use matrix_sdk::{
+    config::SyncSettings, room::RoomMember, test_utils::mocks::MatrixMockServer, RoomDisplayName,
+    RoomMemberships,
+};
 use matrix_sdk_test::{
     async_test, bulk_room_members, event_factory::EventFactory, sync_state_event,
     sync_timeline_event, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder,
@@ -618,49 +621,42 @@ async fn test_room_event_permalink() {
 async fn test_event() {
     let event_id = event_id!("$foun39djjod0f");
 
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let cache = client.event_cache();
     let _ = cache.subscribe();
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder
-        // We need the member event and power levels locally so the push rules processor works.
-        .add_joined_room(
+    let room = server
+        .sync_room(
+            &client,
+            // We need the member event and power levels locally so the push rules processor
+            // works.
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(StateTestEvent::Member)
                 .add_state_event(StateTestEvent::PowerLevels),
-        );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    let response_json = json!({
-        "content": {
-            "body": "This room has been replaced",
-            "replacement_room": "!newroom:localhost",
-        },
-        "event_id": event_id,
-        "origin_server_ts": 152039280,
-        "sender": "@bob:localhost",
-        "state_key": "",
-        "type": "m.room.tombstone",
-        "room_id": *DEFAULT_TEST_ROOM_ID,
-    });
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-        .expect(1)
-        .named("event_1")
-        .mount(&server)
+        )
         .await;
 
-    let timeline_event = room.event(event_id, None).await.unwrap();
+    // First, loading the event results in a 404.
+    room.load_or_fetch_event(event_id, None).await.unwrap_err();
+
+    let f = EventFactory::new();
+    server
+        .mock_room_event()
+        .ok(f
+            .room_tombstone("This room has been replaced", room_id!("!newroom:localhost"))
+            .sender(*BOB)
+            .event_id(event_id)
+            .room(*DEFAULT_TEST_ROOM_ID)
+            .into())
+        .named("/event")
+        .mock_once()
+        .mount()
+        .await;
+
+    // Then, we can find it using a network query.
+    let timeline_event = room.load_or_fetch_event(event_id, None).await.unwrap();
     assert_let!(
         AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTombstone(event)) =
             timeline_event.raw().deserialize().unwrap()
@@ -673,6 +669,14 @@ async fn test_event() {
 
     // Requested event was saved to the cache
     assert!(cache.event(event_id).await.is_some());
+
+    // So we can reload it without hitting the network.
+    let timeline_event = room.load_or_fetch_event(event_id, None).await.unwrap();
+    assert_let!(
+        AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTombstone(event)) =
+            timeline_event.raw().deserialize().unwrap()
+    );
+    assert_eq!(event.event_id(), event_id);
 }
 
 #[async_test]

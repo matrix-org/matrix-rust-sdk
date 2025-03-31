@@ -23,7 +23,7 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
     GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails, TimelineItemContent};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::{
     event_id,
     events::room::{member::MembershipState, message::MessageType},
@@ -121,7 +121,7 @@ async fn test_event_filter() {
     assert_eq!(first_event.event_id(), Some(first_event_id));
     assert_eq!(first_event.read_receipts().len(), 1, "implicit read receipt");
     assert_matches!(first_event.latest_edit_json(), None);
-    assert_let!(TimelineItemContent::Message(msg) = first_event.content());
+    assert_let!(Some(msg) = first_event.content().as_message());
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert!(!msg.is_edited());
 
@@ -186,7 +186,7 @@ async fn test_event_filter() {
     let first_event = first.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
     assert_matches!(first_event.latest_edit_json(), Some(_));
-    assert_let!(TimelineItemContent::Message(msg) = first_event.content());
+    assert_let!(Some(msg) = first_event.content().as_message());
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "hi");
     assert!(msg.is_edited());

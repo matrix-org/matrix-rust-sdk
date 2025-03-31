@@ -106,14 +106,18 @@ impl TimelineItem {
         matches!(&self.kind, TimelineItemKind::Event(_))
     }
 
-    /// Check whether this item is a date divider.
-    #[must_use]
+    /// Check whether this item is a (virtual) date divider.
     pub fn is_date_divider(&self) -> bool {
         matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)))
     }
 
     pub(crate) fn is_read_marker(&self) -> bool {
         matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker))
+    }
+
+    /// Check whether this item is a (virtual) timeline start item.
+    pub fn is_timeline_start(&self) -> bool {
+        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart))
     }
 }
 

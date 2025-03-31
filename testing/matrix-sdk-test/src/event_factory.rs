@@ -50,6 +50,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        typing::TypingEventContent,
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
         RedactedMessageLikeEventContent, RedactedStateEventContent,
     },
@@ -118,6 +119,9 @@ impl<C: EventContent> Default for Unsigned<C> {
 #[derive(Debug)]
 pub struct EventBuilder<C: EventContent> {
     sender: Option<OwnedUserId>,
+    /// Whether the event is an ephemeral one. As such, it doesn't require a
+    /// room id or a sender.
+    is_ephemeral: bool,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
     /// Whether the event should *not* have an event id. False by default.
@@ -196,17 +200,31 @@ where
         // none has been set.
         let sender = self
             .sender
-            .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone()))
-            .expect("we should have a sender user id at this point");
+            .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone()));
+
+        if sender.is_none() {
+            assert!(
+                self.is_ephemeral,
+                "the sender must be known when building the JSON for a non read-receipt event"
+            );
+        } else {
+            assert!(
+                !self.is_ephemeral,
+                "event builder set is_ephemeral, but also has a sender field"
+            );
+        }
 
         let mut json = json!({
             "type": self.content.event_type(),
             "content": self.content,
-            "sender": sender,
             "origin_server_ts": self.server_ts,
         });
 
         let map = json.as_object_mut().unwrap();
+
+        if let Some(sender) = sender {
+            map.insert("sender".to_owned(), json!(sender));
+        }
 
         let event_id = self
             .event_id
@@ -218,7 +236,7 @@ where
             map.insert("event_id".to_owned(), json!(event_id));
         }
 
-        if requires_room {
+        if requires_room && !self.is_ephemeral {
             let room_id = self.room.expect("TimelineEvent requires a room id");
             map.insert("room_id".to_owned(), json!(room_id));
         }
@@ -399,6 +417,7 @@ impl EventFactory {
     pub fn event<E: EventContent>(&self, content: E) -> EventBuilder<E> {
         EventBuilder {
             sender: self.sender.clone(),
+            is_ephemeral: false,
             room: self.room.clone(),
             server_ts: self.next_server_ts(),
             event_id: None,
@@ -686,6 +705,14 @@ impl EventFactory {
         self.event(RoomMessageEventContent::new(MessageType::Image(image_event_content)))
     }
 
+    /// Create a typing notification event.
+    pub fn typing(&self, user_ids: Vec<&UserId>) -> EventBuilder<TypingEventContent> {
+        let mut builder = self
+            .event(TypingEventContent::new(user_ids.into_iter().map(ToOwned::to_owned).collect()));
+        builder.is_ephemeral = true;
+        builder
+    }
+
     /// Create a read receipt event.
     pub fn read_receipts(&self) -> ReadReceiptBuilder<'_> {
         ReadReceiptBuilder { factory: self, content: ReceiptEventContent(Default::default()) }
@@ -805,16 +832,32 @@ pub struct ReadReceiptBuilder<'a> {
 impl ReadReceiptBuilder<'_> {
     /// Add a single read receipt to the event.
     pub fn add(
-        mut self,
+        self,
         event_id: &EventId,
         user_id: &UserId,
         tyype: ReceiptType,
         thread: ReceiptThread,
     ) -> Self {
+        let ts = self.factory.next_server_ts();
+        self.add_with_timestamp(event_id, user_id, tyype, thread, Some(ts))
+    }
+
+    /// Add a single read receipt to the event, with an optional timestamp.
+    pub fn add_with_timestamp(
+        mut self,
+        event_id: &EventId,
+        user_id: &UserId,
+        tyype: ReceiptType,
+        thread: ReceiptThread,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> Self {
         let by_event = self.content.0.entry(event_id.to_owned()).or_default();
         let by_type = by_event.entry(tyype).or_default();
 
-        let mut receipt = Receipt::new(self.factory.next_server_ts());
+        let mut receipt = Receipt::default();
+        if let Some(ts) = ts {
+            receipt.ts = Some(ts);
+        }
         receipt.thread = thread;
 
         by_type.insert(user_id.to_owned(), receipt);
@@ -822,8 +865,15 @@ impl ReadReceiptBuilder<'_> {
     }
 
     /// Finalize the builder into the receipt event content.
-    pub fn build(self) -> ReceiptEventContent {
+    pub fn into_content(self) -> ReceiptEventContent {
         self.content
+    }
+
+    /// Finalize the builder into an event builder.
+    pub fn into_event(self) -> EventBuilder<ReceiptEventContent> {
+        let mut builder = self.factory.event(self.into_content());
+        builder.is_ephemeral = true;
+        builder
     }
 }
 

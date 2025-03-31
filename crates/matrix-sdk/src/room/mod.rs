@@ -17,6 +17,7 @@
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, HashMap},
+    future::Future,
     ops::Deref,
     sync::Arc,
     time::Duration,
@@ -32,10 +33,13 @@ use futures_util::{
 use http::StatusCode;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub use identity_status_changes::IdentityStatusChanges;
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{DecryptionSettings, RoomEventDecryptionResult};
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::{
+    crypto::{DecryptionSettings, RoomEventDecryptionResult},
+    deserialized_responses::EncryptionInfo,
+};
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
@@ -43,8 +47,8 @@ use matrix_sdk_base::{
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::MediaThumbnailSettings,
     store::StateStoreExt,
-    ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
-    StateStoreDataValue,
+    ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
+    StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_common::BoxFuture;
@@ -163,6 +167,7 @@ pub mod knock_requests;
 mod member;
 mod messages;
 pub mod power_levels;
+pub mod reply;
 
 /// Contains all the functionality for modifying the privacy settings in a room.
 pub mod privacy_settings;
@@ -492,6 +497,31 @@ impl Room {
         Ok(event)
     }
 
+    /// Try to load the event from the event cache, if it's enabled, or fetch it
+    /// from the homeserver.
+    ///
+    /// When running the request against the homeserver, it uses the given
+    /// [`RequestConfig`] if provided, or the client's default one
+    /// otherwise.
+    pub async fn load_or_fetch_event(
+        &self,
+        event_id: &EventId,
+        request_config: Option<RequestConfig>,
+    ) -> Result<TimelineEvent> {
+        match self.event_cache().await {
+            Ok((event_cache, _drop_handles)) => {
+                if let Some(event) = event_cache.event(event_id).await {
+                    return Ok(event);
+                }
+                // Fallthrough: try with a request.
+            }
+            Err(err) => {
+                debug!("error when getting the event cache: {err}");
+            }
+        }
+        self.event(event_id, request_config).await
+    }
+
     /// Fetch the event with the given `EventId` in this room, using the
     /// `/context` endpoint to get more information.
     pub async fn event_with_context(
@@ -585,7 +615,15 @@ impl Room {
             .await
     }
 
-    async fn request_encryption_state(&self) -> Result<()> {
+    /// Request to update the encryption state for this room.
+    ///
+    /// It does nothing if the encryption state is already
+    /// [`EncryptionState::Encrypted`] or [`EncryptionState::NotEncrypted`].
+    pub async fn request_encryption_state(&self) -> Result<()> {
+        if !self.inner.encryption_state().is_unknown() {
+            return Ok(());
+        }
+
         self.client
             .locks()
             .encryption_state_deduplicated_handler
@@ -614,7 +652,7 @@ impl Room {
                 let mut changes = StateChanges::default();
                 changes.add_room(room_info.clone());
 
-                self.client.store().save_changes(&changes).await?;
+                self.client.state_store().save_changes(&changes).await?;
                 self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
                 Ok(())
@@ -622,16 +660,23 @@ impl Room {
             .await
     }
 
-    /// Check whether this room is encrypted. If the room encryption state is
-    /// not synced yet, it will send a request to fetch it.
+    /// Check the encryption state of this room.
     ///
-    /// Returns true if the room is encrypted, otherwise false.
-    pub async fn is_encrypted(&self) -> Result<bool> {
-        if !self.is_encryption_state_synced() {
-            self.request_encryption_state().await?;
-        }
+    /// If the result is [`EncryptionState::Unknown`], one might want to call
+    /// [`Room::request_encryption_state`].
+    pub fn encryption_state(&self) -> EncryptionState {
+        self.inner.encryption_state()
+    }
 
-        Ok(self.inner.is_encrypted())
+    /// Force to update the encryption state by calling
+    /// [`Room::request_encryption_state`], and then calling
+    /// [`Room::encryption_state`].
+    ///
+    /// This method is useful to ensure the encryption state is up-to-date.
+    pub async fn latest_encryption_state(&self) -> Result<EncryptionState> {
+        self.request_encryption_state().await?;
+
+        Ok(self.encryption_state())
     }
 
     /// Gets additional context info about the client crypto.
@@ -760,7 +805,11 @@ impl Room {
         &self,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
+        self.client
+            .state_store()
+            .get_state_events(self.room_id(), event_type)
+            .await
+            .map_err(Into::into)
     }
 
     /// Get all state events of a given statically-known type in this room.
@@ -784,7 +833,7 @@ impl Room {
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
-        Ok(self.client.store().get_state_events_static(self.room_id()).await?)
+        Ok(self.client.state_store().get_state_events_static(self.room_id()).await?)
     }
 
     /// Get the state events of a given type with the given state keys in this
@@ -795,7 +844,7 @@ impl Room {
         state_keys: &[&str],
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
         self.client
-            .store()
+            .state_store()
             .get_state_events_for_keys(self.room_id(), event_type, state_keys)
             .await
             .map_err(Into::into)
@@ -832,7 +881,11 @@ impl Room {
         I: IntoIterator<Item = &'a K> + Send,
         I::IntoIter: Send,
     {
-        Ok(self.client.store().get_state_events_for_keys_static(self.room_id(), state_keys).await?)
+        Ok(self
+            .client
+            .state_store()
+            .get_state_events_for_keys_static(self.room_id(), state_keys)
+            .await?)
     }
 
     /// Get a specific state event in this room.
@@ -842,7 +895,7 @@ impl Room {
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
         self.client
-            .store()
+            .state_store()
             .get_state_event(self.room_id(), event_type, state_key)
             .await
             .map_err(Into::into)
@@ -903,7 +956,11 @@ impl Room {
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
-        Ok(self.client.store().get_state_event_static_for_key(self.room_id(), state_key).await?)
+        Ok(self
+            .client
+            .state_store()
+            .get_state_event_static_for_key(self.room_id(), state_key)
+            .await?)
     }
 
     /// Returns the parents this room advertises as its parents.
@@ -987,7 +1044,7 @@ impl Room {
         data_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.client
-            .store()
+            .state_store()
             .get_room_account_data_event(self.room_id(), data_type)
             .await
             .map_err(Into::into)
@@ -1024,8 +1081,11 @@ impl Room {
     /// Returns true if all devices in the room are verified, otherwise false.
     #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
-        let user_ids =
-            self.client.store().get_user_ids(self.room_id(), RoomMemberships::empty()).await?;
+        let user_ids = self
+            .client
+            .state_store()
+            .get_user_ids(self.room_id(), RoomMemberships::empty())
+            .await?;
 
         for user_id in user_ids {
             let devices = self.client.encryption().get_user_devices(&user_id).await?;
@@ -1306,6 +1366,23 @@ impl Room {
 
         event.push_actions = self.event_push_actions(event.raw()).await?;
         Ok(event)
+    }
+
+    /// Fetches the [`EncryptionInfo`] for the supplied session_id.
+    ///
+    /// This may be used when we receive an update for a session, and we want to
+    /// reflect the changes in messages we have received that were encrypted
+    /// with that session, e.g. to remove a warning shield because a device is
+    /// now verified.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn get_encryption_info(
+        &self,
+        session_id: &str,
+        sender: &UserId,
+    ) -> Option<EncryptionInfo> {
+        let machine = self.client.olm_machine().await;
+        let machine = machine.as_ref()?;
+        machine.get_session_encryption_info(self.room_id(), session_id, sender).await.ok()
     }
 
     /// Forces the currently active room key, which is used to encrypt messages,
@@ -1615,7 +1692,7 @@ impl Room {
         };
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
-        if !self.is_encrypted().await? {
+        if !self.latest_encryption_state().await?.is_encrypted() {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
             self.send_state_event(content).await?;
@@ -1630,7 +1707,7 @@ impl Room {
             // the SDK to re-request it later for confirmation, instead of
             // assuming it's sync'd and correct (and not encrypted).
             let _sync_lock = self.client.base_client().sync_lock().lock().await;
-            if !self.inner.is_encrypted() {
+            if !self.inner.encryption_state().is_encrypted() {
                 debug!("still not marked as encrypted, marking encryption state as missing");
 
                 let mut room_info = self.clone_info();
@@ -1638,7 +1715,7 @@ impl Room {
                 let mut changes = StateChanges::default();
                 changes.add_room(room_info.clone());
 
-                self.client.store().save_changes(&changes).await?;
+                self.client.state_store().save_changes(&changes).await?;
                 self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
             } else {
                 debug!("room successfully marked as encrypted");
@@ -1672,7 +1749,7 @@ impl Room {
                 {
                     let members = self
                         .client
-                        .store()
+                        .state_store()
                         .get_user_ids(self.room_id(), RoomMemberships::ACTIVE)
                         .await?;
                     self.client.claim_one_time_keys(members.iter().map(Deref::deref)).await?;
@@ -1813,7 +1890,7 @@ impl Room {
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
         let members =
-            self.client.store().get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
+            self.client.state_store().get_user_ids(self.room_id(), RoomMemberships::ACTIVE).await?;
 
         let tracked: HashMap<_, _> = olm
             .store()
@@ -2004,7 +2081,7 @@ impl Room {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        let (media_source, thumbnail) = if self.is_encrypted().await? {
+        let (media_source, thumbnail) = if self.latest_encryption_state().await?.is_encrypted() {
             self.client
                 .upload_encrypted_media_and_thumbnail(content_type, &data, thumbnail, send_progress)
                 .await?
@@ -2946,7 +3023,9 @@ impl Room {
 
         if notification_mode.is_some() {
             notification_mode
-        } else if let Ok(is_encrypted) = self.is_encrypted().await {
+        } else if let Ok(is_encrypted) =
+            self.latest_encryption_state().await.map(|state| state.is_encrypted())
+        {
             // Otherwise, if encrypted status is available, get the default mode for this
             // type of room.
             // From the point of view of notification settings, a `one-to-one` room is one
@@ -3220,7 +3299,7 @@ impl Room {
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
         self.client
-            .store()
+            .state_store()
             .set_kv_data(
                 StateStoreDataKey::ComposerDraft(self.room_id()),
                 StateStoreDataValue::ComposerDraft(draft),
@@ -3233,7 +3312,7 @@ impl Room {
     pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>> {
         let data = self
             .client
-            .store()
+            .state_store()
             .get_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
             .await?;
         Ok(data.and_then(|d| d.into_composer_draft()))
@@ -3242,7 +3321,7 @@ impl Room {
     /// Remove the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<()> {
         self.client
-            .store()
+            .state_store()
             .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
             .await?;
         Ok(())
@@ -3711,6 +3790,19 @@ impl TryFrom<Int> for ReportedContentScore {
     }
 }
 
+trait EventSource {
+    fn get_event(
+        &self,
+        event_id: &EventId,
+    ) -> impl Future<Output = Result<TimelineEvent, Error>> + SendOutsideWasm;
+}
+
+impl EventSource for &Room {
+    async fn get_event(&self, event_id: &EventId) -> Result<TimelineEvent, Error> {
+        self.load_or_fetch_event(event_id, None).await
+    }
+}
+
 /// The error type returned when a checked `ReportedContentScore` conversion
 /// fails.
 #[derive(Debug, Clone, Error)]
@@ -3720,12 +3812,12 @@ pub struct TryFromReportedContentScoreError(());
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use assert_matches2::assert_matches;
-    use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft, SessionMeta};
+    use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft};
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder,
     };
-    use ruma::{device_id, event_id, events::room::member::MembershipState, int, room_id, user_id};
+    use ruma::{event_id, events::room::member::MembershipState, int, room_id, user_id};
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
@@ -3733,9 +3825,8 @@ mod tests {
 
     use super::ReportedContentScore;
     use crate::{
-        authentication::matrix::{MatrixSession, MatrixSessionTokens},
         config::RequestConfig,
-        test_utils::{logged_in_client, mocks::MatrixMockServer},
+        test_utils::{client::mock_matrix_session, logged_in_client, mocks::MatrixMockServer},
         Client,
     };
 
@@ -3745,13 +3836,7 @@ mod tests {
         use matrix_sdk_test::{message_like_event_content, DEFAULT_TEST_ROOM_ID};
 
         let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
-        let session = MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        };
+        let session = mock_matrix_session();
 
         let client = Client::builder()
             .homeserver_url("http://localhost:1234")

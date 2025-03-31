@@ -1,0 +1,10 @@
+---
+source: crates/matrix-sdk-common/src/deserialized_responses.rs
+expression: "ShieldState::Red\n{ code: ShieldStateCode::UnverifiedIdentity, message: \"a message\" }"
+---
+{
+  "Red": {
+    "code": "UnverifiedIdentity",
+    "message": "a message"
+  }
+}

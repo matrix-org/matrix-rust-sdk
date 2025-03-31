@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use assert_matches::assert_matches;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    authentication::matrix::MatrixSession,
     encryption::secret_storage::SecretStorageError,
-    test_utils::no_retry_test_client_with_server,
+    test_utils::{client::mock_session_tokens, no_retry_test_client_with_server},
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::async_test;
@@ -374,7 +374,7 @@ async fn test_restore_cross_signing_from_secret_store() {
             user_id: user_id!("@example:morpheus.localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: mock_session_tokens(),
     };
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
@@ -575,7 +575,7 @@ async fn test_is_secret_storage_enabled() {
             user_id: user_id!("@example:morpheus.localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: mock_session_tokens(),
     };
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();

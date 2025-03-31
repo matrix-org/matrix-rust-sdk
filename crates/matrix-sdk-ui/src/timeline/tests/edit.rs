@@ -32,7 +32,6 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
-use crate::timeline::TimelineItemContent;
 
 #[async_test]
 async fn test_live_redacted() {
@@ -74,7 +73,7 @@ async fn test_live_sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
-    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(Some(message) = first_event.content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "**original** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<strong>original</strong> message");
@@ -99,7 +98,7 @@ async fn test_live_sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let first_event = item.as_event().unwrap();
-    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(Some(message) = first_event.content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, new_plain_content);
     assert_eq!(text.formatted.as_ref().unwrap().body, " <strong>better</strong> message");
@@ -144,7 +143,7 @@ async fn test_aggregated_sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
-    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(Some(message) = first_event.content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "!!edited!! **better** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, " <strong>better</strong> message");
@@ -176,6 +175,7 @@ async fn test_edit_updates_encryption_info() {
             sender_claimed_keys: BTreeMap::new(),
         },
         verification_state: VerificationState::Verified,
+        session_id: Some("mysessionid6333".to_owned()),
     };
 
     let original_event: TimelineEvent = DecryptedRoomEvent {
@@ -195,7 +195,7 @@ async fn test_edit_updates_encryption_info() {
         VerificationState::Verified
     );
 
-    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(Some(message) = first_event.content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "**original** message");
 
@@ -224,7 +224,7 @@ async fn test_edit_updates_encryption_info() {
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
     );
 
-    assert_let!(TimelineItemContent::Message(message) = first_event.content());
+    assert_let!(Some(message) = first_event.content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "!!edited!! **better** message");
 }

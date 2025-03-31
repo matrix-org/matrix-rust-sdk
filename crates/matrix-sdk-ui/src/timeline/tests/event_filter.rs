@@ -14,7 +14,6 @@
 
 use std::sync::Arc;
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -31,7 +30,8 @@ use stream_assert::assert_next_matches;
 use super::TestTimeline;
 use crate::timeline::{
     controller::TimelineSettings, tests::TestTimelineBuilder, AnyOtherFullStateEventContent,
-    TimelineEventTypeFilter, TimelineItem, TimelineItemContent, TimelineItemKind,
+    MsgLikeContent, MsgLikeKind, TimelineEventTypeFilter, TimelineItem, TimelineItemContent,
+    TimelineItemKind,
 };
 
 #[async_test]
@@ -58,7 +58,7 @@ async fn test_default_filter() {
 
     // The edit was applied.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
-    assert_let!(TimelineItemContent::Message(message) = item.as_event().unwrap().content());
+    assert_let!(Some(message) = item.as_event().unwrap().content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "The _edited_ first message");
 
@@ -71,7 +71,7 @@ async fn test_default_filter() {
 
     timeline.handle_live_event(f.redaction(second_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
-    assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
+    assert!(item.as_event().unwrap().content().is_redacted());
 
     // TODO: After adding raw timeline items, check for one here.
 
@@ -246,7 +246,10 @@ impl TestTimeline {
 fn is_text_message_item(item: &&Arc<TimelineItem>) -> bool {
     match item.kind() {
         TimelineItemKind::Event(event) => match &event.content {
-            TimelineItemContent::Message(message) => {
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(message),
+                ..
+            }) => {
                 matches!(message.msgtype, MessageType::Text(_))
             }
             _ => false,

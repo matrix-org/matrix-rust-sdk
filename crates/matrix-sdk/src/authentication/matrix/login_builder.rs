@@ -27,6 +27,8 @@ use ruma::{
 use tracing::{info, instrument};
 
 use super::MatrixAuth;
+#[cfg(feature = "sso-login")]
+use crate::utils::local_server::LocalServerBuilder;
 use crate::{config::RequestConfig, Result};
 
 /// The login method.
@@ -216,8 +218,7 @@ pub struct SsoLoginBuilder<F> {
     use_sso_login_url: F,
     device_id: Option<String>,
     initial_device_display_name: Option<String>,
-    server_url: Option<String>,
-    server_response: Option<String>,
+    server_builder: Option<LocalServerBuilder>,
     identity_provider_id: Option<String>,
     request_refresh_token: bool,
 }
@@ -234,8 +235,7 @@ where
             use_sso_login_url,
             device_id: None,
             initial_device_display_name: None,
-            server_url: None,
-            server_response: None,
+            server_builder: None,
             identity_provider_id: None,
             request_refresh_token: false,
         }
@@ -262,22 +262,13 @@ where
         self
     }
 
-    /// Set the local URL the server is going to try to bind to.
+    /// Customize the settings used to construct the server where the end-user
+    /// will be redirected.
     ///
-    /// Usually something like `http://localhost:3030`. If not set, the server
-    /// will try to open a random port on `127.0.0.1`.
-    pub fn server_url(mut self, value: &str) -> Self {
-        self.server_url = Some(value.to_owned());
-        self
-    }
-
-    /// Set the text to be shown at the end of the login process.
-    ///
-    /// This configures the text that will be shown on the webpage at the end of
-    /// the login process. This can be an HTML page. If not set, a default text
-    /// will be displayed.
-    pub fn server_response(mut self, value: &str) -> Self {
-        self.server_response = Some(value.to_owned());
+    /// If this is not set, the default settings of [`LocalServerBuilder`] will
+    /// be used.
+    pub fn server_builder(mut self, builder: LocalServerBuilder) -> Self {
+        self.server_builder = Some(builder);
         self
     }
 
@@ -318,121 +309,22 @@ where
     /// Panics if a session was already restored or logged in.
     #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
-        use std::{
-            convert::Infallible,
-            io::{Error as IoError, ErrorKind as IoErrorKind},
-            ops::Range,
-            sync::{Arc, Mutex},
-        };
+        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-        use axum::{
-            http::{self, Method, StatusCode},
-            response::IntoResponse,
-            routing::any_service,
-        };
-        use rand::{thread_rng, Rng};
         use serde::Deserialize;
-        use tokio::{net::TcpListener, sync::oneshot};
-        use tower::service_fn;
-        use tracing::debug;
-        use url::Url;
-
-        /// The range of ports the SSO server will try to bind to randomly.
-        ///
-        /// This is used to avoid binding to a port blocked by browsers.
-        /// See <https://fetch.spec.whatwg.org/#port-blocking>.
-        const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
-        /// The number of times the SSO server will try to bind to a random port
-        const SSO_SERVER_BIND_TRIES: u8 = 10;
 
         let client = &self.auth.client;
         let homeserver = client.homeserver();
         info!(%homeserver, "Logging in");
 
-        let (signal_tx, signal_rx) = oneshot::channel();
-        let (data_tx, data_rx) = oneshot::channel();
-        let data_tx_mutex = Arc::new(Mutex::new(Some(data_tx)));
-
-        let mut redirect_url = match self.server_url {
-            Some(s) => Url::parse(&s)?,
-            None => {
-                Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
-            }
-        };
-
-        let response = self.server_response.unwrap_or_else(|| {
-            "The Single Sign-On login process is complete. You can close this page now.".to_owned()
-        });
-
         #[derive(Deserialize)]
         struct QueryParameters {
             #[serde(rename = "loginToken")]
-            login_token: Option<String>,
+            login_token: String,
         }
 
-        let handle_request = move |request: http::Request<_>| {
-            if request.method() != Method::HEAD && request.method() != Method::GET {
-                return Err(StatusCode::METHOD_NOT_ALLOWED);
-            }
-
-            if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                let query_string = request.uri().query().unwrap_or("");
-                let query: QueryParameters =
-                    serde_html_form::from_str(query_string).map_err(|_| {
-                        debug!("Failed to deserialize query parameters");
-                        StatusCode::BAD_REQUEST
-                    })?;
-
-                data_tx.send(query.login_token).unwrap();
-            }
-
-            Ok(response.clone())
-        };
-
-        let listener = {
-            if redirect_url.port().expect("The redirect URL doesn't include a port") == 0 {
-                let host = redirect_url.host_str().expect("The redirect URL doesn't have a host");
-                let mut n = 0u8;
-
-                loop {
-                    let port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
-                    match TcpListener::bind((host, port)).await {
-                        Ok(l) => {
-                            redirect_url
-                                .set_port(Some(port))
-                                .expect("Could not set new port on redirect URL");
-                            break l;
-                        }
-                        Err(_) if n < SSO_SERVER_BIND_TRIES => {
-                            n += 1;
-                        }
-                        Err(e) => {
-                            return Err(e.into());
-                        }
-                    }
-                }
-            } else {
-                TcpListener::bind(redirect_url.as_str()).await?
-            }
-        };
-
-        let router = any_service(service_fn(move |request| {
-            let handle_request = handle_request.clone();
-            async move {
-                match handle_request(request) {
-                    Ok(res) => Ok::<_, Infallible>(res.into_response()),
-                    Err(status_code) => Ok(status_code.into_response()),
-                }
-            }
-        }));
-
-        let server = axum::serve(listener, router)
-            .with_graceful_shutdown(async {
-                signal_rx.await.ok();
-            })
-            .into_future();
-
-        tokio::spawn(server);
+        let server_builder = self.server_builder.unwrap_or_default();
+        let (redirect_url, server_handle) = server_builder.spawn().await?;
 
         let sso_url = self
             .auth
@@ -441,12 +333,12 @@ where
 
         (self.use_sso_login_url)(sso_url).await?;
 
-        let token = data_rx
+        let query_string = server_handle
             .await
-            .map_err(|e| IoError::new(IoErrorKind::Other, format!("{e}")))?
             .ok_or_else(|| IoError::new(IoErrorKind::Other, "Could not get the loginToken"))?;
-
-        let _ = signal_tx.send(());
+        let token = serde_html_form::from_str::<QueryParameters>(&query_string)
+            .map_err(|e| IoError::new(IoErrorKind::Other, e))?
+            .login_token;
 
         let login_builder = LoginBuilder {
             device_id: self.device_id,

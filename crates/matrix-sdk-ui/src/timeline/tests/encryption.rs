@@ -28,6 +28,9 @@ use eyeball_im::VectorDiff;
 use matrix_sdk::{
     assert_next_matches_with_timeout,
     crypto::{decrypt_room_key_export, types::events::UtdCause, OlmMachine},
+    deserialized_responses::{
+        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationLevel, VerificationState,
+    },
     test_utils::test_client_builder,
 };
 use matrix_sdk_base::deserialized_responses::{TimelineEvent, UnableToDecryptReason};
@@ -38,7 +41,7 @@ use ruma::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
         RoomEncryptedEventContent,
     },
-    room_id,
+    owned_device_id, room_id,
     serde::Raw,
     user_id,
 };
@@ -49,7 +52,8 @@ use tokio::time::sleep;
 use super::TestTimeline;
 use crate::{
     timeline::{
-        tests::TestTimelineBuilder, EncryptedMessage, TimelineDetails, TimelineItemContent,
+        tests::{TestRoomDataProvider, TestTimelineBuilder},
+        EncryptedMessage, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
     },
     unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
@@ -121,8 +125,11 @@ async fn test_retry_message_decryption() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
-            session_id,
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
+                session_id,
+                ..
+            }),
             ..
         }) = event.content()
     );
@@ -162,7 +169,7 @@ async fn test_retry_message_decryption() {
     );
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
-    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_let!(Some(message) = event.content().as_message());
     assert_eq!(message.body(), "It's a secret to everybody");
     assert!(!event.is_highlighted());
 
@@ -364,7 +371,7 @@ async fn test_retry_edit_decryption() {
 
     assert_matches!(item.encryption_info(), Some(_));
     assert_matches!(item.latest_edit_json(), Some(_));
-    assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_let!(Some(msg) = item.content().as_message());
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "This is Error");
 
@@ -557,8 +564,11 @@ async fn test_retry_message_decryption_highlighted() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
-            session_id,
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
+                session_id,
+                ..
+            }),
             ..
         }) = event.content()
     );
@@ -588,9 +598,103 @@ async fn test_retry_message_decryption_highlighted() {
         assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
     let event = item.as_event().unwrap();
     assert_matches!(event.encryption_info(), Some(_));
-    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_let!(Some(message) = event.content().as_message());
     assert_eq!(message.body(), "A secret to everybody but Alice");
     assert!(event.is_highlighted());
+}
+
+#[async_test]
+async fn test_retry_fetching_encryption_info() {
+    const SESSION_ID: &str = "C25PoE+4MlNidQD0YU5ibZqHawV0zZ/up7R8vYJBYTY";
+    let sender = user_id!("@sender:s.co");
+    let room_id = room_id!("!room:s.co");
+
+    // Given when I ask the room for new encryption info for any session, it will
+    // say "verified"
+    let verified_encryption_info = make_encryption_info(SESSION_ID, VerificationState::Verified);
+    let provider =
+        TestRoomDataProvider::default().with_encryption_info(SESSION_ID, verified_encryption_info);
+    let timeline = TestTimelineBuilder::new().provider(provider).build();
+    let f = &timeline.factory;
+    let mut stream = timeline.subscribe_events().await;
+
+    // But right now the timeline contains 2 events whose info says "unverified"
+    // One is linked to SESSION_ID, the other is linked to some other session.
+    let timeline_event_this_session = TimelineEvent::from(DecryptedRoomEvent {
+        event: f.text_msg("foo").sender(sender).room(room_id).into_raw(),
+        encryption_info: make_encryption_info(
+            SESSION_ID,
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+        ),
+        unsigned_encryption_info: None,
+    });
+    let timeline_event_other_session = TimelineEvent::from(DecryptedRoomEvent {
+        event: f.text_msg("foo").sender(sender).room(room_id).into_raw(),
+        encryption_info: make_encryption_info(
+            "other_session_id",
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+        ),
+        unsigned_encryption_info: None,
+    });
+    timeline.handle_live_event(timeline_event_this_session).await;
+    timeline.handle_live_event(timeline_event_other_session).await;
+
+    // Sanity: the events come through as unverified
+    assert_eq!(timeline.controller.items().await.len(), 3);
+    {
+        let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
+        assert_matches!(
+            fetched_encryption_info.verification_state,
+            VerificationState::Unverified(_)
+        );
+    }
+    {
+        let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
+        assert_matches!(
+            fetched_encryption_info.verification_state,
+            VerificationState::Unverified(_)
+        );
+    }
+
+    // When we retry the session with ID SESSION_ID
+    let own_user_id = user_id!("@me:s.co");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+    timeline
+        .controller
+        .retry_event_decryption_test(
+            room_id,
+            olm_machine,
+            Some(iter::once(SESSION_ID.to_owned()).collect()),
+        )
+        .await;
+
+    // Then the event in that session has been updated to be verified
+    let event =
+        assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value } => value);
+
+    let fetched_encryption_info = event.as_remote().unwrap().encryption_info.as_ref().unwrap();
+    assert_matches!(fetched_encryption_info.verification_state, VerificationState::Verified);
+
+    assert_eq!(timeline.controller.items().await.len(), 3);
+
+    // But the other one is unchanged because it was for a different session - no
+    // other updates are waiting
+    assert_pending!(stream);
+}
+
+fn make_encryption_info(session_id: &str, verification_state: VerificationState) -> EncryptionInfo {
+    EncryptionInfo {
+        sender: BOB.to_owned(),
+        sender_device: Some(owned_device_id!("BOBDEVICE")),
+        algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+            curve25519_key: Default::default(),
+            sender_claimed_keys: Default::default(),
+        },
+        verification_state,
+        session_id: Some(session_id.to_owned()),
+    }
 }
 
 #[async_test]
@@ -606,8 +710,10 @@ async fn test_utd_cause_for_nonmember_event_is_found() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }) =
-            event.content()
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }),
+            ..
+        }) = event.content()
     );
     assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
 }
@@ -629,8 +735,10 @@ async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }) =
-            event.content()
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }),
+            ..
+        }) = event.content()
     );
     assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
 }
@@ -648,8 +756,10 @@ async fn test_utd_cause_for_member_event_is_unknown() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }) =
-            event.content()
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }),
+            ..
+        }) = event.content()
     );
     assert_eq!(*cause, UtdCause::Unknown);
 }
@@ -667,8 +777,10 @@ async fn test_utd_cause_for_missing_membership_is_unknown() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }) =
-            event.content()
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }),
+            ..
+        }) = event.content()
     );
     assert_eq!(*cause, UtdCause::Unknown);
 }
@@ -730,8 +842,11 @@ async fn test_retry_decryption_updates_response() {
     {
         let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
         assert_let!(
-            TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
-                session_id,
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
+                    session_id,
+                    ..
+                }),
                 ..
             }) = event.content()
         );
@@ -741,14 +856,15 @@ async fn test_retry_decryption_updates_response() {
     // We receive the text response.
     {
         let event = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-        let msg = event.content().as_message().unwrap();
+        let msglike = event.content().as_msglike().unwrap();
+        let msg = msglike.as_message().unwrap();
         assert_eq!(msg.body(), "well said!");
 
-        let reply_details = msg.in_reply_to().unwrap();
+        let reply_details = msglike.in_reply_to.clone().unwrap();
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
-        assert!(replied_to.content.as_unable_to_decrypt().is_some());
+        assert!(replied_to.content().is_unable_to_decrypt());
     }
 
     // Import a room key backup.
@@ -775,21 +891,22 @@ async fn test_retry_decryption_updates_response() {
             VectorDiff::Set { index: 1, value } => value
         );
 
-        let msg = event.content().as_message().unwrap();
+        let msglike = event.content().as_msglike().unwrap();
+        let msg = msglike.as_message().unwrap();
         assert_eq!(msg.body(), "well said!");
 
-        let reply_details = msg.in_reply_to().unwrap();
+        let reply_details = msglike.in_reply_to.clone().unwrap();
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
-        assert_eq!(replied_to.content.as_message().unwrap().body(), "It's a secret to everybody");
+        assert_eq!(replied_to.content().as_message().unwrap().body(), "It's a secret to everybody");
     }
 
     // The event itself is decrypted.
     {
         let event = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
         assert_matches!(event.encryption_info(), Some(_));
-        assert_let!(TimelineItemContent::Message(message) = event.content());
+        assert_let!(Some(message) = event.content().as_message());
         assert_eq!(message.body(), "It's a secret to everybody");
         assert!(!event.is_highlighted());
     }

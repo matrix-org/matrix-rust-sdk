@@ -29,7 +29,7 @@ use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
     crypto::OlmMachine,
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
     send_queue::RoomSendQueueUpdate,
@@ -210,7 +210,7 @@ impl TestTimeline {
         for (event_id, tyype, user_id, thread) in receipts {
             read_receipt = read_receipt.add(&event_id, &user_id, tyype, thread);
         }
-        let ev_content = read_receipt.build();
+        let ev_content = read_receipt.into_content();
         self.controller.handle_read_receipts(ev_content).await;
     }
 
@@ -268,6 +268,10 @@ struct TestRoomDataProvider {
 
     /// Events redacted with that room data providier.
     pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
+
+    /// The [`EncryptionInfo`] describing the Megolm sessions that were used to
+    /// encrypt events.
+    pub encryption_info: HashMap<String, EncryptionInfo>,
 }
 
 impl TestRoomDataProvider {
@@ -277,6 +281,15 @@ impl TestRoomDataProvider {
     }
     fn with_fully_read_marker(mut self, event_id: OwnedEventId) -> Self {
         self.fully_read_marker = Some(event_id);
+        self
+    }
+
+    fn with_encryption_info(
+        mut self,
+        session_id: &str,
+        encryption_info: EncryptionInfo,
+    ) -> TestRoomDataProvider {
+        self.encryption_info.insert(session_id.to_owned(), encryption_info);
         self
     }
 }
@@ -414,5 +427,13 @@ impl RoomDataProvider for TestRoomDataProvider {
     fn room_info(&self) -> Subscriber<RoomInfo> {
         let info = RoomInfo::new(*DEFAULT_TEST_ROOM_ID, RoomState::Joined);
         SharedObservable::new(info).subscribe()
+    }
+
+    async fn get_encryption_info(
+        &self,
+        session_id: &str,
+        _sender: &UserId,
+    ) -> Option<EncryptionInfo> {
+        self.encryption_info.get(session_id).cloned()
     }
 }

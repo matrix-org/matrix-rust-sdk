@@ -14,18 +14,18 @@
 
 //! Helpers to mock an OAuth 2.0 server for the purpose of integration tests.
 
-use mas_oidc_client::types::{
-    iana::{jose::JsonWebSignatureAlg, oauth::OAuthAuthorizationEndpointResponseType},
-    oidc::{ProviderMetadata, SubjectType},
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata,
+    serde::Raw,
 };
 use serde_json::json;
 use url::Url;
 use wiremock::{
     matchers::{method, path_regex},
-    Mock, MockServer, ResponseTemplate,
+    Mock, MockBuilder, ResponseTemplate,
 };
 
-use super::{MatrixMock, MockEndpoint};
+use super::{MatrixMock, MatrixMockServer, MockEndpoint};
 
 /// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
 /// OAuth 2.0 API endpoints easily.
@@ -51,22 +51,37 @@ use super::{MatrixMock, MockEndpoint};
 ///   curried, so one doesn't have to pass it around when calling
 ///   [`MatrixMock::mount()`] or [`MatrixMock::mount_as_scoped()`]. As such, it
 ///   mostly defers its implementations to [`wiremock::Mock`] under the hood.
-pub struct OauthMockServer<'a> {
-    server: &'a MockServer,
+///
+/// [`MockServer`]: wiremock::MockServer
+pub struct OAuthMockServer<'a> {
+    server: &'a MatrixMockServer,
 }
 
-impl<'a> OauthMockServer<'a> {
-    pub(super) fn new(server: &'a MockServer) -> Self {
+impl<'a> OAuthMockServer<'a> {
+    pub(super) fn new(server: &'a MatrixMockServer) -> Self {
         Self { server }
+    }
+
+    /// Mock the given endpoint.
+    fn mock_endpoint<T>(&self, mock: MockBuilder, endpoint: T) -> MockEndpoint<'a, T> {
+        self.server.mock_endpoint(mock, endpoint)
+    }
+
+    /// Get the mock OAuth 2.0 server metadata.
+    pub fn server_metadata(&self) -> AuthorizationServerMetadata {
+        MockServerMetadataBuilder::new(&self.server.server().uri())
+            .build()
+            .deserialize()
+            .expect("mock OAuth 2.0 server metadata should deserialize successfully")
     }
 }
 
 // Specific mount endpoints.
-impl OauthMockServer<'_> {
+impl OAuthMockServer<'_> {
     /// Creates a prebuilt mock for the Matrix endpoint used to query the
     /// authorization server's metadata.
     ///
-    /// Contrary to all the other endpoints of [`OauthMockServer`], this is an
+    /// Contrary to all the other endpoints of [`OAuthMockServer`], this is an
     /// endpoint from the Matrix API, but it is only used in the context of the
     /// OAuth 2.0 API, which is why it is mocked here rather than on
     /// [`MatrixMockServer`].
@@ -75,35 +90,35 @@ impl OauthMockServer<'_> {
     pub fn mock_server_metadata(&self) -> MockEndpoint<'_, ServerMetadataEndpoint> {
         let mock = Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"));
-        MockEndpoint { mock, server: self.server, endpoint: ServerMetadataEndpoint }
+        self.mock_endpoint(mock, ServerMetadataEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to register a
     /// new client.
     pub fn mock_registration(&self) -> MockEndpoint<'_, RegistrationEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/registration"));
-        MockEndpoint { mock, server: self.server, endpoint: RegistrationEndpoint }
+        self.mock_endpoint(mock, RegistrationEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to authorize a
     /// device.
     pub fn mock_device_authorization(&self) -> MockEndpoint<'_, DeviceAuthorizationEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/device"));
-        MockEndpoint { mock, server: self.server, endpoint: DeviceAuthorizationEndpoint }
+        self.mock_endpoint(mock, DeviceAuthorizationEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to request an
     /// access token.
     pub fn mock_token(&self) -> MockEndpoint<'_, TokenEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/token"));
-        MockEndpoint { mock, server: self.server, endpoint: TokenEndpoint }
+        self.mock_endpoint(mock, TokenEndpoint)
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to revoke a
     /// token.
     pub fn mock_revocation(&self) -> MockEndpoint<'_, RevocationEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/revoke"));
-        MockEndpoint { mock, server: self.server, endpoint: RevocationEndpoint }
+        self.mock_endpoint(mock, RevocationEndpoint)
     }
 }
 
@@ -114,9 +129,20 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
     /// Returns a successful metadata response with all the supported endpoints.
     pub fn ok(self) -> MatrixMock<'a> {
         let metadata = MockServerMetadataBuilder::new(&self.server.uri()).build();
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(metadata));
+        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
+    }
 
-        MatrixMock { server: self.server, mock }
+    /// Returns a successful metadata response with all the supported endpoints
+    /// using HTTPS URLs.
+    ///
+    /// This should be used with
+    /// `MockClientBuilder::insecure_rewrite_https_to_http()` to bypass checks
+    /// from the oauth2 crate.
+    pub fn ok_https(self) -> MatrixMock<'a> {
+        let issuer = self.server.uri().replace("http://", "https://");
+
+        let metadata = MockServerMetadataBuilder::new(&issuer).build();
+        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
     }
 
     /// Returns a successful metadata response without the device authorization
@@ -125,9 +151,7 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
         let metadata = MockServerMetadataBuilder::new(&self.server.uri())
             .without_device_authorization()
             .build();
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(metadata));
-
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
     }
 
     /// Returns a successful metadata response without the registration
@@ -135,13 +159,12 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
     pub fn ok_without_registration(self) -> MatrixMock<'a> {
         let metadata =
             MockServerMetadataBuilder::new(&self.server.uri()).without_registration().build();
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(metadata));
-
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
     }
 }
 
-/// Helper struct to construct a `ProviderMetadata` for integration tests.
+/// Helper struct to construct an `AuthorizationServerMetadata` for integration
+/// tests.
 #[derive(Debug, Clone)]
 pub struct MockServerMetadataBuilder {
     issuer: Url,
@@ -206,27 +229,37 @@ impl MockServerMetadataBuilder {
     }
 
     /// Build the server metadata.
-    pub fn build(&self) -> ProviderMetadata {
-        let device_authorization_endpoint =
-            self.with_device_authorization.then(|| self.device_authorization_endpoint());
-        let registration_endpoint = self.with_registration.then(|| self.registration_endpoint());
+    pub fn build(&self) -> Raw<AuthorizationServerMetadata> {
+        let mut json_metadata = json!({
+            "issuer": self.issuer,
+            "authorization_endpoint": self.authorization_endpoint(),
+            "token_endpoint": self.token_endpoint(),
+            "response_types_supported": ["code"],
+            "response_modes_supported": ["query", "fragment"],
+            "grant_types_supported": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+            "revocation_endpoint": self.revocation_endpoint(),
+            "code_challenge_methods_supported": ["S256"],
+            "account_management_uri": self.account_management_uri(),
+            "account_management_actions_supported": ["org.matrix.profile", "org.matrix.sessions_list", "org.matrix.session_view", "org.matrix.session_end", "org.matrix.deactivateaccount", "org.matrix.cross_signing_reset"],
+            "prompt_values_supported": ["create"],
+        });
+        let json_metadata_object = json_metadata.as_object_mut().unwrap();
 
-        ProviderMetadata {
-            issuer: Some(self.issuer.to_string()),
-            authorization_endpoint: Some(self.authorization_endpoint()),
-            token_endpoint: Some(self.token_endpoint()),
-            jwks_uri: Some(self.jwks_uri()),
-            registration_endpoint,
-            revocation_endpoint: Some(self.revocation_endpoint()),
-            account_management_uri: Some(self.account_management_uri()),
-            device_authorization_endpoint,
-            response_types_supported: Some(vec![
-                OAuthAuthorizationEndpointResponseType::Code.into()
-            ]),
-            subject_types_supported: Some(vec![SubjectType::Public]),
-            id_token_signing_alg_values_supported: Some(vec![JsonWebSignatureAlg::Rs256]),
-            ..Default::default()
+        if self.with_device_authorization {
+            json_metadata_object.insert(
+                "device_authorization_endpoint".to_owned(),
+                self.device_authorization_endpoint().as_str().into(),
+            );
         }
+
+        if self.with_registration {
+            json_metadata_object.insert(
+                "registration_endpoint".to_owned(),
+                self.registration_endpoint().as_str().into(),
+            );
+        }
+
+        serde_json::from_value(json_metadata).unwrap()
     }
 }
 
@@ -236,12 +269,10 @@ pub struct RegistrationEndpoint;
 impl<'a> MockEndpoint<'a, RegistrationEndpoint> {
     /// Returns a successful registration response.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "client_id": "test_client_id",
             "client_id_issued_at": 1716375696,
-        })));
-
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -257,16 +288,14 @@ impl<'a> MockEndpoint<'a, DeviceAuthorizationEndpoint> {
         let mut verification_uri_complete = issuer_url.join("link").unwrap();
         verification_uri_complete.set_query(Some("code=N32YVC"));
 
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "device_code": "N8NAYD9fOhMulpm37mSthx0xSw2p7vdR",
             "expires_in": 1200,
             "interval": 5,
             "user_code": "N32YVC",
             "verification_uri": verification_uri,
             "verification_uri_complete": verification_uri_complete,
-        })));
-
-        MatrixMock { server: self.server, mock }
+        })))
     }
 }
 
@@ -274,34 +303,40 @@ impl<'a> MockEndpoint<'a, DeviceAuthorizationEndpoint> {
 pub struct TokenEndpoint;
 
 impl<'a> MockEndpoint<'a, TokenEndpoint> {
-    /// Returns a successful token response.
+    /// Returns a successful token response with the default tokens.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "access_token": "1234",
-            "expires_in": 300,
-            "refresh_token": "ZYXWV",
-            "token_type": "Bearer"
-        })));
+        self.ok_with_tokens("1234", "ZYXWV")
+    }
 
-        MatrixMock { server: self.server, mock }
+    /// Returns a successful token response with custom tokens.
+    pub fn ok_with_tokens(self, access_token: &str, refresh_token: &str) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": access_token,
+            "expires_in": 300,
+            "refresh_token":  refresh_token,
+            "token_type": "Bearer"
+        })))
     }
 
     /// Returns an error response when the request was invalid.
     pub fn access_denied(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(400).set_body_json(json!({
             "error": "access_denied",
-        })));
-
-        MatrixMock { server: self.server, mock }
+        })))
     }
 
     /// Returns an error response when the token in the request has expired.
     pub fn expired_token(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+        self.respond_with(ResponseTemplate::new(400).set_body_json(json!({
             "error": "expired_token",
-        })));
+        })))
+    }
 
-        MatrixMock { server: self.server, mock }
+    /// Returns an error response when the token in the request is invalid.
+    pub fn invalid_grant(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": "invalid_grant",
+        })))
     }
 }
 
@@ -311,8 +346,6 @@ pub struct RevocationEndpoint;
 impl<'a> MockEndpoint<'a, RevocationEndpoint> {
     /// Returns a successful revocation response.
     pub fn ok(self) -> MatrixMock<'a> {
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
-
-        MatrixMock { server: self.server, mock }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }

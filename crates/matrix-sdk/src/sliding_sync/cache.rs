@@ -55,7 +55,7 @@ async fn clean_storage(
     storage_key: &str,
     lists: &BTreeMap<String, SlidingSyncList>,
 ) {
-    let storage = client.store();
+    let storage = client.state_store();
     for list_name in lists.keys() {
         invalidate_cached_list(storage, storage_key, list_name).await;
     }
@@ -81,7 +81,7 @@ pub(super) async fn store_sliding_sync_state(
     let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
     trace!(storage_key, "Saving a `SlidingSync` to the state store");
-    let storage = sliding_sync.inner.client.store();
+    let storage = sliding_sync.inner.client.state_store();
 
     // Write this `SlidingSync` instance, as a `FrozenSlidingSync` instance, inside
     // the store.
@@ -211,7 +211,7 @@ pub(super) async fn restore_sliding_sync_state(
         }
     }
 
-    let storage = client.store();
+    let storage = client.state_store();
     let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
     // Preload the `SlidingSync` object from the cache.
@@ -298,7 +298,7 @@ mod tests {
     async fn test_sliding_sync_can_be_stored_and_restored() -> Result<()> {
         let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
 
-        let store = client.store();
+        let store = client.state_store();
 
         // Store entries don't exist.
         assert!(store
@@ -490,7 +490,7 @@ mod tests {
             assert!(store.next_batch_token().await?.is_none());
         }
 
-        let state_store = client.store();
+        let state_store = client.state_store();
         assert!(state_store.get_custom_value(full_storage_key.as_bytes()).await?.is_none());
 
         // Emulate some data to be cached.
@@ -505,7 +505,7 @@ mod tests {
 
         // The delta token has been correctly written to the state store (but not the
         // to_device_since, since it's in the other store).
-        let state_store = client.store();
+        let state_store = client.state_store();
         assert_matches!(
             state_store.get_custom_value(full_storage_key.as_bytes()).await?,
             Some(bytes) => {
@@ -537,7 +537,7 @@ mod tests {
         let to_device_token = "to_device_token".to_owned();
 
         // Put that delta-token in the state store.
-        let state_store = client.store();
+        let state_store = client.state_store();
         state_store
             .set_custom_value(
                 full_storage_key.as_bytes(),

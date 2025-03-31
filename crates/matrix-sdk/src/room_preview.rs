@@ -31,7 +31,7 @@ use ruma::{
 use tokio::try_join;
 use tracing::{instrument, warn};
 
-use crate::{room_directory_search::RoomDirectorySearch, Client, Room};
+use crate::{room_directory_search::RoomDirectorySearch, Client, Error, Room};
 
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(Debug, Clone)]
@@ -172,8 +172,21 @@ impl RoomPreview {
             }
         }
 
-        // Resort to using the room state endpoint, as well as the joined members one.
-        Self::from_state_events(client, &room_id).await
+        // Try using the room state endpoint, as well as the joined members one.
+        match Self::from_state_events(client, &room_id).await {
+            Ok(res) => return Ok(res),
+            Err(err) => {
+                warn!("error when building room preview from state events: {err}");
+            }
+        }
+
+        // Finally, if everything else fails, try to build the room from information
+        // that the client itself might have about it.
+        if let Some(room) = client.get_room(&room_id) {
+            Ok(Self::from_known_room(&room).await)
+        } else {
+            Err(Error::InsufficientData)
+        }
     }
 
     /// Get a [`RoomPreview`] by searching in the room directory for the

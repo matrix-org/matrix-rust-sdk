@@ -99,7 +99,6 @@ mod updates;
 use std::{
     fmt,
     marker::PhantomData,
-    ops::Not,
     ptr::NonNull,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -209,9 +208,13 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
         }
     }
 
-    /// Drop all chunks, and replace the first one with the one provided as an
-    /// argument.
-    fn replace_with(&mut self, first_chunk: NonNull<Chunk<CAP, Item, Gap>>) {
+    /// Drop all the chunks, leaving the chunk in an uninitialized state,
+    /// because `Self::first` is a dangling pointer.
+    ///
+    /// SAFETY: the caller is responsible of ensuring that this is the last use
+    /// of the linked chunk, or that first will be re-initialized before any
+    /// other use.
+    unsafe fn clear(&mut self) {
         // Loop over all chunks, from the last to the first chunk, and drop them.
         // Take the latest chunk.
         let mut current_chunk_ptr = self.last.or(Some(self.first));
@@ -229,15 +232,27 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
         }
 
         // At this step, all chunks have been dropped, including `self.first`.
-        self.first = first_chunk;
+        self.first = NonNull::dangling();
         self.last = None;
+    }
+
+    /// Drop all chunks, and replace the first one with the one provided as an
+    /// argument.
+    fn replace_with(&mut self, first_chunk: NonNull<Chunk<CAP, Item, Gap>>) {
+        // SAFETY: we're resetting `self.first` afterwards.
+        unsafe {
+            self.clear();
+        }
+
+        // At this step, all chunks have been dropped, including `self.first`.
+        self.first = first_chunk;
     }
 
     /// Drop all chunks, and re-create the default first one.
     ///
     /// The default first chunk is an empty items chunk, with the identifier
     /// [`ChunkIdentifierGenerator::FIRST_IDENTIFIER`].
-    fn clear(&mut self) {
+    fn reset(&mut self) {
         self.replace_with(Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER));
     }
 }
@@ -310,7 +325,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Clear all the chunks.
     pub fn clear(&mut self) {
         // Clear `self.links`.
-        self.links.clear();
+        self.links.reset();
 
         // Clear `self.chunk_identifier_generator`.
         self.chunk_identifier_generator = ChunkIdentifierGenerator::new_from_scratch();
@@ -354,7 +369,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         // We need to update `self.links.last` if and only if `last_chunk` _is not_ the
         // first chunk, and _is_ the last chunk (ensured by the `debug_assert!`
         // above).
-        if last_chunk.is_first_chunk().not() {
+        if !last_chunk.is_first_chunk() {
             // Maybe `last_chunk` is the same as the previous `self.links.last` chunk, but
             // it's OK.
             self.links.last = Some(last_chunk.as_ptr());
@@ -455,7 +470,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         // We need to update `self.links.last` if and only if `chunk` _is not_ the first
         // chunk, and _is_ the last chunk.
-        if chunk.is_first_chunk().not() && chunk.is_last_chunk() {
+        if !chunk.is_first_chunk() && chunk.is_last_chunk() {
             // Maybe `chunk` is the same as the previous `self.links.last` chunk, but it's
             // OK.
             self.links.last = Some(chunk.as_ptr());
@@ -509,7 +524,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             // If removing empty chunk is desired, and if the `chunk` can be unlinked, and
             // if the `chunk` is not the first one, we can remove it.
-            if can_unlink_chunk && chunk.is_first_chunk().not() {
+            if can_unlink_chunk && !chunk.is_first_chunk() {
                 // Unlink `chunk`.
                 chunk.unlink(self.updates.as_mut());
 
@@ -682,7 +697,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         // We need to update `self.links.last` if and only if `chunk` _is not_ the first
         // chunk, and _is_ the last chunk.
-        if chunk.is_first_chunk().not() && chunk.is_last_chunk() {
+        if !chunk.is_first_chunk() && chunk.is_last_chunk() {
             // Maybe `chunk` is the same as the previous `self.links.last` chunk, but it's
             // OK.
             self.links.last = Some(chunk.as_ptr());
@@ -1005,11 +1020,18 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
 impl<const CAP: usize, Item, Gap> Drop for LinkedChunk<CAP, Item, Gap> {
     fn drop(&mut self) {
-        // Only clear the links. Calling `Self::clear` would be an error as we don't
-        // want to emit an `Update::Clear` when `self` is dropped. Instead, we only care
-        // about freeing memory correctly. Rust can take care of everything except the
+        // Clear the links, which will drop all the chunks.
+        //
+        // Calling `Self::clear` would be an error as we don't want to emit an
+        // `Update::Clear` when `self` is dropped. Instead, we only care about
+        // freeing memory correctly. Rust can take care of everything except the
         // pointers in `self.links`, hence the specific call to `self.links.clear()`.
-        self.links.clear();
+        //
+        // SAFETY: this is the last use of the linked chunk, so leaving it in a dangling
+        // state is fine.
+        unsafe {
+            self.links.clear();
+        }
     }
 }
 

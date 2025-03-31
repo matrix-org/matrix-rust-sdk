@@ -4,11 +4,10 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
     config::{RequestConfig, StoreConfig, SyncSettings},
     sync::RoomUpdate,
-    test_utils::no_retry_test_client_with_server,
-    Client, MemoryStore, SessionMeta, StateChanges, StateStore,
+    test_utils::{client::mock_matrix_session, no_retry_test_client_with_server},
+    Client, MemoryStore, StateChanges, StateStore,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
@@ -401,9 +400,9 @@ async fn test_subscribe_all_room_updates() {
     }
 }
 
-// Check that the `Room::is_encrypted()` is properly deduplicated, meaning we
-// only make a single request to the server, and that multiple calls do return
-// the same result.
+// Check that the `Room::latest_encryption_state().await?.is_encrypted()` is
+// properly deduplicated, meaning we only make a single request to the server,
+// and that multiple calls do return the same result.
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 #[async_test]
 async fn test_request_encryption_event_before_sending() {
@@ -428,8 +427,8 @@ async fn test_request_encryption_event_before_sending() {
                     "rotation_period_ms": 604800000,
                     "rotation_period_msgs": 100
                 }))
-                // Introduce a delay so the first `is_encrypted()` doesn't finish before we make
-                // the second call.
+                // Introduce a delay so the first `latest_encryption_state()` doesn't finish before
+                // we make the second call.
                 .set_delay(Duration::from_millis(50)),
         )
         .mount(&server)
@@ -437,10 +436,12 @@ async fn test_request_encryption_event_before_sending() {
 
     let first_handle = tokio::spawn({
         let room = room.to_owned();
-        async move { room.to_owned().is_encrypted().await }
+        async move { room.to_owned().latest_encryption_state().await.map(|state| state.is_encrypted()) }
     });
 
-    let second_handle = tokio::spawn(async move { room.is_encrypted().await });
+    let second_handle = tokio::spawn(async move {
+        room.latest_encryption_state().await.map(|state| state.is_encrypted())
+    });
 
     let first_encrypted =
         first_handle.await.unwrap().expect("We should be able to test if the room is encrypted.");
@@ -691,7 +692,10 @@ async fn test_encrypt_room_event() {
         .await;
 
     assert!(
-        room.is_encrypted().await.expect("We should be able to check if the room is encrypted"),
+        room.latest_encryption_state()
+            .await
+            .expect("We should be able to check if the room is encrypted")
+            .is_encrypted(),
         "The room should be encrypted"
     );
 
@@ -1380,17 +1384,7 @@ async fn test_restore_room() {
         .build()
         .await
         .unwrap();
-    client
-        .matrix_auth()
-        .restore_session(MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id!("@example:localhost").to_owned(),
-                device_id: device_id!("DEVICEID").to_owned(),
-            },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
-        })
-        .await
-        .unwrap();
+    client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
 
     let room = client.get_room(room_id).unwrap();
     assert!(room.is_favourite());

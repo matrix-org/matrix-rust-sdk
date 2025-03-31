@@ -1,0 +1,32 @@
+[package]
+name = "example-oauth-cli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[[bin]]
+name = "example-oauth-cli"
+test = false
+
+[dependencies]
+anyhow = { workspace = true }
+dirs = "5.0.1"
+futures-util = { workspace = true }
+matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+
+[dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"
+features = ["local-server"]
+
+[lints]
+workspace = true
+
+[package.metadata.release]
+release = false

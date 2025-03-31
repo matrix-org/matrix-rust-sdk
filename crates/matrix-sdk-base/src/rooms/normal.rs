@@ -426,16 +426,6 @@ impl Room {
         self.inner.read().sync_info != SyncInfo::NoState
     }
 
-    /// Check if the room has its encryption event synced.
-    ///
-    /// The encryption event can be missing when the room hasn't appeared in
-    /// sync yet.
-    ///
-    /// Returns true if the encryption state is synced, false otherwise.
-    pub fn is_encryption_state_synced(&self) -> bool {
-        self.inner.read().encryption_state_synced
-    }
-
     /// Get the `prev_batch` token that was received from the last sync. May be
     /// `None` if the last sync contained the full room history.
     pub fn last_prev_batch(&self) -> Option<String> {
@@ -531,9 +521,9 @@ impl Room {
         self.inner.read().base_info.dm_targets.len()
     }
 
-    /// Is the room encrypted.
-    pub fn is_encrypted(&self) -> bool {
-        self.inner.read().is_encrypted()
+    /// Get the encryption state of this room.
+    pub fn encryption_state(&self) -> EncryptionState {
+        self.inner.read().encryption_state()
     }
 
     /// Get the `m.room.encryption` content that enabled end to end encryption
@@ -1576,9 +1566,15 @@ impl RoomInfo {
         self.room_state
     }
 
-    /// Returns whether this is an encrypted room.
-    pub fn is_encrypted(&self) -> bool {
-        self.base_info.encryption.is_some()
+    /// Returns the encryption state of this room.
+    pub fn encryption_state(&self) -> EncryptionState {
+        if !self.encryption_state_synced {
+            EncryptionState::Unknown
+        } else if self.base_info.encryption.is_some() {
+            EncryptionState::Encrypted
+        } else {
+            EncryptionState::NotEncrypted
+        }
     }
 
     /// Set the encryption event content in this room.
@@ -1586,22 +1582,41 @@ impl RoomInfo {
         self.base_info.encryption = event;
     }
 
+    /// Handle the encryption state.
+    pub fn handle_encryption_state(
+        &mut self,
+        requested_required_states: &[(StateEventType, String)],
+    ) {
+        if requested_required_states
+            .iter()
+            .any(|(state_event, _)| state_event == &StateEventType::RoomEncryption)
+        {
+            // The `m.room.encryption` event was requested during the sync. Whether we have
+            // received a `m.room.encryption` event in return doesn't matter: we must mark
+            // the encryption state as synced; if the event is present, it means the room
+            // _is_ encrypted, otherwise it means the room _is not_ encrypted.
+
+            self.mark_encryption_state_synced();
+        }
+    }
+
     /// Handle the given state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        let ret = self.base_info.handle_state_event(event);
+        // Store the state event in the `BaseRoomInfo` first.
+        let base_info_has_been_modified = self.base_info.handle_state_event(event);
 
-        // If we received an `m.room.encryption` event here, and encryption got enabled,
-        // then we can be certain that we have synced the encryption state event, so
-        // mark it here as synced.
         if let AnySyncStateEvent::RoomEncryption(_) = event {
-            if self.is_encrypted() {
-                self.mark_encryption_state_synced();
-            }
+            // The `m.room.encryption` event was or wasn't explicitly requested, we don't
+            // know here (see `Self::handle_encryption_state`) but we got one in
+            // return! In this case, we can deduce the room _is_ encrypted, but we cannot
+            // know if it _is not_ encrypted.
+
+            self.mark_encryption_state_synced();
         }
 
-        ret
+        base_info_has_been_modified
     }
 
     /// Handle the given stripped state event.
@@ -2151,6 +2166,33 @@ fn compute_display_name_from_heroes(
     }
 }
 
+/// Represents the state of a room encryption.
+#[derive(Debug)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum EncryptionState {
+    /// The room is encrypted.
+    Encrypted,
+
+    /// The room is not encrypted.
+    NotEncrypted,
+
+    /// The state of the room encryption is unknown, probably because the
+    /// `/sync` did not provide all data needed to decide.
+    Unknown,
+}
+
+impl EncryptionState {
+    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted].
+    pub fn is_encrypted(&self) -> bool {
+        matches!(self, Self::Encrypted)
+    }
+
+    /// Check whether `EncryptionState` is [`Unknown`][Self::Unknown].
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -2161,6 +2203,7 @@ mod tests {
         time::Duration,
     };
 
+    use assert_matches::assert_matches;
     use assign::assign;
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{
@@ -2197,7 +2240,10 @@ mod tests {
     use similar_asserts::assert_eq;
     use stream_assert::{assert_pending, assert_ready};
 
-    use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState, SyncInfo};
+    use super::{
+        compute_display_name_from_heroes, EncryptionState, Room, RoomHero, RoomInfo, RoomState,
+        SyncInfo,
+    };
     use crate::{
         latest_event::LatestEvent,
         rooms::RoomNotableTags,
@@ -2488,12 +2534,11 @@ mod tests {
     #[async_test]
     async fn test_is_favourite() {
         // Given a room,
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
-            .set_session_meta(
+            .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
                     device_id: ruma::device_id!("AYEAYEAYE").into(),
@@ -2534,7 +2579,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2555,7 +2600,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2568,12 +2613,11 @@ mod tests {
     #[async_test]
     async fn test_is_low_priority() {
         // Given a room,
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
-            .set_session_meta(
+            .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
                     device_id: ruma::device_id!("AYEAYEAYE").into(),
@@ -2614,7 +2658,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2635,7 +2679,7 @@ mod tests {
         client
             .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-        client.apply_changes(&changes, Default::default());
+        client.apply_changes(&changes, Default::default(), None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -3153,12 +3197,11 @@ mod tests {
         use crate::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
 
         // Given a room,
-        let client = BaseClient::with_store_config(StoreConfig::new(
-            "cross-process-store-locks-holder-name".to_owned(),
-        ));
+        let client =
+            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
 
         client
-            .set_session_meta(
+            .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
                     device_id: ruma::device_id!("AYEAYEAYE").into(),
@@ -3197,7 +3240,7 @@ mod tests {
         assert!(room_info_notable_update.try_recv().is_err());
 
         // Then updating the room info will store the event,
-        client.apply_changes(&changes, room_info_notable_updates);
+        client.apply_changes(&changes, room_info_notable_updates, None);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
@@ -3567,11 +3610,10 @@ mod tests {
     }
 
     #[test]
-    fn test_encryption_is_set_when_encryption_event_is_received() {
+    fn test_encryption_is_set_when_encryption_event_is_received_encrypted() {
         let (_store, room) = make_room_test_helper(RoomState::Joined);
 
-        assert!(room.is_encryption_state_synced().not());
-        assert!(room.is_encrypted().not());
+        assert_matches!(room.encryption_state(), EncryptionState::Unknown);
 
         let encryption_content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
@@ -3589,8 +3631,32 @@ mod tests {
         ));
         receive_state_events(&room, vec![&encryption_event]);
 
-        assert!(room.is_encryption_state_synced());
-        assert!(room.is_encrypted());
+        assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
+    }
+
+    #[test]
+    fn test_encryption_is_set_when_encryption_event_is_received_not_encrypted() {
+        let (_store, room) = make_room_test_helper(RoomState::Joined);
+
+        assert_matches!(room.encryption_state(), EncryptionState::Unknown);
+        room.inner.update_if(|info| {
+            info.mark_encryption_state_synced();
+
+            false
+        });
+
+        assert_matches!(room.encryption_state(), EncryptionState::NotEncrypted);
+    }
+
+    #[test]
+    fn test_encryption_state() {
+        assert!(EncryptionState::Unknown.is_unknown());
+        assert!(EncryptionState::Encrypted.is_unknown().not());
+        assert!(EncryptionState::NotEncrypted.is_unknown().not());
+
+        assert!(EncryptionState::Unknown.is_encrypted().not());
+        assert!(EncryptionState::Encrypted.is_encrypted());
+        assert!(EncryptionState::NotEncrypted.is_encrypted().not());
     }
 
     #[async_test]
