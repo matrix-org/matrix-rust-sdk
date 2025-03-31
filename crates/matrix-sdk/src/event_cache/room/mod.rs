@@ -34,13 +34,13 @@ use matrix_sdk_base::{
 use ruma::{
     events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
+    EventId, OwnedEventId, OwnedRoomId,
 };
 use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{error, trace, warn};
+use tracing::{error, instrument, trace, warn};
 
 use super::{
     deduplicator::DeduplicationOutcome, AllEventsCache, AutoShrinkChannelPayload, EventsOrigin,
@@ -144,7 +144,6 @@ impl RoomEventCache {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
@@ -154,7 +153,6 @@ impl RoomEventCache {
                 state,
                 pagination_status,
                 room_id,
-                room_version,
                 all_events_cache,
                 auto_shrink_sender,
             )),
@@ -198,7 +196,7 @@ impl RoomEventCache {
         };
 
         // Search in `AllEventsCache` for known events that are not stored.
-        if let Some(event) = maybe_position_and_event.map(|(_position, event)| event) {
+        if let Some(event) = maybe_position_and_event.map(|(_location, _position, event)| event) {
             Some(event)
         } else if let Some((room_id, event)) =
             self.inner.all_events.read().await.events.get(event_id).cloned()
@@ -241,7 +239,7 @@ impl RoomEventCache {
         // Notify observers about the update.
         let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
+            origin: EventsOrigin::Cache,
         });
 
         Ok(())
@@ -295,9 +293,6 @@ pub(super) struct RoomEventCacheInner {
 
     pub weak_room: WeakRoom,
 
-    /// The room version for this room.
-    pub room_version: RoomVersionId,
-
     /// Sender part for subscribers to this room.
     pub sender: Sender<RoomEventCacheUpdate>,
 
@@ -330,7 +325,6 @@ impl RoomEventCacheInner {
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
-        room_version: RoomVersionId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
     ) -> Self {
@@ -339,7 +333,6 @@ impl RoomEventCacheInner {
         Self {
             room_id: weak_room.room_id().to_owned(),
             weak_room,
-            room_version,
             state: RwLock::new(state),
             all_events: all_events_cache,
             sender,
@@ -388,6 +381,7 @@ impl RoomEventCacheInner {
         }
     }
 
+    #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_joined_room_update(
         &self,
         has_storage: bool,
@@ -424,6 +418,7 @@ impl RoomEventCacheInner {
                 timeline.prev_batch,
                 ephemeral_events,
                 ambiguity_changes,
+                EventsOrigin::Sync,
             )
             .await?;
         } else {
@@ -454,6 +449,7 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
+    #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_left_room_update(
         &self,
         has_storage: bool,
@@ -468,10 +464,11 @@ impl RoomEventCacheInner {
     /// storage, notifying observers.
     pub(super) async fn replace_all_events_by(
         &self,
-        sync_timeline_events: Vec<TimelineEvent>,
+        timeline_events: Vec<TimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        events_origin: EventsOrigin,
     ) -> Result<()> {
         // Acquire the lock.
         let mut state = self.state.write().await;
@@ -482,13 +479,13 @@ impl RoomEventCacheInner {
         // Propagate to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
             diffs: updates_as_vector_diffs,
-            origin: EventsOrigin::Sync,
+            origin: events_origin,
         });
 
         // Push the new events.
         self.append_events_locked(
             &mut state,
-            sync_timeline_events,
+            timeline_events,
             prev_batch.clone(),
             ephemeral_events,
             ambiguity_changes,
@@ -505,12 +502,12 @@ impl RoomEventCacheInner {
     async fn append_events_locked(
         &self,
         state: &mut RoomEventCacheState,
-        sync_timeline_events: Vec<TimelineEvent>,
+        timeline_events: Vec<TimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if sync_timeline_events.is_empty()
+        if timeline_events.is_empty()
             && prev_batch.is_none()
             && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
@@ -525,11 +522,10 @@ impl RoomEventCacheInner {
                 in_store_duplicated_event_ids,
             },
             all_duplicates,
-        ) = state.collect_valid_and_duplicated_events(sync_timeline_events.clone()).await?;
+        ) = state.collect_valid_and_duplicated_events(timeline_events).await?;
 
         // During a sync, when a duplicated event is found, the old event is removed and
-        // the new event is added. This is the opposite strategy than during a backwards
-        // pagination where the old event is kept and the new event is ignored.
+        // the new event is added.
         //
         // Let's remove the old events that are duplicated.
         let timeline_event_diffs = if all_duplicates {
@@ -575,7 +571,7 @@ impl RoomEventCacheInner {
 
                     room_events.push_events(events.clone());
 
-                    room_events.on_new_events(&self.room_version, events.iter());
+                    events.clone()
                 })
                 .await?;
 
@@ -598,15 +594,14 @@ impl RoomEventCacheInner {
 
             {
                 // Fill the AllEventsCache.
-                let mut all_events = self.all_events.write().await;
+                let mut all_events_cache = self.all_events.write().await;
 
-                for sync_timeline_event in sync_timeline_events {
-                    if let Some(event_id) = sync_timeline_event.event_id() {
-                        all_events.append_related_event(&sync_timeline_event);
-                        all_events.events.insert(
-                            event_id.to_owned(),
-                            (self.room_id.clone(), sync_timeline_event),
-                        );
+                for event in events {
+                    if let Some(event_id) = event.event_id() {
+                        all_events_cache.append_related_event(&event);
+                        all_events_cache
+                            .events
+                            .insert(event_id.to_owned(), (self.room_id.clone(), event));
                     }
                 }
             }
@@ -676,14 +671,21 @@ mod private {
     use eyeball::SharedObservable;
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
+        apply_redaction,
         deserialized_responses::{TimelineEvent, TimelineEventKind},
         event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
     };
     use matrix_sdk_common::executor::spawn;
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, EventId, OwnedEventId, OwnedRoomId};
-    use tracing::{debug, error, instrument, trace};
+    use ruma::{
+        events::{
+            room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent, MessageLikeEventType,
+        },
+        serde::Raw,
+        EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
+    };
+    use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
         super::{
@@ -691,7 +693,7 @@ mod private {
             EventCacheError,
         },
         events::RoomEvents,
-        sort_positions_descending, LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::RoomPaginationStatus;
 
@@ -702,6 +704,9 @@ mod private {
     pub struct RoomEventCacheState {
         /// The room this state relates to.
         room: OwnedRoomId,
+
+        /// The room version for this room.
+        room_version: RoomVersionId,
 
         /// Reference to the underlying backing store.
         ///
@@ -740,6 +745,7 @@ mod private {
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
             room_id: OwnedRoomId,
+            room_version: RoomVersionId,
             store: Arc<OnceCell<EventCacheStoreLock>>,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
@@ -779,6 +785,7 @@ mod private {
 
             Ok(Self {
                 room: room_id,
+                room_version,
                 store,
                 events,
                 deduplicator,
@@ -842,6 +849,7 @@ mod private {
             if self.events.events().next().is_some() {
                 // If there's at least one event, this means we've reached the start of the
                 // timeline, since the chunk is fully loaded.
+                trace!("chunk is fully loaded and non-empty: reached_start=true");
                 LoadMoreEventsBackwardsOutcome::StartOfTimeline
             } else if !self.waited_for_initial_prev_token {
                 // There's no events. Since we haven't yet, wait for an initial previous-token.
@@ -915,6 +923,9 @@ mod private {
 
             // We've reached the start on disk, if and only if, there was no chunk prior to
             // the one we just loaded.
+            //
+            // This value is correct, if and only if, it is used for a chunk content of kind
+            // `Items`.
             let reached_start = new_first_chunk.previous.is_none();
 
             if let Err(err) = self.events.insert_new_chunk_as_first(new_first_chunk) {
@@ -936,14 +947,18 @@ mod private {
 
             Ok(match chunk_content {
                 ChunkContent::Gap(gap) => {
+                    trace!("reloaded chunk from disk (gap)");
                     LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(gap.prev_token) }
                 }
 
-                ChunkContent::Items(events) => LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
-                },
+                ChunkContent::Items(events) => {
+                    trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+                    LoadMoreEventsBackwardsOutcome::Events {
+                        events,
+                        timeline_event_diffs,
+                        reached_start,
+                    }
+                }
             })
         }
 
@@ -1081,13 +1096,14 @@ mod private {
         /// This method is purposely isolated because it must ensure that
         /// positions are sorted appropriately or it can be disastrous.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
-        pub(super) async fn remove_events(
+        #[instrument(skip_all)]
+        pub(crate) async fn remove_events(
             &mut self,
             in_memory_events: Vec<(OwnedEventId, Position)>,
             in_store_events: Vec<(OwnedEventId, Position)>,
         ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
             // In-store events.
-            {
+            if !in_store_events.is_empty() {
                 let mut positions = in_store_events
                     .into_iter()
                     .map(|(_event_id, position)| position)
@@ -1105,8 +1121,8 @@ mod private {
             }
 
             // In-memory events.
-            let timeline_event_diffs = self
-                .with_events_mut(|room_events| {
+            let timeline_event_diffs = if !in_memory_events.is_empty() {
+                self.with_events_mut(|room_events| {
                     // `remove_events_by_position` sorts the positions by itself.
                     room_events
                         .remove_events_by_position(
@@ -1115,15 +1131,19 @@ mod private {
                                 .map(|(_event_id, position)| position)
                                 .collect(),
                         )
-                        .expect("failed to remove an event")
+                        .expect("failed to remove an event");
+
+                    vec![]
                 })
-                .await?;
+                .await?
+            } else {
+                Vec::new()
+            };
 
             Ok(timeline_event_diffs)
         }
 
         /// Propagate changes to the underlying storage.
-        #[instrument(skip_all)]
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let updates = self.events.store_updates().take();
             self.send_updates_to_store(updates).await
@@ -1203,8 +1223,8 @@ mod private {
             let diff_updates = self.events.updates_as_vector_diffs();
 
             // Ensure the contract defined in the doc comment is true:
-            assert_eq!(diff_updates.len(), 1);
-            assert!(matches!(diff_updates[0], VectorDiff::Clear));
+            debug_assert_eq!(diff_updates.len(), 1);
+            debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
 
             Ok(diff_updates)
         }
@@ -1221,14 +1241,14 @@ mod private {
         pub async fn find_event(
             &self,
             event_id: &EventId,
-        ) -> Result<Option<(Position, TimelineEvent)>, EventCacheError> {
+        ) -> Result<Option<(EventLocation, Position, TimelineEvent)>, EventCacheError> {
             let room_id = self.room.as_ref();
 
             // There are supposedly fewer events loaded in memory than in the store. Let's
             // start by looking up in the `RoomEvents`.
             for (position, event) in self.events().revents() {
                 if event.event_id().as_deref() == Some(event_id) {
-                    return Ok(Some((position, event.clone())));
+                    return Ok(Some((EventLocation::Memory, position, event.clone())));
                 }
             }
 
@@ -1239,23 +1259,39 @@ mod private {
 
             let store = store.lock().await?;
 
-            Ok(store.find_event(room_id, event_id).await?)
+            Ok(store
+                .find_event(room_id, event_id)
+                .await?
+                .map(|(position, event)| (EventLocation::Store, position, event)))
         }
 
         /// Gives a temporary mutable handle to the underlying in-memory events,
         /// and will propagate changes to the storage once done.
         ///
-        /// Returns the output of the given callback, as well as updates to the
-        /// linked chunk, as vector diff, so the caller may propagate
-        /// such updates, if needs be.
+        /// Returns the updates to the linked chunk, as vector diffs, so the
+        /// caller may propagate such updates, if needs be.
+        ///
+        /// The function `func` takes a mutable reference to `RoomEvents`. It
+        /// returns a set of events that will be post-processed. At the time of
+        /// writing, all these events are passed to
+        /// `Self::maybe_apply_new_redaction`.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
-        pub async fn with_events_mut<F: FnOnce(&mut RoomEvents)>(
+        #[instrument(skip_all, fields(room_id = %self.room))]
+        pub async fn with_events_mut<F>(
             &mut self,
             func: F,
-        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
-            func(&mut self.events);
+        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError>
+        where
+            F: FnOnce(&mut RoomEvents) -> Vec<TimelineEvent>,
+        {
+            let events_to_post_process = func(&mut self.events);
 
+            // Update the store before doing the post-processing.
             self.propagate_changes().await?;
+
+            for event in &events_to_post_process {
+                self.maybe_apply_new_redaction(event).await?;
+            }
 
             // If we've never waited for an initial previous-batch token, and we now have at
             // least one gap in the chunk, no need to wait for a previous-batch token later.
@@ -1269,7 +1305,103 @@ mod private {
 
             Ok(updates_as_vector_diffs)
         }
+
+        /// If the given event is a redaction, try to retrieve the
+        /// to-be-redacted event in the chunk, and replace it by the
+        /// redacted form.
+        #[instrument(skip_all)]
+        async fn maybe_apply_new_redaction(
+            &mut self,
+            event: &Event,
+        ) -> Result<(), EventCacheError> {
+            let raw_event = event.raw();
+
+            // Do not deserialise the entire event if we aren't certain it's a
+            // `m.room.redaction`. It saves a non-negligible amount of computations.
+            let Ok(Some(MessageLikeEventType::RoomRedaction)) =
+                raw_event.get_field::<MessageLikeEventType>("type")
+            else {
+                return Ok(());
+            };
+
+            // It is a `m.room.redaction`! We can deserialize it entirely.
+
+            let Ok(AnySyncTimelineEvent::MessageLike(
+                ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
+            )) = event.raw().deserialize()
+            else {
+                return Ok(());
+            };
+
+            let Some(event_id) = redaction.redacts(&self.room_version) else {
+                warn!("missing target event id from the redaction event");
+                return Ok(());
+            };
+
+            // Replace the redacted event by a redacted form, if we knew about it.
+            if let Some((location, position, target_event)) = self.find_event(event_id).await? {
+                // Don't redact already redacted events.
+                if let Ok(deserialized) = target_event.raw().deserialize() {
+                    match deserialized {
+                        AnySyncTimelineEvent::MessageLike(ev) => {
+                            if ev.is_redacted() {
+                                return Ok(());
+                            }
+                        }
+                        AnySyncTimelineEvent::State(ev) => {
+                            if ev.is_redacted() {
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+
+                if let Some(redacted_event) = apply_redaction(
+                    target_event.raw(),
+                    event.raw().cast_ref::<SyncRoomRedactionEvent>(),
+                    &self.room_version,
+                ) {
+                    let mut copy = target_event.clone();
+
+                    // It's safe to cast `redacted_event` here:
+                    // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
+                    //   when calling .raw(), so it's still one under the hood.
+                    // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+                    copy.replace_raw(redacted_event.cast());
+
+                    match location {
+                        EventLocation::Memory => {
+                            self.events
+                                .replace_event_at(position, copy)
+                                .expect("should have been a valid position of an item");
+                        }
+                        EventLocation::Store => {
+                            self.send_updates_to_store(vec![Update::ReplaceItem {
+                                at: position,
+                                item: copy,
+                            }])
+                            .await?;
+                        }
+                    }
+                }
+            } else {
+                trace!("redacted event is missing from the linked chunk");
+            }
+
+            // TODO: remove all related events too!
+
+            Ok(())
+        }
     }
+}
+
+/// An enum representing where an event has been found.
+pub(super) enum EventLocation {
+    /// Event lives in memory (and likely in the store!).
+    Memory,
+
+    /// Event lives in the store only, it has not been loaded in memory yet.
+    Store,
 }
 
 pub(super) use private::RoomEventCacheState;

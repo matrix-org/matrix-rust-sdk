@@ -6,7 +6,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloomBuilder;
-use matrix_sdk_test::test_json;
+use matrix_sdk_test::{event_factory::EventFactory, test_json};
 use ruma::{
     api::MatrixVersion,
     event_id,
@@ -22,10 +22,9 @@ use ruma::{
             power_levels::RoomPowerLevelsEventContent,
             topic::RoomTopicEventContent,
         },
-        AnyEphemeralRoomEventContent, AnyGlobalAccountDataEvent, AnyMessageLikeEventContent,
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
-        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
-        SyncStateEvent,
+        AnyGlobalAccountDataEvent, AnyMessageLikeEventContent, AnyRoomAccountDataEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     owned_event_id, owned_mxc_uri, room_id,
     serde::Raw,
@@ -174,13 +173,11 @@ impl StateStoreIntegrationTests for DynStateStore {
         let invited_member_state_event = invited_member_state_raw.deserialize().unwrap();
         changes.add_state_event(room_id, invited_member_state_event, invited_member_state_raw);
 
-        let receipt_json: &JsonValue = &test_json::READ_RECEIPT;
-        let receipt_event =
-            serde_json::from_value::<AnySyncEphemeralRoomEvent>(receipt_json.clone()).unwrap();
-        let receipt_content = match receipt_event.content() {
-            AnyEphemeralRoomEventContent::Receipt(content) => content,
-            _ => panic!(),
-        };
+        let f = EventFactory::new().room(room_id);
+        let receipt_content = f
+            .read_receipts()
+            .add(event_id!("$example"), user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .into_content();
         changes.add_receipts(room_id, receipt_content);
 
         changes.ambiguity_maps.insert(room_id.to_owned(), room_ambiguity_map);

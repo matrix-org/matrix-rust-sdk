@@ -21,7 +21,7 @@ mod account;
 mod group_sessions;
 mod session;
 mod signing;
-mod utility;
+pub(crate) mod utility;
 
 pub use account::{Account, OlmMessageHash, PickledAccount, StaticAccountData};
 pub(crate) use account::{OlmDecryptionInfo, SessionType};

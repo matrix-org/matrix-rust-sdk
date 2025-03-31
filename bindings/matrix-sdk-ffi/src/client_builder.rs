@@ -1,8 +1,9 @@
 use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
+use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    authentication::oidc::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
+    authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
     crypto::{
         types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
         CollectStrategy, TrustRequirement,
@@ -22,7 +23,7 @@ use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use zeroize::Zeroizing;
 
-use super::{client::Client, RUNTIME};
+use super::client::Client;
 use crate::{
     authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
     helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
@@ -103,7 +104,7 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 _ => HumanQrLoginError::Unknown,
             },
 
-            QRCodeLoginError::Oauth(e) => {
+            QRCodeLoginError::OAuth(e) => {
                 if let Some(e) = e.as_request_token_error() {
                     match e {
                         DeviceCodeErrorResponseType::AccessDenied => HumanQrLoginError::Declined,
@@ -687,17 +688,19 @@ impl ClientBuilder {
             }
         })?;
 
-        let client_metadata =
-            oidc_configuration.try_into().map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+        let registrations = oidc_configuration
+            .registrations()
+            .await
+            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
-        let oidc = client.inner.oidc();
-        let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
+        let oauth = client.inner.oauth();
+        let login = oauth.login_with_qr_code(&qr_code_data.inner, registrations.into());
 
         let mut progress = login.subscribe_to_progress();
 
         // We create this task, which will get cancelled once it's dropped, just in case
         // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(RUNTIME.spawn(async move {
+        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
             }

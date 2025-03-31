@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::{HashMap, HashSet};
+
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
@@ -32,7 +34,7 @@ use super::{
     ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
     TimelineSettings,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::VirtualTimelineItem};
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// A vector transaction over the items themselves. Holds temporary state
@@ -168,7 +170,39 @@ impl<'a> TimelineStateTransaction<'a> {
         }
 
         self.adjust_date_dividers(date_divider_adjuster);
+        self.check_invariants();
+    }
+
+    fn check_invariants(&self) {
+        self.check_no_duplicate_read_receipts();
         self.check_no_unused_unique_ids();
+    }
+
+    fn check_no_duplicate_read_receipts(&self) {
+        let mut by_user_id = HashMap::new();
+        let mut duplicates = HashSet::new();
+
+        for item in self.items.iter().filter_map(|item| item.as_event()) {
+            if let Some(event_id) = item.event_id() {
+                for (user_id, _read_receipt) in item.read_receipts() {
+                    if let Some(prev_event_id) = by_user_id.insert(user_id, event_id) {
+                        duplicates.insert((user_id.clone(), prev_event_id, event_id));
+                    }
+                }
+            }
+        }
+
+        if !duplicates.is_empty() {
+            #[cfg(any(debug_assertions, test))]
+            panic!("duplicate read receipts in this timeline:{:?}\n{:?}", duplicates, self.items);
+
+            #[cfg(not(any(debug_assertions, test)))]
+            tracing::error!(
+                "duplicate read receipts in this timeline:{:?}\n{:?}",
+                duplicates,
+                self.items
+            );
+        }
     }
 
     fn check_no_unused_unique_ids(&self) {
@@ -390,7 +424,7 @@ impl<'a> TimelineStateTransaction<'a> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    self.items.all_remote_events(),
+                    &mut self.items,
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
@@ -450,9 +484,16 @@ impl<'a> TimelineStateTransaction<'a> {
         // `VectorDiff::Clear` should be much more efficient to process for
         // subscribers.
         if has_local_echoes {
-            // Remove all remote events and the read marker
+            // Remove all remote events and virtual items that aren't date dividers.
             self.items.for_each(|entry| {
-                if entry.is_remote_event() || entry.is_read_marker() {
+                if entry.is_remote_event()
+                    || entry.as_virtual().is_some_and(|vitem| match vitem {
+                        VirtualTimelineItem::DateDivider(_) => false,
+                        VirtualTimelineItem::ReadMarker | VirtualTimelineItem::TimelineStart => {
+                            true
+                        }
+                    })
+                {
                     ObservableItemsTransactionEntry::remove(entry);
                 }
             });

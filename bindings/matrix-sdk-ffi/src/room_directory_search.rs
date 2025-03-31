@@ -15,13 +15,13 @@
 
 use std::{fmt::Debug, sync::Arc};
 
+use async_compat::get_runtime_handle;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch;
 use ruma::ServerName;
 use tokio::sync::RwLock;
 
-use super::RUNTIME;
 use crate::{error::ClientError, task_handle::TaskHandle};
 
 #[derive(uniffi::Enum)]
@@ -137,11 +137,11 @@ impl RoomDirectorySearch {
     ) -> Arc<TaskHandle> {
         let (initial_values, mut stream) = self.inner.read().await.results();
 
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            listener.on_update(vec![RoomDirectorySearchEntryUpdate::Reset {
-                values: initial_values.into_iter().map(Into::into).collect(),
-            }]);
+        listener.on_update(vec![RoomDirectorySearchEntryUpdate::Reset {
+            values: initial_values.into_iter().map(Into::into).collect(),
+        }]);
 
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(diffs) = stream.next().await {
                 listener.on_update(diffs.into_iter().map(|diff| diff.into()).collect());
             }

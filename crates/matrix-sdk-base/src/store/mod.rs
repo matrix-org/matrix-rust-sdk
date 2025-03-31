@@ -146,7 +146,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
 #[derive(Clone)]
-pub(crate) struct Store {
+pub(crate) struct BaseStateStore {
     pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceCell<SessionMeta>>,
     /// The current sync token that should be used for the next sync call.
@@ -158,7 +158,7 @@ pub(crate) struct Store {
     sync_lock: Arc<Mutex<()>>,
 }
 
-impl Store {
+impl BaseStateStore {
     /// Create a new store, wrapping the given `StateStore`
     pub fn new(inner: Arc<DynStateStore>) -> Self {
         Self {
@@ -175,10 +175,43 @@ impl Store {
         &self.sync_lock
     }
 
-    /// Load the room infos from the inner `StateStore`.
+    /// Set the `SessionMeta` into [`BaseStateStore::session_meta`].
     ///
-    /// Applies migrations to the room infos if needed.
-    async fn load_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    /// # Panics
+    ///
+    /// Panics if called twice.
+    pub(crate) fn set_session_meta(&self, session_meta: SessionMeta) {
+        self.session_meta.set(session_meta).expect("`SessionMeta` was already set");
+    }
+
+    /// Loads rooms from the `StateStore` into [`BaseStateStore::rooms`].
+    pub(crate) async fn load_rooms(
+        &self,
+        user_id: &UserId,
+        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
+    ) -> Result<()> {
+        let room_infos = self.load_and_migrate_room_infos().await?;
+
+        let mut rooms = self.rooms.write().unwrap();
+
+        for room_info in room_infos {
+            let new_room = Room::restore(
+                user_id,
+                self.inner.clone(),
+                room_info,
+                room_info_notable_update_sender.clone(),
+            );
+            let new_room_id = new_room.room_id().to_owned();
+
+            rooms.insert(new_room_id, new_room);
+        }
+
+        Ok(())
+    }
+
+    /// Load room infos from the [`StateStore`] and applies migrations onto
+    /// them.
+    async fn load_and_migrate_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let mut room_infos = self.inner.get_room_infos().await?;
         let mut migrated_room_infos = Vec::with_capacity(room_infos.len());
 
@@ -205,40 +238,31 @@ impl Store {
         Ok(room_infos)
     }
 
-    /// Set the meta of the session.
-    ///
-    /// Restores the state of this `Store` from the given `SessionMeta` and the
-    /// inner `StateStore`.
-    ///
-    /// This method panics if it is called twice.
-    pub async fn set_session_meta(
-        &self,
-        session_meta: SessionMeta,
-        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
-    ) -> Result<()> {
-        {
-            let room_infos = self.load_room_infos().await?;
-
-            let mut rooms = self.rooms.write().unwrap();
-
-            for room_info in room_infos {
-                let new_room = Room::restore(
-                    &session_meta.user_id,
-                    self.inner.clone(),
-                    room_info,
-                    room_info_notable_update_sender.clone(),
-                );
-                let new_room_id = new_room.room_id().to_owned();
-
-                rooms.insert(new_room_id, new_room);
-            }
-        }
-
+    /// Load sync token from the [`StateStore`], and put it in
+    /// [`BaseStateStore::sync_token`].
+    pub(crate) async fn load_sync_token(&self) -> Result<()> {
         let token =
             self.get_kv_data(StateStoreDataKey::SyncToken).await?.and_then(|s| s.into_sync_token());
         *self.sync_token.write().await = token;
 
-        self.session_meta.set(session_meta).expect("Session Meta was already set");
+        Ok(())
+    }
+
+    /// Restore the session meta, sync token and rooms from an existing
+    /// [`BaseStateStore`].
+    #[cfg(any(feature = "e2e-encryption", test))]
+    pub(crate) async fn derive_from_other(
+        &self,
+        other: &Self,
+        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
+    ) -> Result<()> {
+        let Some(session_meta) = other.session_meta.get() else {
+            return Ok(());
+        };
+
+        self.load_rooms(&session_meta.user_id, room_info_notable_update_sender).await?;
+        self.load_sync_token().await?;
+        self.set_session_meta(session_meta.clone());
 
         Ok(())
     }
@@ -319,7 +343,7 @@ impl Store {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for Store {
+impl fmt::Debug for BaseStateStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Store")
             .field("inner", &self.inner)
@@ -330,7 +354,7 @@ impl fmt::Debug for Store {
     }
 }
 
-impl Deref for Store {
+impl Deref for BaseStateStore {
     type Target = DynStateStore;
 
     fn deref(&self) -> &Self::Target {
@@ -479,7 +503,7 @@ impl StateChanges {
 ///
 /// ```
 /// # use matrix_sdk_base::store::StoreConfig;
-///
+/// #
 /// let store_config =
 ///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned());
 /// ```
@@ -543,5 +567,68 @@ impl StoreConfig {
             self.cross_process_store_locks_holder_name.clone(),
         );
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use matrix_sdk_test::async_test;
+    use ruma::{owned_device_id, owned_user_id};
+    use tokio::sync::broadcast;
+
+    use super::{BaseStateStore, MemoryStore};
+    use crate::SessionMeta;
+
+    #[async_test]
+    async fn test_set_session_meta() {
+        let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
+
+        let session_meta = SessionMeta {
+            user_id: owned_user_id!("@mnt_io:matrix.org"),
+            device_id: owned_device_id!("HELLOYOU"),
+        };
+
+        assert!(store.session_meta.get().is_none());
+
+        store.set_session_meta(session_meta.clone());
+
+        assert_eq!(store.session_meta.get(), Some(&session_meta));
+    }
+
+    #[async_test]
+    #[should_panic]
+    async fn test_set_session_meta_twice() {
+        let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
+
+        let session_meta = SessionMeta {
+            user_id: owned_user_id!("@mnt_io:matrix.org"),
+            device_id: owned_device_id!("HELLOYOU"),
+        };
+
+        store.set_session_meta(session_meta.clone());
+        // Kaboom.
+        store.set_session_meta(session_meta);
+    }
+
+    #[async_test]
+    async fn test_derive_from_other() {
+        // The first store.
+        let other = BaseStateStore::new(Arc::new(MemoryStore::new()));
+
+        let session_meta = SessionMeta {
+            user_id: owned_user_id!("@mnt_io:matrix.org"),
+            device_id: owned_device_id!("HELLOYOU"),
+        };
+        let (room_info_notable_update_sender, _) = broadcast::channel(1);
+
+        other.set_session_meta(session_meta.clone());
+
+        // Derive another store.
+        let store = BaseStateStore::new(Arc::new(MemoryStore::new()));
+        store.derive_from_other(&other, &room_info_notable_update_sender).await.unwrap();
+
+        assert_eq!(store.session_meta.get(), Some(&session_meta));
     }
 }

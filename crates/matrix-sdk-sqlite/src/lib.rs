@@ -24,6 +24,9 @@ mod event_cache_store;
 #[cfg(feature = "state-store")]
 mod state_store;
 mod utils;
+use std::path::{Path, PathBuf};
+
+use deadpool_sqlite::PoolConfig;
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
@@ -35,3 +38,155 @@ pub use self::state_store::SqliteStateStore;
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
+
+/// A configuration structure used for opening a store.
+pub struct SqliteStoreConfig {
+    /// Path to the database, without the file name.
+    path: PathBuf,
+    /// Passphrase to open the store, if any.
+    passphrase: Option<String>,
+    /// The pool configuration for [`deadpool_sqlite`].
+    pool_config: PoolConfig,
+    /// The runtime configuration to apply when opening an SQLite connection.
+    runtime_config: RuntimeConfig,
+}
+
+impl SqliteStoreConfig {
+    /// Create a new [`SqliteStoreConfig`] with a path representing the
+    /// directory containing the store database.
+    pub fn new<P>(path: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        Self {
+            path: path.as_ref().to_path_buf(),
+            passphrase: None,
+            pool_config: PoolConfig::new(num_cpus::get_physical() * 4),
+            runtime_config: RuntimeConfig::default(),
+        }
+    }
+
+    /// Define the passphrase if the store is encoded.
+    pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
+        self.passphrase = passphrase.map(|passphrase| passphrase.to_owned());
+        self
+    }
+
+    /// Define the maximum pool size for [`deadpool_sqlite`].
+    ///
+    /// See [`deadpool_sqlite::PoolConfig::max_size`] to learn more.
+    pub fn pool_max_size(mut self, max_size: usize) -> Self {
+        self.pool_config.max_size = max_size;
+        self
+    }
+
+    /// Optimize the database.
+    ///
+    /// The SQLite documentation recommends to run this regularly and after any
+    /// schema change. The easiest is to do it consistently when the store is
+    /// constructed, after eventual migrations.
+    ///
+    /// See [`PRAGMA optimize`] to learn more.
+    ///
+    /// The default value is `true`.
+    ///
+    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_optimize
+    pub fn optimize(mut self, optimize: bool) -> Self {
+        self.runtime_config.optimize = optimize;
+        self
+    }
+
+    /// Define the maximum size in **bytes** the SQLite cache can use.
+    ///
+    /// See [`PRAGMA cache_size`] to learn more.
+    ///
+    /// The default value is 2Mib.
+    ///
+    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_cache_size
+    pub fn cache_size(mut self, cache_size: u32) -> Self {
+        self.runtime_config.cache_size = cache_size;
+        self
+    }
+
+    /// Limit the size of the WAL file, in **bytes**.
+    ///
+    /// By default, while the DB connections of the databases are open, [the
+    /// size of the WAL file can keep increasing][size_wal_file] depending on
+    /// the size needed for the transactions. A critical case is `VACUUM`
+    /// which basically writes the content of the DB file to the WAL file
+    /// before writing it back to the DB file, so we end up taking twice the
+    /// size of the database.
+    ///
+    /// By setting this limit, the WAL file is truncated after its content is
+    /// written to the database, if it is bigger than the limit.
+    ///
+    /// See [`PRAGMA journal_size_limit`] to learn more. The value `limit`
+    /// corresponds to `N` in `PRAGMA journal_size_limit = N`.
+    ///
+    /// The default value is 10Mib.
+    ///
+    /// [size_wal_file]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
+    /// [`PRAGMA journal_size_limit`]: https://www.sqlite.org/pragma.html#pragma_journal_size_limit
+    pub fn journal_size_limit(mut self, limit: u32) -> Self {
+        self.runtime_config.journal_size_limit = limit;
+        self
+    }
+}
+
+/// This type represents values to set at runtime when a database is opened.
+///
+/// This configuration is applied by
+/// [`utils::SqliteAsyncConnExt::apply_runtime_config`].
+struct RuntimeConfig {
+    /// If `true`, [`utils::SqliteAsyncConnExt::optimize`] will be called.
+    optimize: bool,
+
+    /// Regardless of the value, [`utils::SqliteAsyncConnExt::cache_size`] will
+    /// always be called with this value.
+    cache_size: u32,
+
+    /// Regardless of the value,
+    /// [`utils::SqliteAsyncConnExt::journal_size_limit`] will always be called
+    /// with this value.
+    journal_size_limit: u32,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            // Optimize is always applied.
+            optimize: true,
+            // A cache of 2Mib.
+            cache_size: 2_000_000,
+            // A limit of 10Mib.
+            journal_size_limit: 10_000_000,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        ops::Not,
+        path::{Path, PathBuf},
+    };
+
+    use super::SqliteStoreConfig;
+
+    #[test]
+    fn test_store_open_config() {
+        let store_open_config = SqliteStoreConfig::new(Path::new("foo"))
+            .passphrase(Some("bar"))
+            .pool_max_size(42)
+            .optimize(false)
+            .cache_size(43)
+            .journal_size_limit(44);
+
+        assert_eq!(store_open_config.path, PathBuf::from("foo"));
+        assert_eq!(store_open_config.passphrase, Some("bar".to_owned()));
+        assert_eq!(store_open_config.pool_config.max_size, 42);
+        assert!(store_open_config.runtime_config.optimize.not());
+        assert_eq!(store_open_config.runtime_config.cache_size, 43);
+        assert_eq!(store_open_config.runtime_config.journal_size_limit, 44);
+    }
+}

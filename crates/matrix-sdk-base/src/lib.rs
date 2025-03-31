@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::error::{Error, Result};
 
 mod client;
+pub use client::RequestedRequiredStates;
 pub mod debug;
 pub mod deserialized_responses;
 mod error;
@@ -55,9 +56,9 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use rooms::{
-    apply_redaction, Room, RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
-    RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate,
-    RoomMemberships, RoomState, RoomStateFilter,
+    apply_redaction, EncryptionState, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
+    RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember,
+    RoomMembersUpdate, RoomMemberships, RoomState, RoomStateFilter,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,

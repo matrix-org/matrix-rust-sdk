@@ -1,0 +1,10 @@
+---
+source: crates/matrix-sdk-common/src/deserialized_responses.rs
+expression: "ShieldState::Grey\n{\n    code: ShieldStateCode::AuthenticityNotGuaranteed, message:\n    \"authenticity of this message cannot be guaranteed\",\n}"
+---
+{
+  "Grey": {
+    "code": "AuthenticityNotGuaranteed",
+    "message": "authenticity of this message cannot be guaranteed"
+  }
+}

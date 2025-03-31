@@ -687,9 +687,7 @@ mod tests {
         },
     };
 
-    use matrix_sdk_test::{
-        EphemeralTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
-    };
+    use matrix_sdk_test::{StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder};
     use once_cell::sync::Lazy;
     use ruma::{
         event_id,
@@ -758,11 +756,14 @@ mod tests {
             }
         });
 
+        let f = EventFactory::new();
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()
                     .add_timeline_event(MEMBER_EVENT.clone())
-                    .add_ephemeral_event(EphemeralTestEvent::Typing)
+                    .add_typing(
+                        f.typing(vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")]),
+                    )
                     .add_state_event(StateTestEvent::PowerLevels),
             )
             .add_invited_room(

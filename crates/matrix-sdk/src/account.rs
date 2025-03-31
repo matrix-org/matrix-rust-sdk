@@ -152,7 +152,7 @@ impl Account {
             // If an avatar is found cache it.
             let _ = self
                 .client
-                .store()
+                .state_store()
                 .set_kv_data(
                     StateStoreDataKey::UserAvatarUrl(user_id),
                     StateStoreDataValue::UserAvatarUrl(url),
@@ -160,8 +160,11 @@ impl Account {
                 .await;
         } else {
             // If there is no avatar the user has removed it and we uncache it.
-            let _ =
-                self.client.store().remove_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await;
+            let _ = self
+                .client
+                .state_store()
+                .remove_kv_data(StateStoreDataKey::UserAvatarUrl(user_id))
+                .await;
         }
         Ok(response.avatar_url)
     }
@@ -169,8 +172,11 @@ impl Account {
     /// Get the URL of the account's avatar, if is stored in cache.
     pub async fn get_cached_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let data =
-            self.client.store().get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await?;
+        let data = self
+            .client
+            .state_store()
+            .get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id))
+            .await?;
         Ok(data.map(|v| v.into_user_avatar_url().expect("Session data is not a user avatar url")))
     }
 
@@ -711,7 +717,7 @@ impl Account {
     where
         C: GlobalAccountDataEventContent + StaticEventContent,
     {
-        get_raw_content(self.client.store().get_account_data_event_static::<C>().await?)
+        get_raw_content(self.client.state_store().get_account_data_event_static::<C>().await?)
     }
 
     /// Get the content of an account data event of a given type.
@@ -719,7 +725,7 @@ impl Account {
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEventContent>>> {
-        get_raw_content(self.client.store().get_account_data_event(event_type).await?)
+        get_raw_content(self.client.state_store().get_account_data_event(event_type).await?)
     }
 
     /// Fetch a global account data event from the server.
@@ -939,7 +945,7 @@ impl Account {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let data = self
             .client
-            .store()
+            .state_store()
             .get_kv_data(StateStoreDataKey::RecentlyVisitedRooms(user_id))
             .await?;
 
@@ -969,7 +975,7 @@ impl Account {
 
         let data = StateStoreDataValue::RecentlyVisitedRooms(recently_visited_rooms);
         self.client
-            .store()
+            .state_store()
             .set_kv_data(StateStoreDataKey::RecentlyVisitedRooms(user_id), data)
             .await?;
         Ok(())

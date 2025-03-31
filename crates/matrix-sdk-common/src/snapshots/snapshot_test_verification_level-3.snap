@@ -1,0 +1,7 @@
+---
+source: crates/matrix-sdk-common/src/deserialized_responses.rs
+expression: "VerificationLevel::None(DeviceLinkProblem::InsecureSource)"
+---
+{
+  "None": "InsecureSource"
+}

@@ -7,10 +7,10 @@ use assert_matches2::assert_matches;
 use futures_util::FutureExt;
 use imbl::HashSet;
 use matrix_sdk::{
-    authentication::matrix::{MatrixSession, MatrixSessionTokens},
+    authentication::matrix::MatrixSession,
     config::RequestConfig,
     encryption::VerificationState,
-    test_utils::logged_in_client_with_server,
+    test_utils::{client::mock_session_tokens, logged_in_client_with_server},
     Client,
 };
 use matrix_sdk_base::SessionMeta;
@@ -333,7 +333,7 @@ async fn test_own_verification() {
     alice
         .restore_session(MatrixSession {
             meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+            tokens: mock_session_tokens(),
         })
         .await
         .unwrap();
@@ -417,7 +417,7 @@ async fn test_reset_cross_signing_resets_verification() {
     alice
         .restore_session(MatrixSession {
             meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+            tokens: mock_session_tokens(),
         })
         .await
         .unwrap();
@@ -470,7 +470,7 @@ async fn test_reset_cross_signing_resets_verification() {
     alice2
         .restore_session(MatrixSession {
             meta: SessionMeta { user_id: user_id.clone(), device_id: device_id.clone() },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+            tokens: mock_session_tokens(),
         })
         .await
         .unwrap();
@@ -517,7 +517,7 @@ async fn test_unchecked_mutual_verification() {
                 user_id: alice_user_id.clone(),
                 device_id: alice_device_id.clone(),
             },
-            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+            tokens: mock_session_tokens(),
         })
         .await
         .unwrap();
@@ -534,7 +534,7 @@ async fn test_unchecked_mutual_verification() {
     let bob_device_id = owned_device_id!("B0B0B0B0B");
     bob.restore_session(MatrixSession {
         meta: SessionMeta { user_id: bob_user_id.clone(), device_id: bob_device_id.clone() },
-        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        tokens: mock_session_tokens(),
     })
     .await
     .unwrap();

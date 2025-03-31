@@ -1,0 +1,48 @@
+---
+source: crates/matrix-sdk-common/src/deserialized_responses.rs
+expression: "serde_json::to_value(&room_event).unwrap()"
+---
+{
+  "kind": {
+    "Decrypted": {
+      "encryption_info": {
+        "algorithm_info": {
+          "MegolmV1AesSha2": {
+            "curve25519_key": "xxx",
+            "sender_claimed_keys": {
+              "curve25519": "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY",
+              "ed25519": "I3YsPwqMZQXHkSQbjFNEs7b529uac2xBpI83eN3LUXo"
+            }
+          }
+        },
+        "sender": "@sender:example.com",
+        "sender_device": "ABCDEFGHIJ",
+        "session_id": "mysessionid112",
+        "verification_state": "Verified"
+      },
+      "event": {
+        "content": {
+          "body": "secret",
+          "msgtype": "m.text"
+        },
+        "event_id": "$xxxxx:example.org",
+        "origin_server_ts": 2189,
+        "room_id": "!someroom:example.com",
+        "sender": "@carl:example.com",
+        "type": "m.room.message"
+      },
+      "unsigned_encryption_info": {
+        "RelationsThreadLatestEvent": {
+          "UnableToDecrypt": {
+            "reason": {
+              "MissingMegolmSession": {
+                "withheld_code": "m.unverified"
+              }
+            },
+            "session_id": "xyz"
+          }
+        }
+      }
+    }
+  }
+}

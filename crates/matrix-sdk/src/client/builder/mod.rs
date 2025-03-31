@@ -28,8 +28,6 @@ use tokio::sync::{broadcast, Mutex, OnceCell};
 use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
-#[cfg(feature = "experimental-oidc")]
-use crate::authentication::oidc::OidcCtx;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
@@ -37,9 +35,14 @@ use crate::encryption::EncryptionSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
 use crate::{
-    authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
-    error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData,
-    sliding_sync::VersionBuilder as SlidingSyncVersionBuilder, HttpError, IdParseError,
+    authentication::{oauth::OAuthCtx, AuthCtx},
+    client::ClientServerCapabilities,
+    config::RequestConfig,
+    error::RumaApiError,
+    http_client::HttpClient,
+    send_queue::SendQueueData,
+    sliding_sync::VersionBuilder as SlidingSyncVersionBuilder,
+    HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -158,8 +161,8 @@ impl ClientBuilder {
     }
 
     /// Set the server name to discover the homeserver from, assuming an HTTP
-    /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
-    /// HTTP schemes.
+    /// (not secured) scheme. This also relaxes OAuth 2.0 discovery checks to
+    /// allow HTTP schemes.
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
@@ -472,7 +475,7 @@ impl ClientBuilder {
             base_client
         } else {
             #[allow(unused_mut)]
-            let mut client = BaseClient::with_store_config(
+            let mut client = BaseClient::new(
                 build_store_config(self.store_config, &self.cross_process_store_locks_holder_name)
                     .await?,
             );
@@ -508,18 +511,17 @@ impl ClientBuilder {
             version
         };
 
-        #[cfg(feature = "experimental-oidc")]
-        let allow_insecure_oidc = homeserver.scheme() == "http";
+        let allow_insecure_oauth = homeserver.scheme() == "http";
 
         let auth_ctx = Arc::new(AuthCtx {
             handle_refresh_tokens: self.handle_refresh_tokens,
             refresh_token_lock: Arc::new(Mutex::new(Ok(()))),
             session_change_sender: broadcast::Sender::new(1),
             auth_data: OnceCell::default(),
+            tokens: OnceCell::default(),
             reload_session_callback: OnceCell::default(),
             save_session_callback: OnceCell::default(),
-            #[cfg(feature = "experimental-oidc")]
-            oidc: OidcCtx::new(allow_insecure_oidc),
+            oauth: OAuthCtx::new(allow_insecure_oauth),
         });
 
         // Enable the send queue by default.

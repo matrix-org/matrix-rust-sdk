@@ -101,8 +101,8 @@ impl HttpClient {
                 for (header_name, header_value) in response.headers() {
                     let header_name = header_name.as_str().to_lowercase();
 
-                    // Header added in case of OIDC authentication failure, so we can correlate
-                    // failures with a Sentry event emitted by the OIDC authentication server.
+                    // Header added in case of OAuth 2.0 authentication failure, so we can correlate
+                    // failures with a Sentry event emitted by the OAuth 2.0 authentication server.
                     if header_name == "x-sentry-event-id" {
                         tracing::Span::current()
                             .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));

@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock};
 
+use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
@@ -13,7 +14,6 @@ use matrix_sdk::{
 use ruma::UserId;
 use tracing::{error, warn};
 
-use super::RUNTIME;
 use crate::{client::UserProfile, error::ClientError, utils::Timestamp};
 
 #[derive(uniffi::Object)]
@@ -165,7 +165,8 @@ impl SessionVerificationController {
                 }
 
                 let delegate = self.delegate.clone();
-                RUNTIME.spawn(Self::listen_to_sas_verification_changes(verification, delegate));
+                get_runtime_handle()
+                    .spawn(Self::listen_to_sas_verification_changes(verification, delegate));
             }
             _ => {
                 if let Some(delegate) = &*self.delegate.read().unwrap() {
@@ -290,7 +291,7 @@ impl SessionVerificationController {
 
         *self.verification_request.write().unwrap() = Some(verification_request.clone());
 
-        RUNTIME.spawn(Self::listen_to_verification_request_changes(
+        get_runtime_handle().spawn(Self::listen_to_verification_request_changes(
             verification_request,
             self.sas_verification.clone(),
             self.delegate.clone(),
@@ -322,7 +323,7 @@ impl SessionVerificationController {
                         }
 
                         let delegate = delegate.clone();
-                        RUNTIME.spawn(Self::listen_to_sas_verification_changes(
+                        get_runtime_handle().spawn(Self::listen_to_sas_verification_changes(
                             verification,
                             delegate,
                         ));

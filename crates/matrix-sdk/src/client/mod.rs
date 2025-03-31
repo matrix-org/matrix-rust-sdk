@@ -36,7 +36,6 @@ use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
-#[cfg(feature = "experimental-oidc")]
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
@@ -76,11 +75,10 @@ use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
-#[cfg(feature = "experimental-oidc")]
-use crate::authentication::oidc::Oidc;
 use crate::{
     authentication::{
-        matrix::MatrixAuth, AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,
+        matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
+        SaveSessionCallback,
     },
     config::RequestConfig,
     deduplicating_handler::DeduplicatingHandler,
@@ -97,7 +95,7 @@ use crate::{
     sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
-    Room, TransmissionProgress,
+    Room, SessionTokens, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
@@ -356,8 +354,7 @@ impl ClientInner {
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_capabilities: server_capabilities.into(),
-            #[cfg(feature = "experimental-oidc")]
-            provider_metadata: Mutex::new(TtlCache::new()),
+            server_metadata: Mutex::new(TtlCache::new()),
         };
 
         let client = Self {
@@ -443,6 +440,10 @@ impl Client {
         &self.inner.locks
     }
 
+    pub(crate) fn auth_ctx(&self) -> &AuthCtx {
+        &self.inner.auth_ctx
+    }
+
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
@@ -501,9 +502,17 @@ impl Client {
         self.inner.http_client.request_config
     }
 
-    /// Is the client logged in.
-    pub fn logged_in(&self) -> bool {
-        self.inner.base_client.logged_in()
+    /// Check whether the client has been activated.
+    ///
+    /// A client is considered active when:
+    ///
+    /// 1. It has a `SessionMeta` (user ID, device ID and access token), i.e. it
+    ///    is logged in,
+    /// 2. Has loaded cached data from storage,
+    /// 3. If encryption is enabled, it also initialized or restored its
+    ///    `OlmMachine`.
+    pub fn is_active(&self) -> bool {
+        self.inner.base_client.is_active()
     }
 
     /// The server used by the client.
@@ -578,22 +587,31 @@ impl Client {
         self.session_meta().map(|s| s.device_id.as_ref())
     }
 
-    /// Get the current access token for this session, regardless of the
-    /// authentication API used to log in.
+    /// Get the current access token for this session.
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn access_token(&self) -> Option<String> {
-        self.inner.auth_ctx.auth_data.get()?.access_token()
+        self.auth_ctx().access_token()
+    }
+
+    /// Get the current tokens for this session.
+    ///
+    /// To be notified of changes in the session tokens, use
+    /// [`Client::subscribe_to_session_changes()`] or
+    /// [`Client::set_session_callbacks()`].
+    ///
+    /// Returns `None` if the client has not been logged in.
+    pub fn session_tokens(&self) -> Option<SessionTokens> {
+        self.auth_ctx().session_tokens()
     }
 
     /// Access the authentication API used to log in this client.
     ///
     /// Will be `None` if the client has not been logged in.
     pub fn auth_api(&self) -> Option<AuthApi> {
-        match self.inner.auth_ctx.auth_data.get()? {
-            AuthData::Matrix(_) => Some(AuthApi::Matrix(self.matrix_auth())),
-            #[cfg(feature = "experimental-oidc")]
-            AuthData::Oidc(_) => Some(AuthApi::Oidc(self.oidc())),
+        match self.auth_ctx().auth_data.get()? {
+            AuthData::Matrix => Some(AuthApi::Matrix(self.matrix_auth())),
+            AuthData::OAuth(_) => Some(AuthApi::OAuth(self.oauth())),
         }
     }
 
@@ -606,14 +624,13 @@ impl Client {
     pub fn session(&self) -> Option<AuthSession> {
         match self.auth_api()? {
             AuthApi::Matrix(api) => api.session().map(Into::into),
-            #[cfg(feature = "experimental-oidc")]
-            AuthApi::Oidc(api) => api.full_session().map(Into::into),
+            AuthApi::OAuth(api) => api.full_session().map(Into::into),
         }
     }
 
     /// Get a reference to the state store.
-    pub fn store(&self) -> &DynStateStore {
-        self.base_client().store()
+    pub fn state_store(&self) -> &DynStateStore {
+        self.base_client().state_store()
     }
 
     /// Get a reference to the event cache store.
@@ -647,10 +664,9 @@ impl Client {
         Pusher::new(self.clone())
     }
 
-    /// Access the OpenID Connect API of the client.
-    #[cfg(feature = "experimental-oidc")]
-    pub fn oidc(&self) -> Oidc {
-        Oidc::new(self.clone())
+    /// Access the OAuth 2.0 API of the client.
+    pub fn oauth(&self) -> OAuth {
+        OAuth::new(self.clone())
     }
 
     /// Register a handler for a specific event type.
@@ -1259,25 +1275,8 @@ impl Client {
         let session = session.into();
         match session {
             AuthSession::Matrix(s) => Box::pin(self.matrix_auth().restore_session(s)).await,
-            #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(s) => Box::pin(self.oidc().restore_session(*s)).await,
+            AuthSession::OAuth(s) => Box::pin(self.oauth().restore_session(*s)).await,
         }
-    }
-
-    pub(crate) async fn set_session_meta(
-        &self,
-        session_meta: SessionMeta,
-        #[cfg(feature = "e2e-encryption")] custom_account: Option<vodozemac::olm::Account>,
-    ) -> Result<()> {
-        self.base_client()
-            .set_session_meta(
-                session_meta,
-                #[cfg(feature = "e2e-encryption")]
-                custom_account,
-            )
-            .await?;
-
-        Ok(())
     }
 
     /// Refresh the access token using the authentication API used to log into
@@ -1295,9 +1294,8 @@ impl Client {
                 trace!("Token refresh: Using the homeserver.");
                 Box::pin(api.refresh_access_token()).await?;
             }
-            #[cfg(feature = "experimental-oidc")]
-            AuthApi::Oidc(api) => {
-                trace!("Token refresh: Using OIDC.");
+            AuthApi::OAuth(api) => {
+                trace!("Token refresh: Using OAuth 2.0.");
                 Box::pin(api.refresh_access_token()).await?;
             }
         }
@@ -1689,7 +1687,7 @@ impl Client {
     async fn load_or_fetch_server_capabilities(
         &self,
     ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
-        match self.store().get_kv_data(StateStoreDataKey::ServerCapabilities).await {
+        match self.state_store().get_kv_data(StateStoreDataKey::ServerCapabilities).await {
             Ok(Some(stored)) => {
                 if let Some((versions, unstable_features)) =
                     stored.into_server_capabilities().and_then(|cap| cap.maybe_decode())
@@ -1712,7 +1710,7 @@ impl Client {
         {
             let encoded = ServerCapabilities::new(&versions, unstable_features.clone());
             if let Err(err) = self
-                .store()
+                .state_store()
                 .set_kv_data(
                     StateStoreDataKey::ServerCapabilities,
                     StateStoreDataValue::ServerCapabilities(encoded),
@@ -1807,7 +1805,7 @@ impl Client {
         guard.unstable_features = None;
 
         // Empty the store cache.
-        Ok(self.store().remove_kv_data(StateStoreDataKey::ServerCapabilities).await?)
+        Ok(self.state_store().remove_kv_data(StateStoreDataKey::ServerCapabilities).await?)
     }
 
     /// Check whether MSC 4028 is enabled on the homeserver.
@@ -2369,7 +2367,7 @@ impl Client {
 
     /// Subscribes a new receiver to client SessionChange broadcasts.
     pub fn subscribe_to_session_changes(&self) -> broadcast::Receiver<SessionChange> {
-        let broadcast = &self.inner.auth_ctx.session_change_sender;
+        let broadcast = &self.auth_ctx().session_change_sender;
         broadcast.subscribe()
     }
 
@@ -2422,7 +2420,7 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner
                     .base_client
-                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name)
+                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name, false)
                     .await?,
                 self.inner.caches.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,

@@ -1,0 +1,9 @@
+---
+source: crates/matrix-sdk-common/src/deserialized_responses.rs
+expression: "VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice,))"
+---
+{
+  "Unverified": {
+    "None": "MissingDevice"
+  }
+}

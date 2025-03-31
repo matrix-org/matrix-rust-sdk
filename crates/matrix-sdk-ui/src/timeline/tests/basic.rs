@@ -40,7 +40,8 @@ use crate::timeline::{
     controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
-    MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
+    TimelineItemKind, VirtualTimelineItem,
 };
 
 #[async_test]
@@ -149,7 +150,7 @@ async fn test_sticker() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_matches!(item.content(), TimelineItemContent::Sticker(_));
+    assert!(item.content().is_sticker());
 }
 
 #[async_test]
@@ -344,7 +345,7 @@ async fn test_sanitized() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
-    assert_let!(TimelineItemContent::Message(message) = event.content());
+    assert_let!(Some(message) = event.content().as_message());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(
         text.formatted.as_ref().unwrap().body,
@@ -399,13 +400,19 @@ async fn test_reply() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_let!(TimelineItemContent::Message(message) = item.as_event().unwrap().content());
+    assert_let!(
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
+            in_reply_to,
+            ..
+        }) = item.as_event().unwrap().content()
+    );
 
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "I'm replying!");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<p>I'm replying!</p>");
 
-    let in_reply_to = message.in_reply_to().unwrap();
+    let in_reply_to = in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *ALICE);
@@ -435,13 +442,19 @@ async fn test_thread() {
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_let!(TimelineItemContent::Message(message) = item.as_event().unwrap().content());
+    assert_let!(
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
+            in_reply_to,
+            ..
+        }) = item.as_event().unwrap().content()
+    );
 
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "I'm replying in a thread");
     assert_matches!(text.formatted, None);
 
-    let in_reply_to = message.in_reply_to().unwrap();
+    let in_reply_to = in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *ALICE);

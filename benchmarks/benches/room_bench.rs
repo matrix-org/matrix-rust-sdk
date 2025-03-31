@@ -55,13 +55,13 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
         .block_on(sqlite_store.save_changes(&changes))
         .expect("initial filling of sqlite failed");
 
-    let base_client = BaseClient::with_store_config(
+    let base_client = BaseClient::new(
         StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
             .state_store(sqlite_store),
     );
 
     runtime
-        .block_on(base_client.set_session_meta(
+        .block_on(base_client.activate(
             SessionMeta {
                 user_id: user_id!("@somebody:example.com").to_owned(),
                 device_id: device_id!("DEVICE_ID").to_owned(),

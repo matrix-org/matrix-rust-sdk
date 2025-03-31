@@ -51,11 +51,23 @@ impl RoomPreview {
     /// Leave the room if the room preview state is either joined, invited or
     /// knocked.
     ///
+    /// If rejecting an invite then also forget it as an extra layer of
+    /// protection against spam attacks.
+    ///
     /// Will return an error otherwise.
     pub async fn leave(&self) -> Result<(), ClientError> {
         let room =
             self.client.get_room(&self.inner.room_id).context("missing room for a room preview")?;
-        room.leave().await.map_err(Into::into)
+
+        let should_forget = matches!(room.state(), matrix_sdk::RoomState::Invited);
+
+        room.leave().await.map_err(ClientError::from)?;
+
+        if should_forget {
+            _ = self.forget().await;
+        }
+
+        Ok(())
     }
 
     /// Get the user who created the invite, if any.
