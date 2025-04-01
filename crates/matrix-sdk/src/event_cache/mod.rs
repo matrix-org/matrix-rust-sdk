@@ -35,6 +35,7 @@ use std::{
 
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
+use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
@@ -459,17 +460,72 @@ impl EventCacheInner {
 
     /// Clears all the room's data.
     async fn clear_all_rooms(&self) -> Result<()> {
-        // Note: one must NOT clear the `by_room` map, because if something subscribed
-        // to a room update, they would never get any new update for that room, since
-        // re-creating the `RoomEventCache` would create a new unrelated sender.
-
-        // Note 2: we don't need to clear the [`Self::events`] map, because events are
-        // immutable in the Matrix protocol.
+        // Okay, here's where things get complicated.
+        //
+        // On the one hand, `by_room` may include storage for *some* rooms that we know
+        // about, but not *all* of them. Any room that hasn't been loaded in the
+        // client, or touched by a sync, will remain unloaded in memory, so it
+        // will be missing from `self.by_room`. As a result, we need to make
+        // sure that we're hitting the storage backend to *really* clear all the
+        // rooms, including those that haven't been loaded yet.
+        //
+        // On the other hand, one must NOT clear the `by_room` map, because if someone
+        // subscribed to a room update, they would never get any new update for
+        // that room, since re-creating the `RoomEventCache` would create a new,
+        // unrelated sender.
+        //
+        // So we need to *keep* the rooms in `by_room` alive, while clearing them in the
+        // store backend.
+        //
+        // As a result, for a short while, the in-memory linked chunks
+        // will be desynchronized from the storage. We need to be careful then. During
+        // that short while, we don't want *anyone* to touch the linked chunk
+        // (be it in memory or in the storage).
+        //
+        // And since that requirement applies to *any* room in `by_room` at the same
+        // time, we'll have to take the locks for *all* the live rooms, so as to
+        // properly clear the underlying storage.
+        //
+        // At this point, you might be scared about the potential for deadlocking. I am
+        // as well, but I'm convinced we're fine:
+        // 1. the lock for `by_room` is usually held only for a short while, and
+        //    independently of the other two kinds.
+        // 2. the state may acquire the store cross-process lock internally, but only
+        //    while the state's methods are called (so it's always transient). As a
+        //    result, as soon as we've acquired the state locks, the store lock ought to
+        //    be free.
+        // 3. The store lock is held explicitly only in a small scoped area below.
+        // 4. Then the store lock will be held internally when calling `reset()`, but at
+        //    this point it's only held for a short while each time, so rooms will take
+        //    turn to acquire it.
 
         let rooms = self.by_room.write().await;
-        for room in rooms.values() {
-            room.clear().await?;
+
+        // Collect all the rooms' state locks, first: we can clear the storage only when
+        // nobody will touch it at the same time.
+        let room_locks = join_all(
+            rooms.values().map(|room| async move { (room, room.inner.state.write().await) }),
+        )
+        .await;
+
+        // Clear the storage for all the rooms, using the storage facility.
+        if let Some(store) = self.store.get() {
+            let store_guard = store.lock().await?;
+            store_guard.clear_all_rooms_chunks().await?;
         }
+
+        // At this point, all the in-memory linked chunks are desynchronized from the
+        // storage. Resynchronize them manually by calling reset(), and
+        // propagate updates to observers.
+        try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| async move {
+            let updates_as_vector_diffs = state_guard.reset().await?;
+            let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs: updates_as_vector_diffs,
+                origin: EventsOrigin::Cache,
+            });
+            Ok::<_, EventCacheError>(())
+        }))
+        .await?;
 
         Ok(())
     }

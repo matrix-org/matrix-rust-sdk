@@ -1,9 +1,10 @@
-use std::{ops::Not, time::Duration};
+use std::{ops::Not, sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
+use imbl::Vector;
 use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::TimelineEvent,
@@ -11,14 +12,19 @@ use matrix_sdk::{
         BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate, RoomPaginationStatus,
     },
     linked_chunk::{ChunkIdentifier, Position, Update},
+    store::StoreConfig,
     test_utils::{
         assert_event_matches_msg,
         mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     },
 };
-use matrix_sdk_base::event_cache::Gap;
+use matrix_sdk_base::event_cache::{
+    store::{EventCacheStore, MemoryStore},
+    Gap,
+};
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder, ALICE,
+    BOB,
 };
 use ruma::{
     event_id,
@@ -2539,4 +2545,85 @@ async fn test_dont_remove_only_gap() {
     // Back-paginate with the given token.
     let outcome = room_event_cache.pagination().run_backwards_once(16).await.unwrap();
     assert!(outcome.reached_start);
+}
+
+#[async_test]
+async fn test_clear_all_rooms() {
+    let sleeping_room_id = room_id!("!dodo:saucisse.bzh");
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let f = EventFactory::new().room(sleeping_room_id);
+    let ev0 = f.text_msg("hi").sender(*ALICE).event_id(event_id!("$ev0")).into_event();
+
+    // Feed the cache with one room with one event, before the client is created.
+    // This room will remain sleeping.
+    {
+        let cid = ChunkIdentifier::new(0);
+        event_cache_store
+            .handle_linked_chunk_updates(
+                sleeping_room_id,
+                vec![
+                    Update::NewItemsChunk { previous: None, new: cid, next: None },
+                    Update::PushItems { at: Position::new(cid, 0), items: vec![ev0] },
+                ],
+            )
+            .await
+            .unwrap();
+    }
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .store_config(
+            StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+        )
+        .build()
+        .await;
+
+    client.event_cache().subscribe().unwrap();
+    client.event_cache().enable_storage().unwrap();
+
+    // Another room gets a live event: it's loaded in the event cache now, while
+    // sleeping_room_id is not.
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("bonchourhan").sender(*BOB).event_id(event_id!("$ev1")),
+            ),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (initial, mut room_updates) = room_event_cache.subscribe().await;
+
+    let mut initial = Vector::from(initial);
+    // Wait for the ev1 event.
+    if initial.is_empty() {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_updates.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(diffs[0], VectorDiff::Append { .. });
+        diffs[0].clone().apply(&mut initial);
+    }
+    // The room state now contains one event.
+    assert_eq!(initial.len(), 1);
+    assert_event_id!(initial[0], "$ev1");
+
+    // Now, clear all the rooms.
+    client.event_cache().clear_all_rooms().await.unwrap();
+
+    // We should get an update for the live room.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_updates.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Clear = &diffs[0]);
+
+    // The sleeping room should have been cleared too.
+    let (maybe_last_chunk, _chunk_id_gen) =
+        event_cache_store.load_last_chunk(sleeping_room_id).await.unwrap();
+    assert!(maybe_last_chunk.is_none());
 }
