@@ -62,6 +62,9 @@ Breaking changes:
   room.latest_encryption_state().await?.is_encrypted()
   ```
 
+- `ClientBuilder::passphrase` is renamed `session_passphrase`
+  ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
+
 Additions:
 
 - Add `Encryption::get_user_identity` which returns `UserIdentity`
@@ -75,3 +78,5 @@ Additions:
 - Add `Timeline::send_thread_reply` for clients that need to start threads
   themselves.
   ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
+- Add `ClientBuilder::session_pool_max_size`, `::session_cache_size` and `::session_journal_size_limit` to control the stores configuration, especially their memory consumption
+  ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))

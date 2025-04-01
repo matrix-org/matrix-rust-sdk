@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file.
   stores, it allows to control the maximum size of the pool of connections to
   SQLite for example.
   ([#4826](https://github.com/matrix-org/matrix-rust-sdk/pull/4826))
+- Add `SqliteStoreConfig::path()` to override the path given to the constructor
+  ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
+- Implement `Clone` and `Debug` on `SqliteStoreConfig`
+  ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
 
 ## [0.10.0] - 2025-02-04
 
