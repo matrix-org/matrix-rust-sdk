@@ -218,22 +218,13 @@ impl EventCacheStore for MemoryStore {
         Ok(event)
     }
 
-    async fn find_event_with_relations(
+    async fn find_event_relations(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
-    ) -> Result<Option<(Event, Vec<Event>)>, Self::Error> {
+    ) -> Result<Vec<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
-
-        let event = inner.events.items().find_map(|(event, this_room_id)| {
-            (room_id == this_room_id && event.event_id()? == event_id).then_some(event.clone())
-        });
-
-        let Some(event) = event else {
-            // Not found.
-            return Ok(None);
-        };
 
         let filters = filters.map(|filter| {
             filter
@@ -275,7 +266,7 @@ impl EventCacheStore for MemoryStore {
             })
             .collect();
 
-        Ok(Some((event, related_events)))
+        Ok(related_events)
     }
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {

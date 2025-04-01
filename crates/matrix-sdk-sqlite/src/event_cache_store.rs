@@ -974,12 +974,12 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    async fn find_event_with_relations(
+    async fn find_event_relations(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
-    ) -> Result<Option<(Event, Vec<Event>)>, Self::Error> {
+    ) -> Result<Vec<Event>, Self::Error> {
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
         let event_id = event_id.to_owned();
         let this = self.clone();
@@ -987,15 +987,6 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                let Some(target) = txn
-                    .prepare("SELECT content FROM events WHERE event_id = ? AND room_id = ?")?
-                    .query_row((event_id.as_str(), &hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
-                    .optional()?
-                else {
-                    // Event is not found.
-                    return Ok(None);
-                };
-
                 let filter_query = if let Some(filters) = filters {
                     let filters = filters
                         .into_iter()
@@ -1020,7 +1011,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                 );
 
                 // Collect related events.
-                let mut rel = Vec::new();
+                let mut related = Vec::new();
                 for ev in
                     txn.prepare(&query)?.query_map((event_id.as_str(), hashed_room_id), |row| {
                         row.get::<_, Vec<u8>>(0)
@@ -1028,12 +1019,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                 {
                     let ev = ev?;
                     let ev = serde_json::from_slice(&this.decode_value(&ev)?)?;
-                    rel.push(ev);
+                    related.push(ev);
                 }
 
-                let target = serde_json::from_slice(&this.decode_value(&target)?)?;
-
-                Ok(Some((target, rel)))
+                Ok(related)
             })
             .await
     }
