@@ -34,7 +34,7 @@ use ruma::{
 };
 
 use super::{
-    extract_event_relation,
+    compute_filters_string, extract_event_relation,
     media::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService},
     EventCacheStore, EventCacheStoreError, Result,
 };
@@ -222,23 +222,11 @@ impl EventCacheStore for MemoryStore {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-        filters: Option<Vec<RelationType>>,
+        filters: Option<&[RelationType]>,
     ) -> Result<Vec<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let filters = filters.map(|filter| {
-            filter
-                .into_iter()
-                .map(|f| {
-                    // TODO: get Ruma fix from https://github.com/ruma/ruma/pull/2052
-                    if f == RelationType::Replacement {
-                        "m.replace".to_owned()
-                    } else {
-                        f.to_string()
-                    }
-                })
-                .collect::<Vec<_>>()
-        });
+        let filters = compute_filters_string(filters);
 
         let related_events = inner
             .events

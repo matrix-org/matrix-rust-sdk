@@ -124,7 +124,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-        filter: Option<Vec<RelationType>>,
+        filter: Option<&[RelationType]>,
     ) -> Result<Vec<Event>, Self::Error>;
 
     /// Save an event, that might or might not be part of an existing linked
@@ -338,7 +338,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-        filter: Option<Vec<RelationType>>,
+        filter: Option<&[RelationType]>,
     ) -> Result<Vec<Event>, Self::Error> {
         self.0.find_event_relations(room_id, event_id, filter).await.map_err(Into::into)
     }

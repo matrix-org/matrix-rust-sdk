@@ -1236,7 +1236,7 @@ mod private {
             // Then, initialize the stack with all the related events, to find the
             // transitive closure of all the related events.
             let mut related =
-                store.find_event_relations(&self.room, event_id, filters.clone()).await?;
+                store.find_event_relations(&self.room, event_id, filters.as_deref()).await?;
             let mut stack = related.iter().filter_map(|event| event.event_id()).collect::<Vec<_>>();
 
             // Also keep track of already seen events, in case there's a loop in the
@@ -1254,7 +1254,7 @@ mod private {
                 }
 
                 let other_related =
-                    store.find_event_relations(&self.room, &event_id, filters.clone()).await?;
+                    store.find_event_relations(&self.room, &event_id, filters.as_deref()).await?;
 
                 stack.extend(other_related.iter().filter_map(|event| event.event_id()));
                 related.extend(other_related);
