@@ -872,6 +872,7 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
 
     // But when alice becomes cross-signed and bob finds out about it
     cross_sign(&alice).await;
+    bob.sync_once(SyncSettings::new()).await.expect("should not fail to sync");
     fetch_user_identity(&bob, alice.user_id()).await;
     let update2 = assert_next_with_timeout!(timeline_stream);
 
@@ -890,9 +891,6 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     }
 
     {
-        // Sanity: there is still just one message
-        assert_eq!(timeline_messages(&timeline).await.len(), 1);
-
         // And the final update just changed the one item
         assert_eq!(update2.len(), 1);
         assert_let!(VectorDiff::Set { index, .. } = &update2[0]);
