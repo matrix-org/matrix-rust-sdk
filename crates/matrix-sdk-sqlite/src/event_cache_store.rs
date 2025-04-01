@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         store::{
-            extract_event_relation,
+            compute_filters_string, extract_event_relation,
             media::{
                 EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
                 MediaService,
@@ -978,28 +978,18 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-        filters: Option<Vec<RelationType>>,
+        filters: Option<&[RelationType]>,
     ) -> Result<Vec<Event>, Self::Error> {
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
         let event_id = event_id.to_owned();
+        let filters = filters.map(ToOwned::to_owned);
         let this = self.clone();
 
         self.acquire()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                let filter_query = if let Some(filters) = filters {
-                    let filters = filters
-                        .into_iter()
-                        .map(|f| {
-                            // TODO: get Ruma fix from https://github.com/ruma/ruma/pull/2052
-                            if f == RelationType::Replacement {
-                                "m.replace".to_owned()
-                            } else {
-                                f.to_string()
-                            }
-                        })
-                        .collect::<Vec<_>>();
-
+                let filter_query = if let Some(filters) = compute_filters_string(filters.as_deref())
+                {
                     format!(" AND rel_type IN ({})", filters.join(" AND "))
                 } else {
                     "".to_owned()
