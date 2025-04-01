@@ -992,7 +992,14 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 let filter_query = if let Some(filters) = compute_filters_string(filters.as_deref())
                 {
-                    format!(" AND rel_type IN ({})", filters.join(" AND "))
+                    format!(
+                        " AND rel_type IN ({})",
+                        filters
+                            .into_iter()
+                            .map(|f| format!(r#""{f}""#))
+                            .collect::<Vec<_>>()
+                            .join(r#", "#)
+                    )
                 } else {
                     "".to_owned()
                 };
