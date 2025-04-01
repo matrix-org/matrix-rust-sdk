@@ -1226,16 +1226,17 @@ mod private {
             let store = store.lock().await?;
 
             // First, hit storage to get the target event and its related events.
-            let found =
-                store.find_event_with_relations(&self.room, event_id, filters.clone()).await?;
+            let found = store.find_event(&self.room, event_id).await?;
 
-            let Some((target, mut related)) = found else {
+            let Some(target) = found else {
                 // We haven't found the event: return early.
                 return Ok(None);
             };
 
             // Then, initialize the stack with all the related events, to find the
             // transitive closure of all the related events.
+            let mut related =
+                store.find_event_relations(&self.room, event_id, filters.clone()).await?;
             let mut stack = related.iter().filter_map(|event| event.event_id()).collect::<Vec<_>>();
 
             // Also keep track of already seen events, in case there's a loop in the
@@ -1252,12 +1253,8 @@ mod private {
                     continue;
                 }
 
-                let Some((_, other_related)) =
-                    store.find_event_with_relations(&self.room, &event_id, filters.clone()).await?
-                else {
-                    // Related event wasn't stored in the database: skip it.
-                    continue;
-                };
+                let other_related =
+                    store.find_event_relations(&self.room, &event_id, filters.clone()).await?;
 
                 stack.extend(other_related.iter().filter_map(|event| event.event_id()));
                 related.extend(other_related);
