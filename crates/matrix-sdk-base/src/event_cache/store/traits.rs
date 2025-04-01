@@ -98,7 +98,9 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// Clear persisted events for all the rooms.
     ///
     /// This will empty and remove all the linked chunks stored previously,
-    /// using the above [`Self::handle_linked_chunk_updates`] methods.
+    /// using the above [`Self::handle_linked_chunk_updates`] methods. It
+    /// must *also* delete all the events' content, if they were stored in a
+    /// separate table.
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error>;
 
     /// Given a set of event IDs, return the duplicated events along with their
