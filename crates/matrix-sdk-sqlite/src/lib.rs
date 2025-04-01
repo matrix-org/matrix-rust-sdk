@@ -114,7 +114,7 @@ impl SqliteStoreConfig {
     ///
     /// The default value is `true`.
     ///
-    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_optimize
+    /// [`PRAGMA optimize`]: https://www.sqlite.org/pragma.html#pragma_optimize
     pub fn optimize(mut self, optimize: bool) -> Self {
         self.runtime_config.optimize = optimize;
         self
