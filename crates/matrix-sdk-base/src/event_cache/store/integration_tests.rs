@@ -25,8 +25,15 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
-    api::client::media::get_content_thumbnail::v3::Method, events::room::MediaSource, mxc_uri,
-    push::Action, room_id, uint, EventId, RoomId,
+    api::client::media::get_content_thumbnail::v3::Method,
+    event_id,
+    events::{
+        relation::RelationType,
+        room::{message::RoomMessageEventContentWithoutRelation, MediaSource},
+    },
+    mxc_uri,
+    push::Action,
+    room_id, uint, EventId, RoomId,
 };
 
 use super::{media::IgnoreMediaRetentionPolicy, DynEventCacheStore};
@@ -139,6 +146,12 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test that an event can be found or not.
     async fn test_find_event(&self);
+
+    /// Test that finding event relations works as expected.
+    async fn test_find_event_relations(&self);
+
+    /// Test that saving an event works as expected.
+    async fn test_save_event(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -876,6 +889,130 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .expect("failed to query for finding an event")
             .is_none());
+
+        // Clearing the rooms also clears the event's storage.
+        self.clear_all_rooms_chunks().await.expect("failed to clear all rooms chunks");
+        assert!(self
+            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            .await
+            .expect("failed to query for finding an event")
+            .is_none());
+    }
+
+    async fn test_find_event_relations(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        // Create event and related events for the first room.
+        let eid1 = event_id!("$event1:matrix.org");
+        let e1 = f.text_msg("comter").event_id(eid1).into_event();
+
+        let edit_eid1 = event_id!("$edit_event1:matrix.org");
+        let edit_e1 = f
+            .text_msg("* comté")
+            .event_id(edit_eid1)
+            .edit(eid1, RoomMessageEventContentWithoutRelation::text_plain("comté"))
+            .into_event();
+
+        let reaction_eid1 = event_id!("$reaction_event1:matrix.org");
+        let reaction_e1 = f.reaction(eid1, "👍").event_id(reaction_eid1).into_event();
+
+        let eid2 = event_id!("$event2:matrix.org");
+        let e2 = f.text_msg("galette saucisse").event_id(eid2).into_event();
+
+        // Create events for the second room.
+        let f = f.room(another_room_id);
+
+        let eid3 = event_id!("$event3:matrix.org");
+        let e3 = f.text_msg("gruyère").event_id(eid3).into_event();
+
+        let reaction_eid3 = event_id!("$reaction_event3:matrix.org");
+        let reaction_e3 = f.reaction(eid3, "👍").event_id(reaction_eid3).into_event();
+
+        // Save All The Things!
+        self.save_event(room_id, e1).await.unwrap();
+        self.save_event(room_id, edit_e1).await.unwrap();
+        self.save_event(room_id, reaction_e1).await.unwrap();
+        self.save_event(room_id, e2).await.unwrap();
+        self.save_event(another_room_id, e3).await.unwrap();
+        self.save_event(another_room_id, reaction_e3).await.unwrap();
+
+        // Finding relations without a filter returns all of them.
+        let relations = self.find_event_relations(room_id, eid1, None).await.unwrap();
+        assert_eq!(relations.len(), 2);
+        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(edit_eid1)));
+        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(reaction_eid1)));
+
+        // Finding relations with a filter only returns a subset.
+        let relations = self
+            .find_event_relations(room_id, eid1, Some(&[RelationType::Replacement]))
+            .await
+            .unwrap();
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].event_id().as_deref(), Some(edit_eid1));
+
+        let relations = self
+            .find_event_relations(
+                room_id,
+                eid1,
+                Some(&[RelationType::Replacement, RelationType::Annotation]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(relations.len(), 2);
+        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(edit_eid1)));
+        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(reaction_eid1)));
+
+        // We can't find relations using the wrong room.
+        let relations = self
+            .find_event_relations(another_room_id, eid1, Some(&[RelationType::Replacement]))
+            .await
+            .unwrap();
+        assert!(relations.is_empty());
+    }
+
+    async fn test_save_event(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+
+        let event = |msg: &str| make_test_event(room_id, msg);
+        let event_comte = event("comté");
+        let event_gruyere = event("gruyère");
+
+        // Add one event in one room.
+        self.save_event(room_id, event_comte.clone()).await.unwrap();
+
+        // Add another event in another room.
+        self.save_event(another_room_id, event_gruyere.clone()).await.unwrap();
+
+        // Events can be found, when searched in their own rooms.
+        let event = self
+            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            .await
+            .expect("failed to query for finding an event")
+            .expect("failed to find an event");
+        assert_eq!(event.event_id(), event_comte.event_id());
+
+        let event = self
+            .find_event(another_room_id, event_gruyere.event_id().unwrap().as_ref())
+            .await
+            .expect("failed to query for finding an event")
+            .expect("failed to find an event");
+        assert_eq!(event.event_id(), event_gruyere.event_id());
+
+        // But they won't be returned when searching in the wrong room.
+        assert!(self
+            .find_event(another_room_id, event_comte.event_id().unwrap().as_ref())
+            .await
+            .expect("failed to query for finding an event")
+            .is_none());
+        assert!(self
+            .find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+            .await
+            .expect("failed to query for finding an event")
+            .is_none());
     }
 }
 
@@ -979,6 +1116,20 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_event().await;
+            }
+
+            #[async_test]
+            async fn test_find_event_relations() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_event_relations().await;
+            }
+
+            #[async_test]
+            async fn test_save_event() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_save_event().await;
             }
         }
     };
