@@ -1208,13 +1208,14 @@ impl Client {
     ///   retention policy.
     pub async fn clear_caches(&self) -> Result<(), ClientError> {
         let closure = async || -> Result<_, EventCacheError> {
-            let store = self.inner.event_cache_store().lock().await?;
-
-            // Clear all the room chunks.
-            store.clear_all_rooms_chunks().await?;
-
             // Clean up the media cache according to the current media retention policy.
-            store.clean_up_media_cache().await?;
+            self.inner.event_cache_store().lock().await?.clean_up_media_cache().await?;
+
+            // Clear all the room chunks. It's important to *not* call
+            // `EventCacheStore::clear_all_rooms_chunks` here, because there might be live
+            // observers of the linked chunks, and that would cause some very bad state
+            // mismatch.
+            self.inner.event_cache().clear_all_rooms().await?;
 
             Ok(())
         };

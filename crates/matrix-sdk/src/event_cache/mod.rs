@@ -361,6 +361,13 @@ impl EventCache {
         Ok((room, drop_handles))
     }
 
+    /// Cleanly clear all the rooms' event caches.
+    ///
+    /// This will notify any live observers that the room has been cleared.
+    pub async fn clear_all_rooms(&self) -> Result<()> {
+        self.inner.clear_all_rooms().await
+    }
+
     /// Add an initial set of events to the event cache, reloaded from a cache.
     ///
     /// TODO: temporary for API compat, as the event cache should take care of
