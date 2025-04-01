@@ -862,7 +862,9 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?
             .with_transaction(move |txn| {
                 // Remove all the chunks, and let cascading do its job.
-                txn.execute("DELETE FROM linked_chunks", ())
+                txn.execute("DELETE FROM linked_chunks", ())?;
+                // Also clear all the events' contents.
+                txn.execute("DELETE FROM events", ())
             })
             .await?;
         Ok(())
