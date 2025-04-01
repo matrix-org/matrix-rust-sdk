@@ -145,7 +145,7 @@ impl SlidingSyncListBuilder {
         self.cache_policy = SlidingSyncListCachePolicy::Enabled;
 
         if let Some(frozen_list) =
-            restore_sliding_sync_list(client.store(), storage_key, &self.name).await?
+            restore_sliding_sync_list(client.state_store(), storage_key, &self.name).await?
         {
             assert!(
                 self.reloaded_cached_data.is_none(),

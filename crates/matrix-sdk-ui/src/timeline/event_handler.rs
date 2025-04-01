@@ -65,9 +65,8 @@ use super::{
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
-    AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EventTimelineItem,
-    InReplyToDetails, OtherState, ReactionStatus, RepliedToEvent, Sticker, TimelineDetails,
-    TimelineItem, TimelineItemContent,
+    EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
+    ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -414,10 +413,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
                         self.add_item(
-                            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                                kind: AggregatedTimelineItemContentKind::Sticker(Sticker {
-                                    content,
-                                }),
+                            TimelineItemContent::MsgLike(MsgLikeContent {
+                                kind: MsgLikeKind::Sticker(Sticker { content }),
                                 reactions: Default::default(),
                                 thread_root: None,
                                 in_reply_to: None,
@@ -467,7 +464,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineEventKind::UnableToDecrypt { content, utd_cause } => {
                 // TODO: Handle replacements if the replaced event is also UTD
                 if should_add {
-                    self.add_item(TimelineItemContent::unable_to_decrypt(content, utd_cause), None);
+                    self.add_item(
+                        TimelineItemContent::MsgLike(MsgLikeContent::unable_to_decrypt(
+                            EncryptedMessage::from_content(content, utd_cause),
+                        )),
+                        None,
+                    );
                 }
 
                 // Let the hook know that we ran into an unable-to-decrypt that is added to the
@@ -482,7 +484,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction && should_add {
-                    self.add_item(TimelineItemContent::RedactedMessage, None);
+                    self.add_item(TimelineItemContent::MsgLike(MsgLikeContent::redacted()), None);
                 }
             }
 
@@ -737,8 +739,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
+        let TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(msg),
             reactions,
             thread_root,
             in_reply_to,
@@ -755,8 +757,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         new_msg.apply_edit(new_content);
 
         let mut new_item = item.with_content_and_latest_edit(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(new_msg),
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(new_msg),
                 reactions: reactions.clone(),
                 thread_root: thread_root.clone(),
                 in_reply_to: in_reply_to.clone(),
@@ -850,8 +852,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+        let TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Poll(poll_state),
             reactions,
             thread_root,
             in_reply_to,
@@ -862,14 +864,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         let new_content = match poll_state.edit(replacement.new_content) {
-            Some(edited_poll_state) => {
-                TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                    kind: AggregatedTimelineItemContentKind::Poll(edited_poll_state),
-                    reactions: reactions.clone(),
-                    thread_root: thread_root.clone(),
-                    in_reply_to: in_reply_to.clone(),
-                })
-            }
+            Some(edited_poll_state) => TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Poll(edited_poll_state),
+                reactions: reactions.clone(),
+                thread_root: thread_root.clone(),
+                in_reply_to: in_reply_to.clone(),
+            }),
             None => {
                 info!("Not applying edit to a poll that's already ended");
                 return None;
@@ -916,8 +916,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let edit_json = edit_json.flatten();
 
         self.add_item(
-            TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Poll(poll_state),
                 reactions: Default::default(),
                 thread_root: None,
                 in_reply_to: None,
@@ -974,7 +974,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // General path: redact another kind of (non-reaction) event.
         if let Some((idx, item)) = rfind_event_by_id(self.items, &redacted) {
             if item.as_remote().is_some() {
-                if let TimelineItemContent::RedactedMessage = &item.content {
+                if item.content.is_redacted() {
                     debug!("event item is already redacted");
                 } else {
                     let new_item = item.redact(&self.meta.room_version);
@@ -1386,9 +1386,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             };
 
             let Some(event_item) = item.as_event() else { continue };
-            let Some(aggregated) = event_item.content.as_aggregated() else { continue };
-            let Some(message) = event_item.content.as_message() else { continue };
-            let Some(in_reply_to) = aggregated.in_reply_to.as_ref() else { continue };
+            let Some(msglike) = event_item.content.as_msglike() else { continue };
+            let Some(message) = msglike.as_message() else { continue };
+            let Some(in_reply_to) = msglike.in_reply_to.as_ref() else { continue };
 
             trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
             let in_reply_to = Some(InReplyToDetails {
@@ -1398,13 +1398,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 ))),
             });
 
-            let new_reply_content =
-                TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                    kind: AggregatedTimelineItemContentKind::Message(message.clone()),
-                    reactions: aggregated.reactions.clone(),
-                    thread_root: aggregated.thread_root.clone(),
-                    in_reply_to,
-                });
+            let new_reply_content = TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(message.clone()),
+                reactions: msglike.reactions.clone(),
+                thread_root: msglike.thread_root.clone(),
+                in_reply_to,
+            });
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);
         }
@@ -1419,15 +1418,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 /// `old_item` *should* always be a local timeline item usually, but it
 /// can be a remote timeline item.
 fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
-    let TimelineItemContent::Aggregated(new_aggregated) = &mut new_item.content else {
+    let TimelineItemContent::MsgLike(new_msglike) = &mut new_item.content else {
         return;
     };
-    let TimelineItemContent::Aggregated(old_aggregated) = &old_item.content else {
+    let TimelineItemContent::MsgLike(old_msglike) = &old_item.content else {
         return;
     };
 
-    let Some(in_reply_to) = &mut new_aggregated.in_reply_to else { return };
-    let Some(old_in_reply_to) = &old_aggregated.in_reply_to else { return };
+    let Some(in_reply_to) = &mut new_msglike.in_reply_to else { return };
+    let Some(old_in_reply_to) = &old_msglike.in_reply_to else { return };
 
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();

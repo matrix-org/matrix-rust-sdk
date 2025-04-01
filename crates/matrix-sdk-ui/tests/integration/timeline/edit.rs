@@ -27,8 +27,8 @@ use matrix_sdk::{
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB};
 use matrix_sdk_ui::{
     timeline::{
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, EditError, Error,
-        EventSendState, RoomExt, TimelineDetails, TimelineEventItemId, TimelineItemContent,
+        EditError, Error, EventSendState, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
+        TimelineEventItemId, TimelineItemContent,
     },
     Timeline,
 };
@@ -85,8 +85,8 @@ async fn test_edit() {
     assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
     assert_matches!(item.latest_edit_json(), None);
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(msg),
             in_reply_to,
             ..
         }) = item.content()
@@ -121,13 +121,7 @@ async fn test_edit() {
     assert!(item.original_json().is_some());
     assert_eq!(item.read_receipts().len(), 1, "implicit read receipt");
 
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
-            in_reply_to,
-            ..
-        }) = item.content()
-    );
+    assert_let!(Some(msg) = item.content().as_message());
     assert_matches!(item.latest_edit_json(), None);
     assert_let!(MessageType::Text(TextMessageEventContent { body, .. }) = msg.msgtype());
     assert_eq!(body, "Test");
@@ -140,8 +134,8 @@ async fn test_edit() {
     let item = item.as_event().unwrap();
     assert_matches!(item.latest_edit_json(), None);
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(msg),
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(msg),
             in_reply_to,
             ..
         }) = item.content()
@@ -165,8 +159,8 @@ async fn test_edit() {
     let item = edit.as_event().unwrap();
     assert_matches!(item.latest_edit_json(), Some(_));
     assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(edited),
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(edited),
             in_reply_to,
             ..
         }) = item.content()
@@ -377,11 +371,11 @@ async fn test_send_reply_edit() {
 
     // Reply message.
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
-    let aggregated = reply_item.content().as_aggregated().unwrap();
-    let reply_message = reply_item.content().as_message().unwrap();
+    let msglike = reply_item.content().as_msglike().unwrap();
+    let reply_message = msglike.as_message().unwrap();
     assert!(!reply_message.is_edited());
     assert!(reply_item.is_editable());
-    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+    let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
@@ -409,7 +403,7 @@ async fn test_send_reply_edit() {
     let edit_message = edit_item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "Hello, Room!");
     assert!(edit_message.is_edited());
-    let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+    let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, event_id);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
@@ -460,11 +454,11 @@ async fn test_edit_to_replied_updates_reply() {
     });
 
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: reply_item } => {
-        let aggregated = reply_item.content().as_aggregated().unwrap();
-        let reply_message = reply_item.content().as_message().unwrap();
+        let msglike = reply_item.content().as_msglike().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "hi back");
 
-        let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+        let in_reply_to = msglike.in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
 
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
@@ -472,11 +466,11 @@ async fn test_edit_to_replied_updates_reply() {
     });
 
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: reply_item } => {
-        let aggregated = reply_item.content().as_aggregated().unwrap();
-        let reply_message = reply_item.content().as_message().unwrap();
+        let msglike = reply_item.content().as_msglike().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "yo");
 
-        let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+        let in_reply_to = msglike.in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
 
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
@@ -500,24 +494,24 @@ async fn test_edit_to_replied_updates_reply() {
 
     // The reply events are updated with the edited replied-to content.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
-        let aggregated = value.content().as_aggregated().unwrap();
-        let reply_message = value.content().as_message().unwrap();
+        let msglike = value.content().as_msglike().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "hi back");
         assert!(!reply_message.is_edited());
 
-        let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+        let in_reply_to = msglike.in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
     });
 
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
-        let aggregated = value.content().as_aggregated().unwrap();
-        let reply_message = value.content().as_message().unwrap();
+        let msglike = value.content().as_msglike().unwrap();
+        let reply_message = msglike.as_message().unwrap();
         assert_eq!(reply_message.body(), "yo");
         assert!(!reply_message.is_edited());
 
-        let in_reply_to = aggregated.in_reply_to.clone().unwrap();
+        let in_reply_to = msglike.in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
@@ -569,12 +563,7 @@ async fn test_send_edit_poll() {
         .await;
 
     let poll_event = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Poll(poll),
-            ..
-        }) = poll_event.content()
-    );
+    assert_let!(Some(poll) = poll_event.content().as_poll());
     let poll_results = poll.results();
     assert_eq!(poll_results.question, "Test");
     assert_eq!(poll_results.answers.len(), 2);
@@ -611,12 +600,7 @@ async fn test_send_edit_poll() {
     // a separate edit send state.
     assert_matches!(edit_item.send_state(), None);
 
-    assert_let!(
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Poll(edited_poll),
-            ..
-        }) = edit_item.content()
-    );
+    assert_let!(Some(edited_poll) = edit_item.content().as_poll());
     let edited_poll_results = edited_poll.results();
     assert_eq!(edited_poll_results.question, "Edited Test");
     assert_eq!(edited_poll_results.answers.len(), 3);
@@ -1121,9 +1105,9 @@ async fn test_pending_poll_edit() {
 
     // Then I get the edited content immediately.
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
-    let aggregated =
-        as_variant!(value.as_event().unwrap().content(), TimelineItemContent::Aggregated).unwrap();
-    let poll = as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Poll).unwrap();
+    let msglike =
+        as_variant!(value.as_event().unwrap().content(), TimelineItemContent::MsgLike).unwrap();
+    let poll = as_variant!(&msglike.kind, MsgLikeKind::Poll).unwrap();
     assert!(poll.is_edit());
 
     let results = poll.results();

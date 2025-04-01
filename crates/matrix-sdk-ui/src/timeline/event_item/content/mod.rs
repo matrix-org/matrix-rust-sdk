@@ -61,8 +61,8 @@ use ruma::{
 };
 use tracing::warn;
 
-mod aggregated;
 mod message;
+mod msg_like;
 pub(crate) mod pinned_events;
 mod polls;
 mod reply;
@@ -73,8 +73,8 @@ pub(in crate::timeline) use self::message::{
     extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
 };
 pub use self::{
-    aggregated::{AggregatedTimelineItemContent, AggregatedTimelineItemContentKind},
     message::Message,
+    msg_like::{MsgLikeContent, MsgLikeKind},
     polls::{PollResult, PollState},
     reply::{InReplyToDetails, RepliedToEvent},
 };
@@ -83,13 +83,7 @@ use super::ReactionsByKeyBySender;
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
 pub enum TimelineItemContent {
-    Aggregated(AggregatedTimelineItemContent),
-
-    /// A redacted message.
-    RedactedMessage,
-
-    /// An `m.room.encrypted` event that could not be decrypted.
-    UnableToDecrypt(EncryptedMessage),
+    MsgLike(MsgLikeContent),
 
     /// A room membership change.
     MembershipChange(RoomMembershipChange),
@@ -205,8 +199,8 @@ impl TimelineItemContent {
                 let thread_root = None;
                 let in_reply_to = None;
 
-                let aggregated = AggregatedTimelineItemContent {
-                    kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
+                let msglike = MsgLikeContent {
+                    kind: MsgLikeKind::Message(Message::from_event(
                         event_content,
                         edit,
                         RemoveReplyFallback::Yes,
@@ -216,10 +210,12 @@ impl TimelineItemContent {
                     in_reply_to,
                 };
 
-                TimelineItemContent::Aggregated(aggregated)
+                TimelineItemContent::MsgLike(msglike)
             }
 
-            SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncRoomMessageEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+            }
         }
     }
 
@@ -236,7 +232,9 @@ impl TimelineItemContent {
                     event.sender.to_owned(),
                 )
             }
-            SyncRoomMemberEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncRoomMemberEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+            }
         }
     }
 
@@ -254,18 +252,18 @@ impl TimelineItemContent {
                 let thread_root = None;
                 let in_reply_to = None;
 
-                let aggregated = AggregatedTimelineItemContent {
-                    kind: AggregatedTimelineItemContentKind::Sticker(Sticker {
-                        content: event_content,
-                    }),
+                let msglike = MsgLikeContent {
+                    kind: MsgLikeKind::Sticker(Sticker { content: event_content }),
                     reactions,
                     thread_root,
                     in_reply_to,
                 };
 
-                TimelineItemContent::Aggregated(aggregated)
+                TimelineItemContent::MsgLike(msglike)
             }
-            SyncStickerEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncStickerEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+            }
         }
     }
 
@@ -275,7 +273,7 @@ impl TimelineItemContent {
         event: &SyncUnstablePollStartEvent,
     ) -> TimelineItemContent {
         let SyncUnstablePollStartEvent::Original(event) = event else {
-            return TimelineItemContent::RedactedMessage;
+            return TimelineItemContent::MsgLike(MsgLikeContent::redacted());
         };
 
         // Feed the bundled edit, if present, or we might miss showing edited content.
@@ -295,8 +293,8 @@ impl TimelineItemContent {
         let thread_root = None;
         let in_reply_to = None;
 
-        let aggregated = AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Poll(PollState::new(
+        let msglike = MsgLikeContent {
+            kind: MsgLikeKind::Poll(PollState::new(
                 NewUnstablePollStartEventContent::new(event.content.poll_start().clone()),
                 edit,
             )),
@@ -305,7 +303,7 @@ impl TimelineItemContent {
             in_reply_to,
         };
 
-        TimelineItemContent::Aggregated(aggregated)
+        TimelineItemContent::MsgLike(msglike)
     }
 
     fn from_suitable_latest_call_invite_content(
@@ -313,7 +311,9 @@ impl TimelineItemContent {
     ) -> TimelineItemContent {
         match event {
             SyncCallInviteEvent::Original(_) => TimelineItemContent::CallInvite,
-            SyncCallInviteEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncCallInviteEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+            }
         }
     }
 
@@ -322,62 +322,82 @@ impl TimelineItemContent {
     ) -> TimelineItemContent {
         match event {
             SyncCallNotifyEvent::Original(_) => TimelineItemContent::CallNotify,
-            SyncCallNotifyEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+            SyncCallNotifyEvent::Redacted(_) => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+            }
         }
     }
 
-    pub fn as_aggregated(&self) -> Option<&AggregatedTimelineItemContent> {
-        as_variant!(self, TimelineItemContent::Aggregated)
+    pub fn as_msglike(&self) -> Option<&MsgLikeContent> {
+        as_variant!(self, TimelineItemContent::MsgLike)
     }
 
-    /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
     /// inner [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
-        let aggregated = as_variant!(self, Self::Aggregated)?;
-        as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Message)
+        as_variant!(self, Self::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
+            ..
+        }) => message)
     }
 
-    /// If `self` is of the [`Aggregated`][Self::Aggregated] variant, return the
+    /// Check whether this item's content is a
+    /// [`Message`][MsgLikeKind::Message].
+    pub fn is_message(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. }))
+    }
+
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
     /// inner [`PollState`].
     pub fn as_poll(&self) -> Option<&PollState> {
-        let aggregated = as_variant!(self, Self::Aggregated)?;
-        as_variant!(&aggregated.kind, AggregatedTimelineItemContentKind::Poll)
-    }
-
-    /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
-    /// return the inner [`EncryptedMessage`].
-    pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
-        as_variant!(self, Self::UnableToDecrypt)
+        as_variant!(self, Self::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Poll(poll_state),
+            ..
+        }) => poll_state)
     }
 
     /// Check whether this item's content is a
-    /// [`UnableToDecrypt`][Self::UnableToDecrypt].
-    pub fn is_unable_to_decrypt(&self) -> bool {
-        matches!(self, Self::UnableToDecrypt(_))
-    }
-
-    /// Check whether this item's content is a
-    /// [`Message`][AggregatedTimelineItemContentKind::Message].
-    pub fn is_message(&self) -> bool {
-        matches!(
-            self,
-            Self::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Message(_),
-                ..
-            })
-        )
-    }
-
-    /// Check whether this item's content is a
-    /// [`Poll`][AggregatedTimelineItemContentKind::Poll].
+    /// [`Poll`][MsgLikeKind::Poll].
     pub fn is_poll(&self) -> bool {
-        matches!(
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(_), .. }))
+    }
+
+    pub fn as_sticker(&self) -> Option<&Sticker> {
+        as_variant!(
             self,
-            Self::Aggregated(AggregatedTimelineItemContent {
-                kind: AggregatedTimelineItemContentKind::Poll(_),
+            Self::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Sticker(sticker),
                 ..
-            })
+            }) => sticker
         )
+    }
+
+    /// Check whether this item's content is a
+    /// [`Sticker`][MsgLikeKind::Sticker].
+    pub fn is_sticker(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Sticker(_), .. }))
+    }
+
+    /// If `self` is of the [`UnableToDecrypt`][MsgLikeKind::UnableToDecrypt]
+    /// variant, return the inner [`EncryptedMessage`].
+    pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
+        as_variant!(
+            self,
+            Self::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::UnableToDecrypt(encrypted_message),
+                ..
+            }) => encrypted_message
+        )
+    }
+
+    /// Check whether this item's content is a
+    /// [`UnableToDecrypt`][MsgLikeKind::UnableToDecrypt].
+    pub fn is_unable_to_decrypt(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::UnableToDecrypt(_), .. }))
+    }
+
+    pub fn is_redacted(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted, .. }))
     }
 
     // These constructors could also be `From` implementations, but that would
@@ -392,12 +412,8 @@ impl TimelineItemContent {
         let remove_reply_fallback =
             if in_reply_to.is_some() { RemoveReplyFallback::Yes } else { RemoveReplyFallback::No };
 
-        Self::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
-                c,
-                edit,
-                remove_reply_fallback,
-            )),
+        Self::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(Message::from_event(c, edit, remove_reply_fallback)),
             reactions,
             thread_root,
             in_reply_to,
@@ -407,9 +423,7 @@ impl TimelineItemContent {
     #[cfg(not(tarpaulin_include))] // debug-logging functionality
     pub(crate) fn debug_string(&self) -> &'static str {
         match self {
-            TimelineItemContent::Aggregated(aggregated) => aggregated.debug_string(),
-            TimelineItemContent::RedactedMessage => "a redacted messages",
-            TimelineItemContent::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
+            TimelineItemContent::MsgLike(msglike) => msglike.debug_string(),
             TimelineItemContent::MembershipChange(_) => "a membership change",
             TimelineItemContent::ProfileChange(_) => "a profile change",
             TimelineItemContent::OtherState(_) => "a state event",
@@ -418,10 +432,6 @@ impl TimelineItemContent {
             TimelineItemContent::CallInvite => "a call invite",
             TimelineItemContent::CallNotify => "a call notification",
         }
-    }
-
-    pub(crate) fn unable_to_decrypt(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
-        Self::UnableToDecrypt(EncryptedMessage::from_content(content, cause))
     }
 
     pub(crate) fn room_member(
@@ -491,11 +501,9 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
         match self {
-            Self::Aggregated(_)
-            | Self::RedactedMessage
-            | Self::CallInvite
-            | Self::CallNotify
-            | Self::UnableToDecrypt(_) => Self::RedactedMessage,
+            Self::MsgLike(_) | Self::CallInvite | Self::CallNotify => {
+                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+            }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),
             Self::OtherState(ev) => Self::OtherState(ev.redact(room_version)),
@@ -505,23 +513,19 @@ impl TimelineItemContent {
 
     /// Event ID of the thread root, if this is a threaded message.
     pub fn thread_root(&self) -> Option<OwnedEventId> {
-        as_variant!(self, Self::Aggregated)?.thread_root.clone()
+        as_variant!(self, Self::MsgLike)?.thread_root.clone()
     }
 
     /// Get the event this message is replying to, if any.
     pub fn in_reply_to(&self) -> Option<InReplyToDetails> {
-        as_variant!(self, Self::Aggregated)?.in_reply_to.clone()
+        as_variant!(self, Self::MsgLike)?.in_reply_to.clone()
     }
 
     /// Return the reactions, grouped by key and then by sender, for a given
     /// content.
     pub fn reactions(&self) -> ReactionsByKeyBySender {
         match self {
-            TimelineItemContent::Aggregated(aggregated) => aggregated.reactions.clone(),
-            TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
-                // No reactions for redacted messages or UTDs.
-                Default::default()
-            }
+            TimelineItemContent::MsgLike(msglike) => msglike.reactions.clone(),
 
             TimelineItemContent::MembershipChange(..)
             | TimelineItemContent::ProfileChange(..)
@@ -541,12 +545,7 @@ impl TimelineItemContent {
     /// See also [`Self::reactions()`] to explain the optional return type.
     pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
         match self {
-            TimelineItemContent::Aggregated(aggregated) => Some(&mut aggregated.reactions),
-
-            TimelineItemContent::UnableToDecrypt(..) | TimelineItemContent::RedactedMessage => {
-                // No reactions for redacted messages or UTDs.
-                None
-            }
+            TimelineItemContent::MsgLike(msglike) => Some(&mut msglike.reactions),
 
             TimelineItemContent::MembershipChange(..)
             | TimelineItemContent::ProfileChange(..)
@@ -603,7 +602,7 @@ pub enum EncryptedMessage {
 }
 
 impl EncryptedMessage {
-    fn from_content(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
+    pub(crate) fn from_content(content: RoomEncryptedEventContent, cause: UtdCause) -> Self {
         match content.scheme {
             EncryptedEventScheme::OlmV1Curve25519AesSha2(s) => {
                 Self::OlmV1Curve25519AesSha2 { sender_key: s.sender_key }

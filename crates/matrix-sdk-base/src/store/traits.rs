@@ -42,8 +42,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     send_queue::SentRequestKey, ChildTransactionId, DependentQueuedRequest,
-    DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind, StateChanges,
-    StoreError,
+    DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
+    RoomLoadSettings, StateChanges, StoreError,
 };
 use crate::{
     deserialized_responses::{
@@ -194,8 +194,11 @@ pub trait StateStore: AsyncTraitDeps {
         memberships: RoomMemberships,
     ) -> Result<Vec<OwnedUserId>, Self::Error>;
 
-    /// Get all the pure `RoomInfo`s the store knows about.
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error>;
+    /// Get a set of pure `RoomInfo`s the store knows about.
+    async fn get_room_infos(
+        &self,
+        room_load_settings: &RoomLoadSettings,
+    ) -> Result<Vec<RoomInfo>, Self::Error>;
 
     /// Get all the users that use the given display name in the given room.
     ///
@@ -574,8 +577,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_user_ids(room_id, memberships).await.map_err(Into::into)
     }
 
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error> {
-        self.0.get_room_infos().await.map_err(Into::into)
+    async fn get_room_infos(
+        &self,
+        room_load_settings: &RoomLoadSettings,
+    ) -> Result<Vec<RoomInfo>, Self::Error> {
+        self.0.get_room_infos(room_load_settings).await.map_err(Into::into)
     }
 
     async fn get_users_with_display_name(

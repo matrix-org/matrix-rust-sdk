@@ -2481,6 +2481,39 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 
+    /// Returns an error response with a UIAA stage that failed to authenticate
+    /// because of an invalid password.
+    pub fn uiaa_invalid_password(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "errcode": "M_FORBIDDEN",
+            "error": "Invalid password",
+            "flows": [
+                {
+                    "stages": [
+                        "m.login.password"
+                    ]
+                }
+            ],
+            "params": {},
+            "session": "oFIJVvtEOCKmRUTYKTYIIPHL"
+        })))
+    }
+
+    /// Returns an error response with a UIAA stage.
+    pub fn uiaa(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "flows": [
+                {
+                    "stages": [
+                        "m.login.password"
+                    ]
+                }
+            ],
+            "params": {},
+            "session": "oFIJVvtEOCKmRUTYKTYIIPHL"
+        })))
+    }
+
     /// Returns an error response with an OAuth 2.0 UIAA stage.
     pub fn uiaa_oauth(self) -> MatrixMock<'a> {
         let server_uri = self.server.uri();

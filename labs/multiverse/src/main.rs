@@ -28,8 +28,8 @@ use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
     timeline::{
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, TimelineItem,
-        TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+        MsgLikeContent, MsgLikeKind, TimelineItem, TimelineItemContent, TimelineItemKind,
+        VirtualTimelineItem,
     },
     Timeline as SdkTimeline,
 };
@@ -806,8 +806,8 @@ impl App {
                     let sender = ev.sender();
 
                     match ev.content() {
-                        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                            kind: AggregatedTimelineItemContentKind::Message(message),
+                        TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::Message(message),
                             ..
                         }) => {
                             if let MessageType::Text(text) = message.msgtype() {
@@ -815,14 +815,18 @@ impl App {
                             }
                         }
 
-                        TimelineItemContent::RedactedMessage => {
-                            content.push(format!("{}: -- redacted --", sender))
-                        }
-                        TimelineItemContent::UnableToDecrypt(_) => {
-                            content.push(format!("{}: (UTD)", sender))
-                        }
-                        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                            kind: AggregatedTimelineItemContentKind::Sticker(_),
+                        TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::Redacted,
+                            ..
+                        }) => content.push(format!("{}: -- redacted --", sender)),
+
+                        TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::UnableToDecrypt(_),
+                            ..
+                        }) => content.push(format!("{}: (UTD)", sender)),
+
+                        TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::Sticker(_),
                             ..
                         })
                         | TimelineItemContent::MembershipChange(_)
@@ -830,8 +834,8 @@ impl App {
                         | TimelineItemContent::OtherState(_)
                         | TimelineItemContent::FailedToParseMessageLike { .. }
                         | TimelineItemContent::FailedToParseState { .. }
-                        | TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                            kind: AggregatedTimelineItemContentKind::Poll(_),
+                        | TimelineItemContent::MsgLike(MsgLikeContent {
+                            kind: MsgLikeKind::Poll(_),
                             ..
                         })
                         | TimelineItemContent::CallInvite

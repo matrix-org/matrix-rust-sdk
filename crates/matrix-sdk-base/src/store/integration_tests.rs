@@ -35,7 +35,7 @@ use serde_json::{json, value::Value as JsonValue};
 
 use super::{
     send_queue::SentRequestKey, DependentQueuedRequestKind, DisplayName, DynStateStore,
-    ServerCapabilities,
+    RoomLoadSettings, ServerCapabilities,
 };
 use crate::{
     deserialized_responses::MemberEvent,
@@ -94,6 +94,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_update_send_queue_dependent(&self);
     /// Test saving/restoring server capabilities.
     async fn test_server_capabilities_saving(&self);
+    /// Test fetching room infos based on [`RoomLoadSettings`].
+    async fn test_get_room_infos(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -265,7 +267,11 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
         assert!(self.get_presence_event(user_id).await?.is_some());
-        assert_eq!(self.get_room_infos().await?.len(), 2, "Expected to find 2 room infos");
+        assert_eq!(
+            self.get_room_infos(&RoomLoadSettings::default()).await?.len(),
+            2,
+            "Expected to find 2 room infos"
+        );
         assert!(self
             .get_account_data_event(GlobalAccountDataEventType::PushRules)
             .await?
@@ -927,7 +933,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let user_id = user_id();
 
         assert!(self.get_member_event(room_id, user_id).await.unwrap().is_none());
-        assert_eq!(self.get_room_infos().await.unwrap().len(), 0);
+        assert_eq!(self.get_room_infos(&RoomLoadSettings::default()).await.unwrap().len(), 0);
 
         let mut changes = StateChanges::default();
         changes
@@ -943,7 +949,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let member_event =
             self.get_member_event(room_id, user_id).await.unwrap().unwrap().deserialize().unwrap();
         assert!(matches!(member_event, MemberEvent::Sync(_)));
-        assert_eq!(self.get_room_infos().await.unwrap().len(), 1);
+        assert_eq!(self.get_room_infos(&RoomLoadSettings::default()).await.unwrap().len(), 1);
 
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members, vec![user_id.to_owned()]);
@@ -956,7 +962,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let member_event =
             self.get_member_event(room_id, user_id).await.unwrap().unwrap().deserialize().unwrap();
         assert!(matches!(member_event, MemberEvent::Stripped(_)));
-        assert_eq!(self.get_room_infos().await.unwrap().len(), 1);
+        assert_eq!(self.get_room_infos(&RoomLoadSettings::default()).await.unwrap().len(), 1);
 
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap();
         assert_eq!(members, vec![user_id.to_owned()]);
@@ -1000,7 +1006,11 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.remove_room(room_id).await?;
 
-        assert_eq!(self.get_room_infos().await?.len(), 1, "room is still there");
+        assert_eq!(
+            self.get_room_infos(&RoomLoadSettings::default()).await?.len(),
+            1,
+            "room is still there"
+        );
 
         assert!(self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_none());
         assert!(
@@ -1054,7 +1064,10 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.remove_room(stripped_room_id).await?;
 
-        assert!(self.get_room_infos().await?.is_empty(), "still room info found");
+        assert!(
+            self.get_room_infos(&RoomLoadSettings::default()).await?.is_empty(),
+            "still room info found"
+        );
         Ok(())
     }
 
@@ -1680,6 +1693,54 @@ impl StateStoreIntegrationTests for DynStateStore {
             }
         );
     }
+
+    async fn test_get_room_infos(&self) {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+        let room_id_2 = room_id!("!r2");
+
+        // There is no room for the moment.
+        {
+            assert_eq!(self.get_room_infos(&RoomLoadSettings::default()).await.unwrap().len(), 0);
+        }
+
+        // Save rooms.
+        let mut changes = StateChanges::default();
+        changes.add_room(RoomInfo::new(room_id_0, RoomState::Joined));
+        changes.add_room(RoomInfo::new(room_id_1, RoomState::Joined));
+        self.save_changes(&changes).await.unwrap();
+
+        // We can find all the rooms with `RoomLoadSettings::All`.
+        {
+            let mut all_rooms = self.get_room_infos(&RoomLoadSettings::All).await.unwrap();
+
+            // (We need to sort by `room_id` so that the test is stable across all
+            // `StateStore` implementations).
+            all_rooms.sort_by(|a, b| a.room_id.cmp(&b.room_id));
+
+            assert_eq!(all_rooms.len(), 2);
+            assert_eq!(all_rooms[0].room_id, room_id_0);
+            assert_eq!(all_rooms[1].room_id, room_id_1);
+        }
+
+        // We can find a single room with `RoomLoadSettings::One`.
+        {
+            let all_rooms =
+                self.get_room_infos(&RoomLoadSettings::One(room_id_1.to_owned())).await.unwrap();
+
+            assert_eq!(all_rooms.len(), 1);
+            assert_eq!(all_rooms[0].room_id, room_id_1);
+        }
+
+        // `RoomLoadSetting::One` can result in loading zero room if the room is
+        // unknown.
+        {
+            let all_rooms =
+                self.get_room_infos(&RoomLoadSettings::One(room_id_2.to_owned())).await.unwrap();
+
+            assert_eq!(all_rooms.len(), 0);
+        }
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1843,6 +1904,12 @@ macro_rules! statestore_integration_tests {
             async fn test_update_send_queue_dependent() {
                 let store = get_store().await.expect("creating store failed").into_state_store();
                 store.test_update_send_queue_dependent().await;
+            }
+
+            #[async_test]
+            async fn test_get_room_infos() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_get_room_infos().await;
             }
         }
     };

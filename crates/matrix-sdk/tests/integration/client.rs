@@ -5,6 +5,7 @@ use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
     config::{RequestConfig, StoreConfig, SyncSettings},
+    store::RoomLoadSettings,
     sync::RoomUpdate,
     test_utils::{client::mock_matrix_session, no_retry_test_client_with_server},
     Client, MemoryStore, StateChanges, StateStore,
@@ -1384,7 +1385,11 @@ async fn test_restore_room() {
         .build()
         .await
         .unwrap();
-    client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
+    client
+        .matrix_auth()
+        .restore_session(mock_matrix_session(), RoomLoadSettings::default())
+        .await
+        .unwrap();
 
     let room = client.get_room(room_id).unwrap();
     assert!(room.is_favourite());

@@ -20,7 +20,7 @@ use std::fmt;
 #[cfg(feature = "sso-login")]
 use std::future::Future;
 
-use matrix_sdk_base::SessionMeta;
+use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
 use ruma::{
     api::{
         client::{
@@ -611,6 +611,7 @@ impl MatrixAuth {
             let _ = self
                 .set_session(
                     session,
+                    RoomLoadSettings::default(),
                     #[cfg(feature = "e2e-encryption")]
                     login_info,
                 )
@@ -647,8 +648,11 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `session` - A session that the user already has from a
-    /// previous login call.
+    /// * `session` - A session that the user already has from a previous login
+    ///   call.
+    ///
+    /// * `room_load_settings` — Specify how many rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
     ///
     /// # Panics
     ///
@@ -687,7 +691,7 @@ impl MatrixAuth {
     /// [`LoginBuilder::send()`] method returns:
     ///
     /// ```no_run
-    /// use matrix_sdk::Client;
+    /// use matrix_sdk::{store::RoomLoadSettings, Client};
     /// use url::Url;
     /// # async {
     ///
@@ -699,17 +703,23 @@ impl MatrixAuth {
     ///
     /// // Persist the `MatrixSession` so it can later be used to restore the login.
     ///
-    /// auth.restore_session((&response).into()).await?;
+    /// auth.restore_session((&response).into(), RoomLoadSettings::default())
+    ///     .await?;
     /// # anyhow::Ok(()) };
     /// ```
     ///
     /// [`login`]: #method.login
     /// [`LoginBuilder::send()`]: crate::authentication::matrix::LoginBuilder::send
     #[instrument(skip_all)]
-    pub async fn restore_session(&self, session: MatrixSession) -> Result<()> {
+    pub async fn restore_session(
+        &self,
+        session: MatrixSession,
+        room_load_settings: RoomLoadSettings,
+    ) -> Result<()> {
         debug!("Restoring Matrix auth session");
         self.set_session(
             session,
+            room_load_settings,
             #[cfg(feature = "e2e-encryption")]
             None,
         )
@@ -733,6 +743,7 @@ impl MatrixAuth {
 
         self.set_session(
             response.into(),
+            RoomLoadSettings::default(),
             #[cfg(feature = "e2e-encryption")]
             login_info,
         )
@@ -743,12 +754,20 @@ impl MatrixAuth {
 
     /// Set the Matrix authentication session.
     ///
+    /// # Arguments
+    ///
+    /// * `session` — The session being opened.
+    ///
+    /// * `room_load_settings` — Specify how much rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
+    ///
     /// # Panic
     ///
     /// Panics if authentication data was already set.
     async fn set_session(
         &self,
         session: MatrixSession,
+        room_load_settings: RoomLoadSettings,
         #[cfg(feature = "e2e-encryption")] login_info: Option<login::v3::LoginInfo>,
     ) -> Result<()> {
         // This API doesn't have any data but by setting this variant we protect the
@@ -760,8 +779,10 @@ impl MatrixAuth {
             .expect("Client authentication data was already set");
         self.client.auth_ctx().set_session_tokens(session.tokens);
         self.client
-            .set_session_meta(
+            .base_client()
+            .activate(
                 session.meta,
+                room_load_settings,
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )

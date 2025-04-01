@@ -286,8 +286,13 @@ impl CrossSigningResetHandle {
                 return Ok(());
             }
 
-            if e.as_uiaa_response().is_none() {
-                return Err(e.into());
+            match e.as_uiaa_response() {
+                Some(uiaa_info) => {
+                    if uiaa_info.auth_error.is_some() {
+                        return Err(e.into());
+                    }
+                }
+                None => return Err(e.into()),
             }
         }
 
@@ -314,15 +319,10 @@ pub enum CrossSigningResetAuthType {
 }
 
 impl CrossSigningResetAuthType {
-    #[allow(clippy::unused_async)]
-    async fn new(
-        #[allow(unused_variables)] client: &Client,
-        error: &HttpError,
-    ) -> Result<Option<Self>> {
+    fn new(error: &HttpError) -> Result<Option<Self>> {
         if let Some(auth_info) = error.as_uiaa_response() {
-            if client.oauth().issuer().is_some() {
-                OAuthCrossSigningResetInfo::from_auth_info(client, auth_info)
-                    .map(|t| Some(CrossSigningResetAuthType::OAuth(t)))
+            if let Ok(auth_info) = OAuthCrossSigningResetInfo::from_auth_info(auth_info) {
+                Ok(Some(CrossSigningResetAuthType::OAuth(auth_info)))
             } else {
                 Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
             }
@@ -341,11 +341,7 @@ pub struct OAuthCrossSigningResetInfo {
 }
 
 impl OAuthCrossSigningResetInfo {
-    fn from_auth_info(
-        // This is used if the OAuth 2.0 feature is enabled.
-        #[allow(unused_variables)] client: &Client,
-        auth_info: &UiaaInfo,
-    ) -> Result<Self> {
+    fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
         let parameters =
             serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(auth_info.params.get())?;
 
@@ -1203,7 +1199,7 @@ impl Encryption {
         }
 
         if let Err(error) = self.client.send(upload_signing_keys_req.clone()).await {
-            if let Some(auth_type) = CrossSigningResetAuthType::new(&self.client, &error).await? {
+            if let Ok(Some(auth_type)) = CrossSigningResetAuthType::new(&error) {
                 let client = self.client.clone();
 
                 Ok(Some(CrossSigningResetHandle::new(
@@ -1771,7 +1767,7 @@ mod tests {
     use crate::{
         assert_next_matches_with_timeout,
         config::RequestConfig,
-        encryption::VerificationState,
+        encryption::{OAuthCrossSigningResetInfo, VerificationState},
         test_utils::{
             client::mock_matrix_session, logged_in_client, no_retry_test_client, set_client_session,
         },
@@ -1902,6 +1898,8 @@ mod tests {
     #[async_test]
     async fn test_generation_counter_invalidates_olm_machine() {
         // Create two clients using the same sqlite database.
+
+        use matrix_sdk_base::store::RoomLoadSettings;
         let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
         let session = mock_matrix_session();
 
@@ -1912,7 +1910,11 @@ mod tests {
             .build()
             .await
             .unwrap();
-        client1.matrix_auth().restore_session(session.clone()).await.unwrap();
+        client1
+            .matrix_auth()
+            .restore_session(session.clone(), RoomLoadSettings::default())
+            .await
+            .unwrap();
 
         let client2 = Client::builder()
             .homeserver_url("http://localhost:1234")
@@ -1921,7 +1923,7 @@ mod tests {
             .build()
             .await
             .unwrap();
-        client2.matrix_auth().restore_session(session).await.unwrap();
+        client2.matrix_auth().restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
         // When the lock isn't enabled, any attempt at locking won't return a guard.
         let guard = client1.encryption().try_lock_store_once().await.unwrap();
@@ -2003,6 +2005,8 @@ mod tests {
     #[async_test]
     async fn test_generation_counter_no_spurious_invalidation() {
         // Create two clients using the same sqlite database.
+
+        use matrix_sdk_base::store::RoomLoadSettings;
         let sqlite_path =
             std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
         let session = mock_matrix_session();
@@ -2014,7 +2018,11 @@ mod tests {
             .build()
             .await
             .unwrap();
-        client.matrix_auth().restore_session(session.clone()).await.unwrap();
+        client
+            .matrix_auth()
+            .restore_session(session.clone(), RoomLoadSettings::default())
+            .await
+            .unwrap();
 
         let initial_olm_machine = client.olm_machine().await.as_ref().unwrap().clone();
 
@@ -2033,7 +2041,11 @@ mod tests {
                 .build()
                 .await
                 .unwrap();
-            client2.matrix_auth().restore_session(session).await.unwrap();
+            client2
+                .matrix_auth()
+                .restore_session(session, RoomLoadSettings::default())
+                .await
+                .unwrap();
 
             client2
                 .encryption()
@@ -2101,5 +2113,30 @@ mod tests {
         // Then we can get an updated value without waiting for any network requests
         assert!(keys_requested.load(Ordering::SeqCst).not());
         assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
+    }
+
+    #[test]
+    fn test_oauth_reset_info_from_uiaa_info() {
+        let auth_info = json!({
+            "session": "dummy",
+            "flows": [
+                {
+                    "stages": [
+                        "org.matrix.cross_signing_reset"
+                    ]
+                }
+            ],
+            "params": {
+                "org.matrix.cross_signing_reset": {
+                    "url": "https://example.org/account/account?action=org.matrix.cross_signing_reset"
+                }
+            },
+            "msg": "To reset..."
+        });
+
+        let auth_info = serde_json::from_value(auth_info)
+            .expect("We should be able to deserialize the UiaaInfo");
+        OAuthCrossSigningResetInfo::from_auth_info(&auth_info)
+            .expect("We should be able to fetch the cross-signing reset info from the auth info");
     }
 }

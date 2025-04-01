@@ -14,7 +14,10 @@
 
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
-use matrix_sdk_base::{store::StoreConfig, SessionMeta};
+use matrix_sdk_base::{
+    store::{RoomLoadSettings, StoreConfig},
+    SessionMeta,
+};
 use ruma::{api::MatrixVersion, owned_device_id, owned_user_id};
 
 use crate::{
@@ -111,7 +114,11 @@ impl AuthState {
         match self {
             AuthState::None => {}
             AuthState::LoggedInWithMatrixAuth => {
-                client.matrix_auth().restore_session(mock_matrix_session()).await.unwrap();
+                client
+                    .matrix_auth()
+                    .restore_session(mock_matrix_session(), RoomLoadSettings::default())
+                    .await
+                    .unwrap();
             }
             AuthState::RegisteredWithOAuth { issuer } => {
                 let issuer = url::Url::parse(&issuer).unwrap();
@@ -120,10 +127,10 @@ impl AuthState {
             AuthState::LoggedInWithOAuth { issuer } => {
                 client
                     .oauth()
-                    .restore_session(oauth::mock_session(
-                        mock_session_tokens_with_refresh(),
-                        issuer,
-                    ))
+                    .restore_session(
+                        oauth::mock_session(mock_session_tokens_with_refresh(), issuer),
+                        RoomLoadSettings::default(),
+                    )
                     .await
                     .unwrap();
             }

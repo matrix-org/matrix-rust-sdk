@@ -333,7 +333,7 @@ impl QueueStorage {
         trace!(%event_txn, "queueing media event after successfully uploading media(s)");
 
         client
-            .store()
+            .state_store()
             .save_send_queue_request(
                 &self.room_id,
                 event_txn,
@@ -381,7 +381,7 @@ impl QueueStorage {
         };
 
         client
-            .store()
+            .state_store()
             .save_send_queue_request(
                 &self.room_id,
                 next_upload_txn,
@@ -413,7 +413,7 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         debug!("trying to abort an upload");
 
-        let store = client.store();
+        let store = client.state_store();
 
         let upload_file_as_dependent = ChildTransactionId::from(handles.upload_file_txn.clone());
         let event_as_dependent = ChildTransactionId::from(event_txn.to_owned());
@@ -534,7 +534,7 @@ impl QueueStorage {
 
         let guard = self.store.lock().await;
         let client = guard.client()?;
-        let store = client.store();
+        let store = client.state_store();
 
         // The media event can be in one of three states:
         // - still stored as a dependent request,

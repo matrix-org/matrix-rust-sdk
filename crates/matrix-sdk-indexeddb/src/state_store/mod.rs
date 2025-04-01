@@ -26,8 +26,8 @@ use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
-        QueuedRequest, QueuedRequestKind, SentRequestKey, SerializableEventContent,
-        ServerCapabilities, StateChanges, StateStore, StoreError,
+        QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
+        SerializableEventContent, ServerCapabilities, StateChanges, StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
@@ -1139,18 +1139,28 @@ impl_state_store!({
         Ok(profiles)
     }
 
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        let entries: Vec<_> = self
+    async fn get_room_infos(&self, room_load_settings: &RoomLoadSettings) -> Result<Vec<RoomInfo>> {
+        let transaction = self
             .inner
-            .transaction_on_one_with_mode(keys::ROOM_INFOS, IdbTransactionMode::Readonly)?
-            .object_store(keys::ROOM_INFOS)?
-            .get_all()?
-            .await?
-            .iter()
-            .filter_map(|f| self.deserialize_value::<RoomInfo>(&f).ok())
-            .collect();
+            .transaction_on_one_with_mode(keys::ROOM_INFOS, IdbTransactionMode::Readonly)?;
 
-        Ok(entries)
+        let object_store = transaction.object_store(keys::ROOM_INFOS)?;
+
+        Ok(match room_load_settings {
+            RoomLoadSettings::All => object_store
+                .get_all()?
+                .await?
+                .iter()
+                .map(|room_info| self.deserialize_value::<RoomInfo>(&room_info))
+                .collect::<Result<_>>()?,
+
+            RoomLoadSettings::One(room_id) => {
+                match object_store.get(&self.encode_key(keys::ROOM_INFOS, room_id))?.await? {
+                    Some(room_info) => vec![self.deserialize_value::<RoomInfo>(&room_info)?],
+                    None => vec![],
+                }
+            }
+        })
     }
 
     async fn get_users_with_display_name(

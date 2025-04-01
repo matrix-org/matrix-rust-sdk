@@ -143,7 +143,7 @@ use error::{
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::once_cell::sync::OnceCell;
-use matrix_sdk_base::SessionMeta;
+use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
 use oauth2::{
     basic::BasicClient as OAuthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
     RevocationUrl, Scope, StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
@@ -290,8 +290,7 @@ impl OAuth {
         lock_value: String,
     ) -> Result<(), OAuthError> {
         // FIXME: it must be deferred only because we're using the crypto store and it's
-        // initialized only in `set_session_meta`, not if we use a dedicated
-        // store.
+        // initialized only in `set_or_reload_session`, not if we use a dedicated store.
         let mut lock = self.ctx().deferred_cross_process_lock_init.lock().await;
         if lock.is_some() {
             return Err(CrossProcessRefreshLockError::DuplicatedLock.into());
@@ -304,7 +303,7 @@ impl OAuth {
     /// Performs a deferred cross-process refresh-lock, if needs be, after an
     /// olm machine has been initialized.
     ///
-    /// Must be called after `set_session_meta`.
+    /// Must be called after [`BaseClient::set_or_reload_session`].
     #[cfg(feature = "e2e-encryption")]
     async fn deferred_enable_cross_process_refresh_lock(&self) {
         let deferred_init_lock = self.ctx().deferred_cross_process_lock_init.lock().await;
@@ -796,19 +795,27 @@ impl OAuth {
     /// # Arguments
     ///
     /// * `session` - The session to restore.
+    /// * `room_load_settings` — Specify how many rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
     ///
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub async fn restore_session(&self, session: OAuthSession) -> Result<()> {
+    pub async fn restore_session(
+        &self,
+        session: OAuthSession,
+        room_load_settings: RoomLoadSettings,
+    ) -> Result<()> {
         let OAuthSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
 
         let data = OAuthAuthData { issuer, client_id, authorization_data: Default::default() };
 
         self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
-            .set_session_meta(
+            .base_client()
+            .activate(
                 meta,
+                room_load_settings,
                 #[cfg(feature = "e2e-encryption")]
                 None,
             )
@@ -1045,8 +1052,10 @@ impl OAuth {
             }
         } else {
             self.client
-                .set_session_meta(
+                .base_client()
+                .activate(
                     new_session,
+                    RoomLoadSettings::default(),
                     #[cfg(feature = "e2e-encryption")]
                     None,
                 )

@@ -70,6 +70,10 @@ simpler methods:
 - The `OAuth` api is no longer gated behind the `experimental-oidc` cargo
   feature.
   ([#4830](https://github.com/matrix-org/matrix-rust-sdk/pull/4830))
+- Re-export `SqliteStoreConfig` and add
+  `ClientBuilder::sqlite_store_with_config_and_cache_path` to configure the
+  SQLite store with the new `SqliteStoreConfig` structure
+  ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870))
 
 ### Bug Fixes
 
@@ -229,6 +233,8 @@ simpler methods:
   return an `AccountManagementUrlBuilder`. The final URL can be obtained with
   `AccountManagementUrlBuilder::build()`.
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
+- [**breaking**] `Client::store` is renamed `state_store`
+  ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
 
 ## [0.10.0] - 2025-02-04
 

@@ -33,7 +33,7 @@ use tracing::{debug, instrument, warn};
 use super::TimelineItemContent;
 use crate::timeline::{
     event_item::{
-        content::{AggregatedTimelineItemContent, AggregatedTimelineItemContentKind},
+        content::{MsgLikeContent, MsgLikeKind},
         extract_room_msg_edit_content, EventTimelineItem, Profile, TimelineDetails,
     },
     traits::RoomDataProvider,
@@ -141,8 +141,8 @@ impl RepliedToEvent {
                     let reactions = ReactionsByKeyBySender::default();
                     let thread_root = None;
 
-                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                        kind: AggregatedTimelineItemContentKind::Message(Message::from_event(
+                    TimelineItemContent::MsgLike(MsgLikeContent {
+                        kind: MsgLikeKind::Message(Message::from_event(
                             c,
                             extract_room_msg_edit_content(event.relations()),
                             RemoveReplyFallback::Yes,
@@ -159,8 +159,8 @@ impl RepliedToEvent {
                     let reactions = ReactionsByKeyBySender::default();
                     let thread_root = None;
 
-                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                        kind: AggregatedTimelineItemContentKind::Sticker(Sticker { content }),
+                    TimelineItemContent::MsgLike(MsgLikeContent {
+                        kind: MsgLikeKind::Sticker(Sticker { content }),
                         reactions,
                         thread_root,
                         in_reply_to: None,
@@ -177,8 +177,8 @@ impl RepliedToEvent {
                         _ => UtdCause::Unknown,
                     };
 
-                    TimelineItemContent::UnableToDecrypt(EncryptedMessage::from_content(
-                        content, utd_cause,
+                    TimelineItemContent::MsgLike(MsgLikeContent::unable_to_decrypt(
+                        EncryptedMessage::from_content(content, utd_cause),
                     ))
                 }
 
@@ -192,8 +192,8 @@ impl RepliedToEvent {
 
                     // TODO: could we provide the bundled edit here?
                     let poll_state = PollState::new(content, None);
-                    TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-                        kind: AggregatedTimelineItemContentKind::Poll(poll_state),
+                    TimelineItemContent::MsgLike(MsgLikeContent {
+                        kind: MsgLikeKind::Poll(poll_state),
                         reactions,
                         thread_root,
                         in_reply_to: None,
@@ -206,10 +206,7 @@ impl RepliedToEvent {
                 }
             },
 
-            None => {
-                // Redacted message.
-                TimelineItemContent::RedactedMessage
-            }
+            None => TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
         };
 
         let sender = event.sender().to_owned();

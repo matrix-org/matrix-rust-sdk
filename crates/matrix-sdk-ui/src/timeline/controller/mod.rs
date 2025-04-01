@@ -69,10 +69,9 @@ use super::{
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
     traits::{Decryptor, RoomDataProvider},
-    DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
-    PaginationError, Profile, ReactionsByKeyBySender, RepliedToEvent, TimelineDetails,
-    TimelineEventItemId, TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
-    VirtualTimelineItem,
+    DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, PaginationError,
+    Profile, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
+    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use crate::{
     timeline::{
@@ -80,7 +79,7 @@ use crate::{
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        AggregatedTimelineItemContent, AggregatedTimelineItemContentKind, TimelineEventFilterFn,
+        MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -1344,17 +1343,11 @@ impl TimelineController {
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?
             .clone();
 
-        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
-            reactions,
-            thread_root,
-            in_reply_to,
-        }) = item.content().clone()
-        else {
+        let TimelineItemContent::MsgLike(msglike) = item.content().clone() else {
             debug!("Event is not a message");
             return Ok(());
         };
-        let Some(in_reply_to) = in_reply_to else {
+        let Some(in_reply_to) = msglike.in_reply_to.clone() else {
             debug!("Event is not a reply");
             return Ok(());
         };
@@ -1374,9 +1367,7 @@ impl TimelineController {
             index,
             &item,
             internal_id,
-            &message,
-            &reactions,
-            &thread_root,
+            &msglike,
             &in_reply_to.event_id,
             self.room(),
         )
@@ -1390,8 +1381,8 @@ impl TimelineController {
 
         // Check the state of the event again, it might have been redacted while
         // the request was in-flight.
-        let TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
+        let TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
             reactions,
             thread_root,
             in_reply_to,
@@ -1410,8 +1401,8 @@ impl TimelineController {
         trace!("Updating in-reply-to details");
         let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
-        item.set_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message),
+        item.set_content(TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Message(message),
             reactions,
             thread_root,
             in_reply_to: Some(InReplyToDetails { event_id: in_reply_to.event_id, event }),
@@ -1523,15 +1514,12 @@ impl<P: RoomDataProvider> TimelineController<P, (OlmMachine, OwnedRoomId)> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn fetch_replied_to_event(
     mut state: RwLockWriteGuard<'_, TimelineState>,
     index: usize,
     item: &EventTimelineItem,
     internal_id: TimelineUniqueId,
-    message: &Message,
-    reactions: &ReactionsByKeyBySender,
-    thread_root: &Option<OwnedEventId>,
+    msglike: &MsgLikeContent,
     in_reply_to: &EventId,
     room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
@@ -1544,18 +1532,11 @@ async fn fetch_replied_to_event(
     // Replace the item with a new timeline item that has the fetching status of the
     // replied-to event to pending.
     trace!("Setting in-reply-to details to pending");
-    let in_reply_to_details = Some(InReplyToDetails {
-        event_id: in_reply_to.to_owned(),
-        event: TimelineDetails::Pending,
-    });
+    let in_reply_to_details =
+        InReplyToDetails { event_id: in_reply_to.to_owned(), event: TimelineDetails::Pending };
 
-    let event_item =
-        item.with_content(TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(message.clone()),
-            reactions: reactions.clone(),
-            thread_root: thread_root.clone(),
-            in_reply_to: in_reply_to_details,
-        }));
+    let event_item = item
+        .with_content(TimelineItemContent::MsgLike(msglike.with_in_reply_to(in_reply_to_details)));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
     state.items.replace(index, new_timeline_item);

@@ -204,7 +204,7 @@ impl UtdHookManager {
     /// Otherwise, there is no effect.
     pub async fn reload_from_store(&mut self) -> Result<(), StoreError> {
         let existing_data =
-            self.client.store().get_kv_data(StateStoreDataKey::UtdHookManagerData).await?;
+            self.client.state_store().get_kv_data(StateStoreDataKey::UtdHookManagerData).await?;
 
         if let Some(existing_data) = existing_data {
             let bloom_filter = existing_data
@@ -367,7 +367,7 @@ impl UtdHookManager {
         parent_hook.on_utd(info);
         reported_utds_lock.insert(event_id);
         if let Err(e) = client
-            .store()
+            .state_store()
             .set_kv_data(
                 StateStoreDataKey::UtdHookManagerData,
                 StateStoreDataValue::UtdHookManagerData(reported_utds_lock.clone()),

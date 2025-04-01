@@ -10,20 +10,5 @@ services:
     ports:
       - 8228:8008/tcp
 
-  postgres:
-    image: docker.io/postgres
-    environment:
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_DB: syncv3
-    healthcheck:
-      test: ["CMD", "pg_isready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    volumes:
-      - db:/var/lib/postgresql/data
-
 volumes:
   synapse:
-  db:

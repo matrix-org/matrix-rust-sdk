@@ -30,8 +30,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider};
 use crate::timeline::{
-    controller::TimelineSettings, tests::TestTimelineBuilder, AggregatedTimelineItemContent,
-    AggregatedTimelineItemContentKind,
+    controller::TimelineSettings, tests::TestTimelineBuilder, MsgLikeContent, MsgLikeKind,
 };
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
@@ -375,7 +374,6 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
 async fn test_read_receipts_updates_on_message_decryption() {
     use std::{io::Cursor, iter};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_base::crypto::{decrypt_room_key_export, OlmMachine};
     use ruma::{
@@ -454,13 +452,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
     // The first event only has Carol's receipt.
     let clear_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let clear_event = clear_item.as_event().unwrap();
-    assert_matches!(
-        clear_event.content(),
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(_),
-            ..
-        })
-    );
+    assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 1);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
 
@@ -469,12 +461,17 @@ async fn test_read_receipts_updates_on_message_decryption() {
     // The second event is encrypted and only has Bob's receipt.
     let encrypted_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let encrypted_event = encrypted_item.as_event().unwrap();
+
     assert_let!(
-        TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
-            session_id,
+        TimelineItemContent::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 {
+                session_id,
+                ..
+            }),
             ..
         }) = encrypted_event.content()
     );
+
     assert_eq!(session_id, SESSION_ID);
     assert_eq!(encrypted_event.read_receipts().len(), 1);
     assert!(encrypted_event.read_receipts().get(*BOB).is_some());
@@ -499,13 +496,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
     let clear_item =
         assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 1, value } => value);
     let clear_event = clear_item.as_event().unwrap();
-    assert_matches!(
-        clear_event.content(),
-        TimelineItemContent::Aggregated(AggregatedTimelineItemContent {
-            kind: AggregatedTimelineItemContentKind::Message(_),
-            ..
-        })
-    );
+    assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 2);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
     assert!(clear_event.read_receipts().get(*BOB).is_some());

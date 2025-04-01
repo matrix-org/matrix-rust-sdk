@@ -654,7 +654,8 @@ mod tests {
         controller::TimelineMetadata,
         date_dividers::timestamp_to_date,
         event_item::{EventTimelineItemKind, RemoteEventTimelineItem},
-        DateDividerMode, EventTimelineItem, TimelineItemContent, VirtualTimelineItem,
+        DateDividerMode, EventTimelineItem, MsgLikeContent, TimelineItemContent,
+        VirtualTimelineItem,
     };
 
     fn event_with_ts(timestamp: MilliSecondsSinceUnixEpoch) -> EventTimelineItem {
@@ -673,7 +674,7 @@ mod tests {
             owned_user_id!("@alice:example.org"),
             crate::timeline::TimelineDetails::Pending,
             timestamp,
-            TimelineItemContent::RedactedMessage,
+            TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
             event_kind,
             false,
         )
