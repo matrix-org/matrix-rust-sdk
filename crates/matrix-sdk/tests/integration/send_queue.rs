@@ -3,7 +3,7 @@ use std::{ops::Not as _, sync::Arc, time::Duration};
 use as_variant::as_variant;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
-    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
+    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Reply, Thumbnail},
     config::StoreConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     send_queue::{
@@ -15,7 +15,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, InvitedRoomBuilder, KnockedRoomBuilder,
-    LeftRoomBuilder,
+    LeftRoomBuilder, ALICE,
 };
 use ruma::{
     event_id,
@@ -25,7 +25,10 @@ use ruma::{
             UnstablePollStartContentBlock, UnstablePollStartEventContent,
         },
         room::{
-            message::{ImageMessageEventContent, MessageType, RoomMessageEventContent},
+            message::{
+                ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
+                RoomMessageEventContent,
+            },
             MediaSource,
         },
         AnyMessageLikeEventContent, EventContent as _, Mentions,
@@ -1797,6 +1800,7 @@ async fn test_media_uploads() {
     let filename = "surprise.jpeg.exe";
     let content_type = mime::IMAGE_JPEG;
     let data = b"hello world".to_vec();
+    let replied_to_event_id = event_id!("$foo:bar.com");
 
     let thumbnail = Thumbnail {
         data: b"thumbnail".to_vec(),
@@ -1821,12 +1825,28 @@ async fn test_media_uploads() {
         .txn_id(&transaction_id)
         .caption(Some("caption".to_owned()))
         .mentions(Some(mentions.clone()))
+        .reply(Some(Reply {
+            event_id: replied_to_event_id.into(),
+            enforce_thread: matrix_sdk::room::reply::EnforceThread::Threaded(ReplyWithinThread::No),
+        }))
         .info(attachment_info);
 
     // ----------------------
     // Prepare endpoints.
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+
+    let f = EventFactory::new();
+    mock.mock_room_event()
+        .match_event_id()
+        .ok(f
+            .text_msg("Send me your attachments")
+            .sender(*ALICE)
+            .event_id(replied_to_event_id)
+            .into())
+        .mock_once()
+        .mount()
+        .await;
 
     let allow_upload_lock = Arc::new(Mutex::new(()));
     let block_upload = allow_upload_lock.lock().await;
@@ -1859,6 +1879,12 @@ async fn test_media_uploads() {
         mentions.user_ids.into_iter().collect::<Vec<_>>(),
         vec![owned_user_id!("@ivan:sdk.rs")]
     );
+
+    // Check relations.
+    assert_let!(Some(Relation::Thread(thread)) = content.relates_to);
+    assert_eq!(thread.event_id, replied_to_event_id);
+    assert_eq!(thread.in_reply_to.unwrap().event_id, replied_to_event_id);
+    assert!(thread.is_falling_back);
 
     // Check metadata.
     assert_let!(MessageType::Image(img_content) = content.msgtype);
