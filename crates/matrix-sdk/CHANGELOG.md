@@ -241,6 +241,11 @@ simpler methods:
 - [**breaking**] `OidcRegistrations` was removed. Clients are supposed to
   re-register with the homeserver for every login.
   ([#4879](https://github.com/matrix-org/matrix-rust-sdk/pull/4879))
+- [**breaking**] The `OAuth::restore_registered_client()` doesn't take an
+  `issuer` anymore.
+  ([#4879](https://github.com/matrix-org/matrix-rust-sdk/pull/4879))
+  - `OAuth::issuer()` was removed.
+  - The `issuer` field of `UserSession` was removed.
 
 ## [0.10.0] - 2025-02-04
 

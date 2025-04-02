@@ -43,10 +43,7 @@ use matrix_sdk_ui::notification_client::{
 };
 use mime::Mime;
 use ruma::{
-    api::client::{
-        alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo,
-        error::ErrorKind, uiaa::UserIdentifier,
-    },
+    api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
@@ -1659,10 +1656,9 @@ impl Session {
                 let matrix_sdk::authentication::oauth::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                    issuer,
                 } = api.user_session().context("Missing session")?;
                 let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
-                let oidc_data = OidcSessionData { client_id, issuer };
+                let oidc_data = OidcSessionData { client_id };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
                 Ok(Session {
@@ -1707,7 +1703,6 @@ impl TryFrom<Session> for AuthSession {
                     device_id: device_id.into(),
                 },
                 tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                issuer: oidc_data.issuer,
             };
 
             let session = OAuthSession { client_id: oidc_data.client_id, user: user_session };
@@ -1731,31 +1726,8 @@ impl TryFrom<Session> for AuthSession {
 /// Represents a client registration against an OpenID Connect authentication
 /// issuer.
 #[derive(Serialize, Deserialize)]
-#[serde(try_from = "OidcSessionDataDeHelper")]
 pub(crate) struct OidcSessionData {
     client_id: ClientId,
-    issuer: Url,
-}
-
-#[derive(Deserialize)]
-struct OidcSessionDataDeHelper {
-    client_id: ClientId,
-    issuer_info: Option<AuthenticationServerInfo>,
-    issuer: Option<Url>,
-}
-
-impl TryFrom<OidcSessionDataDeHelper> for OidcSessionData {
-    type Error = String;
-
-    fn try_from(value: OidcSessionDataDeHelper) -> Result<Self, Self::Error> {
-        let OidcSessionDataDeHelper { client_id, issuer_info, issuer } = value;
-
-        let issuer = issuer
-            .or(issuer_info.and_then(|info| Url::parse(&info.issuer).ok()))
-            .ok_or_else(|| "missing field `issuer`".to_owned())?;
-
-        Ok(Self { client_id, issuer })
-    }
 }
 
 #[derive(uniffi::Enum)]

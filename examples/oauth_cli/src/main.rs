@@ -364,17 +364,14 @@ impl OAuthCli {
     /// Get information about this session.
     fn whoami(&self) {
         let client = &self.client;
-        let oauth = client.oauth();
 
         let user_id = client.user_id().expect("A logged in client has a user ID");
         let device_id = client.device_id().expect("A logged in client has a device ID");
         let homeserver = client.homeserver();
-        let issuer = oauth.issuer().expect("A logged in OAuth 2.0 client has an issuer");
 
         println!("\nUser ID: {user_id}");
         println!("Device ID: {device_id}");
         println!("Homeserver URL: {homeserver}");
-        println!("OAuth 2.0 authorization server: {issuer}");
     }
 
     /// Get the account management URL.

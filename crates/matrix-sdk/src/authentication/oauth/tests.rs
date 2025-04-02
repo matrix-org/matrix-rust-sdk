@@ -1,6 +1,5 @@
 use anyhow::Context as _;
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use matrix_sdk_base::store::RoomLoadSettings;
 use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl};
@@ -58,7 +57,7 @@ async fn mock_environment() -> anyhow::Result<(OAuth, MatrixMockServer, Url, Cli
 async fn check_authorization_url(
     authorization_data: &OAuthAuthorizationData,
     oauth: &OAuth,
-    issuer: &Url,
+    server_uri: &str,
     device_id: Option<&DeviceId>,
     expected_prompt: Option<&str>,
     expected_login_hint: Option<&str>,
@@ -139,8 +138,7 @@ async fn check_authorization_url(
     assert_eq!(prompt.as_deref(), expected_prompt);
     assert_eq!(login_hint.as_deref(), expected_login_hint);
 
-    assert_eq!(authorization_data.url.scheme(), issuer.scheme());
-    assert_eq!(authorization_data.url.authority(), issuer.authority());
+    assert!(authorization_data.url.as_str().starts_with(server_uri));
     assert_eq!(authorization_data.url.path(), "/oauth2/authorize");
 }
 
@@ -149,7 +147,6 @@ async fn test_high_level_login() -> anyhow::Result<()> {
     // Given a fresh environment.
     let (oauth, _server, mut redirect_uri, registration_data) = mock_environment().await.unwrap();
 
-    assert!(oauth.issuer().is_none());
     assert!(oauth.client_id().is_none());
 
     // When getting the OIDC login URL.
@@ -161,7 +158,6 @@ async fn test_high_level_login() -> anyhow::Result<()> {
         .unwrap();
 
     // Then the client should be configured correctly.
-    assert!(oauth.issuer().is_some());
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
 
     // When completing the login with a valid callback.
@@ -176,15 +172,15 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 #[async_test]
 async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Given a client ready to complete login.
-    let (oauth, _server, mut redirect_uri, registration_data) = mock_environment().await.unwrap();
+    let (oauth, server, mut redirect_uri, registration_data) = mock_environment().await.unwrap();
 
     let authorization_data =
         oauth.login(redirect_uri.clone(), None, Some(registration_data)).build().await.unwrap();
 
-    assert_let!(Some(issuer) = oauth.issuer());
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
 
-    check_authorization_url(&authorization_data, &oauth, issuer, None, None, None).await;
+    check_authorization_url(&authorization_data, &oauth, &server.server().uri(), None, None, None)
+        .await;
 
     // When completing login with a cancellation callback.
     redirect_uri.set_query(Some(&format!(
@@ -206,15 +202,15 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 #[async_test]
 async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Given a client ready to complete login.
-    let (oauth, _server, mut redirect_uri, registration_data) = mock_environment().await.unwrap();
+    let (oauth, server, mut redirect_uri, registration_data) = mock_environment().await.unwrap();
 
     let authorization_data =
         oauth.login(redirect_uri.clone(), None, Some(registration_data)).build().await.unwrap();
 
-    assert_let!(Some(issuer) = oauth.issuer());
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
 
-    check_authorization_url(&authorization_data, &oauth, issuer, None, None, None).await;
+    check_authorization_url(&authorization_data, &oauth, &server.server().uri(), None, None, None)
+        .await;
 
     // When completing login with an old/tampered state.
     redirect_uri.set_query(Some("code=42&state=imposter_alert"));
@@ -233,12 +229,12 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
 #[async_test]
 async fn test_login_url() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
-    let issuer = Url::parse(&server.server().uri())?;
+    let server_uri = server.server().uri();
 
     let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(3).mount().await;
 
-    let client = server.client_builder().registered_with_oauth(server.server().uri()).build().await;
+    let client = server.client_builder().registered_with_oauth().build().await;
     let oauth = client.oauth();
 
     let device_id = owned_device_id!("D3V1C31D"); // yo this is 1999 speaking
@@ -249,7 +245,7 @@ async fn test_login_url() -> anyhow::Result<()> {
     // No extra parameters.
     let authorization_data =
         oauth.login(redirect_uri.clone(), Some(device_id.clone()), None).build().await?;
-    check_authorization_url(&authorization_data, &oauth, &issuer, Some(&device_id), None, None)
+    check_authorization_url(&authorization_data, &oauth, &server_uri, Some(&device_id), None, None)
         .await;
 
     // With prompt parameter.
@@ -261,7 +257,7 @@ async fn test_login_url() -> anyhow::Result<()> {
     check_authorization_url(
         &authorization_data,
         &oauth,
-        &issuer,
+        &server_uri,
         Some(&device_id),
         Some("create"),
         None,
@@ -277,7 +273,7 @@ async fn test_login_url() -> anyhow::Result<()> {
     check_authorization_url(
         &authorization_data,
         &oauth,
-        &issuer,
+        &server_uri,
         Some(&device_id),
         None,
         Some("mxid:@joe:example.org"),
@@ -323,7 +319,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let oauth_server = server.oauth();
     let server_metadata = oauth_server.server_metadata();
 
-    let client = server.client_builder().registered_with_oauth(server.server().uri()).build().await;
+    let client = server.client_builder().registered_with_oauth().build().await;
     let oauth = client.oauth();
 
     // If the state is missing, then any attempt to finish authorizing will fail.
@@ -483,8 +479,7 @@ async fn test_oauth_session() -> anyhow::Result<()> {
     let oauth = client.oauth();
 
     let tokens = mock_session_tokens_with_refresh();
-    let issuer = "https://oauth.example.com/issuer";
-    let session = mock_session(tokens.clone(), issuer);
+    let session = mock_session(tokens.clone());
     oauth.restore_session(session.clone(), RoomLoadSettings::default()).await?;
 
     // Test a few extra getters.
@@ -493,14 +488,12 @@ async fn test_oauth_session() -> anyhow::Result<()> {
     let user_session = oauth.user_session().unwrap();
     assert_eq!(user_session.meta, session.user.meta);
     assert_eq!(user_session.tokens, tokens);
-    assert_eq!(user_session.issuer.as_str(), issuer);
 
     let full_session = oauth.full_session().unwrap();
 
     assert_eq!(full_session.client_id.as_str(), "test_client_id");
     assert_eq!(full_session.user.meta, session.user.meta);
     assert_eq!(full_session.user.tokens, tokens);
-    assert_eq!(full_session.user.issuer.as_str(), issuer);
 
     Ok(())
 }
@@ -535,10 +528,7 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
 
         // Restore the previous session so we have an existing set of refresh tokens.
         oauth
-            .restore_session(
-                mock_session(prev_tokens.clone(), &server_url),
-                RoomLoadSettings::default(),
-            )
+            .restore_session(mock_session(prev_tokens.clone()), RoomLoadSettings::default())
             .await?;
 
         let mut session_changes = client.subscribe_to_session_changes();
@@ -605,7 +595,6 @@ async fn test_register_client() {
     let auth_data = oauth.data().unwrap();
     // There is a difference of ending slash between the strings so we parse them
     // with `Url` which will normalize that.
-    assert_eq!(auth_data.issuer, Url::parse(&server.server().uri()).unwrap());
     assert_eq!(auth_data.client_id, response.client_id);
 }
 
@@ -616,7 +605,7 @@ async fn test_management_url_cache() {
     let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1).mount().await;
 
-    let client = server.client_builder().logged_in_with_oauth(server.server().uri()).build().await;
+    let client = server.client_builder().logged_in_with_oauth().build().await;
     let oauth = client.oauth();
 
     // The cache should not contain the entry.
