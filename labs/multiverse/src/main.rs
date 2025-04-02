@@ -75,7 +75,6 @@ async fn main() -> Result<()> {
 
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let terminal = ratatui::init();
     let mut app = App::new(client).await?;
@@ -229,7 +228,7 @@ impl App {
                     .filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
                 {
                     // Initialize the timeline.
-                    let builder = match ui_room.default_room_timeline_builder().await {
+                    let builder = match ui_room.default_room_timeline_builder() {
                         Ok(builder) => builder,
                         Err(err) => {
                             error!("error when getting default timeline builder: {err}");
