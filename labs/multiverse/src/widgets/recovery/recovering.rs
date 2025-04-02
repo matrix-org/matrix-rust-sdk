@@ -116,7 +116,7 @@ impl RecoveringView {
                     }
                 }
                 ResetState::InputtingMatrixAuthInfo { .. } | ResetState::Done => {}
-                ResetState::ResettingOauth { .. } | ResetState::ResettingMatrixAuth { .. } => {
+                ResetState::ResettingOauth { .. } | ResetState::ResettingMatrixAuth => {
                     if reset_task.is_finished() {
                         *reset_state = ResetState::Done;
                     }
@@ -193,7 +193,7 @@ impl RecoveringView {
             Mode::Resetting { reset_state, reset_task, throbber_state: ThrobberState::default() };
     }
 
-    pub async fn handle_key(&mut self, key: KeyEvent) -> ShouldExit {
+    pub fn handle_key(&mut self, key: KeyEvent) -> ShouldExit {
         use KeyCode::*;
         use Mode::*;
         use ShouldExit::*;
@@ -229,9 +229,7 @@ impl RecoveringView {
                     }
                 }
 
-                ResetState::Done => match (key.modifiers, key.code) {
-                    _ => OnlySubScreen,
-                },
+                ResetState::Done => OnlySubScreen,
             },
 
             Inputting { recovery_text_area } => {
@@ -263,9 +261,7 @@ impl RecoveringView {
                     }
                 }
             }
-            Done { .. } => match (key.modifiers, key.code) {
-                _ => OnlySubScreen,
-            },
+            Done { .. } => OnlySubScreen,
         }
     }
 }
@@ -344,7 +340,7 @@ impl Widget for &mut RecoveringView {
                         [Constraint::Fill(1), Constraint::Min(3), Constraint::Fill(1)];
                     let [_top, middle, _bottom] = Layout::vertical(constraints).areas(area);
 
-                    Paragraph::new(format!("Done resetting\n\nPress any key to continue"))
+                    Paragraph::new("Done resetting\n\nPress any key to continue")
                         .centered()
                         .render(middle, buf);
                 }
@@ -365,7 +361,7 @@ impl Widget for &mut RecoveringView {
 
                 match result {
                     Ok(_) => {
-                        Paragraph::new(format!("Done recovering\n\nPress any key to continue"))
+                        Paragraph::new("Done recovering\n\nPress any key to continue")
                             .centered()
                             .render(middle, buf);
                     }

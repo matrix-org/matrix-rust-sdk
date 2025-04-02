@@ -47,7 +47,7 @@ impl SelectedTab {
     fn cycle_next(self) -> Self {
         let current_index = self as usize;
         let next_index = current_index.saturating_add(1);
-        Self::from_repr(next_index).unwrap_or(SelectedTab::default())
+        Self::from_repr(next_index).unwrap_or_default()
     }
 
     /// Cycle to the previous tab, if we're at the first tab we return the last
@@ -56,7 +56,7 @@ impl SelectedTab {
         let current_index = self as usize;
 
         if current_index == 0 {
-            Self::iter().last().expect("We should always have a last element in our enum")
+            Self::iter().next_back().expect("We should always have a last element in our enum")
         } else {
             let previous_index = current_index.saturating_sub(1);
             Self::from_repr(previous_index).unwrap_or(self)
@@ -151,7 +151,7 @@ impl SettingsView {
     }
 }
 
-impl<'a> Widget for &'a mut SettingsView {
+impl Widget for &mut SettingsView {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,

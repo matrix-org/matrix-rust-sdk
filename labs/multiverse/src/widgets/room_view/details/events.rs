@@ -37,7 +37,7 @@ impl Widget for &mut EventsView<'_> {
                 let events = events
                     .into_iter()
                     .map(|sync_timeline_item| sync_timeline_item.raw().json().to_string())
-                    .map(|item| Line::from(item));
+                    .map(Line::from);
 
                 let events = Itertools::intersperse(events, separator);
                 let lines: Vec<_> = [Line::from("")].into_iter().chain(events).collect();

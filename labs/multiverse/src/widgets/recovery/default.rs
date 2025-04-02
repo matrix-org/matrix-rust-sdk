@@ -185,12 +185,10 @@ impl DefaultRecoveryView {
                 _ => No,
             },
             Mode::Enabling { .. } | Mode::Disabling { .. } => No,
-            Mode::Done { .. } => match key.code {
-                _ => {
-                    self.mode = Mode::Default;
-                    OnlySubScreen
-                }
-            },
+            Mode::Done { .. } => {
+                self.mode = Mode::Default;
+                OnlySubScreen
+            }
         }
     }
 
@@ -337,9 +335,7 @@ impl Widget for &mut DefaultRecoveryView {
                     DoneResult::Enabling(Err(error)) => {
                         format!("Failed to enable recovery: {error:?}")
                     }
-                    DoneResult::Disabling(Ok(())) => {
-                        format!("Recovery has been disabled")
-                    }
+                    DoneResult::Disabling(Ok(())) => "Recovery has been disabled".to_owned(),
                     DoneResult::Disabling(Err(error)) => {
                         format!("Failed to disable recovery: {error:?}")
                     }
