@@ -34,6 +34,12 @@ pub struct Status {
     _receiver_task: JoinHandle<()>,
 }
 
+impl Default for Status {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A handle to the [`Status`] widget, this handle can be moved to different
 /// threads where it can be used to set the status message.
 #[derive(Clone)]

@@ -5,6 +5,7 @@ use style::palette::tailwind;
 use tui_textarea::TextArea;
 
 /// A widget representing a text input to send messages to a room.
+#[derive(Default)]
 pub struct Input {
     /// The text area that will keep track of what the user has input.
     textarea: TextArea<'static>,

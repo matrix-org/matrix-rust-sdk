@@ -391,12 +391,13 @@ impl App {
                                     self.set_global_mode(GlobalMode::Exiting { shutdown_task });
                                 }
                             }
-                            GlobalMode::Help => match (key.modifiers, key.code) {
-                                (KeyModifiers::NONE, Char('q') | Esc) => {
+                            GlobalMode::Help => {
+                                if let (KeyModifiers::NONE, Char('q') | Esc) =
+                                    (key.modifiers, key.code)
+                                {
                                     self.set_global_mode(GlobalMode::Default)
                                 }
-                                _ => (),
-                            },
+                            }
                             GlobalMode::Settings { view } => {
                                 if view.handle_key_press(key).await {
                                     self.set_global_mode(GlobalMode::Default);

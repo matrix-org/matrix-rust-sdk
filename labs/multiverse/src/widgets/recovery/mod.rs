@@ -9,6 +9,7 @@ mod recovering;
 
 use default::DefaultRecoveryView;
 
+#[derive(Default)]
 pub struct RecoveryView {}
 
 impl RecoveryView {
@@ -109,11 +110,8 @@ impl RecoveryViewState {
         use KeyCode::*;
 
         match &mut self.mode {
-            Mode::Unknown => match (key.modifiers, key.code) {
-                (_, Esc | Char('q')) => true,
-                _ => false,
-            },
-            Mode::Incomplete { view } => match view.handle_key(key).await {
+            Mode::Unknown => matches!((key.modifiers, key.code), (_, Esc | Char('q'))),
+            Mode::Incomplete { view } => match view.handle_key(key) {
                 ShouldExit::No => false,
                 ShouldExit::OnlySubScreen => {
                     self.mode = Mode::Unknown;
@@ -147,7 +145,7 @@ impl RecoveryViewState {
     }
 }
 
-pub fn create_centered_throbber_area<'a>(area: Rect) -> Rect {
+pub fn create_centered_throbber_area(area: Rect) -> Rect {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1)

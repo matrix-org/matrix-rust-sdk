@@ -5,6 +5,7 @@ use ratatui::{
 
 use crate::popup_area;
 
+#[derive(Default)]
 pub struct HelpView {}
 
 impl HelpView {
@@ -46,7 +47,7 @@ impl Widget for &mut HelpView {
 
         let help_table = Table::new(rows, widths)
             .block(block)
-            .widths(&[Constraint::Length(20), Constraint::Min(30)]);
+            .widths([Constraint::Length(20), Constraint::Min(30)]);
 
         StatefulWidget::render(help_table, area, buf, &mut TableState::default());
     }
