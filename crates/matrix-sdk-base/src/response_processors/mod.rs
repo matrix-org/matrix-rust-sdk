@@ -13,3 +13,37 @@
 // limitations under the License.
 
 pub mod account_data;
+pub mod e2ee;
+pub mod latest_event;
+pub mod verification;
+
+use std::collections::BTreeMap;
+
+pub use e2ee::e2ee;
+pub use latest_event::decrypt_latest_events;
+use ruma::OwnedRoomId;
+pub use verification::verification;
+
+use crate::{RoomInfoNotableUpdateReasons, StateChanges};
+
+type RoomInfoNotableUpdates = BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>;
+
+pub(crate) struct Context {
+    pub(super) state_changes: StateChanges,
+    pub(super) room_info_notable_updates: RoomInfoNotableUpdates,
+}
+
+impl Context {
+    pub fn new(
+        state_changes: StateChanges,
+        room_info_notable_updates: RoomInfoNotableUpdates,
+    ) -> Self {
+        Self { state_changes, room_info_notable_updates }
+    }
+
+    pub fn into_parts(self) -> (StateChanges, RoomInfoNotableUpdates) {
+        let Self { state_changes, room_info_notable_updates } = self;
+
+        (state_changes, room_info_notable_updates)
+    }
+}
