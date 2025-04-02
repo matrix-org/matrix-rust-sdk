@@ -18,19 +18,14 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use ruma::{
-    events::{AnyTimelineEvent, AnyToDeviceEvent},
-    serde::Raw,
-};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
-use tracing::{debug, error};
-
-use crate::widget::filter::ToDeviceEventFilter;
+use tracing::debug;
 
 use super::{
-    filter::{EventAndRequestFilter, MatrixEventFilterInput, MatrixEventFilterInputData},
+    filter::{EventAndRequestFilter, MatrixEventFilterInput},
     EventFilter, MessageLikeEventFilter, StateEventFilter,
 };
+use crate::widget::filter::ToDeviceEventFilter;
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -64,28 +59,11 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// Tells if a given raw event matches the read filter.
-    pub fn raw_timeline_event_matches_read_filter(&self, raw: &Raw<AnyTimelineEvent>) -> bool {
-        let filter_in = match raw.deserialize_as::<MatrixEventFilterInputData>() {
-            Ok(filter) => MatrixEventFilterInput::Timeline(filter),
-            Err(err) => {
-                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
-                return false;
-            }
-        };
-
-        self.read.iter().any(|f| f.matches_event(&filter_in))
+    pub(super) fn allow_reading(&self, event_filter_input: &MatrixEventFilterInput) -> bool {
+        self.read.iter().any(|f| f.matches_event(event_filter_input))
     }
-    pub fn raw_to_device_event_matches_read_filter(&self, raw: &Raw<AnyToDeviceEvent>) -> bool {
-        let filter_in = match raw.deserialize_as::<MatrixEventFilterInputData>() {
-            Ok(filter) => MatrixEventFilterInput::ToDevice(filter),
-            Err(err) => {
-                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
-                return false;
-            }
-        };
-
-        self.read.iter().any(|f| f.matches_event(&filter_in))
+    pub(super) fn allow_sending(&self, event_filter_input: &MatrixEventFilterInput) -> bool {
+        self.send.iter().any(|f| f.matches_event(event_filter_input))
     }
 }
 

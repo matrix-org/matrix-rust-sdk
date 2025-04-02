@@ -16,13 +16,20 @@
 
 use std::fmt;
 
-use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType, ToDeviceEventType};
+use ruma::{
+    events::{
+        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
+        TimelineEventType, ToDeviceEventType,
+    },
+    serde::Raw,
+};
 use serde::{Deserialize, Serialize};
 
 /// Different kinds of filters for timeline events.
 
-// Refactor this to only have two methods: matches_request(RequestFilterInput) and matches_event(MatrixEventFilterInput).
-// or only one matches(FilterInput), enum FilterInput{Event(MatrixEventFilterInput), Request(RequestFilterInput)} and from impls
+// Refactor this to only have two methods: matches_request(RequestFilterInput) and
+// matches_event(MatrixEventFilterInput). or only one matches(FilterInput), enum
+// FilterInput{Event(MatrixEventFilterInput), Request(RequestFilterInput)} and from impls
 // for FilterInput...
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -55,7 +62,7 @@ impl EventAndRequestFilter for EventFilter {
     }
 }
 
-pub trait EventAndRequestFilter {
+pub trait EventAndRequestFilter: fmt::Debug {
     fn matches_event(&self, matrix_event: &MatrixEventFilterInput) -> bool;
     fn matches_request(&self, event_type: &FilterEventType) -> bool;
 }
@@ -86,7 +93,8 @@ impl EventAndRequestFilter for MessageLikeEventFilter {
                 }
                 MessageLikeEventFilter::RoomMessageWithMsgtype(msgtype) => {
                     *event_type == TimelineEventType::RoomMessage
-                        && matrix_event.content.msgtype.as_ref() == Some(msgtype)
+                        && matrix_event.content.as_ref().and_then(|c| c.msgtype.as_ref())
+                            == Some(msgtype)
                 }
             }
         } else {
@@ -156,19 +164,19 @@ pub struct ToDeviceEventFilter(pub ToDeviceEventType);
 
 impl EventAndRequestFilter for ToDeviceEventFilter {
     fn matches_event(&self, matrix_event: &MatrixEventFilterInput) -> bool {
-        let MatrixEventFilterInput::ToDevice(matrix_event) = matrix_event else {
+        let MatrixEventFilterInput::ToDevice(filter_input) = matrix_event else {
             return false;
         };
         match self {
-            ToDeviceEventFilter(event_type) => {
-                matrix_event.event_type == FilterEventType::ToDevice(event_type.clone())
+            ToDeviceEventFilter(filter_allowed_type) => {
+                filter_input.event_type.to_string() == filter_allowed_type.to_string()
             }
         }
     }
 
     fn matches_request(&self, _: &FilterEventType) -> bool {
-        // There is no way to request events. We will only need to run checks on sending and receiving already existing
-        // events.
+        // There is no way to request events. We will only need to run checks on sending
+        // and receiving already existing events.
         false
     }
 }
@@ -184,6 +192,18 @@ impl fmt::Display for ToDeviceEventFilter {
 pub enum FilterEventType {
     Timeline(TimelineEventType),
     ToDevice(ToDeviceEventType),
+}
+
+// TODO: consider removing `FilterEventType` and using a String instead.
+#[allow(clippy::to_string_trait_impl)]
+impl ToString for FilterEventType {
+    // A display method should include the Timeline/ToDevice prefix
+    fn to_string(&self) -> String {
+        match self {
+            FilterEventType::Timeline(t) => t.to_string(),
+            FilterEventType::ToDevice(t) => t.to_string(),
+        }
+    }
 }
 
 impl From<TimelineEventType> for FilterEventType {
@@ -213,13 +233,31 @@ pub(super) struct MatrixEventFilterInputData {
     #[serde(rename = "type")]
     pub(super) event_type: FilterEventType,
     pub(super) state_key: Option<String>,
-    pub(super) content: MatrixEventContent,
+    pub(super) content: Option<MatrixEventContent>,
 }
 
 #[derive(Debug)]
-pub(crate) enum MatrixEventFilterInput {
+pub(super) enum MatrixEventFilterInput {
     Timeline(MatrixEventFilterInputData),
     ToDevice(MatrixEventFilterInputData),
+}
+
+impl TryFrom<Raw<AnyTimelineEvent>> for MatrixEventFilterInput {
+    type Error = serde_json::Error;
+    fn try_from(raw_event: Raw<AnyTimelineEvent>) -> Result<Self, Self::Error> {
+        raw_event
+            .deserialize_as::<MatrixEventFilterInputData>()
+            .map(MatrixEventFilterInput::Timeline)
+    }
+}
+
+impl TryFrom<Raw<AnyToDeviceEvent>> for MatrixEventFilterInput {
+    type Error = serde_json::Error;
+    fn try_from(raw_event: Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
+        raw_event
+            .deserialize_as::<MatrixEventFilterInputData>()
+            .map(MatrixEventFilterInput::ToDevice)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -231,11 +269,13 @@ pub(super) struct MatrixEventContent {
 mod tests {
     use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType};
 
-    use crate::widget::filter::EventAndRequestFilter;
-
     use super::{
         EventFilter, MatrixEventContent, MatrixEventFilterInput, MatrixEventFilterInputData,
         MessageLikeEventFilter, StateEventFilter,
+    };
+    use crate::widget::{
+        filter::{EventAndRequestFilter, FilterEventType},
+        ToDeviceEventFilter,
     };
 
     fn message_event(event_type: TimelineEventType) -> MatrixEventFilterInput {
@@ -253,7 +293,7 @@ mod tests {
         MatrixEventFilterInput::Timeline(MatrixEventFilterInputData {
             event_type: event_type.into(),
             state_key: None,
-            content: MatrixEventContent { msgtype: Some(msgtype) },
+            content: Some(MatrixEventContent { msgtype: Some(msgtype) }),
         })
     }
 
@@ -294,6 +334,16 @@ mod tests {
             "io.element.message".into(),
             "m.text".to_owned()
         )));
+    }
+
+    #[test]
+    fn to_device_filter_does_match() {
+        let f = EventFilter::ToDevice(ToDeviceEventFilter("my.custom.to.device".into()));
+        assert!(f.matches_event(&MatrixEventFilterInput::ToDevice(MatrixEventFilterInputData {
+            event_type: FilterEventType::ToDevice("my.custom.to.device".into()),
+            state_key: None,
+            content: None
+        })));
     }
 
     // Tests against an `m.reaction` filter

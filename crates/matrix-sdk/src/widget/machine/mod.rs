@@ -55,8 +55,7 @@ use super::{
     },
     Capabilities, StateKeySelector,
 };
-use crate::widget::filter::EventAndRequestFilter;
-use crate::Result;
+use crate::{widget::filter::EventAndRequestFilter, Result};
 
 mod driver_req;
 mod from_widget;
@@ -175,27 +174,31 @@ impl WidgetMachine {
                     error!("Received matrix event before capabilities negotiation");
                     return Vec::new();
                 };
-                capabilities
-                    .raw_timeline_event_matches_read_filter(&event_raw)
-                    .then(|| {
-                        let action = self.send_to_widget_request(NotifyNewMatrixEvent(event_raw)).1;
-                        action.map(|a| vec![a]).unwrap_or_default()
-                    })
-                    .unwrap_or_default()
+                let Ok(event_filter_in) = event_raw.clone().try_into() else {
+                    error!("Failed to convert event to filter input");
+                    return Vec::new();
+                };
+                if capabilities.allow_reading(&event_filter_in) {
+                    let action = self.send_to_widget_request(NotifyNewMatrixEvent(event_raw)).1;
+                    return action.map(|a| vec![a]).unwrap_or_default();
+                }
+                Vec::new()
             }
             IncomingMessage::ToDeviceReceived(to_device_raw) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     error!("Received to device event before capabilities negotiation");
                     return Vec::new();
                 };
-                capabilities
-                    .raw_to_device_event_matches_read_filter(&to_device_raw)
-                    .then(|| {
-                        let action =
-                            self.send_to_widget_request(NotifyNewToDeviceEvent(to_device_raw)).1;
-                        action.map(|a| vec![a]).unwrap_or_default()
-                    })
-                    .unwrap_or_default()
+                let Ok(event_filter_in) = to_device_raw.clone().try_into() else {
+                    error!("Failed to convert to device event to filter input");
+                    return Vec::new();
+                };
+                if capabilities.allow_reading(&event_filter_in) {
+                    let action =
+                        self.send_to_widget_request(NotifyNewToDeviceEvent(to_device_raw)).1;
+                    return action.map(|a| vec![a]).unwrap_or_default();
+                }
+                Vec::new()
             }
         };
         vec
@@ -342,11 +345,7 @@ impl WidgetMachine {
         match request {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
                 if !capabilities.read.iter().any(|f| {
-                    f.matches_event(&MatrixEventFilterInput::Timeline(MatrixEventFilterInputData {
-                        event_type: event_type.clone().into(),
-                        state_key: None,
-                        content: MatrixEventContent::default(),
-                    }))
+                    f.matches_request(&FilterEventType::Timeline(event_type.clone().into()))
                 }) {
                     return Some(Self::send_from_widget_error_string_response(
                         raw_request,
@@ -373,7 +372,8 @@ impl WidgetMachine {
                         CapabilitiesState::Negotiated(capabilities) => result
                             .map(|mut events| {
                                 events.retain(|e| {
-                                    capabilities.raw_timeline_event_matches_read_filter(&e)
+                                    let Ok(f_in) = e.clone().try_into() else { return false };
+                                    capabilities.allow_reading(&f_in)
                                 });
                                 ReadEventResponse { events }
                             })
@@ -400,7 +400,7 @@ impl WidgetMachine {
                                 event_type: event_type_filter,
                                 state_key: Some(state_key.clone()),
                                 // content doesn't matter for state events
-                                content: MatrixEventContent::default(),
+                                content: Some(MatrixEventContent::default()),
                             });
 
                         capabilities.read.iter().any(|filter| filter.matches_event(&filter_in))
@@ -454,7 +454,7 @@ impl WidgetMachine {
             ));
         }
 
-        if !capabilities.send.iter().any(|filter| filter.matches_event(&filter_in)) {
+        if !capabilities.allow_sending(&filter_in) {
             return Some(Self::send_from_widget_error_string_response(
                 raw_request,
                 "Not allowed to send event",
@@ -489,10 +489,10 @@ impl WidgetMachine {
         let filter_in = MatrixEventFilterInput::ToDevice(MatrixEventFilterInputData {
             event_type: request.event_type.clone().into(),
             state_key: None,
-            content: MatrixEventContent { msgtype: None },
+            content: None,
         });
 
-        if !capabilities.send.iter().any(|filter| filter.matches_event(&filter_in)) {
+        if !capabilities.allow_sending(&filter_in) {
             return Some(Self::send_from_widget_error_string_response(
                 raw_request,
                 format!("Not allowed to send to-device message of type: {}", request.event_type),
