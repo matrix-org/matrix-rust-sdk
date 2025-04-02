@@ -54,14 +54,14 @@ impl MockClientBuilder {
     }
 
     /// The client is registered with the OAuth 2.0 API.
-    pub fn registered_with_oauth(mut self, issuer: impl Into<String>) -> Self {
-        self.auth_state = AuthState::RegisteredWithOAuth { issuer: issuer.into() };
+    pub fn registered_with_oauth(mut self) -> Self {
+        self.auth_state = AuthState::RegisteredWithOAuth;
         self
     }
 
     /// The user is already logged in with the OAuth 2.0 API.
-    pub fn logged_in_with_oauth(mut self, issuer: impl Into<String>) -> Self {
-        self.auth_state = AuthState::LoggedInWithOAuth { issuer: issuer.into() };
+    pub fn logged_in_with_oauth(mut self) -> Self {
+        self.auth_state = AuthState::LoggedInWithOAuth;
         self
     }
 
@@ -102,9 +102,9 @@ enum AuthState {
     /// The client is logged in with the native Matrix API.
     LoggedInWithMatrixAuth,
     /// The client is registered with the OAuth 2.0 API.
-    RegisteredWithOAuth { issuer: String },
+    RegisteredWithOAuth,
     /// The client is logged in with the OAuth 2.0 API.
-    LoggedInWithOAuth { issuer: String },
+    LoggedInWithOAuth,
 }
 
 impl AuthState {
@@ -120,15 +120,14 @@ impl AuthState {
                     .await
                     .unwrap();
             }
-            AuthState::RegisteredWithOAuth { issuer } => {
-                let issuer = url::Url::parse(&issuer).unwrap();
-                client.oauth().restore_registered_client(issuer, oauth::mock_client_id());
+            AuthState::RegisteredWithOAuth => {
+                client.oauth().restore_registered_client(oauth::mock_client_id());
             }
-            AuthState::LoggedInWithOAuth { issuer } => {
+            AuthState::LoggedInWithOAuth => {
                 client
                     .oauth()
                     .restore_session(
-                        oauth::mock_session(mock_session_tokens_with_refresh(), issuer),
+                        oauth::mock_session(mock_session_tokens_with_refresh()),
                         RoomLoadSettings::default(),
                     )
                     .await
@@ -215,12 +214,10 @@ pub mod oauth {
     }
 
     /// An [`OAuthSession`] to restore, for unit or integration tests.
-    pub fn mock_session(tokens: SessionTokens, issuer: impl AsRef<str>) -> OAuthSession {
-        let issuer = Url::parse(issuer.as_ref()).unwrap();
-
+    pub fn mock_session(tokens: SessionTokens) -> OAuthSession {
         OAuthSession {
             client_id: mock_client_id(),
-            user: UserSession { meta: super::mock_session_meta(), tokens, issuer },
+            user: UserSession { meta: super::mock_session_meta(), tokens },
         }
     }
 }

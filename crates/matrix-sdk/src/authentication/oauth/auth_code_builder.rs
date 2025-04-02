@@ -102,7 +102,7 @@ impl OAuthAuthCodeUrlBuilder {
 
         let data = oauth.data().expect("OAuth 2.0 data should be set after registration");
         info!(
-            issuer = data.issuer.as_str(),
+            issuer = server_metadata.issuer.as_str(),
             ?scopes,
             "Authorizing scope via the OAuth 2.0 Authorization Code flow"
         );

@@ -225,7 +225,6 @@ impl OAuthCtx {
 }
 
 pub(crate) struct OAuthAuthData {
-    pub(crate) issuer: Url,
     pub(crate) client_id: ClientId,
     /// The data necessary to validate authorization responses.
     authorization_data: Mutex<HashMap<CsrfToken, AuthorizationValidationData>>,
@@ -234,9 +233,7 @@ pub(crate) struct OAuthAuthData {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for OAuthAuthData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OAuthAuthData")
-            .field("issuer", &self.issuer.as_str())
-            .finish_non_exhaustive()
+        f.debug_struct("OAuthAuthData").finish_non_exhaustive()
     }
 }
 
@@ -457,7 +454,7 @@ impl OAuth {
                 .or_else(|| static_registrations.get(&server_metadata.issuer));
 
             if let Some(client_id) = client_id {
-                self.restore_registered_client(server_metadata.issuer.clone(), client_id.clone());
+                self.restore_registered_client(client_id.clone());
                 return Ok(());
             }
         }
@@ -465,15 +462,6 @@ impl OAuth {
         self.register_client_inner(server_metadata, &data.metadata).await?;
 
         Ok(())
-    }
-
-    /// The OAuth 2.0 authorization server used for authorization.
-    ///
-    /// Returns `None` if the client was not registered or if the registration
-    /// was not restored with [`OAuth::restore_registered_client()`] or
-    /// [`OAuth::restore_session()`].
-    pub fn issuer(&self) -> Option<&Url> {
-        self.data().map(|data| &data.issuer)
     }
 
     /// The account management actions supported by the authorization server's
@@ -629,8 +617,7 @@ impl OAuth {
     pub fn user_session(&self) -> Option<UserSession> {
         let meta = self.client.session_meta()?.to_owned();
         let tokens = self.client.session_tokens()?;
-        let issuer = self.data()?.issuer.clone();
-        Some(UserSession { meta, tokens, issuer })
+        Some(UserSession { meta, tokens })
     }
 
     /// The full OAuth 2.0 session of this client.
@@ -655,11 +642,6 @@ impl OAuth {
     ///
     /// * `client_metadata` - The serialized client metadata to register.
     ///
-    /// The client ID in the response should be persisted for future use and
-    /// reused for the same authorization server, identified by the
-    /// [`OAuth::issuer()`], along with the client metadata sent to the server,
-    /// even for different sessions or user accounts.
-    ///
     /// # Panic
     ///
     /// Panics if the authentication data was already set.
@@ -672,7 +654,7 @@ impl OAuth {
     /// # use matrix_sdk::authentication::oauth::registration::ClientMetadata;
     /// # use ruma::serde::Raw;
     /// # let client_metadata = unimplemented!();
-    /// # fn persist_client_registration (_: &url::Url, _: &Raw<ClientMetadata>, _: &ClientId) {}
+    /// # fn persist_client_registration (_: url::Url, _: &ClientId) {}
     /// # _ = async {
     /// let server_name = ServerName::parse("myhomeserver.org")?;
     /// let client = Client::builder().server_name(&server_name).build().await?;
@@ -697,9 +679,8 @@ impl OAuth {
     ///
     /// // The API only supports clients without secrets.
     /// let client_id = response.client_id;
-    /// let issuer = oauth.issuer().expect("issuer should be set after registration");
     ///
-    /// persist_client_registration(issuer, &client_metadata, &client_id);
+    /// persist_client_registration(client.homeserver(), &client_id);
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn register_client(
@@ -725,10 +706,7 @@ impl OAuth {
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
-        self.restore_registered_client(
-            server_metadata.issuer.clone(),
-            registration_response.client_id.clone(),
-        );
+        self.restore_registered_client(registration_response.client_id.clone());
 
         Ok(registration_response)
     }
@@ -744,17 +722,14 @@ impl OAuth {
     ///
     /// # Arguments
     ///
-    /// * `issuer` - The authorization server that was used to register the
-    ///   client.
-    ///
     /// * `client_id` - The unique identifier to authenticate the client with
     ///   the server, obtained after registration.
     ///
     /// # Panic
     ///
     /// Panics if authentication data was already set.
-    pub fn restore_registered_client(&self, issuer: Url, client_id: ClientId) {
-        let data = OAuthAuthData { issuer, client_id, authorization_data: Default::default() };
+    pub fn restore_registered_client(&self, client_id: ClientId) {
+        let data = OAuthAuthData { client_id, authorization_data: Default::default() };
 
         self.client
             .auth_ctx()
@@ -783,9 +758,9 @@ impl OAuth {
         session: OAuthSession,
         room_load_settings: RoomLoadSettings,
     ) -> Result<()> {
-        let OAuthSession { client_id, user: UserSession { meta, tokens, issuer } } = session;
+        let OAuthSession { client_id, user: UserSession { meta, tokens } } = session;
 
-        let data = OAuthAuthData { issuer, client_id, authorization_data: Default::default() };
+        let data = OAuthAuthData { client_id, authorization_data: Default::default() };
 
         self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
@@ -1434,9 +1409,6 @@ pub struct UserSession {
     /// The tokens used for authentication.
     #[serde(flatten)]
     pub tokens: SessionTokens,
-
-    /// The OAuth 2.0 server used for this session.
-    pub issuer: Url,
 }
 
 /// The data necessary to validate a response from the Token endpoint in the
