@@ -40,7 +40,7 @@ use super::BaseClient;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    response_processors::account_data::AccountDataProcessor,
+    response_processors::{self as processors, account_data::AccountDataProcessor},
     rooms::{
         normal::{RoomHero, RoomInfoNotableUpdateReasons},
         RoomState,
@@ -85,36 +85,46 @@ impl BaseClient {
             "Processing sliding sync e2ee events",
         );
 
-        let mut changes = StateChanges::default();
-        let mut room_info_notable_updates =
-            BTreeMap::<OwnedRoomId, RoomInfoNotableUpdateReasons>::new();
+        let olm_machine = self.olm_machine().await;
 
-        // Process the to-device events and other related e2ee data. This returns a list
-        // of all the to-device events that were passed in but encrypted ones
-        // were replaced with their decrypted version.
-        let to_device = self
-            .preprocess_to_device_events(
-                matrix_sdk_crypto::EncryptionSyncChanges {
-                    to_device_events,
-                    changed_devices: &e2ee.device_lists,
-                    one_time_keys_counts: &e2ee.device_one_time_keys_count,
-                    unused_fallback_keys: e2ee.device_unused_fallback_key_types.as_deref(),
-                    next_batch_token: to_device
-                        .as_ref()
-                        .map(|to_device| to_device.next_batch.clone()),
-                },
-                &mut changes,
-                &mut room_info_notable_updates,
+        let mut context = processors::Context::new(StateChanges::default(), Default::default());
+
+        let processors::e2ee::Output { decrypted_to_device_events, room_key_updates } =
+            processors::e2ee(
+                &mut context,
+                olm_machine.as_ref(),
+                to_device_events,
+                &e2ee.device_lists,
+                &e2ee.device_one_time_keys_count,
+                e2ee.device_unused_fallback_key_types.as_deref(),
+                to_device.as_ref().map(|to_device| to_device.next_batch.clone()),
             )
             .await?;
 
+        processors::decrypt_latest_events(
+            &mut context,
+            room_key_updates
+                .into_iter()
+                .flatten()
+                .filter_map(|room_key_info| self.get_room(&room_key_info.room_id))
+                .collect(),
+            olm_machine.as_ref(),
+            self.decryption_trust_requirement,
+            self.handle_verification_events,
+        )
+        .await?;
+
+        let (state_changes, room_info_notable_updates) = context.into_parts();
+
         trace!("ready to submit e2ee changes to store");
         let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
-        self.state_store.save_changes(&changes).await?;
-        self.apply_changes(&changes, room_info_notable_updates, prev_ignored_user_list);
+
+        self.state_store.save_changes(&state_changes).await?;
+        self.apply_changes(&state_changes, room_info_notable_updates, prev_ignored_user_list);
+
         trace!("applied e2ee changes");
 
-        Ok(Some(to_device))
+        Ok(Some(decrypted_to_device_events))
     }
 
     /// Process a response from a sliding sync call.
