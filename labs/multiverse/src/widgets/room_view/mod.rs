@@ -96,10 +96,14 @@ impl RoomView {
                 _ => self.input.handle_key_press(key),
             },
 
-            Mode::Details { view } => match view.handle_key_press(key) {
-                ShouldExit::No => {}
-                ShouldExit::OnlySubScreen => {}
-                ShouldExit::Yes => self.mode = Mode::Normal,
+            Mode::Details { view } => match (key.modifiers, key.code) {
+                (KeyModifiers::NONE, PageUp) => self.back_paginate(),
+
+                _ => match view.handle_key_press(key) {
+                    ShouldExit::No => {}
+                    ShouldExit::OnlySubScreen => {}
+                    ShouldExit::Yes => self.mode = Mode::Normal,
+                },
             },
         }
     }
