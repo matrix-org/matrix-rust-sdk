@@ -1,4 +1,4 @@
--- We're going to split the `events` table into two tables: `events` and `events_chunks`.
+-- We're going to split the `events` table into two tables: `events` and `event_chunks`.
 -- The former table will include the events' content, while the latter will include the location of
 -- each event in the linked chunk.
 
@@ -14,7 +14,7 @@ CREATE TABLE "events" (
     -- The room in which the event is located.
     "room_id" BLOB NOT NULL,
 
-    -- `OwnedEventId` for events.
+    -- The `OwnedEventId` of this event.
     "event_id" BLOB NOT NULL,
 
     -- JSON serialized `TimelineEvent` (encrypted value).
@@ -35,7 +35,7 @@ CREATE TABLE "events" (
 WITHOUT ROWID;
 
 -- Entries inside an event chunk.
-CREATE TABLE "events_chunks" (
+CREATE TABLE "event_chunks" (
     -- Which room does this event belong to? (hashed key shared with linked_chunks)
     "room_id" BLOB NOT NULL,
     -- Which chunk does this event refer to? Corresponds to a `ChunkIdentifier`.
@@ -58,3 +58,6 @@ CREATE TABLE "events_chunks" (
     FOREIGN KEY (room_id, chunk_id) REFERENCES linked_chunks(room_id, id) ON DELETE CASCADE
 )
 WITHOUT ROWID;
+
+-- For consistency, rename gaps to gap_chunks.
+ALTER TABLE gaps RENAME TO gap_chunks;

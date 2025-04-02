@@ -1390,6 +1390,11 @@ mod private {
         }
 
         /// Save a single event into the database, without notifying observers.
+        ///
+        /// Note: if the event was already saved as part of a linked chunk, and
+        /// its event id may have changed, it's not safe to use this
+        /// method because it may break the link between the chunk and
+        /// the event. Instead, an update to the linked chunk must be used.
         pub async fn save_event(
             &self,
             events: impl IntoIterator<Item = TimelineEvent>,

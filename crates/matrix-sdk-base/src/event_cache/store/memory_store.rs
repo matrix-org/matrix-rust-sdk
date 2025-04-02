@@ -32,6 +32,7 @@ use ruma::{
     time::{Instant, SystemTime},
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
 };
+use tracing::error;
 
 use super::{
     compute_filters_string, extract_event_relation,
@@ -258,6 +259,10 @@ impl EventCacheStore for MemoryStore {
     }
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        if event.event_id().is_none() {
+            error!(%room_id, "Trying to save an event with no ID");
+            return Ok(());
+        }
         self.inner.write().unwrap().events.save_item(room_id.to_owned(), event);
         Ok(())
     }
