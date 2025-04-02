@@ -408,10 +408,10 @@ impl Client {
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
-        let registrations = oidc_configuration.registrations().await?;
+        let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let mut url_builder = self.inner.oauth().login(registrations.into(), redirect_uri, None);
+        let mut url_builder = self.inner.oauth().login(redirect_uri, None, Some(registration_data));
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
