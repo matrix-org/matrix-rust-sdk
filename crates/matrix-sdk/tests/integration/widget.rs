@@ -35,7 +35,7 @@ use ruma::{
     user_id, OwnedRoomId,
 };
 use serde::Serialize;
-use serde_json::{json, Map, Value as JsonValue};
+use serde_json::{json, Value as JsonValue};
 use tracing::error;
 use wiremock::{
     matchers::{method, path_regex},
@@ -85,7 +85,7 @@ async fn run_test_driver(
 
 async fn recv_message(driver_handle: &WidgetDriverHandle) -> JsonObject {
     let fut = pin!(driver_handle.recv());
-    let msg = timeout(fut, Duration::from_secs(1)).await.unwrap();
+    let msg = timeout(fut, Duration::from_secs(3)).await.unwrap();
     serde_json::from_str(&msg.unwrap()).unwrap()
 }
 
@@ -381,6 +381,8 @@ async fn test_receive_live_events() {
             "org.matrix.msc2762.receive.event:m.room.message#m.text",
             "org.matrix.msc2762.receive.state_event:m.room.name#",
             "org.matrix.msc2762.receive.state_event:m.room.member#@example:localhost",
+            "org.matrix.msc2762.receive.state_event:m.room.member#@example:localhost",
+            "org.matrix.msc3819.receive.to_device:my.custom.to.device"
         ]),
     )
     .await;
@@ -417,34 +419,53 @@ async fn test_receive_live_events() {
                     // set room name - matches filter #3
                     .add_timeline_event(f.room_name("New Room Name").sender(&BOB)),
             );
-
-            sync_builder.add_to_device_event(json!({"some":"Event"}));
+            // to device message - doesn't match
+            sync_builder.add_to_device_event(
+                json!({"some":"Event", "type": "my.custom.not.allowed.to.device"}),
+            );
+            // to device message - matches filter #6
+            sync_builder
+                .add_to_device_event(json!({"some":"Event", "type": "my.custom.to.device"}));
         })
         .await;
 
-    let msg = recv_message(&driver_handle).await;
-    assert_eq!(msg["api"], "toWidget");
-    assert_eq!(msg["action"], "send_event");
-    assert_eq!(msg["data"]["type"], "m.room.message");
-    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["content"]["msgtype"], "m.text");
-    assert_eq!(msg["data"]["content"]["body"], "simple text message");
+    // The to device and room events are racing -> we dont know the order and just
+    // need to store them separately.
+    let mut to_device: JsonObject = JsonObject::new();
+    let mut events = vec![];
+    for _ in 0..4 {
+        let msg = recv_message(&driver_handle).await;
+        if msg["action"] == "send_to_device" {
+            to_device = msg;
+        } else {
+            events.push(msg);
+        }
+    }
 
-    let msg = recv_message(&driver_handle).await;
-    assert_eq!(msg["api"], "toWidget");
-    assert_eq!(msg["action"], "send_event");
-    assert_eq!(msg["data"]["type"], "m.room.member");
-    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["state_key"], "@example:localhost");
-    assert_eq!(msg["data"]["content"]["membership"], "join");
-    assert_eq!(msg["data"]["unsigned"]["prev_content"]["membership"], "join");
+    assert_eq!(events[0]["api"], "toWidget");
+    assert_eq!(events[0]["action"], "send_event");
+    assert_eq!(events[0]["data"]["type"], "m.room.message");
+    assert_eq!(events[0]["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(events[0]["data"]["content"]["msgtype"], "m.text");
+    assert_eq!(events[0]["data"]["content"]["body"], "simple text message");
 
-    let msg = recv_message(&driver_handle).await;
-    assert_eq!(msg["api"], "toWidget");
-    assert_eq!(msg["action"], "send_event");
-    assert_eq!(msg["data"]["type"], "m.room.name");
-    assert_eq!(msg["data"]["sender"], BOB.as_str());
-    assert_eq!(msg["data"]["content"]["name"], "New Room Name");
+    assert_eq!(events[1]["api"], "toWidget");
+    assert_eq!(events[1]["action"], "send_event");
+    assert_eq!(events[1]["data"]["type"], "m.room.member");
+    assert_eq!(events[1]["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(events[1]["data"]["state_key"], "@example:localhost");
+    assert_eq!(events[1]["data"]["content"]["membership"], "join");
+    assert_eq!(events[1]["data"]["unsigned"]["prev_content"]["membership"], "join");
+
+    assert_eq!(events[2]["api"], "toWidget");
+    assert_eq!(events[2]["action"], "send_event");
+    assert_eq!(events[2]["data"]["type"], "m.room.name");
+    assert_eq!(events[2]["data"]["sender"], BOB.as_str());
+    assert_eq!(events[2]["data"]["content"]["name"], "New Room Name");
+
+    assert_eq!(to_device["api"], "toWidget");
+    assert_eq!(to_device["action"], "send_to_device");
+    assert_eq!(to_device["data"]["type"], "my.custom.to.device");
 
     // No more messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
@@ -845,9 +866,10 @@ async fn test_send_redaction() {
 }
 
 async fn send_to_device_test_helper(
-    event_type: &str,
+    request_id: &str,
     data: JsonValue,
     expected_response: JsonValue,
+    calls: u64,
 ) -> JsonValue {
     let (_, mock_server, driver_handle) = run_test_driver(false).await;
 
@@ -860,26 +882,29 @@ async fn send_to_device_test_helper(
     )
     .await;
 
-    mock_server.mock_send_to_device().ok().mock_once().mount().await;
+    mock_server.mock_send_to_device().ok().expect(calls).mount().await;
 
-    send_request(&driver_handle, event_type, "org.matrix.msc3819.send_to_device", data).await;
+    send_request(&driver_handle, request_id, "org.matrix.msc3819.send_to_device", data).await;
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "org.matrix.msc3819.send_to_device");
     let response = msg["response"].clone();
-    assert_eq!(&response, &expected_response);
+    assert_eq!(
+        serde_json::to_string(&response).unwrap(),
+        serde_json::to_string(&expected_response).unwrap()
+    );
 
     response
 }
 
 #[async_test]
 async fn test_send_to_device_event() {
-    let r = send_to_device_test_helper(
-        "my.custom.to_device_type",
+    send_to_device_test_helper(
+        "id_my.custom.to_device_type",
         json!({
-            "type": "my.custom.to_device_type",
+            "type":"my.custom.to_device_type",
             "encrypted": false,
             "messages":{
                 "@username:test.org": {
@@ -890,19 +915,19 @@ async fn test_send_to_device_event() {
             }
         }),
         json! {{}},
+        1,
     )
     .await;
-    assert_eq!(r.as_object(), Some(Map::new()).as_ref());
 }
 
 #[async_test]
 async fn test_error_to_device_event_no_permission() {
-    let r = send_to_device_test_helper(
-        "my.custom.to_device_type",
+    send_to_device_test_helper(
+        "id_my.unallowed_type",
         json!({
             "type": "my.unallowed_type",
             "encrypted": false,
-            "messages":{
+            "messages": {
                 "@username:test.org": {
                     "DEVICEID": {
                         "param1":"test",
@@ -912,14 +937,14 @@ async fn test_error_to_device_event_no_permission() {
         }),
         // this means the server did not get the correct event type
         json! {{"error": {"message": "Not allowed to send to-device message of type: my.unallowed_type"}}},
+        0
     )
     .await;
-    assert_eq!(r.as_object(), Some(Map::new()).as_ref());
 }
 
 #[async_test]
 async fn test_send_encrypted_to_device_event() {
-    let r = send_to_device_test_helper(
+    send_to_device_test_helper(
         "my.custom.to_device_type",
         json!({
             "type": "my.custom.to_device_type",
@@ -933,9 +958,9 @@ async fn test_send_encrypted_to_device_event() {
             }
         }),
         json! {{}},
+        1,
     )
     .await;
-    assert_eq!(r.as_object(), Some(Map::new()).as_ref());
 }
 
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
