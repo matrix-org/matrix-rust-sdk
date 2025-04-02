@@ -122,7 +122,7 @@ impl Timeline {
             .caption(params.caption)
             .formatted_caption(formatted_caption)
             .mentions(params.mentions.map(Into::into))
-            .reply(params.reply_params.map(|p| p.to_reply()).transpose()?);
+            .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =
@@ -223,8 +223,10 @@ pub struct ReplyParameters {
     reply_within_thread: bool,
 }
 
-impl ReplyParameters {
-    fn to_reply(&self) -> Result<Reply, RoomError> {
+impl TryInto<Reply> for ReplyParameters {
+    type Error = RoomError;
+
+    fn try_into(self) -> Result<Reply, Self::Error> {
         let event_id =
             EventId::parse(&self.event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
         let enforce_thread = if self.enforce_thread {
@@ -504,7 +506,7 @@ impl Timeline {
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_params: ReplyParameters,
     ) -> Result<(), ClientError> {
-        let reply = reply_params.to_reply()?;
+        let reply: Reply = reply_params.try_into()?;
         self.inner
             .send_reply((*msg).clone(), reply.event_id, reply.enforce_thread)
             .await
