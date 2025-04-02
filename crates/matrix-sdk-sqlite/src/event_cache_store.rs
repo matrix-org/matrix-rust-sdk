@@ -22,6 +22,7 @@ use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         store::{
+            compute_filters_string, extract_event_relation,
             media::{
                 EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
                 MediaService,
@@ -36,7 +37,10 @@ use matrix_sdk_base::{
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId};
+use ruma::{
+    events::relation::RelationType, time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri,
+    OwnedEventId, RoomId,
+};
 use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::fs;
 use tracing::{debug, error, trace};
@@ -68,7 +72,7 @@ const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 6;
+const DATABASE_VERSION: u8 = 7;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -193,6 +197,29 @@ impl SqliteEventCacheStore {
             row.get::<_, String>(3)?,
         ))
     }
+
+    fn encode_event(&self, event: &TimelineEvent) -> Result<EncodedEvent> {
+        let serialized = serde_json::to_vec(event)?;
+
+        // Extract the relationship info here.
+        let raw_event = event.raw();
+        let (relates_to, rel_type) = extract_event_relation(raw_event).unzip();
+
+        // The content may be encrypted.
+        let content = self.encode_value(serialized)?;
+
+        Ok(EncodedEvent {
+            content,
+            rel_type,
+            relates_to: relates_to.map(|relates_to| relates_to.to_string()),
+        })
+    }
+}
+
+struct EncodedEvent {
+    content: Vec<u8>,
+    rel_type: Option<String>,
+    relates_to: Option<String>,
 }
 
 trait TransactionExtForLinkedChunks {
@@ -271,7 +298,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         // There's at most one row for it in the database, so a call to `query_row` is
         // sufficient.
         let encoded_prev_token: Vec<u8> = self.query_row(
-            "SELECT prev_token FROM gaps WHERE chunk_id = ? AND room_id = ?",
+            "SELECT prev_token FROM gap_chunks WHERE chunk_id = ? AND room_id = ?",
             (chunk_id.index(), &room_id),
             |row| row.get(0),
         )?;
@@ -292,9 +319,11 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         for event_data in self
             .prepare(
                 r#"
-                    SELECT content FROM events
-                    WHERE chunk_id = ? AND room_id = ?
-                    ORDER BY position ASC
+                    SELECT events.content
+                    FROM event_chunks ec
+                    INNER JOIN events USING (event_id, room_id)
+                    WHERE ec.chunk_id = ? AND ec.room_id = ?
+                    ORDER BY ec.position ASC
                 "#,
             )?
             .query_map((chunk_id.index(), &room_id), |row| row.get::<_, Vec<u8>>(0))?
@@ -374,6 +403,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
             txn.set_db_version(6)
+        })
+        .await?;
+    }
+
+    if version < 7 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/007_event_chunks.sql"
+            ))?;
+            txn.set_db_version(7)
         })
         .await?;
     }
@@ -478,7 +517,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // Insert the gap's value.
                         txn.execute(
                             r#"
-                            INSERT INTO gaps(chunk_id, room_id, prev_token)
+                            INSERT INTO gap_chunks(chunk_id, room_id, prev_token)
                             VALUES (?, ?, ?)
                         "#,
                             (new, &hashed_room_id, prev_token),
@@ -522,8 +561,16 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
-                        let mut statement = txn.prepare(
-                            "INSERT INTO events(chunk_id, room_id, event_id, content, position) VALUES (?, ?, ?, ?, ?)"
+                        let mut chunk_statement = txn.prepare(
+                            "INSERT INTO event_chunks(chunk_id, room_id, event_id, position) VALUES (?, ?, ?, ?)"
+                        )?;
+
+                        // Note: we use `OR REPLACE` here, because the event might have been
+                        // already inserted in the database. This is the case when an event is
+                        // deduplicated and moved to another position; or because it was inserted
+                        // outside the context of a linked chunk (e.g. pinned event).
+                        let mut content_statement = txn.prepare(
+                            "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -536,23 +583,22 @@ impl EventCacheStore for SqliteEventCacheStore {
                         };
 
                         for (i, (event_id, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
-                            let serialized = serde_json::to_vec(&event)?;
-                            let content = this.encode_value(serialized)?;
-
+                            // Insert the location information into the database.
                             let index = at.index() + i;
+                            chunk_statement.execute((chunk_id, &hashed_room_id, &event_id, index))?;
 
-                            statement.execute((chunk_id, &hashed_room_id, event_id, content, index))?;
+                            // Now, insert the event content into the database.
+                            let encoded_event = this.encode_event(&event)?;
+                            content_statement.execute((&hashed_room_id, event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
                         }
                     }
 
                     Update::ReplaceItem { at, item: event } => {
                         let chunk_id = at.chunk_identifier().index();
+
                         let index = at.index();
 
                         trace!(%room_id, "replacing item @ {chunk_id}:{index}");
-
-                        let serialized = serde_json::to_vec(&event)?;
-                        let content = this.encode_value(serialized)?;
 
                         // The event id should be the same, but just in case it changed…
                         let Some(event_id) = event.event_id().map(|event_id| event_id.to_string()) else {
@@ -560,13 +606,18 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
+                        // Replace the event's content. Really we'd like to update, but in case the
+                        // event id changed, we are a bit lenient here and will allow an insertion
+                        // of the new event.
+                        let encoded_event = this.encode_event(&event)?;
                         txn.execute(
-                            r#"
-                            UPDATE events
-                            SET content = ?, event_id = ?
-                            WHERE room_id = ? AND chunk_id = ? AND position = ?
-                        "#,
-                            (content, event_id, &hashed_room_id, chunk_id, index,)
+                            "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
+                        , (&hashed_room_id, &event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+
+                        // Replace the event id in the linked chunk, in case it changed.
+                        txn.execute(
+                            r#"UPDATE event_chunks SET event_id = ? WHERE room_id = ? AND chunk_id = ? AND position = ?"#,
+                            (event_id, &hashed_room_id, chunk_id, index)
                         )?;
                     }
 
@@ -576,13 +627,13 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         trace!(%room_id, "removing item @ {chunk_id}:{index}");
 
-                        // Remove the entry.
-                        txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
+                        // Remove the entry in the chunk table.
+                        txn.execute("DELETE FROM event_chunks WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
 
                         // Decrement the index of each item after the one we're going to remove.
                         txn.execute(
                             r#"
-                                UPDATE events
+                                UPDATE event_chunks
                                 SET position = position - 1
                                 WHERE room_id = ? AND chunk_id = ? AND position > ?
                             "#,
@@ -598,7 +649,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         trace!(%room_id, "truncating items >= {chunk_id}:{index}");
 
                         // Remove these entries.
-                        txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
+                        txn.execute("DELETE FROM event_chunks WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
                     }
 
                     Update::Clear => {
@@ -813,7 +864,9 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?
             .with_transaction(move |txn| {
                 // Remove all the chunks, and let cascading do its job.
-                txn.execute("DELETE FROM linked_chunks", ())
+                txn.execute("DELETE FROM linked_chunks", ())?;
+                // Also clear all the events' contents.
+                txn.execute("DELETE FROM events", ())
             })
             .await?;
         Ok(())
@@ -840,9 +893,15 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 txn.chunk_large_query_over(events, None, move |txn, events| {
                     let query = format!(
-                        "SELECT event_id, chunk_id, position FROM events WHERE room_id = ? AND event_id IN ({}) ORDER BY chunk_id ASC, position ASC",
+                        r#"
+                            SELECT event_id, chunk_id, position
+                            FROM event_chunks
+                            WHERE room_id = ? AND event_id IN ({})
+                            ORDER BY chunk_id ASC, position ASC
+                        "#,
                         repeat_vars(events.len()),
                     );
+
                     let parameters = params_from_iter(
                         // parameter for `room_id = ?`
                         once(
@@ -863,16 +922,13 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                     let mut duplicated_events = Vec::new();
 
-                    for duplicated_event in txn
-                        .prepare(&query)?
-                        .query_map(parameters, |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, u64>(1)?,
-                                row.get::<_, usize>(2)?
-                            ))
-                        })?
-                    {
+                    for duplicated_event in txn.prepare(&query)?.query_map(parameters, |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, u64>(1)?,
+                            row.get::<_, usize>(2)?,
+                        ))
+                    })? {
                         let (duplicated_event, chunk_identifier, index) = duplicated_event?;
 
                         let Ok(duplicated_event) = EventId::parse(duplicated_event.clone()) else {
@@ -882,7 +938,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
-                        duplicated_events.push((duplicated_event, Position::new(ChunkIdentifier::new(chunk_identifier), index)));
+                        duplicated_events.push((
+                            duplicated_event,
+                            Position::new(ChunkIdentifier::new(chunk_identifier), index),
+                        ));
                     }
 
                     Ok(duplicated_events)
@@ -895,7 +954,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error> {
+    ) -> Result<Option<Event>, Self::Error> {
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
         let event_id = event_id.to_owned();
         let this = self.clone();
@@ -903,17 +962,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                let Some((chunk_identifier, index, event)) = txn
-                    .prepare(
-                        "SELECT chunk_id, position, content FROM events WHERE room_id = ? AND event_id = ?",
-                    )?
-                    .query_row((hashed_room_id, event_id.as_str(),), |row| {
-                        Ok((
-                            row.get::<_, u64>(0)?,
-                            row.get::<_, usize>(1)?,
-                            row.get::<_, Vec<u8>>(2)?,
-                        ))
-                    })
+                let Some(event) = txn
+                    .prepare("SELECT content FROM events WHERE event_id = ? AND room_id = ?")?
+                    .query_row((event_id.as_str(), hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
                     .optional()?
                 else {
                     // Event is not found.
@@ -922,7 +973,79 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 let event = serde_json::from_slice(&this.decode_value(&event)?)?;
 
-                Ok(Some((Position::new(ChunkIdentifier::new(chunk_identifier), index), event)))
+                Ok(Some(event))
+            })
+            .await
+    }
+
+    async fn find_event_relations(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        filters: Option<&[RelationType]>,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let event_id = event_id.to_owned();
+        let filters = filters.map(ToOwned::to_owned);
+        let this = self.clone();
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let filter_query = if let Some(filters) = compute_filters_string(filters.as_deref())
+                {
+                    format!(
+                        " AND rel_type IN ({})",
+                        filters
+                            .into_iter()
+                            .map(|f| format!(r#""{f}""#))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                } else {
+                    "".to_owned()
+                };
+
+                let query = format!(
+                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {}",
+                    filter_query
+                );
+
+                // Collect related events.
+                let mut related = Vec::new();
+                for ev in
+                    txn.prepare(&query)?.query_map((event_id.as_str(), hashed_room_id), |row| {
+                        row.get::<_, Vec<u8>>(0)
+                    })?
+                {
+                    let ev = ev?;
+                    let ev = serde_json::from_slice(&this.decode_value(&ev)?)?;
+                    related.push(ev);
+                }
+
+                Ok(related)
+            })
+            .await
+    }
+
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        let Some(event_id) = event.event_id() else {
+            error!(%room_id, "Trying to save an event with no ID");
+            return Ok(());
+        };
+
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let event_id = event_id.to_string();
+        let encoded_event = self.encode_event(&event)?;
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.execute(
+                    "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
+                    , (&hashed_room_id, &event_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+
+                Ok(())
             })
             .await
     }
@@ -1367,7 +1490,9 @@ mod tests {
     use matrix_sdk_base::{
         event_cache::{
             store::{
-                integration_tests::{check_test_event, make_test_event},
+                integration_tests::{
+                    check_test_event, make_test_event, make_test_event_with_event_id,
+                },
                 media::IgnoreMediaRetentionPolicy,
                 EventCacheStore, EventCacheStoreError,
             },
@@ -1380,7 +1505,7 @@ mod tests {
     };
     use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
     use once_cell::sync::Lazy;
-    use ruma::{events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
+    use ruma::{event_id, events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
@@ -1596,6 +1721,7 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = &DEFAULT_TEST_ROOM_ID;
+        let event_id = event_id!("$world");
 
         store
             .handle_linked_chunk_updates(
@@ -1610,12 +1736,12 @@ mod tests {
                         at: Position::new(ChunkIdentifier::new(42), 0),
                         items: vec![
                             make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
+                            make_test_event_with_event_id(room_id, "world", Some(event_id)),
                         ],
                     },
                     Update::ReplaceItem {
                         at: Position::new(ChunkIdentifier::new(42), 1),
-                        item: make_test_event(room_id, "yolo"),
+                        item: make_test_event_with_event_id(room_id, "yolo", Some(event_id)),
                     },
                 ],
             )
@@ -1700,7 +1826,7 @@ mod tests {
             .with_transaction(|txn| -> rusqlite::Result<_> {
                 let mut gaps = Vec::new();
                 for data in txn
-                    .prepare("SELECT chunk_id FROM gaps ORDER BY chunk_id")?
+                    .prepare("SELECT chunk_id FROM gap_chunks ORDER BY chunk_id")?
                     .query_map((), |row| row.get::<_, u64>(0))?
                 {
                     gaps.push(data?);
@@ -1809,7 +1935,7 @@ mod tests {
             .unwrap()
             .with_transaction(move |txn| {
                 txn.query_row(
-                    "SELECT COUNT(*) FROM events WHERE chunk_id = 42 AND room_id = ? AND position = 0",
+                    "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND room_id = ? AND position = 0",
                     (room_id.as_bytes(),),
                     |row| row.get(0),
                 )
@@ -1955,12 +2081,12 @@ mod tests {
             .unwrap()
             .with_transaction(|txn| -> rusqlite::Result<_> {
                 let num_gaps = txn
-                    .prepare("SELECT COUNT(chunk_id) FROM gaps ORDER BY chunk_id")?
+                    .prepare("SELECT COUNT(chunk_id) FROM gap_chunks ORDER BY chunk_id")?
                     .query_row((), |row| row.get::<_, u64>(0))?;
                 assert_eq!(num_gaps, 0);
 
                 let num_events = txn
-                    .prepare("SELECT COUNT(event_id) FROM events ORDER BY chunk_id")?
+                    .prepare("SELECT COUNT(event_id) FROM event_chunks ORDER BY chunk_id")?
                     .query_row((), |row| row.get::<_, u64>(0))?;
                 assert_eq!(num_events, 0);
 

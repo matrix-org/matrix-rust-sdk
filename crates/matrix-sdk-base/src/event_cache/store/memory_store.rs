@@ -28,11 +28,14 @@ use matrix_sdk_common::{
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
+    events::relation::RelationType,
     time::{Instant, SystemTime},
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
 };
+use tracing::error;
 
 use super::{
+    compute_filters_string, extract_event_relation,
     media::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService},
     EventCacheStore, EventCacheStoreError, Result,
 };
@@ -54,7 +57,7 @@ pub struct MemoryStore {
 struct MemoryStoreInner {
     media: RingBuffer<MediaContent>,
     leases: HashMap<String, (String, Instant)>,
-    events: RelationalLinkedChunk<Event, Gap>,
+    events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
     media_retention_policy: Option<MediaRetentionPolicy>,
     last_media_cleanup_time: SystemTime,
 }
@@ -206,15 +209,62 @@ impl EventCacheStore for MemoryStore {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error> {
+    ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event_and_room = inner.events.items().find_map(|(position, event, this_room_id)| {
-            (room_id == this_room_id && event.event_id()? == event_id)
-                .then_some((position, event.clone()))
+        let event = inner.events.items().find_map(|(event, this_room_id)| {
+            (room_id == this_room_id && event.event_id()? == event_id).then_some(event.clone())
         });
 
-        Ok(event_and_room)
+        Ok(event)
+    }
+
+    async fn find_event_relations(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        filters: Option<&[RelationType]>,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        let filters = compute_filters_string(filters);
+
+        let related_events = inner
+            .events
+            .items()
+            .filter_map(|(event, this_room_id)| {
+                // Must be in the same room.
+                if room_id != this_room_id {
+                    return None;
+                }
+
+                // Must have a relation.
+                let (related_to, rel_type) = extract_event_relation(event.raw())?;
+
+                // Must relate to the target item.
+                if related_to != event_id {
+                    return None;
+                }
+
+                // Must not be filtered out.
+                if let Some(filters) = &filters {
+                    filters.iter().any(|f| *f == rel_type).then_some(event.clone())
+                } else {
+                    Some(event.clone())
+                }
+            })
+            .collect();
+
+        Ok(related_events)
+    }
+
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        if event.event_id().is_none() {
+            error!(%room_id, "Trying to save an event with no ID");
+            return Ok(());
+        }
+        self.inner.write().unwrap().events.save_item(room_id.to_owned(), event);
+        Ok(())
     }
 
     async fn add_media_content(

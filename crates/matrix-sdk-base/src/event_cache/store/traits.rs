@@ -19,7 +19,7 @@ use matrix_sdk_common::{
     linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
     AsyncTraitDeps,
 };
-use ruma::{EventId, MxcUri, OwnedEventId, RoomId};
+use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
 
 use super::{
     media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
@@ -98,7 +98,9 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// Clear persisted events for all the rooms.
     ///
     /// This will empty and remove all the linked chunks stored previously,
-    /// using the above [`Self::handle_linked_chunk_updates`] methods.
+    /// using the above [`Self::handle_linked_chunk_updates`] methods. It
+    /// must *also* delete all the events' content, if they were stored in a
+    /// separate table.
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error>;
 
     /// Given a set of event IDs, return the duplicated events along with their
@@ -114,7 +116,28 @@ pub trait EventCacheStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error>;
+    ) -> Result<Option<Event>, Self::Error>;
+
+    /// Find all the events that relate to a given event.
+    ///
+    /// An additional filter can be provided to only retrieve related events for
+    /// a certain relationship.
+    async fn find_event_relations(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<Event>, Self::Error>;
+
+    /// Save an event, that might or might not be part of an existing linked
+    /// chunk.
+    ///
+    /// If the event has no event id, it will not be saved, and the function
+    /// must return an Ok result early.
+    ///
+    /// If the event was already stored with the same id, it must be replaced,
+    /// without causing an error.
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -310,8 +333,21 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<(Position, Event)>, Self::Error> {
+    ) -> Result<Option<Event>, Self::Error> {
         self.0.find_event(room_id, event_id).await.map_err(Into::into)
+    }
+
+    async fn find_event_relations(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<Event>, Self::Error> {
+        self.0.find_event_relations(room_id, event_id, filter).await.map_err(Into::into)
+    }
+
+    async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        self.0.save_event(room_id, event).await.map_err(Into::into)
     }
 
     async fn add_media_content(

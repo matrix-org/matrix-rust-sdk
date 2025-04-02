@@ -626,6 +626,7 @@ async fn test_event() {
 
     let cache = client.event_cache();
     let _ = cache.subscribe();
+    cache.enable_storage().unwrap();
 
     let room = server
         .sync_room(
@@ -668,7 +669,8 @@ async fn test_event() {
     assert!(push_actions.iter().any(|a| a.should_notify()));
 
     // Requested event was saved to the cache
-    assert!(cache.event(event_id).await.is_some());
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    assert!(room_event_cache.event(event_id).await.is_some());
 
     // So we can reload it without hitting the network.
     let timeline_event = room.load_or_fetch_event(event_id, None).await.unwrap();
@@ -688,6 +690,7 @@ async fn test_event_with_context() {
     let (client, server) = logged_in_client_with_server().await;
     let cache = client.event_cache();
     let _ = cache.subscribe();
+    cache.enable_storage().unwrap();
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -741,9 +744,10 @@ async fn test_event_with_context() {
     assert_eq!(event.event_id(), next_event_id);
 
     // Requested event and their context ones were saved to the cache
-    assert!(cache.event(event_id).await.is_some());
-    assert!(cache.event(prev_event_id).await.is_some());
-    assert!(cache.event(next_event_id).await.is_some());
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    assert!(room_event_cache.event(event_id).await.is_some());
+    assert!(room_event_cache.event(prev_event_id).await.is_some());
+    assert!(room_event_cache.event(next_event_id).await.is_some());
 }
 
 #[async_test]

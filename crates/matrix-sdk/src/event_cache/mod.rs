@@ -46,14 +46,7 @@ use matrix_sdk_common::executor::{spawn, JoinHandle};
 use once_cell::sync::OnceCell;
 use room::RoomEventCacheState;
 use ruma::{
-    events::{
-        relation::RelationType,
-        room::{message::Relation, redaction::SyncRoomRedactionEvent},
-        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent,
-    },
-    serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, RoomId, RoomVersionId,
+    events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId, RoomVersionId,
 };
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
@@ -169,7 +162,6 @@ impl EventCache {
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
-                all_events: Default::default(),
                 auto_shrink_sender: Default::default(),
             }),
         }
@@ -228,33 +220,6 @@ impl EventCache {
         });
 
         Ok(())
-    }
-
-    /// Try to find an event by its ID in all the rooms.
-    // Note: replace this with a select-by-id query when this is implemented in a
-    // store.
-    pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
-        self.inner
-            .all_events
-            .read()
-            .await
-            .events
-            .get(event_id)
-            .map(|(_room_id, event)| event.clone())
-    }
-
-    /// Clear all the events from the immutable event cache.
-    ///
-    /// This keeps all the rooms along with their internal events linked chunks,
-    /// but it clears the side immutable cache for events.
-    ///
-    /// As such, it doesn't emit any [`RoomEventCacheUpdate`], and it's expected
-    /// to be only useful in testing contexts.
-    // Note: replace this with a remove query when this is implemented in a
-    // store.
-    #[cfg(any(test, feature = "testing"))]
-    pub async fn empty_immutable_cache(&self) {
-        self.inner.all_events.write().await.events.clear();
     }
 
     #[instrument(skip_all)]
@@ -439,146 +404,6 @@ impl EventCache {
     }
 }
 
-type AllEventsMap = BTreeMap<OwnedEventId, (OwnedRoomId, TimelineEvent)>;
-type RelationsMap = BTreeMap<OwnedEventId, BTreeMap<OwnedEventId, RelationType>>;
-
-/// Cache wrapper containing both copies of received events and lists of event
-/// ids related to them.
-#[derive(Default, Clone)]
-struct AllEventsCache {
-    /// A cache of received events mapped by their event id.
-    events: AllEventsMap,
-    /// A cache of related event ids for an event id. The key is the original
-    /// event id and the value a list of event ids related to it.
-    relations: RelationsMap,
-}
-
-impl AllEventsCache {
-    fn clear(&mut self) {
-        self.events.clear();
-        self.relations.clear();
-    }
-
-    /// If the event is related to another one, its id is added to the relations
-    /// map.
-    fn append_related_event(&mut self, event: &TimelineEvent) {
-        // Handle and cache events and relations.
-        let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() else {
-            return;
-        };
-
-        // Handle redactions separately, as their logic is slightly different.
-        if let AnySyncMessageLikeEvent::RoomRedaction(room_redaction) = &ev {
-            let redacted_event_id = match room_redaction {
-                SyncRoomRedactionEvent::Original(ev) => {
-                    ev.content.redacts.as_ref().or(ev.redacts.as_ref())
-                }
-                SyncRoomRedactionEvent::Redacted(redacted_redaction) => {
-                    redacted_redaction.content.redacts.as_ref()
-                }
-            };
-
-            if let Some(redacted_event_id) = redacted_event_id {
-                self.relations
-                    .entry(redacted_event_id.to_owned())
-                    .or_default()
-                    .insert(ev.event_id().to_owned(), RelationType::Replacement);
-            }
-
-            return;
-        }
-
-        let relationship = match ev.original_content() {
-            Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
-                if let Some(relation) = c.relates_to {
-                    match relation {
-                        Relation::Replacement(replacement) => {
-                            Some((replacement.event_id, RelationType::Replacement))
-                        }
-                        Relation::Reply { in_reply_to } => {
-                            Some((in_reply_to.event_id, RelationType::Reference))
-                        }
-                        Relation::Thread(thread) => Some((thread.event_id, RelationType::Thread)),
-                        // Do nothing for custom
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            }
-            Some(AnyMessageLikeEventContent::PollResponse(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::PollEnd(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
-                Some((c.relates_to.event_id, RelationType::Reference))
-            }
-            Some(AnyMessageLikeEventContent::Reaction(c)) => {
-                Some((c.relates_to.event_id, RelationType::Annotation))
-            }
-            _ => None,
-        };
-
-        if let Some(relationship) = relationship {
-            self.relations
-                .entry(relationship.0)
-                .or_default()
-                .insert(ev.event_id().to_owned(), relationship.1);
-        }
-    }
-
-    /// Looks for related event ids for the passed event id, and appends them to
-    /// the `results` parameter. Then it'll recursively get the related
-    /// event ids for those too.
-    fn collect_related_events(
-        &self,
-        event_id: &EventId,
-        filter: Option<&[RelationType]>,
-    ) -> Vec<TimelineEvent> {
-        let mut results = Vec::new();
-        self.collect_related_events_rec(event_id, filter, &mut results);
-        results
-    }
-
-    fn collect_related_events_rec(
-        &self,
-        event_id: &EventId,
-        filter: Option<&[RelationType]>,
-        results: &mut Vec<TimelineEvent>,
-    ) {
-        let Some(related_event_ids) = self.relations.get(event_id) else {
-            return;
-        };
-
-        for (related_event_id, relation_type) in related_event_ids {
-            if let Some(filter) = filter {
-                if !filter.contains(relation_type) {
-                    continue;
-                }
-            }
-
-            // If the event was already added to the related ones, skip it.
-            if results.iter().any(|event| {
-                event.event_id().is_some_and(|added_related_event_id| {
-                    added_related_event_id == *related_event_id
-                })
-            }) {
-                continue;
-            }
-
-            if let Some((_, ev)) = self.events.get(related_event_id) {
-                results.push(ev.clone());
-                self.collect_related_events_rec(related_event_id, filter, results);
-            }
-        }
-    }
-}
-
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
@@ -600,16 +425,6 @@ struct EventCacheInner {
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
     by_room: RwLock<BTreeMap<OwnedRoomId, RoomEventCache>>,
-
-    /// All events, keyed by event id.
-    ///
-    /// Since events are immutable in Matrix, this is append-only — events can
-    /// be updated, though (e.g. if it was encrypted before, and
-    /// successfully decrypted later).
-    ///
-    /// This is shared between the [`EventCacheInner`] singleton and all
-    /// [`RoomEventCacheInner`] instances.
-    all_events: Arc<RwLock<AllEventsCache>>,
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
@@ -746,7 +561,6 @@ impl EventCacheInner {
                     room_state,
                     pagination_status,
                     room_id.to_owned(),
-                    self.all_events.clone(),
                     auto_shrink_sender,
                 );
 
@@ -939,20 +753,7 @@ mod tests {
         // Have the event cache handle them.
         event_cache.inner.handle_room_updates(updates).await.unwrap();
 
-        // Now retrieve all the events one by one.
-        let found1 = event_cache.event(eid1).await.unwrap();
-        assert_event_matches_msg(&found1, "hey");
-
-        let found2 = event_cache.event(eid2).await.unwrap();
-        assert_event_matches_msg(&found2, "you");
-
-        let found3 = event_cache.event(eid3).await.unwrap();
-        assert_event_matches_msg(&found3, "bjr");
-
-        // An unknown event won't be found.
-        assert!(event_cache.event(event_id!("$unknown")).await.is_none());
-
-        // Can also find events in a single room.
+        // We can find the events in a single room.
         client.base_client().get_or_create_room(room_id1, matrix_sdk_base::RoomState::Joined);
         let room1 = client.get_room(room_id1).unwrap();
 
@@ -967,17 +768,16 @@ mod tests {
         // Retrieving the event with id3 from the room which doesn't contain it will
         // fail…
         assert!(room_event_cache.event(eid3).await.is_none());
-        // …but it doesn't fail at the client-wide level.
-        assert!(event_cache.event(eid3).await.is_some());
     }
 
     #[async_test]
-    async fn test_save_event_and_clear() {
+    async fn test_save_event() {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!galette:saucisse.bzh");
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
 
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
         let event_id = event_id!("$1");
@@ -986,18 +786,10 @@ mod tests {
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        room_event_cache.save_event(f.text_msg("hey there").event_id(event_id).into()).await;
+        room_event_cache.save_events([f.text_msg("hey there").event_id(event_id).into()]).await;
 
         // Retrieving the event at the room-wide cache works.
         assert!(room_event_cache.event(event_id).await.is_some());
-        // Also at the client level.
-        assert!(event_cache.event(event_id).await.is_some());
-
-        event_cache.empty_immutable_cache().await;
-
-        // After clearing, both fail to find the event.
-        assert!(room_event_cache.event(event_id).await.is_none());
-        assert!(event_cache.event(event_id).await.is_none());
     }
 
     #[async_test]

@@ -240,7 +240,9 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let room_id = room_id!("!test:localhost");
 
     // Subscribe to the event cache.
-    client.event_cache().subscribe().unwrap();
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    event_cache.enable_storage().unwrap();
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let pinned_event = f
@@ -301,21 +303,6 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     server.server().reset().await;
     drop(timeline);
     drop(room);
-
-    // Now remove the pinned events from the cache and try again
-    client.event_cache().empty_immutable_cache().await;
-    let room = PinnedEventsSync::new(room_id)
-        .with_pinned_event_ids(vec!["$1", "$2"])
-        .mock_and_sync(&client, &server)
-        .await
-        .expect("Sync failed");
-
-    // And a new timeline one
-    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await;
-
-    // Since the events are no longer in the cache the timeline couldn't load them
-    // and can't be initialised.
-    assert!(ret.is_err());
 }
 
 #[async_test]

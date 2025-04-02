@@ -32,6 +32,12 @@ use matrix_sdk_common::store_locks::{
     BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
+use ruma::{
+    events::{relation::RelationType, AnySyncTimelineEvent},
+    serde::Raw,
+    OwnedEventId,
+};
+use tracing::trace;
 
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::EventCacheStoreIntegrationTests;
@@ -192,4 +198,52 @@ impl BackingStore for LockableEventCacheStore {
     ) -> std::result::Result<bool, Self::LockError> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
     }
+}
+
+/// Helper to extract the relation information from an event.
+///
+/// If the event isn't in relation to another event, then this will return
+/// `None`. Otherwise, returns both the event id this event relates to, and the
+/// kind of relation as a string (e.g. `m.replace`).
+pub fn extract_event_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(OwnedEventId, String)> {
+    #[derive(serde::Deserialize)]
+    struct RelatesTo {
+        event_id: OwnedEventId,
+        rel_type: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct EventContent {
+        #[serde(rename = "m.relates_to")]
+        rel: Option<RelatesTo>,
+    }
+
+    match event.get_field::<EventContent>("content") {
+        Ok(event_content) => {
+            event_content.and_then(|c| c.rel).map(|rel| (rel.event_id, rel.rel_type))
+        }
+        Err(err) => {
+            trace!("when extracting relation data from an event: {err}");
+            None
+        }
+    }
+}
+
+/// Compute the list of string filters to be applied when looking for an event's
+/// relations.
+// TODO: get Ruma fix from https://github.com/ruma/ruma/pull/2052, and get rid of this function
+// then.
+pub fn compute_filters_string(filters: Option<&[RelationType]>) -> Option<Vec<String>> {
+    filters.map(|filter| {
+        filter
+            .iter()
+            .map(|f| {
+                if *f == RelationType::Replacement {
+                    "m.replace".to_owned()
+                } else {
+                    f.to_string()
+                }
+            })
+            .collect()
+    })
 }
