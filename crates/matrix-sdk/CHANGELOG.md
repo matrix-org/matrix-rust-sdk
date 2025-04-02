@@ -215,12 +215,12 @@ simpler methods:
 - [**breaking**] Allow to use any registration method with `OAuth::login()` and
   `OAuth::login_with_qr_code()`.
   ([#4827](https://github.com/matrix-org/matrix-rust-sdk/pull/4827))
-  - `OAuth::login` takes an `ClientRegistrationMethod` to be able to register
-    and login with a single function call.
+  - `OAuth::login` takes an optional `ClientRegistrationData` to be able to
+    register and login with a single function call.
   - `OAuth::url_for_oidc()` was removed, it can be replaced by a call to
     `OAuth::login()`.
-  - `OAuth::login_with_qr_code()` takes a `ClientRegistrationMethod` instead of
-    the client metadata.
+  - `OAuth::login_with_qr_code()` takes an optional `ClientRegistrationData`
+    instead of the client metadata.
   - `OAuth::finish_login` takes a `UrlOrQuery` instead of an
     `AuthorizationCode`. The deserialization of the query string will occur
     inside the method and eventual errors will be handled.
@@ -238,6 +238,9 @@ simpler methods:
 - [**breaking**] The parameters `event_id` and `enforce_thread` on [`Room::make_reply_event()`]
   have been wrapped in a `reply` struct parameter.
   ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
+- [**breaking**] `OidcRegistrations` was removed. Clients are supposed to
+  re-register with the homeserver for every login.
+  ([#4879](https://github.com/matrix-org/matrix-rust-sdk/pull/4879))
 
 ## [0.10.0] - 2025-02-04
 

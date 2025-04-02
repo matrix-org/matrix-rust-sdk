@@ -70,6 +70,9 @@ Breaking changes:
   event ID (and thread reply behaviour) inside a `ReplyParameters` struct.
   ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
 
+- The `dynamic_registrations_file` field of `OidcConfiguration` was removed.
+  Clients are supposed to re-register with the homeserver for every login.
+
 Additions:
 
 - Add `Encryption::get_user_identity` which returns `UserIdentity`
