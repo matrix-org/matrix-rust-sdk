@@ -40,7 +40,7 @@ use super::BaseClient;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    response_processors::AccountDataProcessor,
+    response_processors::account_data::AccountDataProcessor,
     rooms::{
         normal::{RoomHero, RoomInfoNotableUpdateReasons},
         RoomState,
