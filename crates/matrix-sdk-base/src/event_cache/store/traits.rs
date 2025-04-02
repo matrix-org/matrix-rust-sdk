@@ -132,7 +132,8 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// Save an event, that might or might not be part of an existing linked
     /// chunk.
     ///
-    /// If the event has no event id, it may not be saved.
+    /// If the event has no event id, it will not be saved, and the function
+    /// must return an Ok result early.
     ///
     /// If the event was already stored with the same id, it must be replaced,
     /// without causing an error.

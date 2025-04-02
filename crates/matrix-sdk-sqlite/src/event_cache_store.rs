@@ -298,7 +298,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         // There's at most one row for it in the database, so a call to `query_row` is
         // sufficient.
         let encoded_prev_token: Vec<u8> = self.query_row(
-            "SELECT prev_token FROM gaps WHERE chunk_id = ? AND room_id = ?",
+            "SELECT prev_token FROM gap_chunks WHERE chunk_id = ? AND room_id = ?",
             (chunk_id.index(), &room_id),
             |row| row.get(0),
         )?;
@@ -319,8 +319,8 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         for event_data in self
             .prepare(
                 r#"
-                    SELECT content
-                    FROM events_chunks ec
+                    SELECT events.content
+                    FROM event_chunks ec
                     INNER JOIN events USING (event_id, room_id)
                     WHERE ec.chunk_id = ? AND ec.room_id = ?
                     ORDER BY ec.position ASC
@@ -410,7 +410,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     if version < 7 {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
-                "../migrations/event_cache_store/007_events_chunks.sql"
+                "../migrations/event_cache_store/007_event_chunks.sql"
             ))?;
             txn.set_db_version(7)
         })
@@ -517,7 +517,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // Insert the gap's value.
                         txn.execute(
                             r#"
-                            INSERT INTO gaps(chunk_id, room_id, prev_token)
+                            INSERT INTO gap_chunks(chunk_id, room_id, prev_token)
                             VALUES (?, ?, ?)
                         "#,
                             (new, &hashed_room_id, prev_token),
@@ -562,12 +562,13 @@ impl EventCacheStore for SqliteEventCacheStore {
                         trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
                         let mut chunk_statement = txn.prepare(
-                            "INSERT INTO events_chunks(chunk_id, room_id, event_id, position) VALUES (?, ?, ?, ?)"
+                            "INSERT INTO event_chunks(chunk_id, room_id, event_id, position) VALUES (?, ?, ?, ?)"
                         )?;
 
                         // Note: we use `OR REPLACE` here, because the event might have been
                         // already inserted in the database. This is the case when an event is
-                        // deduplicated and moved to another position.
+                        // deduplicated and moved to another position; or because it was inserted
+                        // outside the context of a linked chunk (e.g. pinned event).
                         let mut content_statement = txn.prepare(
                             "INSERT OR REPLACE INTO events(room_id, event_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?)"
                         )?;
@@ -615,7 +616,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         // Replace the event id in the linked chunk, in case it changed.
                         txn.execute(
-                            r#"UPDATE events_chunks SET event_id = ? WHERE room_id = ? AND chunk_id = ? AND position = ?"#,
+                            r#"UPDATE event_chunks SET event_id = ? WHERE room_id = ? AND chunk_id = ? AND position = ?"#,
                             (event_id, &hashed_room_id, chunk_id, index)
                         )?;
                     }
@@ -627,12 +628,12 @@ impl EventCacheStore for SqliteEventCacheStore {
                         trace!(%room_id, "removing item @ {chunk_id}:{index}");
 
                         // Remove the entry in the chunk table.
-                        txn.execute("DELETE FROM events_chunks WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
+                        txn.execute("DELETE FROM event_chunks WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
 
                         // Decrement the index of each item after the one we're going to remove.
                         txn.execute(
                             r#"
-                                UPDATE events_chunks
+                                UPDATE event_chunks
                                 SET position = position - 1
                                 WHERE room_id = ? AND chunk_id = ? AND position > ?
                             "#,
@@ -648,7 +649,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         trace!(%room_id, "truncating items >= {chunk_id}:{index}");
 
                         // Remove these entries.
-                        txn.execute("DELETE FROM events_chunks WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
+                        txn.execute("DELETE FROM event_chunks WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
                     }
 
                     Update::Clear => {
@@ -894,7 +895,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     let query = format!(
                         r#"
                             SELECT event_id, chunk_id, position
-                            FROM events_chunks
+                            FROM event_chunks
                             WHERE room_id = ? AND event_id IN ({})
                             ORDER BY chunk_id ASC, position ASC
                         "#,
@@ -999,7 +1000,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             .into_iter()
                             .map(|f| format!(r#""{f}""#))
                             .collect::<Vec<_>>()
-                            .join(r#", "#)
+                            .join(", ")
                     )
                 } else {
                     "".to_owned()
@@ -1825,7 +1826,7 @@ mod tests {
             .with_transaction(|txn| -> rusqlite::Result<_> {
                 let mut gaps = Vec::new();
                 for data in txn
-                    .prepare("SELECT chunk_id FROM gaps ORDER BY chunk_id")?
+                    .prepare("SELECT chunk_id FROM gap_chunks ORDER BY chunk_id")?
                     .query_map((), |row| row.get::<_, u64>(0))?
                 {
                     gaps.push(data?);
@@ -1934,7 +1935,7 @@ mod tests {
             .unwrap()
             .with_transaction(move |txn| {
                 txn.query_row(
-                    "SELECT COUNT(*) FROM events_chunks WHERE chunk_id = 42 AND room_id = ? AND position = 0",
+                    "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND room_id = ? AND position = 0",
                     (room_id.as_bytes(),),
                     |row| row.get(0),
                 )
@@ -2080,12 +2081,12 @@ mod tests {
             .unwrap()
             .with_transaction(|txn| -> rusqlite::Result<_> {
                 let num_gaps = txn
-                    .prepare("SELECT COUNT(chunk_id) FROM gaps ORDER BY chunk_id")?
+                    .prepare("SELECT COUNT(chunk_id) FROM gap_chunks ORDER BY chunk_id")?
                     .query_row((), |row| row.get::<_, u64>(0))?;
                 assert_eq!(num_gaps, 0);
 
                 let num_events = txn
-                    .prepare("SELECT COUNT(event_id) FROM events_chunks ORDER BY chunk_id")?
+                    .prepare("SELECT COUNT(event_id) FROM event_chunks ORDER BY chunk_id")?
                     .query_row((), |row| row.get::<_, u64>(0))?;
                 assert_eq!(num_events, 0);
 
