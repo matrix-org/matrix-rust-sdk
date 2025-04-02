@@ -23,11 +23,14 @@ use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseVideoInfo, Reply, Thumbnail,
+        BaseVideoInfo, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
-    room::{edit::EditedContent as SdkEditedContent, reply::EnforceThread},
+    room::{
+        edit::EditedContent as SdkEditedContent,
+        reply::{EnforceThread, Reply},
+    },
 };
 use matrix_sdk_ui::timeline::{
     self, EventItemOrigin, Profile, RepliedToEvent, TimelineDetails,
@@ -506,9 +509,8 @@ impl Timeline {
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_params: ReplyParameters,
     ) -> Result<(), ClientError> {
-        let reply: Reply = reply_params.try_into()?;
         self.inner
-            .send_reply((*msg).clone(), reply.event_id, reply.enforce_thread)
+            .send_reply((*msg).clone(), reply_params.try_into()?)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())

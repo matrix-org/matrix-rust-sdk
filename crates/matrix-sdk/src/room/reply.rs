@@ -36,6 +36,15 @@ use tracing::{error, instrument};
 use super::{EventSource, Room};
 
 /// Information needed to reply to an event.
+#[derive(Debug)]
+pub struct Reply {
+    /// The event ID of the event to reply to.
+    pub event_id: OwnedEventId,
+    /// Whether to enforce a thread relation.
+    pub enforce_thread: EnforceThread,
+}
+
+/// Content information needed to reply to an event.
 #[derive(Debug, Clone)]
 struct RepliedToInfo {
     /// The event ID of the event to reply to.
@@ -103,18 +112,9 @@ impl Room {
     pub async fn make_reply_event(
         &self,
         content: RoomMessageEventContentWithoutRelation,
-        event_id: &EventId,
-        enforce_thread: EnforceThread,
+        reply: Reply,
     ) -> Result<RoomMessageEventContent, ReplyError> {
-        make_reply_event(
-            self,
-            self.room_id(),
-            self.own_user_id(),
-            content,
-            event_id,
-            enforce_thread,
-        )
-        .await
+        make_reply_event(self, self.room_id(), self.own_user_id(), content, reply).await
     }
 }
 
@@ -123,10 +123,9 @@ async fn make_reply_event<S: EventSource>(
     room_id: &RoomId,
     own_user_id: &UserId,
     content: RoomMessageEventContentWithoutRelation,
-    event_id: &EventId,
-    enforce_thread: EnforceThread,
+    reply: Reply,
 ) -> Result<RoomMessageEventContent, ReplyError> {
-    let replied_to_info = replied_to_info_from_event_id(source, event_id).await?;
+    let replied_to_info = replied_to_info_from_event_id(source, &reply.event_id).await?;
 
     // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
     //
@@ -149,7 +148,7 @@ async fn make_reply_event<S: EventSource>(
                 unsigned: Default::default(),
             };
 
-            match enforce_thread {
+            match reply.enforce_thread {
                 EnforceThread::Threaded(is_reply) => {
                     content.make_for_thread(&event, is_reply, mention_the_sender)
                 }
@@ -163,7 +162,7 @@ async fn make_reply_event<S: EventSource>(
         }
 
         ReplyContent::Raw(raw_event) => {
-            match enforce_thread {
+            match reply.enforce_thread {
                 EnforceThread::Threaded(is_reply) => {
                     // Some of the code below technically belongs into ruma. However,
                     // reply fallbacks have been removed in Matrix 1.13 which means
@@ -280,7 +279,7 @@ mod tests {
     };
     use serde_json::json;
 
-    use super::{make_reply_event, EnforceThread, EventSource, ReplyError};
+    use super::{make_reply_event, EnforceThread, EventSource, Reply, ReplyError};
     use crate::{event_cache::EventCacheError, Error};
 
     #[derive(Default)]
@@ -318,8 +317,10 @@ mod tests {
                 room_id,
                 own_user_id,
                 content,
-                event_id!("$2"),
-                EnforceThread::Unthreaded,
+                Reply {
+                    event_id: event_id!("$2").into(),
+                    enforce_thread: EnforceThread::Unthreaded
+                },
             )
             .await,
             Err(ReplyError::Fetch(_))
@@ -361,8 +362,7 @@ mod tests {
                 room_id,
                 own_user_id,
                 content,
-                event_id,
-                EnforceThread::Unthreaded,
+                Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
             )
             .await,
             Err(ReplyError::Deserialization)
@@ -390,8 +390,7 @@ mod tests {
                 room_id,
                 own_user_id,
                 content,
-                event_id,
-                EnforceThread::Unthreaded,
+                Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
             )
             .await,
             Err(ReplyError::StateEvent)
@@ -418,8 +417,7 @@ mod tests {
             room_id,
             own_user_id,
             content,
-            event_id,
-            EnforceThread::Unthreaded,
+            Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
         )
         .await
         .unwrap();
@@ -449,8 +447,10 @@ mod tests {
             room_id,
             own_user_id,
             content,
-            event_id,
-            EnforceThread::Threaded(ReplyWithinThread::No),
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+            },
         )
         .await
         .unwrap();
@@ -491,8 +491,10 @@ mod tests {
             room_id,
             own_user_id,
             content,
-            event_id,
-            EnforceThread::Threaded(ReplyWithinThread::No),
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+            },
         )
         .await
         .unwrap();
@@ -533,8 +535,10 @@ mod tests {
             room_id,
             own_user_id,
             content,
-            event_id,
-            EnforceThread::Threaded(ReplyWithinThread::Yes),
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::Yes),
+            },
         )
         .await
         .unwrap();
@@ -575,8 +579,7 @@ mod tests {
             room_id,
             own_user_id,
             content,
-            event_id,
-            EnforceThread::MaybeThreaded,
+            Reply { event_id: event_id.into(), enforce_thread: EnforceThread::MaybeThreaded },
         )
         .await
         .unwrap();
