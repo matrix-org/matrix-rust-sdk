@@ -14,14 +14,15 @@
 
 //! Private implementations of the media upload mechanism.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, iter::zip};
 
 use matrix_sdk_base::{
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::{MediaFormat, MediaRequestParameters, UniqueKey},
     store::{
-        ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
-        QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
+        ChildTransactionId, DependentQueuedRequestKind, FinishGalleryItemInfo,
+        FinishUploadThumbnailInfo, QueuedRequestKind, SentMediaInfo, SentRequestKey,
+        SerializableEventContent,
     },
     RoomState,
 };
@@ -434,7 +435,6 @@ impl RoomSendQueue {
 
             item_queue_infos.push(GalleryItemQueueInfo {
                 content_type,
-                finish_upload_file_txn: TransactionId::new(),
                 upload_file_txn: upload_file_txn.clone(),
                 file_media_request,
                 thumbnail: queue_thumbnail_info,
@@ -602,19 +602,24 @@ impl QueueStorage {
         &self,
         client: &Client,
         event_txn: OwnedTransactionId,
+        parent_key: SentRequestKey,
         mut local_echo: RoomMessageEventContent,
-        item_infos: Vec<FinishedGalleryItemInfo>,
+        item_infos: Vec<FinishGalleryItemInfo>,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
     ) -> Result<(), RoomSendQueueError> {
+        // Both uploads are ready: enqueue the event with its final data.
+        let sent_gallery = parent_key
+            .into_gallery_media()
+            .ok_or(RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey))?;
+
+        let mut sent_media_vec = sent_gallery.accumulated;
+        sent_media_vec
+            .push(SentMediaInfo { file: sent_gallery.file, thumbnail: sent_gallery.thumbnail });
+
         let mut sent_infos = HashMap::<String, SentMediaInfo>::new();
 
-        for item_info in item_infos {
-            let FinishedGalleryItemInfo { parent_key, file_upload_txn, thumbnail_info } = item_info;
-
-            // Both uploads are ready: enqueue the event with its final data.
-            let sent_media = parent_key.into_media().ok_or(RoomSendQueueError::StorageError(
-                RoomSendQueueStorageError::InvalidParentKey,
-            ))?;
+        for (item_info, sent_media) in zip(item_infos, sent_media_vec) {
+            let FinishGalleryItemInfo { file_upload: file_upload_txn, thumbnail_info } = item_info;
 
             // Update cache keys in the cache store.
             {
@@ -746,6 +751,74 @@ impl QueueStorage {
             // The thumbnail for the next upload is the file we just uploaded here.
             thumbnail_source: Some(sent_media.file),
             related_to: event_txn,
+        };
+
+        client
+            .store()
+            .save_send_queue_request(
+                &self.room_id,
+                next_upload_txn,
+                MilliSecondsSinceUnixEpoch::now(),
+                request,
+                Self::HIGH_PRIORITY,
+            )
+            .await
+            .map_err(RoomSendQueueStorageError::StateStoreError)?;
+
+        Ok(())
+    }
+
+    /// Consumes a finished upload of a gallery file (or thumbnail) and queues
+    /// the next thumbnail (or file) upload.
+    pub(super) async fn handle_dependent_gallery_file_or_thumbnail_upload(
+        &self,
+        client: &Client,
+        next_upload_txn: OwnedTransactionId,
+        parent_key: SentRequestKey,
+        content_type: String,
+        cache_key: MediaRequestParameters,
+        event_txn: OwnedTransactionId,
+        depends_on_thumbnail: bool,
+    ) -> Result<(), RoomSendQueueError> {
+        // The previous file (or thumbnail) has been sent, now transform the dependent
+        // thumbnail (or file) upload request into a ready one.
+        let sent_media = parent_key
+            .into_gallery_media()
+            .ok_or(RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey))?;
+
+        // If the previous upload was a thumbnail, it shouldn't have
+        // a thumbnail itself.
+        if depends_on_thumbnail {
+            debug_assert!(sent_media.thumbnail.is_none());
+            if sent_media.thumbnail.is_some() {
+                warn!("unexpected thumbnail for a thumbnail!");
+            }
+        }
+
+        trace!(related_to = %event_txn, "done uploading thumbnail, now queuing a request to send the media file itself");
+
+        // If the previous upload was a thumbnail, forward the accumulated sent media
+        // unchangend. Otherwise, append the sent media to the accumulated
+        // vector.
+        let sent_media_infos = if depends_on_thumbnail {
+            sent_media.accumulated
+        } else {
+            let mut new_infos = sent_media.accumulated.clone();
+            new_infos.push(SentMediaInfo {
+                file: sent_media.file.clone(),
+                thumbnail: sent_media.thumbnail,
+            });
+            new_infos
+        };
+
+        let request = QueuedRequestKind::GalleryMediaUpload {
+            content_type,
+            cache_key,
+            // If the previous upload was a thumbnail, it becomse the thumbnail source for the next
+            // upload.
+            thumbnail_source: if depends_on_thumbnail { Some(sent_media.file) } else { None },
+            related_to: event_txn,
+            sent_media_infos,
         };
 
         client
@@ -1007,10 +1080,4 @@ impl QueueStorage {
         trace!("media event was not being sent, updated local echo");
         Ok(Some(any_content))
     }
-}
-
-pub struct FinishedGalleryItemInfo {
-    pub parent_key: SentRequestKey,
-    pub file_upload_txn: OwnedTransactionId,
-    pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
 }

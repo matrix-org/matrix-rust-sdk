@@ -129,7 +129,7 @@
 //! remembered and fixed up into the media event, just before sending it.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     str::FromStr as _,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -137,14 +137,13 @@ use std::{
     },
 };
 
-use as_variant::as_variant;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError,
     media::MediaRequestParameters,
     store::{
-        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, FinishGalleryInner,
-        FinishGalleryItemInfo, FinishGalleryItemUploadInner, FinishUploadThumbnailInfo,
-        QueueWedgeError, QueuedRequest, QueuedRequestKind, SentMediaInfo, SentRequestKey,
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
+        FinishGalleryItemInfo, FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest,
+        QueuedRequestKind, SentGalleryMediaInfo, SentMediaInfo, SentRequestKey,
         SerializableEventContent,
     },
     store_locks::LockStoreError,
@@ -167,7 +166,6 @@ use ruma::{
 };
 use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
-use upload::FinishedGalleryItemInfo;
 
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{OlmError, SessionRecipientCollectionError};
@@ -568,7 +566,13 @@ impl RoomSendQueue {
             let txn_id = queued_request.transaction_id.clone();
             trace!(txn_id = %txn_id, "received a request to send!");
 
-            let related_txn_id = as_variant!(&queued_request.kind, QueuedRequestKind::MediaUpload { related_to, .. } => related_to.clone());
+            let related_txn_id = match &queued_request.kind {
+                QueuedRequestKind::MediaUpload { related_to, .. } => Some(related_to.clone()),
+                QueuedRequestKind::GalleryMediaUpload { related_to, .. } => {
+                    Some(related_to.clone())
+                }
+                _ => None,
+            };
 
             let Some(room) = room.get() else {
                 if is_dropping.load(Ordering::SeqCst) {
@@ -593,6 +597,13 @@ impl RoomSendQueue {
                             let _ = updates.send(RoomSendQueueUpdate::UploadedMedia {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
                                 file: media_info.file,
+                            });
+                        }
+
+                        SentRequestKey::GalleryMedia(gallery_info) => {
+                            let _ = updates.send(RoomSendQueueUpdate::UploadedMedia {
+                                related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
+                                file: gallery_info.file,
                             });
                         }
                     },
@@ -757,6 +768,95 @@ impl RoomSendQueue {
                     Ok(SentRequestKey::Media(SentMediaInfo {
                         file: media_source,
                         thumbnail: thumbnail_source,
+                    }))
+                };
+
+                let wait_for_cancel = async move {
+                    if let Some(rx) = cancel_upload_rx {
+                        rx.await
+                    } else {
+                        std::future::pending().await
+                    }
+                };
+
+                tokio::select! {
+                    biased;
+
+                    _ = wait_for_cancel => {
+                        Ok(None)
+                    }
+
+                    res = fut => {
+                        res.map(Some)
+                    }
+                }
+            }
+
+            QueuedRequestKind::GalleryMediaUpload {
+                content_type,
+                cache_key,
+                thumbnail_source,
+                related_to: relates_to,
+                sent_media_infos,
+            } => {
+                trace!(%relates_to, "uploading media related to gallery");
+
+                let fut = async move {
+                    let mime = Mime::from_str(&content_type).map_err(|_| {
+                        crate::Error::SendQueueWedgeError(QueueWedgeError::InvalidMimeType {
+                            mime_type: content_type.clone(),
+                        })
+                    })?;
+
+                    let data = room
+                        .client()
+                        .event_cache_store()
+                        .lock()
+                        .await?
+                        .get_media_content(&cache_key)
+                        .await?
+                        .ok_or(crate::Error::SendQueueWedgeError(
+                            QueueWedgeError::MissingMediaContent,
+                        ))?;
+
+                    #[cfg(feature = "e2e-encryption")]
+                    let media_source = if room.latest_encryption_state().await?.is_encrypted() {
+                        trace!("upload will be encrypted (encrypted room)");
+                        let mut cursor = std::io::Cursor::new(data);
+                        let encrypted_file = room
+                            .client()
+                            .upload_encrypted_file(&mime, &mut cursor)
+                            .with_request_config(RequestConfig::short_retry())
+                            .await?;
+                        MediaSource::Encrypted(Box::new(encrypted_file))
+                    } else {
+                        trace!("upload will be in clear text (room without encryption)");
+                        let request_config = RequestConfig::short_retry()
+                            .timeout(Media::reasonable_upload_timeout(&data));
+                        let res =
+                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        MediaSource::Plain(res.content_uri)
+                    };
+
+                    #[cfg(not(feature = "e2e-encryption"))]
+                    let media_source = {
+                        let request_config = RequestConfig::short_retry()
+                            .timeout(Media::reasonable_upload_timeout(&data));
+                        let res =
+                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        MediaSource::Plain(res.content_uri)
+                    };
+
+                    let uri = match &media_source {
+                        MediaSource::Plain(uri) => uri,
+                        MediaSource::Encrypted(encrypted_file) => &encrypted_file.url,
+                    };
+                    trace!(%relates_to, mxc_uri = %uri, "media successfully uploaded");
+
+                    Ok(SentRequestKey::GalleryMedia(SentGalleryMediaInfo {
+                        file: media_source,
+                        thumbnail: thumbnail_source,
+                        accumulated: sent_media_infos,
                     }))
                 };
 
@@ -987,13 +1087,16 @@ impl QueueStorage {
             guard.client()?.store().load_send_queue_requests(&self.room_id).await?;
 
         if let Some(request) = queued_requests.iter().find(|queued| !queued.is_wedged()) {
-            let (cancel_upload_tx, cancel_upload_rx) =
-                if matches!(request.kind, QueuedRequestKind::MediaUpload { .. }) {
-                    let (tx, rx) = oneshot::channel();
-                    (Some(tx), Some(rx))
-                } else {
-                    Default::default()
-                };
+            let (cancel_upload_tx, cancel_upload_rx) = if matches!(
+                request.kind,
+                QueuedRequestKind::MediaUpload { .. }
+                    | QueuedRequestKind::GalleryMediaUpload { .. }
+            ) {
+                let (tx, rx) = oneshot::channel();
+                (Some(tx), Some(rx))
+            } else {
+                Default::default()
+            };
 
             let prev = guard.being_sent.replace(BeingSentInfo {
                 transaction_id: request.transaction_id.clone(),
@@ -1291,14 +1394,13 @@ impl QueueStorage {
 
         let mut finish_item_infos = Vec::<FinishGalleryItemInfo>::new();
 
-        for item_queue_info in item_queue_infos {
+        if let Some((first, rest)) = item_queue_infos.split_first() {
             let GalleryItemQueueInfo {
                 content_type,
-                finish_upload_file_txn,
                 upload_file_txn,
                 file_media_request,
                 thumbnail,
-            } = item_queue_info;
+            } = first;
 
             let thumbnail_info =
                 if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
@@ -1312,11 +1414,12 @@ impl QueueStorage {
                             &self.room_id,
                             upload_thumbnail_txn.clone(),
                             created_at,
-                            QueuedRequestKind::MediaUpload {
+                            QueuedRequestKind::GalleryMediaUpload {
                                 content_type: thumbnail_content_type.to_string(),
-                                cache_key: thumbnail_media_request,
+                                cache_key: thumbnail_media_request.clone(),
                                 thumbnail_source: None, // the thumbnail has no thumbnails :)
                                 related_to: send_event_txn.clone(),
+                                sent_media_infos: vec![],
                             },
                             Self::LOW_PRIORITY,
                         )
@@ -1329,10 +1432,11 @@ impl QueueStorage {
                             &upload_thumbnail_txn,
                             upload_file_txn.clone().into(),
                             created_at,
-                            DependentQueuedRequestKind::UploadFileWithThumbnail {
+                            DependentQueuedRequestKind::UploadGalleryFileOrThumbnail {
                                 content_type: content_type.to_string(),
-                                cache_key: file_media_request,
+                                cache_key: file_media_request.clone(),
                                 related_to: send_event_txn.clone(),
+                                depends_on_thumbnail: true,
                             },
                         )
                         .await?;
@@ -1345,11 +1449,12 @@ impl QueueStorage {
                             &self.room_id,
                             upload_file_txn.clone(),
                             created_at,
-                            QueuedRequestKind::MediaUpload {
+                            QueuedRequestKind::GalleryMediaUpload {
                                 content_type: content_type.to_string(),
-                                cache_key: file_media_request,
+                                cache_key: file_media_request.clone(),
                                 thumbnail_source: None,
                                 related_to: send_event_txn.clone(),
+                                sent_media_infos: vec![],
                             },
                             Self::LOW_PRIORITY,
                         )
@@ -1358,36 +1463,94 @@ impl QueueStorage {
                     None
                 };
 
-            // Push the synthetic dependent request to capture the media upload result.
-            store
-                .save_dependent_queued_request(
-                    &self.room_id,
-                    &upload_file_txn.clone(),
-                    finish_upload_file_txn.clone().into(),
-                    created_at,
-                    DependentQueuedRequestKind::FinishGalleryItemUpload {
-                        inner: FinishGalleryItemUploadInner {
-                            send_event: send_event_txn.clone(),
-                            file_upload: upload_file_txn.clone(),
-                            thumbnail_info: thumbnail_info.clone(),
-                        },
-                    },
-                )
-                .await?;
-
             finish_item_infos.push(FinishGalleryItemInfo {
                 file_upload: upload_file_txn.clone(),
-                thumbnail_info,
+                thumbnail_info: thumbnail_info.cloned(),
             });
 
-            last_upload_file_txn = Some(upload_file_txn);
+            last_upload_file_txn = Some(upload_file_txn.clone());
+
+            for item_queue_info in rest {
+                let GalleryItemQueueInfo {
+                    content_type,
+                    upload_file_txn,
+                    file_media_request,
+                    thumbnail,
+                } = item_queue_info;
+
+                let thumbnail_info = if let Some((
+                    thumbnail_info,
+                    thumbnail_media_request,
+                    thumbnail_content_type,
+                )) = thumbnail
+                {
+                    let upload_thumbnail_txn = thumbnail_info.txn.clone();
+
+                    // Save the thumbnail upload request as a dependent request of the last file
+                    // upload.
+                    store
+                        .save_dependent_queued_request(
+                            &self.room_id,
+                            &last_upload_file_txn.unwrap(),
+                            upload_thumbnail_txn.clone().into(),
+                            created_at,
+                            DependentQueuedRequestKind::UploadGalleryFileOrThumbnail {
+                                content_type: thumbnail_content_type.to_string(),
+                                cache_key: thumbnail_media_request.clone(),
+                                related_to: send_event_txn.clone(),
+                                depends_on_thumbnail: false,
+                            },
+                        )
+                        .await?;
+
+                    // Save the file upload request as a dependent request of the thumbnail upload.
+                    store
+                        .save_dependent_queued_request(
+                            &self.room_id,
+                            &upload_thumbnail_txn,
+                            upload_file_txn.clone().into(),
+                            created_at,
+                            DependentQueuedRequestKind::UploadGalleryFileOrThumbnail {
+                                content_type: content_type.to_string(),
+                                cache_key: file_media_request.clone(),
+                                related_to: send_event_txn.clone(),
+                                depends_on_thumbnail: true,
+                            },
+                        )
+                        .await?;
+
+                    Some(thumbnail_info)
+                } else {
+                    // Save the file upload as a dependent request of the last file upload.
+                    store
+                        .save_dependent_queued_request(
+                            &self.room_id,
+                            &last_upload_file_txn.unwrap(),
+                            upload_file_txn.clone().into(),
+                            created_at,
+                            DependentQueuedRequestKind::UploadGalleryFileOrThumbnail {
+                                content_type: content_type.to_string(),
+                                cache_key: file_media_request.clone(),
+                                related_to: send_event_txn.clone(),
+                                depends_on_thumbnail: false,
+                            },
+                        )
+                        .await?;
+
+                    None
+                };
+
+                finish_item_infos.push(FinishGalleryItemInfo {
+                    file_upload: upload_file_txn.clone(),
+                    thumbnail_info: thumbnail_info.cloned(),
+                });
+
+                last_upload_file_txn = Some(upload_file_txn.clone());
+            }
         }
 
-        // Push the dependent request for the event itself.
-        //
-        // We arbitrarily attach the event request as dependency on the last
-        // item's request so that we can hold it in the queue without being
-        // processed prematurely.
+        // Push the request for the event itself as a dependent request of the last file
+        // upload.
         store
             .save_dependent_queued_request(
                 &self.room_id,
@@ -1395,7 +1558,8 @@ impl QueueStorage {
                 send_event_txn.into(),
                 created_at,
                 DependentQueuedRequestKind::FinishGallery {
-                    inner: FinishGalleryInner { local_echo: event, item_infos: finish_item_infos },
+                    local_echo: event,
+                    item_infos: finish_item_infos,
                 },
             )
             .await?;
@@ -1473,7 +1637,8 @@ impl QueueStorage {
                             send_error: queued.error,
                         },
 
-                        QueuedRequestKind::MediaUpload { .. } => {
+                        QueuedRequestKind::MediaUpload { .. }
+                        | QueuedRequestKind::GalleryMediaUpload { .. } => {
                             // Don't return uploaded medias as their own things; the accompanying
                             // event represented as a dependent request should be sufficient.
                             return None;
@@ -1505,7 +1670,8 @@ impl QueueStorage {
                     },
                 }),
 
-                DependentQueuedRequestKind::UploadFileWithThumbnail { .. } => {
+                DependentQueuedRequestKind::UploadFileWithThumbnail { .. }
+                | DependentQueuedRequestKind::UploadGalleryFileOrThumbnail { .. } => {
                     // Don't reflect these: only the associated event is interesting to observers.
                     None
                 }
@@ -1535,16 +1701,14 @@ impl QueueStorage {
                     })
                 }
 
-                DependentQueuedRequestKind::FinishGalleryItemUpload { .. } => None,
-
-                DependentQueuedRequestKind::FinishGallery { inner } => {
+                DependentQueuedRequestKind::FinishGallery { local_echo, item_infos } => {
                     // Materialize as an event local echo.
                     self.create_gallery_local_echo(
                         dep.own_transaction_id,
                         room,
                         dep.created_at,
-                        inner.local_echo,
-                        inner.item_infos,
+                        local_echo,
+                        item_infos,
                     )
                 }
             });
@@ -1802,10 +1966,42 @@ impl QueueStorage {
                 .await?;
             }
 
-            DependentQueuedRequestKind::FinishGalleryItemUpload { .. }
-            | DependentQueuedRequestKind::FinishGallery { .. } => {
-                // These are not handled here
-                return Ok(false);
+            DependentQueuedRequestKind::UploadGalleryFileOrThumbnail {
+                content_type,
+                cache_key,
+                related_to,
+                depends_on_thumbnail,
+            } => {
+                let Some(parent_key) = parent_key else {
+                    // Not finished yet, we should retry later => false.
+                    return Ok(false);
+                };
+                self.handle_dependent_gallery_file_or_thumbnail_upload(
+                    client,
+                    dependent_request.own_transaction_id.into(),
+                    parent_key,
+                    content_type,
+                    cache_key,
+                    related_to,
+                    depends_on_thumbnail,
+                )
+                .await?;
+            }
+
+            DependentQueuedRequestKind::FinishGallery { local_echo, item_infos } => {
+                let Some(parent_key) = parent_key else {
+                    // Not finished yet, we should retry later => false.
+                    return Ok(false);
+                };
+                self.handle_dependent_finish_gallery_upload(
+                    client,
+                    dependent_request.own_transaction_id.into(),
+                    parent_key,
+                    local_echo,
+                    item_infos,
+                    new_updates,
+                )
+                .await?;
             }
         }
 
@@ -1834,11 +2030,6 @@ impl QueueStorage {
         }
 
         let canonicalized_dependent_requests = canonicalize_dependent_requests(&dependent_requests);
-
-        // Process gallery events *out* of canonicalized requests
-        let canonicalized_dependent_requests = self
-            .process_gallery_requests(&client, new_updates, canonicalized_dependent_requests)
-            .await;
 
         // Get rid of the all non-canonical dependent events.
         for original in &dependent_requests {
@@ -1890,96 +2081,6 @@ impl QueueStorage {
         Ok(())
     }
 
-    /// Check if any gallery requests have finished. If so, process them and
-    /// remove them from the remaining requests.
-    async fn process_gallery_requests(
-        &self,
-        client: &Client,
-        new_updates: &mut Vec<RoomSendQueueUpdate>,
-        dependent: Vec<DependentQueuedRequest>,
-    ) -> Vec<DependentQueuedRequest> {
-        let mut finish_gallery_requests = Vec::<&DependentQueuedRequest>::new();
-        let mut finish_gallery_item_requests =
-            HashMap::<OwnedTransactionId, Vec<&DependentQueuedRequest>>::new();
-
-        // Group gallery requests by finish request
-        for d in &dependent {
-            match &d.kind {
-                DependentQueuedRequestKind::FinishGallery { .. } => {
-                    finish_gallery_requests.push(d);
-                }
-                DependentQueuedRequestKind::FinishGalleryItemUpload { inner } => {
-                    finish_gallery_item_requests
-                        .entry(inner.send_event.clone())
-                        .or_default()
-                        .push(d);
-                }
-                _ => {}
-            }
-        }
-
-        let mut processed_requests = HashSet::<OwnedTransactionId>::new();
-
-        for finish_request in finish_gallery_requests {
-            // Get all item requests for this finish request
-            let txn: OwnedTransactionId = finish_request.own_transaction_id.clone().into();
-            let item_requests = match finish_gallery_item_requests.get(&txn) {
-                Some(requests) => requests,
-                None => continue,
-            };
-
-            // Don't do anything unless all uploads have finished
-            if item_requests.iter().any(|request| request.parent_key.is_none()) {
-                continue;
-            }
-
-            // Extract the data we need to process the finished gallery
-            let FinishGalleryInner { local_echo, .. } =
-                finish_request.kind.as_finish_gallery().expect("should be of kind FinishGallery");
-            let mut item_infos = Vec::<FinishedGalleryItemInfo>::new();
-            for item_request in item_requests {
-                let inner = item_request
-                    .kind
-                    .as_finish_gallery_item_upload()
-                    .expect("should be of kind FinishGalleryItemUpload");
-                item_infos.push(FinishedGalleryItemInfo {
-                    file_upload_txn: inner.file_upload.clone(),
-                    thumbnail_info: inner.thumbnail_info.clone(),
-                    parent_key: item_request.parent_key.clone().unwrap(),
-                });
-            }
-
-            // Process the finished gallery
-            let result = self
-                .handle_dependent_finish_gallery_upload(
-                    client,
-                    finish_request.own_transaction_id.clone().into(),
-                    local_echo,
-                    item_infos,
-                    new_updates,
-                )
-                .await;
-            if let Err(error) = result {
-                warn!("error when applying single dependent request: {error}");
-                continue;
-            }
-
-            // Remember that we processed these requests
-            processed_requests.insert(finish_request.own_transaction_id.clone().into());
-            processed_requests
-                .extend(item_requests.iter().map(|r| r.own_transaction_id.clone().into()));
-        }
-
-        // Remove processed requests from result
-        dependent
-            .into_iter()
-            .filter(|r| {
-                !processed_requests
-                    .contains(&OwnedTransactionId::from(r.own_transaction_id.clone()))
-            })
-            .collect()
-    }
-
     /// Remove a single dependent request from storage.
     async fn remove_dependent_send_queue_request(
         &self,
@@ -1998,7 +2099,6 @@ impl QueueStorage {
 
 struct GalleryItemQueueInfo {
     content_type: Mime,
-    finish_upload_file_txn: OwnedTransactionId,
     upload_file_txn: OwnedTransactionId,
     file_media_request: MediaRequestParameters,
     thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
@@ -2492,6 +2592,8 @@ fn canonicalize_dependent_requests(
 
             DependentQueuedRequestKind::UploadFileWithThumbnail { .. }
             | DependentQueuedRequestKind::FinishUpload { .. }
+            | DependentQueuedRequestKind::UploadGalleryFileOrThumbnail { .. }
+            | DependentQueuedRequestKind::FinishGallery { .. }
             | DependentQueuedRequestKind::ReactEvent { .. } => {
                 // These requests can't be canonicalized, push them as is.
                 prevs.push(d);
@@ -2500,12 +2602,6 @@ fn canonicalize_dependent_requests(
             DependentQueuedRequestKind::RedactEvent => {
                 // Remove every other dependent action.
                 prevs.clear();
-                prevs.push(d);
-            }
-
-            DependentQueuedRequestKind::FinishGalleryItemUpload { .. }
-            | DependentQueuedRequestKind::FinishGallery { .. } => {
-                // These are not handled here
                 prevs.push(d);
             }
         }

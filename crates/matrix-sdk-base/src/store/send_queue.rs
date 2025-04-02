@@ -104,6 +104,31 @@ pub enum QueuedRequestKind {
         /// To which media event transaction does this upload relate?
         related_to: OwnedTransactionId,
     },
+
+    /// Content to upload on the media server.
+    ///
+    /// The bytes must be stored in the media cache, and are identified by the
+    /// cache key.
+    GalleryMediaUpload {
+        /// Content type of the media to be uploaded.
+        ///
+        /// Stored as a `String` because `Mime` which we'd really want to use
+        /// here, is not serializable. Oh well.
+        content_type: String,
+
+        /// The cache key used to retrieve the media's bytes in the event cache
+        /// store.
+        cache_key: MediaRequestParameters,
+
+        /// An optional media source for a thumbnail already uploaded.
+        thumbnail_source: Option<MediaSource>,
+
+        /// To which media event transaction does this upload relate?
+        related_to: OwnedTransactionId,
+
+        /// Media sources for previously uploaded gallery items.
+        sent_media_infos: Vec<SentMediaInfo>,
+    },
 }
 
 impl From<SerializableEventContent> for QueuedRequestKind {
@@ -245,32 +270,29 @@ pub enum DependentQueuedRequestKind {
         thumbnail_info: Option<FinishUploadThumbnailInfo>,
     },
 
-    /// Finish a gallery item upload by updating references to the media cache
-    /// and holding the info needed to send the final media event with the
-    /// remote MXC URIs.
-    FinishGalleryItemUpload {
-        /// The inner data
-        inner: FinishGalleryItemUploadInner,
+    /// Upload a gallery file or thumbnail.
+    UploadGalleryFileOrThumbnail {
+        /// Content type for the file or thumbnail.
+        content_type: String,
+
+        /// Media request necessary to retrieve the file or thumbnail.
+        cache_key: MediaRequestParameters,
+
+        /// To which gallery transaction id does this upload relate to?
+        related_to: OwnedTransactionId,
+
+        /// Whether the request depends on a thumbnail or a file upload.
+        depends_on_thumbnail: bool,
     },
 
     /// Finish a gallery upload.
     FinishGallery {
-        /// The inner data
-        inner: FinishGalleryInner,
+        /// Local echo for the event (containing the local MXC URIs).
+        local_echo: RoomMessageEventContent,
+
+        /// Metadata about the gallery items
+        item_infos: Vec<FinishGalleryItemInfo>,
     },
-}
-
-impl DependentQueuedRequestKind {
-    /// Converts self into the inner data (cloned) if self is
-    /// `FinishGalleryItemUpload`
-    pub fn as_finish_gallery_item_upload(&self) -> Option<FinishGalleryItemUploadInner> {
-        as_variant!(self, Self::FinishGalleryItemUpload { inner } => inner.clone())
-    }
-
-    /// Converts self into the inner data (cloned) if self is `FinishGallery`
-    pub fn as_finish_gallery(&self) -> Option<FinishGalleryInner> {
-        as_variant!(self, Self::FinishGallery { inner } => inner.clone())
-    }
 }
 
 /// Detailed record about a thumbnail used when finishing a media upload.
@@ -288,26 +310,6 @@ pub struct FinishUploadThumbnailInfo {
     /// Used previously, kept for backwards compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<UInt>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-/// Inner data for FinishGalleryItemUpload.
-pub struct FinishGalleryItemUploadInner {
-    /// Transaction id for the event itself.
-    pub send_event: OwnedTransactionId,
-    /// Transaction id for the file upload.
-    pub file_upload: OwnedTransactionId,
-    /// Information about the thumbnail, if present.
-    pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-/// Inner data for FinishGallery.
-pub struct FinishGalleryInner {
-    /// Local echo for the event (containing the local MXC URIs).
-    pub local_echo: RoomMessageEventContent,
-    /// Metadata about the gallery items.
-    pub item_infos: Vec<FinishGalleryItemInfo>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -380,6 +382,26 @@ pub struct SentMediaInfo {
     pub thumbnail: Option<MediaSource>,
 }
 
+/// Information about a media (and its thumbnail) that have been sent to an
+/// homeserver and are part of a media gallery.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SentGalleryMediaInfo {
+    /// File that was uploaded by this request.
+    ///
+    /// If the request related to a thumbnail upload, this contains the
+    /// thumbnail media source.
+    pub file: MediaSource,
+
+    /// Optional thumbnail previously uploaded, when uploading a file.
+    ///
+    /// When uploading a thumbnail, this is set to `None`.
+    pub thumbnail: Option<MediaSource>,
+
+    /// Accumulated list of infos for previously uploaded media
+    /// in the same gallery.
+    pub accumulated: Vec<SentMediaInfo>,
+}
+
 /// A unique key (identifier) indicating that a transaction has been
 /// successfully sent to the server.
 ///
@@ -391,6 +413,10 @@ pub enum SentRequestKey {
 
     /// The parent transaction returned an uploaded resource URL.
     Media(SentMediaInfo),
+
+    /// The parent transaction returned an uploaded resource URL
+    /// and accumulated previously uploaded resource URLs.
+    GalleryMedia(SentGalleryMediaInfo),
 }
 
 impl SentRequestKey {
@@ -403,6 +429,12 @@ impl SentRequestKey {
     /// possible.
     pub fn into_media(self) -> Option<SentMediaInfo> {
         as_variant!(self, Self::Media)
+    }
+
+    /// Converts the current parent key into information about a sent gallery,
+    /// if possible.
+    pub fn into_gallery_media(self) -> Option<SentGalleryMediaInfo> {
+        as_variant!(self, Self::GalleryMedia)
     }
 }
 
@@ -445,7 +477,7 @@ impl DependentQueuedRequest {
             | DependentQueuedRequestKind::RedactEvent
             | DependentQueuedRequestKind::ReactEvent { .. }
             | DependentQueuedRequestKind::UploadFileWithThumbnail { .. }
-            | DependentQueuedRequestKind::FinishGalleryItemUpload { .. } => {
+            | DependentQueuedRequestKind::UploadGalleryFileOrThumbnail { .. } => {
                 // These are all aggregated events, or non-visible items (file upload producing
                 // a new MXC ID).
                 false

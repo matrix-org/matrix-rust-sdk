@@ -319,7 +319,7 @@ impl TryInto<matrix_sdk_ui::timeline::GalleryItemInfo> for GalleryItemInfo {
                 .formatted_caption()
                 .clone()
                 .map(ruma::events::room::message::FormattedBody::from),
-            mime_type: mime_type,
+            mime_type,
             thumbnail: self.thumbnail()?,
         })
     }

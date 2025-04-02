@@ -74,9 +74,9 @@ pub use self::integration_tests::StateStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
     send_queue::{
-        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, FinishGalleryInner,
-        FinishGalleryItemInfo, FinishGalleryItemUploadInner, FinishUploadThumbnailInfo,
-        QueueWedgeError, QueuedRequest, QueuedRequestKind, SentMediaInfo, SentRequestKey,
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
+        FinishGalleryItemInfo, FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest,
+        QueuedRequestKind, SentGalleryMediaInfo, SentMediaInfo, SentRequestKey,
         SerializableEventContent,
     },
     traits::{
