@@ -25,8 +25,10 @@ use ruma::{
         },
         Mentions,
     },
-    OwnedTransactionId, TransactionId, UInt,
+    OwnedEventId, OwnedTransactionId, TransactionId, UInt,
 };
+
+use crate::room::reply::EnforceThread;
 
 /// Base metadata about an image.
 #[derive(Debug, Clone, Default)]
@@ -179,6 +181,15 @@ impl Thumbnail {
     }
 }
 
+/// Information needed to reply to an event.
+#[derive(Debug)]
+pub struct Reply {
+    /// The event ID of the event to reply to.
+    pub event_id: OwnedEventId,
+    /// Whether to enforce a thread relation.
+    pub enforce_thread: EnforceThread,
+}
+
 /// Configuration for sending an attachment.
 #[derive(Debug, Default)]
 pub struct AttachmentConfig {
@@ -188,6 +199,7 @@ pub struct AttachmentConfig {
     pub(crate) caption: Option<String>,
     pub(crate) formatted_caption: Option<FormattedBody>,
     pub(crate) mentions: Option<Mentions>,
+    pub(crate) reply: Option<Reply>,
 }
 
 impl AttachmentConfig {
@@ -260,6 +272,16 @@ impl AttachmentConfig {
     /// * `mentions` - The mentions of the message
     pub fn mentions(mut self, mentions: Option<Mentions>) -> Self {
         self.mentions = mentions;
+        self
+    }
+
+    /// Set the reply information of the message.
+    ///
+    /// # Arguments
+    ///
+    /// * `reply` - The reply information of the message
+    pub fn reply(mut self, reply: Option<Reply>) -> Self {
+        self.reply = reply;
         self
     }
 }

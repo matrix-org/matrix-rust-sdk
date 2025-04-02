@@ -19,13 +19,19 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    assert_let_timeout, attachment::AttachmentConfig, test_utils::mocks::MatrixMockServer,
+    assert_let_timeout,
+    attachment::{AttachmentConfig, Reply},
+    room::reply::EnforceThread,
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
 use matrix_sdk_ui::timeline::{AttachmentSource, EventSendState, RoomExt};
 use ruma::{
     event_id,
-    events::room::{message::MessageType, MediaSource},
+    events::room::{
+        message::{MessageType, ReplyWithinThread},
+        MediaSource,
+    },
     room_id,
 };
 use serde_json::json;
@@ -67,10 +73,12 @@ async fn test_send_attachment_from_file() {
 
     assert!(items.is_empty());
 
+    let event_id = event_id!("$event");
     let f = EventFactory::new();
     mock.sync_room(
         &client,
-        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(&ALICE)),
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
     )
     .await;
 
@@ -99,7 +107,10 @@ async fn test_send_attachment_from_file() {
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
 
     // Queue sending of an attachment.
-    let config = AttachmentConfig::new().caption(Some("caption".to_owned()));
+    let config = AttachmentConfig::new().caption(Some("caption".to_owned())).reply(Some(Reply {
+        event_id: event_id.to_owned(),
+        enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+    }));
     timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
 
     {
@@ -115,6 +126,10 @@ async fn test_send_attachment_from_file() {
         assert_let!(MessageType::File(file) = msg.msgtype());
         assert_let!(MediaSource::Plain(uri) = &file.source);
         assert!(uri.to_string().contains("localhost"));
+
+        // The message should be considered part of the thread.
+        let aggregated = item.content().as_msglike().unwrap();
+        assert!(aggregated.is_threaded());
     }
 
     // Eventually, the media is updated with the final MXC IDs…

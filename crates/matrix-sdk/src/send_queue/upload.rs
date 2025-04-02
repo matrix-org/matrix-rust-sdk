@@ -41,7 +41,7 @@ use crate::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
         SendHandle,
     },
-    Client, Media, Room,
+    Client, Media,
 };
 
 /// Replace the source by the final ones in all the media types handled by
@@ -183,18 +183,22 @@ impl RoomSendQueue {
         };
 
         // Create the content for the media event.
-        let event_content = Room::make_attachment_event(
-            room.make_attachment_type(
-                &content_type,
-                filename,
-                file_media_request.source.clone(),
-                config.caption,
-                config.formatted_caption,
-                config.info,
-                event_thumbnail_info,
-            ),
-            config.mentions,
-        );
+        let event_content = room
+            .make_attachment_event(
+                room.make_attachment_type(
+                    &content_type,
+                    filename,
+                    file_media_request.source.clone(),
+                    config.caption,
+                    config.formatted_caption,
+                    config.info,
+                    event_thumbnail_info,
+                ),
+                config.mentions,
+                config.reply,
+            )
+            .await
+            .map_err(|_| RoomSendQueueError::FailedToCreateAttachment)?;
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
 

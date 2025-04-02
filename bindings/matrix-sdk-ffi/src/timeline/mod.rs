@@ -23,7 +23,7 @@ use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseVideoInfo, Thumbnail,
+        BaseVideoInfo, Reply, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
@@ -116,12 +116,31 @@ impl Timeline {
             params.formatted_caption.map(Into::into),
         );
 
+        let reply = if let Some(reply_params) = params.reply_params {
+            let event_id = EventId::parse(reply_params.event_id)
+                .map_err(|_| RoomError::InvalidRepliedToEventId)?;
+            let enforce_thread = if reply_params.enforce_thread {
+                EnforceThread::Threaded(if reply_params.reply_within_thread {
+                    ReplyWithinThread::Yes
+                } else {
+                    ReplyWithinThread::No
+                })
+            } else {
+                EnforceThread::MaybeThreaded
+            };
+
+            Some(Reply { event_id, enforce_thread })
+        } else {
+            None
+        };
+
         let attachment_config = AttachmentConfig::new()
             .thumbnail(thumbnail)
             .info(attachment_info)
             .caption(params.caption)
             .formatted_caption(formatted_caption)
-            .mentions(params.mentions.map(Into::into));
+            .mentions(params.mentions.map(Into::into))
+            .reply(reply);
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =
@@ -201,12 +220,25 @@ pub struct UploadParameters {
     caption: Option<String>,
     /// Optional HTML-formatted caption, for clients that support it.
     formatted_caption: Option<FormattedBody>,
-    // Optional intentional mentions to be sent with the media.
+    /// Optional intentional mentions to be sent with the media.
     mentions: Option<Mentions>,
+    /// Optional parameters for sending the media as (threaded) reply.
+    reply_params: Option<ReplyParameters>,
     /// Should the media be sent with the send queue, or synchronously?
     ///
     /// Watching progress only works with the synchronous method, at the moment.
     use_send_queue: bool,
+}
+
+#[derive(uniffi::Record)]
+pub struct ReplyParameters {
+    /// The ID of the event to reply to.
+    event_id: String,
+    /// Whether to enforce a thread relation.
+    enforce_thread: bool,
+    /// If enforcing a threaded relation, whether the message is a reply on a
+    /// thread.
+    reply_within_thread: bool,
 }
 
 #[matrix_sdk_ffi_macros::export]

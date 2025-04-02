@@ -24,8 +24,7 @@ use ruma::{
                 RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        SyncMessageLikeEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, UserId,
@@ -94,13 +93,19 @@ impl Room {
     ///
     /// The event can then be sent with [`Room::send`] or a
     /// [`crate::send_queue::RoomSendQueue`].
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content to reply with
+    /// * `event_id` - ID of the event to reply to
+    /// * `enforce_thread` - Whether to enforce a thread relation
     #[instrument(skip(self, content), fields(room = %self.room_id()))]
     pub async fn make_reply_event(
         &self,
         content: RoomMessageEventContentWithoutRelation,
         event_id: &EventId,
         enforce_thread: EnforceThread,
-    ) -> Result<AnyMessageLikeEventContent, ReplyError> {
+    ) -> Result<RoomMessageEventContent, ReplyError> {
         make_reply_event(
             self,
             self.room_id(),
@@ -120,7 +125,7 @@ async fn make_reply_event<S: EventSource>(
     content: RoomMessageEventContentWithoutRelation,
     event_id: &EventId,
     enforce_thread: EnforceThread,
-) -> Result<AnyMessageLikeEventContent, ReplyError> {
+) -> Result<RoomMessageEventContent, ReplyError> {
     let replied_to_info = replied_to_info_from_event_id(source, event_id).await?;
 
     // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
@@ -222,7 +227,7 @@ async fn make_reply_event<S: EventSource>(
         }
     };
 
-    Ok(content.into())
+    Ok(content)
 }
 
 async fn replied_to_info_from_event_id<S: EventSource>(
@@ -267,7 +272,7 @@ mod tests {
         event_id,
         events::{
             room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
-            AnyMessageLikeEventContent, AnySyncTimelineEvent,
+            AnySyncTimelineEvent,
         },
         room_id,
         serde::Raw,
@@ -419,8 +424,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
-        assert_let!(Some(Relation::Reply { in_reply_to }) = &msg.relates_to);
+        assert_let!(Some(Relation::Reply { in_reply_to }) = &reply_event.relates_to);
 
         assert_eq!(in_reply_to.event_id, event_id);
     }
@@ -451,8 +455,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
-        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+        assert_let!(Some(Relation::Thread(thread)) = &reply_event.relates_to);
 
         assert_eq!(thread.event_id, event_id);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
@@ -494,8 +497,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
-        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+        assert_let!(Some(Relation::Thread(thread)) = &reply_event.relates_to);
 
         assert_eq!(thread.event_id, thread_root);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
@@ -537,8 +539,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
-        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+        assert_let!(Some(Relation::Thread(thread)) = &reply_event.relates_to);
 
         assert_eq!(thread.event_id, thread_root);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
@@ -580,8 +581,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &reply_event);
-        assert_let!(Some(Relation::Thread(thread)) = &msg.relates_to);
+        assert_let!(Some(Relation::Thread(thread)) = &reply_event.relates_to);
 
         assert_eq!(thread.event_id, thread_root);
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);

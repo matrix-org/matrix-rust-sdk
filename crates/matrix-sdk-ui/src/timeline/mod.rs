@@ -282,7 +282,7 @@ impl Timeline {
         enforce_thread: EnforceThread,
     ) -> Result<(), Error> {
         let content = self.room().make_reply_event(content, &event_id, enforce_thread).await?;
-        self.send(content).await?;
+        self.send(content.into()).await?;
         Ok(())
     }
 
