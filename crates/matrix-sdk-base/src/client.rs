@@ -71,7 +71,7 @@ use crate::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, TimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
-    response_processors::AccountDataProcessor,
+    response_processors::account_data::AccountDataProcessor,
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
         Room, RoomInfo, RoomState,
