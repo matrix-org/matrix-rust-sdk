@@ -198,7 +198,7 @@ impl RoomSendQueue {
                 config.reply,
             )
             .await
-            .map_err(|_| RoomSendQueueError::AttachmentError)?;
+            .map_err(|_| RoomSendQueueError::FailedToCreateAttachment)?;
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
 

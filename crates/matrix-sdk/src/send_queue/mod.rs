@@ -1844,7 +1844,7 @@ pub enum RoomSendQueueError {
 
     /// The attachment event failed to be created.
     #[error("the attachment event could not be created")]
-    AttachmentError,
+    FailedToCreateAttachment,
 }
 
 /// An error triggered by the send queue storage.
