@@ -755,13 +755,12 @@ impl ClientBuilder {
             }
         })?;
 
-        let registrations = oidc_configuration
-            .registrations()
-            .await
+        let registration_data = oidc_configuration
+            .registration_data()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
         let oauth = client.inner.oauth();
-        let login = oauth.login_with_qr_code(&qr_code_data.inner, registrations.into());
+        let login = oauth.login_with_qr_code(&qr_code_data.inner, Some(&registration_data));
 
         let mut progress = login.subscribe_to_progress();
 
