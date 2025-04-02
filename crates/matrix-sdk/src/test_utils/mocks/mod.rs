@@ -824,7 +824,8 @@ impl MatrixMockServer {
     /// # }
     /// ```
     pub fn mock_send_to_device(&self) -> MockEndpoint<'_, SendToDeviceEndpoint> {
-        let mock = Mock::given(method("PUT")).and(path(r"^/_matrix/client/r0/sendToDevice/{}/.*"));
+        let mock =
+            Mock::given(method("PUT")).and(path_regex(r"^/_matrix/client/v3/sendToDevice/.*/.*"));
         self.mock_endpoint(mock, SendToDeviceEndpoint).expect_default_access_token()
     }
 

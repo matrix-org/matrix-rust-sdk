@@ -163,7 +163,7 @@ impl SyncResponseBuilder {
         self
     }
 
-    /// Add a presence event.
+    /// Add a to device event.
     pub fn add_to_device_event(&mut self, event: JsonValue) -> &mut Self {
         self.to_device_events.push(from_json_value(event).unwrap());
         self

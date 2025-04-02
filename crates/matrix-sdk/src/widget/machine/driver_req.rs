@@ -274,7 +274,9 @@ pub(crate) struct SendToDeviceRequest {
     pub(crate) event_type: ToDeviceEventType,
     // If the to_device message should be encrypted or not.
     pub(crate) encrypted: bool,
-    /// The messages body of the to
+    /// The messages that will be encrypted (per device) and sent.
+    /// They are organized in a map of user_id -> device_id -> content like the
+    /// cs api request.
     pub(crate) messages:
         BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
 }
