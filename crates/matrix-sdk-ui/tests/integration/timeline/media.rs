@@ -128,7 +128,7 @@ async fn test_send_attachment_from_file() {
         assert!(uri.to_string().contains("localhost"));
 
         // The message should be considered part of the thread.
-        let aggregated = item.content().as_aggregated().unwrap();
+        let aggregated = item.content().as_msglike().unwrap();
         assert!(aggregated.is_threaded());
     }
 
