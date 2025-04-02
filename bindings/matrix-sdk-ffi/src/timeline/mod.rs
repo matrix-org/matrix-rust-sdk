@@ -118,7 +118,7 @@ impl Timeline {
 
         let reply = if let Some(reply_params) = params.reply_params {
             let event_id = EventId::parse(reply_params.event_id)
-                .map_err(|_| RoomError::InvalidReplyParameters)?;
+                .map_err(|_| RoomError::InvalidRepliedToEventId)?;
             let enforce_thread = if reply_params.enforce_thread {
                 EnforceThread::Threaded(if reply_params.reply_within_thread {
                     ReplyWithinThread::Yes
