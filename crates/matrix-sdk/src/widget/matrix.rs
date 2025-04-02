@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use futures_util::future::join_all;
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
+use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
@@ -38,10 +39,7 @@ use ruma::{
     EventId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde_json::{json, value::RawValue as RawJsonValue, Value};
-use tokio::{
-    spawn,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver},
-};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tracing::{error, info};
 
 use super::{machine::SendEventResponse, StateKeySelector};
@@ -59,8 +57,9 @@ pub(crate) struct MatrixDriver {
 // pub enum SendToDeviceResult {
 //     HttpError(HttpResult<send_event_to_device::v3::Response>),
 // }
-// impl From<HttpResult<send_event_to_device::v3::Response>> for SendEventResponse {
-//     fn from(value: HttpResult<send_event_to_device::v3::Response>) -> Self {
+// impl From<HttpResult<send_event_to_device::v3::Response>> for
+// SendEventResponse {     fn from(value:
+// HttpResult<send_event_to_device::v3::Response>) -> Self {
 //         SendToDeviceResult::HttpError(value)
 //     }
 // }
@@ -255,7 +254,8 @@ impl MatrixDriver {
         EventReceiver { rx, _drop_guards: vec![drop_guard] }
     }
 
-    /// It will ignore all devices where errors occurred or where the device is not verified or where th user has a has_verification_violation.
+    /// It will ignore all devices where errors occurred or where the device is
+    /// not verified or where th user has a has_verification_violation.
     pub(crate) async fn send_to_device(
         &self,
         event_type: ToDeviceEventType,
@@ -267,40 +267,28 @@ impl MatrixDriver {
     ) -> Result<send_event_to_device::v3::Response> {
         let client = self.room.client();
         /// This encrypts the content for a device.
-        /// A device_id can be "*" in this case the function also computes all devices for a user and
-        /// returns an iterator of devices.
-        /// It will ignore all devices where errors occurred or where the device is not verified or where th user has a has_verification_violation.
-        async fn encrypted_content_for_device_or_all_devices(
-            client: &Client,
-            unencrypted: &Raw<AnyToDeviceEventContent>,
-            device_or_all_id: DeviceIdOrAllDevices,
-            user_id: &UserId,
+        /// A device_id can be "*" in this case the function also computes all
+        /// devices for a user and returns an iterator of devices.
+        /// It will ignore all devices where errors occurred or where the device
+        /// is not verified or where th user has a has_verification_violation.
+        async fn encrypted_content_for_devices(
+            unencrypted_content: &Raw<AnyToDeviceEventContent>,
+            devices: Vec<Device>,
             event_type: &ToDeviceEventType,
         ) -> Result<impl Iterator<Item = (DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>)>>
         {
-            let user_devices = client.encryption().get_user_devices(user_id).await?;
-            let user_identity = client.encryption().get_user_identity(user_id).await?;
-
-            let devices: Vec<Device> = match device_or_all_id {
-                DeviceIdOrAllDevices::DeviceId(device_id) => {
-                    vec![user_devices.get(&device_id)].into_iter().flatten().collect()
-                }
-                DeviceIdOrAllDevices::AllDevices => user_devices.devices().collect(),
-            };
-
-            let content: Value = unencrypted.deserialize_as().map_err(Into::<Error>::into)?;
+            let content: Value =
+                unencrypted_content.deserialize_as().map_err(Into::<Error>::into)?;
             let event_type = event_type.clone();
             let device_content_tasks = devices.into_iter().map(|device| spawn({
                 let value = event_type.clone();
                 let content = content.clone();
-                let user_identity = user_identity.clone();
 
                 async move {
-                    if !device.is_cross_signed_by_owner() || user_identity.map(|i|i.has_verification_violation()).unwrap_or(false) {
+                    if !device.is_cross_signed_by_owner() {
                         info!("Device {} is not verified, skipping encryption", device.device_id());
                         return None;
                     }
-                    // Check for pin and identity violation alice_device.device_owner_identity.unwrap().other().unwrap().has_pin_violation()
                     match device
                         .inner
                         .encrypt_event_raw(&value.to_string(), &content)
@@ -314,8 +302,9 @@ impl MatrixDriver {
             Ok(t)
         }
 
-        // Here we convert the device content map for one user into the same content map with encrypted content
-        // This needs to flatten the vectors we get from `encrypted_content_for_device_or_all_devices`
+        // Here we convert the device content map for one user into the same content map
+        // with encrypted content This needs to flatten the vectors we get from
+        // `encrypted_content_for_device_or_all_devices`
         // since one DeviceIdOrAllDevices id can be multiple devices.
         async fn encrypted_device_content_map(
             client: &Client,
@@ -324,27 +313,47 @@ impl MatrixDriver {
             device_content_map: BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
         ) -> BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>> {
             let device_map_futures =
-                device_content_map.into_iter().map(|(device_or_all_id, content)| spawn({let client = client.clone();let user_id = user_id.to_owned();let event_type = event_type.clone();async move {
-                    encrypted_content_for_device_or_all_devices(
-                        &client,
-                        &content,
-                        device_or_all_id,
-                        &user_id,
-                        &event_type,
-                    )
-                    .await
-                    .map_err(|e| info!("could not encrypt content for to device widget event content: {}. because, {}", content.json(), e))
-                    .ok()
+                device_content_map.into_iter().map(|(device_or_all_id, content)| spawn({
+                    let client = client.clone();let user_id = user_id.to_owned();let event_type = event_type.clone();
+                    async move {
+                        let Ok(user_devices) = client.encryption().get_user_devices(&user_id).await else {
+                            return None;
+                        };
+                        let Ok(user_identity) = client.encryption().get_user_identity(&user_id).await else{
+                            return None;
+                        };
+                                            // Check for pin and identity violation alice_device.device_owner_identity.unwrap().other().unwrap().has_pin_violation()
+                        if user_identity.map(|i|i.has_verification_violation()).unwrap_or(false) {
+                            info!("User {} has a verification violation, skipping encryption", user_id);
+                            return None;
+                        }
+                        let devices: Vec<Device> = match device_or_all_id {
+                            DeviceIdOrAllDevices::DeviceId(device_id) => {
+                                vec![user_devices.get(&device_id)].into_iter().flatten().collect()
+                            }
+                            DeviceIdOrAllDevices::AllDevices => user_devices.devices().collect(),
+                        };
+                        encrypted_content_for_devices(
+                            &content,
+                            devices,
+                            &event_type,
+                        )
+                        .await
+                        .map_err(|e| info!("WidgetDriver: could not encrypt content for to device widget event content: {}. because, {}", content.json(), e))
+                        .ok()
                 }}));
-            // The first flatten takes the iterator of Option<Device>'s iterators and converts it to just a iterator over Option<(Device, data)>'s.
-            // The second flatten takes the the iterator over Option<(Device,data)>'s and converts it to just a iterator over Device
+            // The first flatten takes the iterator of Option<Device>'s iterators and
+            // converts it to just a iterator over Option<(Device, data)>'s. The
+            // second flatten takes the the iterator over Option<(Device,data)>'s and
+            // converts it to just a iterator over Device
             join_all(device_map_futures).await.into_iter().flatten().flatten().flatten().collect()
         }
 
         let request = match encrypted {
             true => {
-                // We first want to get all missing session before we start any to device sending!
-                client.claim_one_time_keys(messages.iter().map(|(u, _)| u.as_ref())).await?;
+                // We first want to get all missing session before we start any to device
+                // sending!
+                client.claim_one_time_keys(messages.keys().map(|u| u.as_ref())).await?;
                 let encrypted_content: BTreeMap<
                     OwnedUserId,
                     BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
@@ -386,7 +395,6 @@ impl MatrixDriver {
 
 /// A simple entity that wraps an `UnboundedReceiver`
 /// along with the drop guard for the room event handler.
-
 pub(crate) struct EventReceiver<E> {
     rx: UnboundedReceiver<Raw<E>>,
     _drop_guards: Vec<EventHandlerDropGuard>,
