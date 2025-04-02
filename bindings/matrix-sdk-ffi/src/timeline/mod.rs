@@ -99,7 +99,7 @@ impl Timeline {
         unsafe { Arc::from_raw(Arc::into_raw(inner) as _) }
     }
 
-    async fn send_attachment(
+    fn send_attachment(
         self: Arc<Self>,
         params: UploadParameters,
         attachment_info: AttachmentInfo,
@@ -356,7 +356,7 @@ impl Timeline {
         }
     }
 
-    pub async fn send_image(
+    pub fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
         thumbnail_path: Option<String>,
@@ -374,10 +374,9 @@ impl Timeline {
             progress_watcher,
             thumbnail,
         )
-        .await
     }
 
-    pub async fn send_video(
+    pub fn send_video(
         self: Arc<Self>,
         params: UploadParameters,
         thumbnail_path: Option<String>,
@@ -395,10 +394,9 @@ impl Timeline {
             progress_watcher,
             thumbnail,
         )
-        .await
     }
 
-    pub async fn send_audio(
+    pub fn send_audio(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
@@ -408,10 +406,9 @@ impl Timeline {
             BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
         self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
-            .await
     }
 
-    pub async fn send_voice_message(
+    pub fn send_voice_message(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
@@ -424,10 +421,9 @@ impl Timeline {
             waveform: Some(waveform),
         };
         self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
-            .await
     }
 
-    pub async fn send_file(
+    pub fn send_file(
         self: Arc<Self>,
         params: UploadParameters,
         file_info: FileInfo,
@@ -437,7 +433,6 @@ impl Timeline {
             BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
         self.send_attachment(params, attachment_info, file_info.mimetype, progress_watcher, None)
-            .await
     }
 
     pub async fn create_poll(
