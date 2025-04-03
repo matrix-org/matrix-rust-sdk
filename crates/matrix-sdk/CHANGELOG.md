@@ -235,6 +235,9 @@ simpler methods:
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
 - [**breaking**] `Client::store` is renamed `state_store`
   ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
+- [**breaking**] The parameters `event_id` and `enforce_thread` on [`Room::make_reply_event()`]
+  have been wrapped in a `reply` struct parameter.
+  ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
 
 ## [0.10.0] - 2025-02-04
 

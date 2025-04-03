@@ -3,9 +3,10 @@ use std::{ops::Not as _, sync::Arc, time::Duration};
 use as_variant::as_variant;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
-    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Reply, Thumbnail},
+    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
     config::StoreConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    room::reply::Reply,
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError, RoomSendQueueStorageError,
         RoomSendQueueUpdate, SendHandle,

@@ -58,6 +58,7 @@ use matrix_sdk_common::{
     timeout::timeout,
 };
 use mime::Mime;
+use reply::Reply;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -138,7 +139,7 @@ pub use self::{
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 use crate::{
-    attachment::{AttachmentConfig, AttachmentInfo, Reply},
+    attachment::{AttachmentConfig, AttachmentInfo},
     client::WeakClient,
     config::RequestConfig,
     error::{BeaconError, WrongRoomState},
@@ -2272,9 +2273,7 @@ impl Room {
         if let Some(reply) = reply {
             // Since we just created the event, there is no relation attached to it. Thus,
             // it is safe to add the reply relation without overriding anything.
-            content = self
-                .make_reply_event(content.into(), &reply.event_id, reply.enforce_thread)
-                .await?;
+            content = self.make_reply_event(content.into(), reply).await?;
         }
         Ok(content)
     }

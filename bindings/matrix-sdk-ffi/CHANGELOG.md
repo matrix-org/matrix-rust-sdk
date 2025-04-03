@@ -65,6 +65,11 @@ Breaking changes:
 - `ClientBuilder::passphrase` is renamed `session_passphrase`
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
 
+- Merge `Timeline::send_thread_reply` into `Timeline::send_reply`. This
+  changes the parameters of `send_reply` which now requires passing the
+  event ID (and thread reply behaviour) inside a `ReplyParameters` struct.
+  ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
+
 Additions:
 
 - Add `Encryption::get_user_identity` which returns `UserIdentity`

@@ -28,7 +28,7 @@ use matrix_sdk::{
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{edit::EditedContent, reply::EnforceThread, Receipts, Room},
+    room::{edit::EditedContent, reply::Reply, Receipts, Room},
     send_queue::{RoomSendQueueError, SendHandle},
     Client, Result,
 };
@@ -278,10 +278,9 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
-        event_id: OwnedEventId,
-        enforce_thread: EnforceThread,
+        reply: Reply,
     ) -> Result<(), Error> {
-        let content = self.room().make_reply_event(content, &event_id, enforce_thread).await?;
+        let content = self.room().make_reply_event(content, reply).await?;
         self.send(content.into()).await?;
         Ok(())
     }
