@@ -27,53 +27,76 @@
 //!
 //! # Registration
 //!
-//! Registration is only required the first time a client encounters a
-//! homeserver.
+//! Clients must register with the homeserver before being able to interact with
+//! an OAuth 2.0 server.
+//!
+//! The registration consists in providing client metadata to the authorization
+//! server, to declare the interactions that the client supports with the
+//! homeserver. This step is important because the client cannot use a feature
+//! that is not declared during registration. In return, the server assigns an
+//! ID and eventually credentials to the client, which will allow to identify
+//! the client when authorization requests are made.
 //!
 //! Note that only public clients are supported by this API, i.e. clients
 //! without credentials.
 //!
-//! If the server supports dynamic registration, it can be done by using
-//! [`OAuth::register_client()`]. After registration, the client ID should be
-//! persisted and reused for every session that interacts with that same server.
+//! The registration step can be done automatically by providing a
+//! [`ClientRegistrationData`] to the login method.
 //!
-//! If dynamic registration is not available, the homeserver should document how
-//! to obtain a client ID.
-//!
-//! To provide the client ID and metadata if dynamic registration is not
-//! available, or if the client is already registered with the issuer, call
-//! [`OAuth::restore_registered_client()`].
+//! If the server supports dynamic registration, registration can be performed
+//! manually by using [`OAuth::register_client()`]. If dynamic registration is
+//! not available, the homeserver should document how to obtain a client ID. The
+//! client ID can then be provided with [`OAuth::restore_registered_client()`].
 //!
 //! # Login
 //!
-//! Before logging in, make sure to register the client or to restore its
-//! registration, as it is the first step to know how to interact with the
-//! issuer.
+//! Currently, two login methods are supported by this API.
 //!
-//! With OAuth 2.0, logging into a Matrix account is simply logging in with a
-//! predefined scope, part of it declaring the device ID of the session.
+//! ## Login with the Authorization Code flow
+//!
+//! The use of the Authorization Code flow is defined in [MSC2964] and [RFC
+//! 6749][rfc6749-auth-code].
+//!
+//! This method requires to open a URL in the end-user's browser where
+//! they will be able to log into their account in the server's web UI and grant
+//! access to their Matrix account.
 //!
 //! [`OAuth::login()`] constructs an [`OAuthAuthCodeUrlBuilder`] that can be
 //! configured, and then calling [`OAuthAuthCodeUrlBuilder::build()`] will
-//! provide the URL to present to the user in a web browser. After
-//! authenticating with the server, the user will be redirected to the provided
-//! redirect URI, with a code in the query that will allow to finish the
-//! login process by calling [`OAuth::finish_login()`].
+//! provide the URL to present to the user in a web browser.
+//!
+//! After authenticating with the server, the user will be redirected to the
+//! provided redirect URI, with a code in the query that will allow to finish
+//! the login process by calling [`OAuth::finish_login()`].
+//!
+//! If the login needs to be cancelled before its completion,
+//! [`OAuth::abort_login()`] should be called to clean up the local data.
+//!
+//! ## Login by scanning a QR Code
+//!
+//! Logging in via a QR code is defined in [MSC4108]. It uses the Device
+//! authorization flow specified in [RFC 8628].
+//!
+//! This method requires to have another logged-in Matrix device that can
+//! display a QR Code.
+//!
+//! This login method is only available if the `e2e-encryption` cargo feature is
+//! enabled. It is not available on WASM.
+//!
+//! After scanning the QR Code, [`OAuth::login_with_qr_code()`] can be called
+//! with the QR Code's data. Then the different steps of the process need to be
+//! followed with [`LoginWithQrCode::subscribe_to_progress()`].
+//!
+//! A successful login using this method will automatically mark the device as
+//! verified and transfer all end-to-end encryption related secrets, like the
+//! private cross-signing keys and the backup key from the existing device to
+//! the new device.
 //!
 //! # Persisting/restoring a session
 //!
-//! A full OAuth 2.0 session requires two parts:
-//!
-//! - The client ID obtained after client registration,
-//! - The user session obtained after login.
-//!
-//! Both parts are usually stored separately because the client ID can be reused
-//! for any session with the same server, while the user session is unique.
-//!
-//! _Note_ that the type returned by [`OAuth::full_session()`] is not
-//! (de)serializable. This is done on purpose because the client ID and metadata
-//! should be stored separately than the user session, as they should be reused
-//! for the same homeserver across different user sessions.
+//! The full session to persist can be obtained with [`OAuth::full_session()`].
+//! The different parts can also be retrieved with [`Client::session_meta()`],
+//! [`Client::session_tokens()`] and [`OAuth::client_id()`].
 //!
 //! To restore a previous session, use [`OAuth::restore_session()`].
 //!
@@ -85,8 +108,9 @@
 //! tokens automatically.
 //!
 //! Applications should then listen to session tokens changes after logging in
-//! with [`Client::subscribe_to_session_changes()`] to be able to restore the
-//! session at a later time, otherwise the end-user will need to login again.
+//! with [`Client::subscribe_to_session_changes()`] to persist them on every
+//! change. If they are not persisted properly, the end-user will need to login
+//! again.
 //!
 //! # Unknown token error
 //!
@@ -107,7 +131,14 @@
 //! # Account management.
 //!
 //! The server might advertise a URL that allows the user to manage their
-//! account, it can be obtained with [`OAuth::account_management_url()`].
+//! account. It can be used to replace most of the Matrix APIs requiring
+//! User-Interactive Authentication.
+//!
+//! An [`AccountManagementUrlBuilder`] can be obtained with
+//! [`OAuth::account_management_url()`]. Then the action that the user wants to
+//! perform can be customized with [`AccountManagementUrlBuilder::action()`].
+//! Finally you can obtain the final URL to present to the user with
+//! [`AccountManagementUrlBuilder::build()`].
 //!
 //! # Logout
 //!
@@ -120,6 +151,10 @@
 //!
 //! [MSC3861]: https://github.com/matrix-org/matrix-spec-proposals/pull/3861
 //! [areweoidcyet.com]: https://areweoidcyet.com/
+//! [MSC2964]: https://github.com/matrix-org/matrix-spec-proposals/pull/2964
+//! [rfc6749-auth-code]: https://datatracker.ietf.org/doc/html/rfc6749#section-4.1
+//! [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+//! [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
 //! [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens()
 //! [`Error`]: ruma::api::client::error::Error
 //! [`ErrorKind::UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
@@ -467,8 +502,7 @@ impl OAuth {
     /// The account management actions supported by the authorization server's
     /// account management URL.
     ///
-    /// Returns `Ok(None)` if the data was not found. Returns an error if the
-    /// request to get the server metadata fails.
+    /// Returns an error if the request to get the server metadata fails.
     pub async fn account_management_actions_supported(
         &self,
     ) -> Result<BTreeSet<AccountManagementAction>, OAuthError> {
@@ -477,7 +511,8 @@ impl OAuth {
         Ok(server_metadata.account_management_actions_supported)
     }
 
-    /// Build the URL where the user can manage their account.
+    /// Get the account management URL where the user can manage their
+    /// identity-related settings.
     ///
     /// This will always request the latest server metadata to get the account
     /// management URL.
@@ -535,8 +570,8 @@ impl OAuth {
     }
 
     /// Discover the authentication issuer and retrieve the
-    /// [`AuthorizationServerMetadata`] using the GET `/auth_metadata` endpoint
-    /// defined in [MSC2965].
+    /// [`AuthorizationServerMetadata`] using the GET `/auth_issuer` endpoint
+    /// previously defined in [MSC2965].
     ///
     /// **Note**: This endpoint is deprecated.
     ///
@@ -613,7 +648,7 @@ impl OAuth {
 
     /// The OAuth 2.0 user session of this client.
     ///
-    /// Returns `None` if the client was not logged in with the OAuth 2.0 API.
+    /// Returns `None` if the client was not logged in.
     pub fn user_session(&self) -> Option<UserSession> {
         let meta = self.client.session_meta()?.to_owned();
         let tokens = self.client.session_tokens()?;
@@ -631,9 +666,10 @@ impl OAuth {
 
     /// Register a client with the OAuth 2.0 server.
     ///
-    /// This should be called before any authorization request with an unknown
-    /// authorization server. If the client is already registered with the
-    /// server, it should use [`OAuth::restore_registered_client()`].
+    /// This should be called before any authorization request with an
+    /// authorization server that supports dynamic client registration. If the
+    /// client registered with the server manually, it should use
+    /// [`OAuth::restore_registered_client()`].
     ///
     /// Note that this method only supports public clients, i.e. clients without
     /// a secret.
@@ -873,7 +909,15 @@ impl OAuth {
         )
     }
 
-    /// Login via OAuth 2.0 with the Authorization Code flow.
+    /// Log in via OAuth 2.0 with the Authorization Code flow.
+    ///
+    /// This method requires to open a URL in the end-user's browser where they
+    /// will be able to log into their account in the server's web UI and grant
+    /// access to their Matrix account.
+    ///
+    /// The [`OAuthAuthCodeUrlBuilder`] that is returned allows to customize a
+    /// few settings before calling `.build()` to obtain the URL to open in the
+    /// browser of the end-user.
     ///
     /// [`OAuth::finish_login()`] must be called once the user has been
     /// redirected to the `redirect_uri`. [`OAuth::abort_login()`] should be
@@ -901,17 +945,14 @@ impl OAuth {
     /// use matrix_sdk::{
     ///     authentication::oauth::registration::ClientMetadata,
     ///     ruma::serde::Raw,
-    ///     Client,
     /// };
-    /// # let homeserver = unimplemented!();
+    /// use url::Url;
+    /// # use matrix_sdk::Client;
+    /// # let client: Client = unimplemented!();
     /// # let redirect_uri = unimplemented!();
-    /// # let issuer_info = unimplemented!();
-    /// # let client_id = unimplemented!();
-    /// # let store_path = unimplemented!();
-    /// # async fn open_uri_and_wait_for_redirect(uri: url::Url) -> url::Url { unimplemented!() };
+    /// # async fn open_uri_and_wait_for_redirect(uri: Url) -> Url { unimplemented!() };
     /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() };
     /// # _ = async {
-    /// # let client = Client::new(homeserver).await?;
     /// let oauth = client.oauth();
     /// let client_metadata: Raw<ClientMetadata> = client_metadata();
     /// let registration_data = client_metadata.into();
@@ -921,7 +962,7 @@ impl OAuth {
     ///                      .await?;
     ///
     /// // Open auth_data.url and wait for response at the redirect URI.
-    /// let redirected_to_uri = open_uri_and_wait_for_redirect(auth_data.url).await;
+    /// let redirected_to_uri: Url = open_uri_and_wait_for_redirect(auth_data.url).await;
     ///
     /// oauth.finish_login(redirected_to_uri.into()).await?;
     ///
@@ -1095,11 +1136,11 @@ impl OAuth {
 
     /// Abort the login process.
     ///
-    /// This method should be called if an authorization should be aborted
-    /// before it is completed.
+    /// This method should be called if a login should be aborted before it is
+    /// completed.
     ///
-    /// If the authorization has been completed, [`OAuth::finish_login()`]
-    /// should be used instead.
+    /// If the login has been completed, [`OAuth::finish_login()`] should be
+    /// used instead.
     ///
     /// # Arguments
     ///
@@ -1238,10 +1279,7 @@ impl OAuth {
     ///
     /// This method is protected behind a lock, so calling this method several
     /// times at once will only call the endpoint once and all subsequent calls
-    /// will wait for the result of the first call. The first call will
-    /// return `Ok(Some(response))` or a [`RefreshTokenError`], while the others
-    /// will return `Ok(None)` if the token was refreshed by the first call
-    /// or the same [`RefreshTokenError`], if it failed.
+    /// will wait for the result of the first call.
     ///
     /// [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens()
     #[instrument(skip_all)]
