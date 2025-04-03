@@ -89,7 +89,25 @@ impl RoomView {
 
                 (KeyModifiers::NONE, F(8)) => {
                     if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::new() }
+                        self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
+                    }
+                }
+
+                (KeyModifiers::ALT, Char('1')) => {
+                    if self.selected_room.is_some() {
+                        self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
+                    }
+                }
+
+                (KeyModifiers::ALT, Char('2')) => {
+                    if self.selected_room.is_some() {
+                        self.mode = Mode::Details { view: RoomDetails::with_receipts_as_selected() }
+                    }
+                }
+
+                (KeyModifiers::ALT, Char('3')) => {
+                    if self.selected_room.is_some() {
+                        self.mode = Mode::Details { view: RoomDetails::with_chunks_as_selected() }
                     }
                 }
 
@@ -98,6 +116,24 @@ impl RoomView {
 
             Mode::Details { view } => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, PageUp) => self.back_paginate(),
+
+                (KeyModifiers::ALT, Char('1')) => {
+                    if self.selected_room.is_some() {
+                        self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
+                    }
+                }
+
+                (KeyModifiers::ALT, Char('2')) => {
+                    if self.selected_room.is_some() {
+                        self.mode = Mode::Details { view: RoomDetails::with_receipts_as_selected() }
+                    }
+                }
+
+                (KeyModifiers::ALT, Char('3')) => {
+                    if self.selected_room.is_some() {
+                        self.mode = Mode::Details { view: RoomDetails::with_chunks_as_selected() }
+                    }
+                }
 
                 _ => match view.handle_key_press(key) {
                     ShouldExit::No => {}

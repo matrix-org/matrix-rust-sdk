@@ -63,7 +63,8 @@ impl SelectedTab {
 
     /// Return tab's name as a styled `Line`
     fn title(self) -> Line<'static> {
-        format!("  {self}  ").fg(tailwind::SLATE.c200).bg(self.palette().c900).into()
+        let index = self as usize + 1;
+        format!("  {index}. {self}  ").fg(tailwind::SLATE.c200).bg(self.palette().c900).into()
     }
 
     const fn palette(&self) -> tailwind::Palette {
@@ -100,8 +101,22 @@ pub struct RoomDetails {
 }
 
 impl RoomDetails {
-    pub fn new() -> Self {
-        Self { selected_tab: SelectedTab::default() }
+    /// Create a new [`RoomDetails`] struct with the [`SelectedTab::Events`] as
+    /// the selected tab.
+    pub fn with_events_as_selected() -> Self {
+        Self { selected_tab: SelectedTab::Events }
+    }
+
+    /// Create a new [`RoomDetails`] struct with the
+    /// [`SelectedTab::ReadReceipts`] as the selected tab.
+    pub fn with_receipts_as_selected() -> Self {
+        Self { selected_tab: SelectedTab::ReadReceipts }
+    }
+
+    /// Create a new [`RoomDetails`] struct with the
+    /// [`SelectedTab::LinkedChunks`] as the selected tab.
+    pub fn with_chunks_as_selected() -> Self {
+        Self { selected_tab: SelectedTab::LinkedChunks }
     }
 
     pub fn handle_key_press(&mut self, event: KeyEvent) -> ShouldExit {
