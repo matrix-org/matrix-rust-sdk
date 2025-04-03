@@ -34,7 +34,7 @@ use ruma::{
                 MessageType as RumaMessageType,
                 NoticeMessageEventContent as RumaNoticeMessageEventContent,
                 RoomMessageEventContentWithoutRelation,
-                TextMessageEventContent as RumaTextMessageEventContent,
+                TextMessageEventContent as RumaTextMessageEventContent, UnstableAmplitude,
                 UnstableAudioDetailsContentBlock as RumaUnstableAudioDetailsContentBlock,
                 UnstableVoiceContentBlock as RumaUnstableVoiceContentBlock,
                 VideoInfo as RumaVideoInfo,
@@ -362,6 +362,8 @@ impl TryFrom<MessageType> for RumaMessageType {
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted_caption.map(Into::into);
                 event_content.filename = filename;
+                event_content.audio = content.audio.map(Into::into);
+                event_content.voice = content.voice.map(Into::into);
                 Self::Audio(event_content)
             }
             MessageType::Video { content } => {
@@ -658,12 +660,27 @@ impl From<RumaUnstableAudioDetailsContentBlock> for UnstableAudioDetailsContent 
     }
 }
 
+impl From<UnstableAudioDetailsContent> for RumaUnstableAudioDetailsContentBlock {
+    fn from(details: UnstableAudioDetailsContent) -> Self {
+        Self::new(
+            details.duration,
+            details.waveform.iter().map(|x| UnstableAmplitude::new(x.to_owned())).collect(),
+        )
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct UnstableVoiceContent {}
 
 impl From<RumaUnstableVoiceContentBlock> for UnstableVoiceContent {
     fn from(_details: RumaUnstableVoiceContentBlock) -> Self {
         Self {}
+    }
+}
+
+impl From<UnstableVoiceContent> for RumaUnstableVoiceContentBlock {
+    fn from(_details: UnstableVoiceContent) -> Self {
+        Self::new()
     }
 }
 
