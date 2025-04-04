@@ -65,6 +65,4 @@ allow-git = [
     # We can release vodozemac whenever we need but let's not block development
     # on releases.
     "https://github.com/matrix-org/vodozemac",
-    # Waiting for features to be released.
-    "https://github.com/jplatte/eyeball",
 ]
