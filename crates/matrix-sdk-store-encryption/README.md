@@ -73,10 +73,10 @@ used for non-Matrix data, users need to ensure:
    to a DOS attack.
 2. The `StoreCipher` is periodically rotated/rekeyed.
 
-# WASM support
+# Wasm support
 
 This crate relies on the `random` and `getrandom` crates which don't support
-WASM automatically.
+Wasm automatically.
 
 Either turn the `js` feature on directly on this crate or depend on `getrandom`
 with the `js` feature turned on. More info can be found in the [`getrandom`

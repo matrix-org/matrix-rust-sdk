@@ -39,7 +39,7 @@ eyeball-im-util = "0.9.0"
 futures-core = "0.3.31"
 futures-executor = "0.3.31"
 futures-util = "0.3.31"
-getrandom = { version = "0.2.15", default-features = false }
+getrandom = { version = "0.3.2", default-features = false }
 gloo-timers = "0.3.0"
 growable-bloom-filter = "2.1.1"
 hkdf = "0.12.4"

@@ -44,8 +44,7 @@ zeroize = { workspace = true }
 sha2 = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# for wasm32 we need to activate this
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
