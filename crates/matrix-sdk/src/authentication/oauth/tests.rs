@@ -193,7 +193,9 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Then a cancellation error should be thrown.
     assert_matches!(
         error,
-        Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::Cancelled))
+        Error::OAuth(error) => {
+            assert_matches!(*error, OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::Cancelled));
+        }
     );
 
     Ok(())
@@ -220,7 +222,9 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Then the login should fail by flagging the invalid state.
     assert_matches!(
         error,
-        Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState))
+        Error::OAuth(error) => {
+            assert_matches!(*error, OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState));
+        }
     );
 
     Ok(())
@@ -327,7 +331,9 @@ async fn test_finish_login() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState)))
+        Err(Error::OAuth(error)) => {
+            assert_matches!(*error, OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState));
+        }
     );
     assert!(client.session_tokens().is_none());
     assert!(client.session_meta().is_none());
@@ -355,7 +361,9 @@ async fn test_finish_login() -> anyhow::Result<()> {
 
     assert_matches!(
         res,
-        Err(Error::OAuth(OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState)))
+        Err(Error::OAuth(error)) => {
+            assert_matches!(*error, OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState));
+        }
     );
     assert!(client.session_tokens().is_none());
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state1).is_some());
@@ -467,7 +475,12 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let res =
         oauth.finish_login(UrlOrQuery::Query(format!("code=42&state={}", state3.secret()))).await;
 
-    assert_matches!(res, Err(Error::OAuth(OAuthError::SessionMismatch)));
+    assert_matches!(
+        res,
+        Err(Error::OAuth(error)) => {
+            assert_matches!(*error, OAuthError::SessionMismatch);
+        }
+    );
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state3).is_none());
 
     Ok(())

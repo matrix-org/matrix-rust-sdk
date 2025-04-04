@@ -46,8 +46,8 @@ use thiserror::Error;
 use url::ParseError as UrlParseError;
 
 use crate::{
-    event_cache::EventCacheError, media::MediaError, room::reply::ReplyError,
-    sliding_sync::Error as SlidingSyncError, store_locks::LockStoreError,
+    authentication::oauth::OAuthError, event_cache::EventCacheError, media::MediaError,
+    room::reply::ReplyError, sliding_sync::Error as SlidingSyncError, store_locks::LockStoreError,
 };
 
 /// Result type of the matrix-sdk.
@@ -356,7 +356,7 @@ pub enum Error {
 
     /// An error occurred interacting with the OAuth 2.0 API.
     #[error(transparent)]
-    OAuth(#[from] crate::authentication::oauth::OAuthError),
+    OAuth(Box<OAuthError>),
 
     /// A concurrent request to a deduplicated request has failed.
     #[error("a concurrent request failed; see logs for details")]
@@ -480,6 +480,12 @@ impl From<ScanError> for Error {
 impl From<SlidingSyncError> for Error {
     fn from(error: SlidingSyncError) -> Self {
         Error::SlidingSync(Box::new(error))
+    }
+}
+
+impl From<OAuthError> for Error {
+    fn from(error: OAuthError) -> Self {
+        Error::OAuth(Box::new(error))
     }
 }
 
@@ -618,7 +624,7 @@ pub enum RefreshTokenError {
 
     /// An error occurred interacting with the OAuth 2.0 API.
     #[error(transparent)]
-    OAuth(#[from] Arc<crate::authentication::oauth::OAuthError>),
+    OAuth(#[from] Arc<OAuthError>),
 }
 
 /// Errors that can occur when manipulating push notification settings.

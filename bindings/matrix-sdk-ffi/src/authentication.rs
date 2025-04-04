@@ -224,7 +224,7 @@ impl From<SdkOAuthError> for OidcError {
 impl From<Error> for OidcError {
     fn from(e: Error) -> OidcError {
         match e {
-            Error::OAuth(e) => e.into(),
+            Error::OAuth(e) => (*e).into(),
             _ => OidcError::Generic { message: e.to_string() },
         }
     }
