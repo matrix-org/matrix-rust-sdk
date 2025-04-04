@@ -308,7 +308,7 @@ pub enum Error {
     /// An error occurred during a E2EE group operation.
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
-    MegolmError(#[from] MegolmError),
+    MegolmError(Box<MegolmError>),
 
     /// An error occurred during decryption.
     #[cfg(feature = "e2e-encryption")]
@@ -448,6 +448,13 @@ impl From<CryptoStoreError> for Error {
 impl From<OlmError> for Error {
     fn from(error: OlmError) -> Self {
         Error::OlmError(Box::new(error))
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl From<MegolmError> for Error {
+    fn from(error: MegolmError) -> Self {
+        Error::MegolmError(Box::new(error))
     }
 }
 
