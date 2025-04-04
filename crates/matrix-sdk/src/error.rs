@@ -14,7 +14,7 @@
 
 //! Error conditions.
 
-use std::{io::Error as IoError, ops::Deref, sync::Arc, time::Duration};
+use std::{io::Error as IoError, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
 use http::StatusCode;
@@ -294,7 +294,7 @@ pub enum Error {
     /// An error occurred in the crypto store.
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
-    CryptoStoreError(#[from] CryptoStoreError),
+    CryptoStoreError(Box<CryptoStoreError>),
 
     /// An error occurred with a cross-process store lock.
     #[error(transparent)]
@@ -437,6 +437,13 @@ impl From<HttpError> for Error {
     }
 }
 
+#[cfg(feature = "e2e-encryption")]
+impl From<CryptoStoreError> for Error {
+    fn from(error: CryptoStoreError) -> Self {
+        Error::CryptoStoreError(Box::new(error))
+    }
+}
+
 /// Error for the room key importing functionality.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
@@ -491,7 +498,7 @@ impl From<SdkBaseError> for Error {
         match e {
             SdkBaseError::StateStore(e) => Self::StateStore(e),
             #[cfg(feature = "e2e-encryption")]
-            SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
+            SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(Box::new(e)),
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
             #[cfg(feature = "e2e-encryption")]
