@@ -47,7 +47,7 @@ use url::ParseError as UrlParseError;
 
 use crate::{
     event_cache::EventCacheError, media::MediaError, room::reply::ReplyError,
-    store_locks::LockStoreError,
+    sliding_sync::Error as SlidingSyncError, store_locks::LockStoreError,
 };
 
 /// Result type of the matrix-sdk.
@@ -342,7 +342,7 @@ pub enum Error {
 
     /// An error occurred within sliding-sync
     #[error(transparent)]
-    SlidingSync(#[from] crate::sliding_sync::Error),
+    SlidingSync(Box<SlidingSyncError>),
 
     /// Attempted to call a method on a room that requires the user to have a
     /// specific membership state in the room, but the membership state is
@@ -474,6 +474,12 @@ impl From<EventCacheStoreError> for Error {
 impl From<ScanError> for Error {
     fn from(error: ScanError) -> Self {
         Error::QrCodeScanError(Box::new(error))
+    }
+}
+
+impl From<SlidingSyncError> for Error {
+    fn from(error: SlidingSyncError) -> Self {
+        Error::SlidingSync(Box::new(error))
     }
 }
 
