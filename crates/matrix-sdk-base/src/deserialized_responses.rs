@@ -277,8 +277,10 @@ impl RawAnySyncOrStrippedState {
     /// Try to deserialize the inner JSON as the expected type.
     pub fn deserialize(&self) -> serde_json::Result<AnySyncOrStrippedState> {
         match self {
-            Self::Sync(raw) => Ok(AnySyncOrStrippedState::Sync(raw.deserialize()?)),
-            Self::Stripped(raw) => Ok(AnySyncOrStrippedState::Stripped(raw.deserialize()?)),
+            Self::Sync(raw) => Ok(AnySyncOrStrippedState::Sync(Box::new(raw.deserialize()?))),
+            Self::Stripped(raw) => {
+                Ok(AnySyncOrStrippedState::Stripped(Box::new(raw.deserialize()?)))
+            }
         }
     }
 
@@ -300,9 +302,15 @@ impl RawAnySyncOrStrippedState {
 #[derive(Clone, Debug)]
 pub enum AnySyncOrStrippedState {
     /// An event from a room in joined or left state.
-    Sync(AnySyncStateEvent),
+    ///
+    /// The value is `Box`ed because it is quite large. Let's keep the size of
+    /// `Self` as small as possible.
+    Sync(Box<AnySyncStateEvent>),
     /// An event from a room in invited state.
-    Stripped(AnyStrippedStateEvent),
+    ///
+    /// The value is `Box`ed because it is quite large. Let's keep the size of
+    /// `Self` as small as possible.
+    Stripped(Box<AnyStrippedStateEvent>),
 }
 
 impl AnySyncOrStrippedState {
