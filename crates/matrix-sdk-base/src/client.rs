@@ -27,8 +27,7 @@ use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, DecryptionSettings,
-    EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine, RoomEventDecryptionResult,
-    TrustRequirement,
+    EncryptionSettings, OlmError, OlmMachine, RoomEventDecryptionResult, TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -64,14 +63,12 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
-use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
-#[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, TimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
-    response_processors::account_data::AccountDataProcessor,
+    response_processors::{self as processors, account_data::AccountDataProcessor, Context},
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
         Room, RoomInfo, RoomState,
@@ -380,24 +377,6 @@ impl BaseClient {
         self.state_store.sync_token.read().await.clone()
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    async fn handle_verification_event(
-        &self,
-        event: &AnySyncMessageLikeEvent,
-        room_id: &RoomId,
-    ) -> Result<()> {
-        if !self.handle_verification_events {
-            return Ok(());
-        }
-
-        if let Some(olm) = self.olm_machine().await.as_ref() {
-            olm.receive_verification_event(&event.clone().into_full_event(room_id.to_owned()))
-                .await?;
-        }
-
-        Ok(())
-    }
-
     /// Attempt to decrypt the given raw event into a [`TimelineEvent`].
     ///
     /// In the case of a decryption error, returns a [`TimelineEvent`]
@@ -411,7 +390,11 @@ impl BaseClient {
         event: &Raw<AnySyncTimelineEvent>,
         room_id: &RoomId,
     ) -> Result<Option<TimelineEvent>> {
+        // TODO: should receive `context` from an argument.
+        let mut context = Context::new(StateChanges::default(), Default::default());
+
         let olm = self.olm_machine().await;
+
         let Some(olm) = olm.as_ref() else { return Ok(None) };
 
         let decryption_settings = DecryptionSettings {
@@ -433,11 +416,25 @@ impl BaseClient {
                             if let MessageType::VerificationRequest(_) =
                                 &original_event.content.msgtype
                             {
-                                self.handle_verification_event(&e, room_id).await?;
+                                processors::verification(
+                                    &mut context,
+                                    self.handle_verification_events,
+                                    Some(olm),
+                                    &e,
+                                    room_id,
+                                )
+                                .await?;
                             }
                         }
                         _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                            self.handle_verification_event(&e, room_id).await?;
+                            processors::verification(
+                                &mut context,
+                                self.handle_verification_events,
+                                Some(olm),
+                                &e,
+                                room_id,
+                            )
+                            .await?;
                         }
                         _ => (),
                     }
@@ -468,6 +465,8 @@ impl BaseClient {
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<Timeline> {
+        // TODO: should receive `context` from an argument.
+        let mut context = Context::new(StateChanges::default(), Default::default());
         let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
 
@@ -547,13 +546,26 @@ impl BaseClient {
                                 SyncMessageLikeEvent::Original(original_event),
                             ) => match &original_event.content.msgtype {
                                 MessageType::VerificationRequest(_) => {
-                                    Box::pin(self.handle_verification_event(e, room.room_id()))
-                                        .await?;
+                                    Box::pin(processors::verification(
+                                        &mut context,
+                                        self.handle_verification_events,
+                                        self.olm_machine().await.as_ref(),
+                                        e,
+                                        room.room_id(),
+                                    ))
+                                    .await?;
                                 }
                                 _ => (),
                             },
                             _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                Box::pin(self.handle_verification_event(e, room.room_id())).await?;
+                                Box::pin(processors::verification(
+                                    &mut context,
+                                    self.handle_verification_events,
+                                    self.olm_machine().await.as_ref(),
+                                    e,
+                                    room.room_id(),
+                                ))
+                                .await?;
                             }
                             _ => (),
                         },
@@ -801,100 +813,6 @@ impl BaseClient {
         }
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all)]
-    pub(crate) async fn preprocess_to_device_events(
-        &self,
-        encryption_sync_changes: EncryptionSyncChanges<'_>,
-        changes: &mut StateChanges,
-        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
-    ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
-        if let Some(o) = self.olm_machine().await.as_ref() {
-            // Let the crypto machine handle the sync response, this
-            // decrypts to-device events, but leaves room events alone.
-            // This makes sure that we have the decryption keys for the room
-            // events at hand.
-            let (events, room_key_updates) =
-                o.receive_sync_changes(encryption_sync_changes).await?;
-
-            for room_key_update in room_key_updates {
-                if let Some(room) = self.get_room(&room_key_update.room_id) {
-                    self.decrypt_latest_events(&room, changes, room_info_notable_updates).await;
-                }
-            }
-
-            Ok(events)
-        } else {
-            // If we have no `OlmMachine`, just return the events that were passed in.
-            // This should not happen unless we forget to set things up by calling
-            // `Self::activate()`.
-            Ok(encryption_sync_changes.to_device_events)
-        }
-    }
-
-    /// Decrypt any of this room's latest_encrypted_events
-    /// that we can and if we can, change latest_event to reflect what we
-    /// found, and remove any older encrypted events from
-    /// latest_encrypted_events.
-    #[cfg(feature = "e2e-encryption")]
-    async fn decrypt_latest_events(
-        &self,
-        room: &Room,
-        changes: &mut StateChanges,
-        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
-    ) {
-        // Try to find a message we can decrypt and is suitable for using as the latest
-        // event. If we found one, set it as the latest and delete any older
-        // encrypted events
-        if let Some((found, found_index)) = self.decrypt_latest_suitable_event(room).await {
-            room.on_latest_event_decrypted(found, found_index, changes, room_info_notable_updates);
-        }
-    }
-
-    /// Attempt to decrypt a latest event, trying the latest stored encrypted
-    /// one first, and walking backwards, stopping when we find an event
-    /// that we can decrypt, and that is suitable to be the latest event
-    /// (i.e. we can usefully display it as a message preview). Returns the
-    /// decrypted event if we found one, along with its index in the
-    /// latest_encrypted_events list, or None if we didn't find one.
-    #[cfg(feature = "e2e-encryption")]
-    async fn decrypt_latest_suitable_event(
-        &self,
-        room: &Room,
-    ) -> Option<(Box<LatestEvent>, usize)> {
-        let enc_events = room.latest_encrypted_events();
-        let power_levels = room.power_levels().await.ok();
-        let power_levels_info = Some(room.own_user_id()).zip(power_levels.as_ref());
-
-        // Walk backwards through the encrypted events, looking for one we can decrypt
-        for (i, event) in enc_events.iter().enumerate().rev() {
-            // Size of the decrypt_sync_room_event future should not impact this
-            // async fn since it is likely that there aren't even any encrypted
-            // events when calling it.
-            let decrypt_sync_room_event =
-                Box::pin(self.decrypt_sync_room_event(event, room.room_id()));
-
-            if let Ok(Some(decrypted)) = decrypt_sync_room_event.await {
-                // We found an event we can decrypt
-                if let Ok(any_sync_event) = decrypted.raw().deserialize() {
-                    // We can deserialize it to find its type
-                    match is_suitable_for_latest_event(&any_sync_event, power_levels_info) {
-                        PossibleLatestEvent::YesRoomMessage(_)
-                        | PossibleLatestEvent::YesPoll(_)
-                        | PossibleLatestEvent::YesCallInvite(_)
-                        | PossibleLatestEvent::YesCallNotify(_)
-                        | PossibleLatestEvent::YesSticker(_)
-                        | PossibleLatestEvent::YesKnockedStateEvent(_) => {
-                            return Some((Box::new(LatestEvent::new(decrypted)), i));
-                        }
-                        _ => (),
-                    }
-                }
-            }
-        }
-        None
-    }
-
     /// User has knocked on a room.
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
@@ -1016,29 +934,49 @@ impl BaseClient {
         }
 
         let now = Instant::now();
-        let mut changes = Box::new(StateChanges::new(response.next_batch.clone()));
-
-        #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
-        let mut room_info_notable_updates =
-            BTreeMap::<OwnedRoomId, RoomInfoNotableUpdateReasons>::new();
 
         #[cfg(feature = "e2e-encryption")]
-        let to_device = self
-            .preprocess_to_device_events(
-                EncryptionSyncChanges {
-                    to_device_events: response.to_device.events,
-                    changed_devices: &response.device_lists,
-                    one_time_keys_counts: &response.device_one_time_keys_count,
-                    unused_fallback_keys: response.device_unused_fallback_key_types.as_deref(),
-                    next_batch_token: Some(response.next_batch.clone()),
-                },
-                &mut changes,
-                &mut room_info_notable_updates,
+        let olm_machine = self.olm_machine().await;
+
+        let mut context =
+            Context::new(StateChanges::new(response.next_batch.clone()), Default::default());
+
+        #[cfg(feature = "e2e-encryption")]
+        let to_device = {
+            let processors::e2ee::Output {
+                decrypted_to_device_events: to_device,
+                room_key_updates,
+            } = processors::e2ee(
+                &mut context,
+                olm_machine.as_ref(),
+                response.to_device.events,
+                &response.device_lists,
+                &response.device_one_time_keys_count,
+                response.device_unused_fallback_key_types.as_deref(),
+                Some(response.next_batch.clone()),
             )
             .await?;
 
+            processors::decrypt_latest_events(
+                &mut context,
+                room_key_updates
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|room_key_info| self.get_room(&room_key_info.room_id))
+                    .collect(),
+                olm_machine.as_ref(),
+                self.decryption_trust_requirement,
+                self.handle_verification_events,
+            )
+            .await?;
+
+            to_device
+        };
+
         #[cfg(not(feature = "e2e-encryption"))]
         let to_device = response.to_device.events;
+
+        let (mut changes, room_info_notable_updates) = context.into_parts();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
 
@@ -2211,58 +2149,6 @@ mod tests {
             room.compute_display_name().await.expect("fetching display name failed"),
             RoomDisplayName::Calculated("Kyra".to_owned())
         );
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    #[async_test]
-    async fn test_when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
-        use std::collections::BTreeMap;
-
-        use matrix_sdk_test::event_factory::EventFactory;
-        use ruma::{event_id, events::room::member::MembershipState};
-
-        use crate::{rooms::normal::RoomInfoNotableUpdateReasons, StateChanges};
-
-        // Given a room
-        let user_id = user_id!("@u:u.to");
-        let room_id = room_id!("!r:u.to");
-        let client = logged_in_base_client(Some(user_id)).await;
-
-        let mut sync_builder = SyncResponseBuilder::new();
-
-        let response = sync_builder
-            .add_joined_room(
-                matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_timeline_event(
-                    EventFactory::new()
-                        .member(user_id)
-                        .display_name("Alice")
-                        .membership(MembershipState::Join)
-                        .event_id(event_id!("$1")),
-                ),
-            )
-            .build_sync_response();
-        client.receive_sync_response(response).await.unwrap();
-
-        let room = client.get_room(room_id).expect("Just-created room not found!");
-
-        // Sanity: it has no latest_encrypted_events or latest_event
-        assert!(room.latest_encrypted_events().is_empty());
-        assert!(room.latest_event().is_none());
-
-        // When I tell it to do some decryption
-        let mut changes = StateChanges::default();
-        let mut room_info_notable_updates = BTreeMap::new();
-        client.decrypt_latest_events(&room, &mut changes, &mut room_info_notable_updates).await;
-
-        // Then nothing changed
-        assert!(room.latest_encrypted_events().is_empty());
-        assert!(room.latest_event().is_none());
-        assert!(changes.room_infos.is_empty());
-        assert!(!room_info_notable_updates
-            .get(room_id)
-            .copied()
-            .unwrap_or_default()
-            .contains(RoomInfoNotableUpdateReasons::LATEST_EVENT));
     }
 
     #[async_test]
