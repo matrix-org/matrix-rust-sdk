@@ -17,6 +17,12 @@ All notable changes to this project will be documented in this file.
   `shared_history` field that defaults to `false.`
   ([#4700](https://github.com/matrix-org/matrix-rust-sdk/pull/4700))
 
+## Refactor
+
+- [**breaking**] `BackupDecryptionKey` and `DehydratedDeviceKey` no longer return
+  a `Result`
+  ([#4885](https://github.com/matrix-org/matrix-rust-sdk/pull/4885))
+
 ## [0.10.0] - 2025-02-04
 
 ### Features
