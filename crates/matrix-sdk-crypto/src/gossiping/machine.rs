@@ -2013,7 +2013,7 @@ mod tests {
         alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();
         bob_machine.store().save_device_data(&[alice_device.inner]).await.unwrap();
 
-        let decryption_key = crate::store::BackupDecryptionKey::new().unwrap();
+        let decryption_key = crate::store::BackupDecryptionKey::new();
         alice_machine
             .backup_machine()
             .save_decryption_key(Some(decryption_key), None)

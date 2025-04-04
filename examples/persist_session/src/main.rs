@@ -12,7 +12,7 @@ use matrix_sdk::{
     },
     Client, Error, LoopCtrl, Room, RoomState,
 };
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use rand::{distr::Alphanumeric, rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
@@ -162,7 +162,7 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
 
 /// Build a new client.
 async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)> {
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     // Generating a subfolder for the database is not mandatory, but it is useful if
     // you allow several clients to run at the same time. Each one must have a

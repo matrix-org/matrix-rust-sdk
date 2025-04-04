@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(counts.total, 2, "Two room keys need to exist in the store");
         assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
 
-        let decryption_key = BackupDecryptionKey::new().expect("Can't create new recovery key");
+        let decryption_key = BackupDecryptionKey::new();
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
 
@@ -836,7 +836,7 @@ mod tests {
         let backup_machine = machine.backup_machine();
 
         // We set up a backup key, so that we can test `backup_machine.backup()` later.
-        let decryption_key = BackupDecryptionKey::new().expect("Couldn't create new recovery key");
+        let decryption_key = BackupDecryptionKey::new();
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
         backup_machine.enable_backup_v1(backup_key).await.expect("Couldn't enable backup");
@@ -884,7 +884,7 @@ mod tests {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 
-        let decryption_key = BackupDecryptionKey::new().unwrap();
+        let decryption_key = BackupDecryptionKey::new();
         let mut backup_info = decryption_key.to_backup_info();
 
         let result = backup_machine.verify_backup(backup_info.to_owned(), false).await.unwrap();
@@ -902,7 +902,7 @@ mod tests {
     async fn test_fix_backup_key_mismatch() {
         let store = MemoryStore::new();
 
-        let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+        let backup_decryption_key = BackupDecryptionKey::new();
 
         store
             .save_changes(Changes {

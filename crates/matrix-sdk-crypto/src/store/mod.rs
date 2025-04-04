@@ -739,13 +739,13 @@ impl BackupDecryptionKey {
     pub const KEY_SIZE: usize = 32;
 
     /// Create a new random decryption key.
-    pub fn new() -> Result<Self, rand::Error> {
-        let mut rng = rand::thread_rng();
+    pub fn new() -> Self {
+        let mut rng = rand::rng();
 
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
-        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+        rand::Fill::fill(key.as_mut_slice(), &mut rng);
 
-        Ok(Self { inner: key })
+        Self { inner: key }
     }
 
     /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
@@ -776,13 +776,13 @@ impl DehydratedDeviceKey {
     pub const KEY_SIZE: usize = 32;
 
     /// Generates a new random pickle key.
-    pub fn new() -> Result<Self, rand::Error> {
-        let mut rng = rand::thread_rng();
+    pub fn new() -> Self {
+        let mut rng = rand::rng();
 
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
-        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+        rand::Fill::fill(key.as_mut_slice(), &mut rng);
 
-        Ok(Self { inner: key })
+        Self { inner: key }
     }
 
     /// Creates a new dehydration pickle key from the given slice.
@@ -2210,8 +2210,7 @@ mod tests {
 
     #[async_test]
     async fn test_create_dehydrated_device_key() {
-        let pickle_key = DehydratedDeviceKey::new()
-            .expect("Should be able to create a random dehydrated device key");
+        let pickle_key = DehydratedDeviceKey::new();
 
         let to_vec = pickle_key.inner.to_vec();
         let pickle_key_from_slice = DehydratedDeviceKey::from_slice(to_vec.as_slice())

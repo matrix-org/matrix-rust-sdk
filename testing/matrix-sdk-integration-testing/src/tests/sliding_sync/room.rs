@@ -1058,7 +1058,7 @@ async fn test_room_preview() -> Result<()> {
         .await?;
 
     // Alice creates a room in which they're alone, to start with.
-    let suffix: u128 = rand::thread_rng().gen();
+    let suffix: u128 = rand::rng().random();
     let room_alias = format!("aliasy_mac_alias{suffix}");
 
     let room = alice

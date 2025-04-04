@@ -55,7 +55,7 @@ once_cell = "1.20.2"
 pbkdf2 = { version = "0.12.2" }
 pin-project-lite = "0.2.16"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-rand = "0.8.5"
+rand = "0.9.0"
 reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12

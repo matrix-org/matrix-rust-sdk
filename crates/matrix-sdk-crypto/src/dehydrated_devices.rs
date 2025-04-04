@@ -596,7 +596,7 @@ mod tests {
         let stored_key = dehydrated_manager.get_dehydrated_device_pickle_key().await.unwrap();
         assert!(stored_key.is_none());
 
-        let pickle_key = DehydratedDeviceKey::new().unwrap();
+        let pickle_key = DehydratedDeviceKey::new();
 
         dehydrated_manager.save_dehydrated_device_pickle_key(&pickle_key).await.unwrap();
 
