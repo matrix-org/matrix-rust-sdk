@@ -10,6 +10,8 @@ use crate::{build_docs, sh, workspace, DenyWarnings, Result, NIGHTLY};
 
 const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
 const WASM_TIMEOUT_VALUE: &str = "120";
+const RUSTFLAGS: &str = "RUSTFLAGS";
+const GETRANDOM_BACKEND: &str = "--cfg getrandom_backend=\"wasm_js\"";
 
 #[derive(Args)]
 pub struct CiArgs {
@@ -330,6 +332,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         cmd!(sh, "rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(arg_set.split_whitespace())
             .args(["--", "-D", "warnings"])
+            .env(RUSTFLAGS, GETRANDOM_BACKEND)
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()
     };
@@ -394,10 +397,12 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         cmd!(sh, "pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
         cmd!(sh, "wasm-pack test --node -- ")
             .args(arg_set.split_whitespace())
+            .env(RUSTFLAGS, GETRANDOM_BACKEND)
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()?;
         cmd!(sh, "wasm-pack test --firefox --headless --")
             .args(arg_set.split_whitespace())
+            .env(RUSTFLAGS, GETRANDOM_BACKEND)
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()
     };
