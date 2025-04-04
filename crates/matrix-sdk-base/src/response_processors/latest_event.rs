@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg(feature = "e2e-encryption")]
-
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use matrix_sdk_crypto::{
     DecryptionSettings, OlmMachine, RoomEventDecryptionResult, TrustRequirement,

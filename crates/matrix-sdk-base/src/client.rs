@@ -62,13 +62,11 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-#[cfg(feature = "e2e-encryption")]
-use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, TimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
-    response_processors::{self as processors, account_data::AccountDataProcessor, Context},
+    response_processors::{account_data::AccountDataProcessor, Context},
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
         Room, RoomInfo, RoomState,
@@ -80,6 +78,11 @@ use crate::{
     },
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
+};
+#[cfg(feature = "e2e-encryption")]
+use crate::{
+    response_processors::{self as processors},
+    RoomMemberships,
 };
 
 /// A no (network) IO client implementation.
@@ -466,6 +469,7 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<Timeline> {
         // TODO: should receive `context` from an argument.
+        #[allow(unused)]
         let mut context = Context::new(StateChanges::default(), Default::default());
         let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
@@ -938,6 +942,7 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let olm_machine = self.olm_machine().await;
 
+        #[allow(unused_mut)]
         let mut context =
             Context::new(StateChanges::new(response.next_batch.clone()), Default::default());
 
