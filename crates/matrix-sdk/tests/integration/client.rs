@@ -1430,5 +1430,6 @@ async fn test_logout() {
     // This returns an error because it requires a HTTPS server URI, or to be able
     // to call `OAuth::insecure_rewrite_https_to_http()`, but at least we are
     // testing the OAuth branch inside `Client::logout()`.
-    assert_matches!(res, Err(Error::OAuth(OAuthError::Logout(OAuthTokenRevocationError::Url(_)))));
+    assert_matches!(res, Err(Error::OAuth(oauth_error)));
+    assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
 }
