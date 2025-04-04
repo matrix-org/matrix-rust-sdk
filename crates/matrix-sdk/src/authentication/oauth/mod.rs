@@ -792,7 +792,7 @@ impl OAuth {
             let mut guard = cross_process_lock
                 .spin_lock()
                 .await
-                .map_err(|err| crate::Error::OAuth(err.into()))?;
+                .map_err(|err| crate::Error::OAuth(Box::new(err.into())))?;
 
             // After we got the lock, it's possible that our session doesn't match the one
             // read from the database, because of a race: another process has
@@ -804,12 +804,12 @@ impl OAuth {
             if guard.hash_mismatch {
                 Box::pin(self.handle_session_hash_mismatch(&mut guard))
                     .await
-                    .map_err(|err| crate::Error::OAuth(err.into()))?;
+                    .map_err(|err| crate::Error::OAuth(Box::new(err.into())))?;
             } else {
                 guard
                     .save_in_memory_and_db(&tokens)
                     .await
-                    .map_err(|err| crate::Error::OAuth(err.into()))?;
+                    .map_err(|err| crate::Error::OAuth(Box::new(err.into())))?;
                 // No need to call the save_session_callback here; it was the
                 // source of the session, so it's already in
                 // sync with what we had.
