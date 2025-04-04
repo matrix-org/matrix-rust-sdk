@@ -130,6 +130,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    ops::Deref,
     str::FromStr as _,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -804,20 +805,22 @@ impl From<&crate::Error> for QueueWedgeError {
     fn from(value: &crate::Error) -> Self {
         match value {
             #[cfg(feature = "e2e-encryption")]
-            crate::Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error
-            {
-                SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
-                    QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
-                }
+            crate::Error::OlmError(error) => match error.deref() {
+                OlmError::SessionRecipientCollectionError(error) => match error {
+                    SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
+                        QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
+                    }
 
-                SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
-                    QueueWedgeError::IdentityViolations { users: users.clone() }
-                }
+                    SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
+                        QueueWedgeError::IdentityViolations { users: users.clone() }
+                    }
 
-                SessionRecipientCollectionError::CrossSigningNotSetup
-                | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
-                    QueueWedgeError::CrossVerificationRequired
-                }
+                    SessionRecipientCollectionError::CrossSigningNotSetup
+                    | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
+                        QueueWedgeError::CrossVerificationRequired
+                    }
+                },
+                _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
             },
 
             // Flatten errors of `Self` type.
