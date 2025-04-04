@@ -559,7 +559,7 @@ impl OAuthCli {
     /// Log out from this session.
     async fn logout(&self) -> anyhow::Result<()> {
         // Log out via OAuth 2.0.
-        self.client.oauth().logout().await?;
+        self.client.logout().await?;
 
         // Delete the stored session and database.
         let data_dir = self.session_file.parent().expect("The file has a parent directory");

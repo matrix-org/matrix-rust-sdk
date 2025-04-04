@@ -808,24 +808,7 @@ impl Client {
 
     /// Log the current user out.
     pub async fn logout(&self) -> Result<(), ClientError> {
-        let Some(auth_api) = self.inner.auth_api() else {
-            return Err(anyhow!("Missing authentication API").into());
-        };
-
-        match auth_api {
-            AuthApi::Matrix(a) => {
-                tracing::info!("Logging out via the homeserver.");
-                a.logout().await?;
-                Ok(())
-            }
-
-            AuthApi::OAuth(api) => {
-                tracing::info!("Logging out via OAuth 2.0.");
-                api.logout().await?;
-                Ok(())
-            }
-            _ => Err(anyhow!("Unknown authentication API").into()),
-        }
+        Ok(self.inner.logout().await?)
     }
 
     /// Registers a pusher with given parameters

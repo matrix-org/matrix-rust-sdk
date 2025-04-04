@@ -1323,6 +1323,23 @@ impl Client {
         Ok(())
     }
 
+    /// Log out the current session using the proper authentication API.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the session is not authenticated or if an error
+    /// occurred while making the request to the server.
+    pub async fn logout(&self) -> Result<(), Error> {
+        let auth_api = self.auth_api().ok_or(Error::AuthenticationRequired)?;
+        match auth_api {
+            AuthApi::Matrix(matrix_auth) => {
+                matrix_auth.logout().await?;
+                Ok(())
+            }
+            AuthApi::OAuth(oauth) => Ok(oauth.logout().await?),
+        }
+    }
+
     /// Get or upload a sync filter.
     ///
     /// This method will either get a filter ID from the store or upload the
