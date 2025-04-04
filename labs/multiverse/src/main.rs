@@ -448,7 +448,7 @@ impl Widget for &mut App {
         // Create two chunks with equal horizontal screen space. One for the list and
         // the other for the info block.
         let horizontal =
-            Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]);
+            Layout::horizontal([Constraint::Percentage(25), Constraint::Percentage(75)]);
         let [room_list_area, room_view_area] = horizontal.areas(rest_area);
 
         self.render_title(header_area, buf);
