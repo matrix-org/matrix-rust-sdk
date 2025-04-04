@@ -184,6 +184,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "archery"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eae2ed21cd55021f05707a807a5fc85695dafb98832921f6cfa06db67ca5b869"
+
+[[package]]
 name = "arrayref"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1060,7 +1066,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
- "rand_core",
+ "rand_core 0.6.4",
  "typenum",
 ]
 
@@ -1344,7 +1350,7 @@ checksum = "4a3daa8e81a3963a60642bcc1f90a670680bd4a77535faa384e9d1c79d620871"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
- "rand_core",
+ "rand_core 0.6.4",
  "serde",
  "sha2",
  "subtle",
@@ -1625,7 +1631,8 @@ dependencies = [
 [[package]]
 name = "eyeball"
 version = "0.8.8"
-source = "git+https://github.com/jplatte/eyeball?branch=main#b4ca8997db0ee3767bbc08a2aec788cac05c55ac"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93bd0ebf93d61d6332d3c09a96e97975968a44e19a64c947bde06e6baff383f"
 dependencies = [
  "futures-core",
  "readlock",
@@ -1637,8 +1644,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im"
-version = "0.6.0"
-source = "git+https://github.com/jplatte/eyeball?branch=main#b4ca8997db0ee3767bbc08a2aec788cac05c55ac"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43e8e9d31591be508826b875d8fe6056aebcaec3281ac0e45434ff303686c566"
 dependencies = [
  "futures-core",
  "imbl",
@@ -1648,8 +1656,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im-util"
-version = "0.8.0"
-source = "git+https://github.com/jplatte/eyeball?branch=main#b4ca8997db0ee3767bbc08a2aec788cac05c55ac"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bda2d08a8fa99050bdb84d077193a371e9abd29696921971aa26ae076adb6023"
 dependencies = [
  "arrayvec",
  "eyeball-im",
@@ -2374,13 +2383,14 @@ dependencies = [
 
 [[package]]
 name = "imbl"
-version = "4.0.1"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ae128b3bc67ed43ec0a7bb1c337a9f026717628b3c4033f07ded1da3e854951"
+checksum = "e4308a675e4cfc1920f36a8f4d8fb62d5533b7da106844bd1ec51c6f1fa94a0c"
 dependencies = [
+ "archery",
  "bitmaps",
  "imbl-sized-chunks",
- "rand_core",
+ "rand_core 0.9.3",
  "rand_xoshiro",
  "serde",
  "version_check",
@@ -4107,7 +4117,7 @@ checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
  "rand_chacha",
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -4117,7 +4127,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -4130,21 +4140,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_core"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
+
+[[package]]
 name = "rand_xorshift"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d25bf25ec5ae4a3f1b92f929810509a2f53d7dca2f50b794ff57e3face536c8f"
 dependencies = [
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
 name = "rand_xoshiro"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f97cdb2a36ed4183de61b2f824cc45c9f1037f28afe0a322e9fff4c108b5aaa"
+checksum = "f703f4665700daf5512dcca5f43afa6af89f09db47fb56be587f80636bda2d41"
 dependencies = [
- "rand_core",
+ "rand_core 0.9.3",
 ]
 
 [[package]]
@@ -4888,7 +4904,7 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -6329,7 +6345,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
 dependencies = [
  "curve25519-dalek",
- "rand_core",
+ "rand_core 0.6.4",
  "serde",
  "zeroize",
 ]
