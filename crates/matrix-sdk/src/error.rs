@@ -14,7 +14,7 @@
 
 //! Error conditions.
 
-use std::{io::Error as IoError, sync::Arc, time::Duration};
+use std::{io::Error as IoError, ops::Deref, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
 use http::StatusCode;
@@ -261,7 +261,7 @@ impl RetryKind {
 pub enum Error {
     /// Error doing an HTTP request.
     #[error(transparent)]
-    Http(#[from] HttpError),
+    Http(Box<HttpError>),
 
     /// Queried endpoint requires authentication but was called on an anonymous
     /// client.
@@ -431,6 +431,12 @@ impl Error {
     }
 }
 
+impl From<HttpError> for Error {
+    fn from(error: HttpError) -> Self {
+        Error::Http(Box::new(error))
+    }
+}
+
 /// Error for the room key importing functionality.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
@@ -505,7 +511,7 @@ impl From<SdkBaseError> for Error {
 
 impl From<ReqwestError> for Error {
     fn from(e: ReqwestError) -> Self {
-        Error::Http(HttpError::Reqwest(e))
+        Error::Http(Box::new(HttpError::Reqwest(e)))
     }
 }
 
