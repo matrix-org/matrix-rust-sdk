@@ -1262,7 +1262,7 @@ impl QueueStorage {
                 send_event_txn.into(),
                 created_at,
                 DependentQueuedRequestKind::FinishUpload {
-                    local_echo: event,
+                    local_echo: Box::new(event),
                     file_upload: upload_file_txn.clone(),
                     thumbnail_info,
                 },
@@ -1388,7 +1388,7 @@ impl QueueStorage {
                     Some(LocalEcho {
                         transaction_id: dep.own_transaction_id.clone().into(),
                         content: LocalEchoContent::Event {
-                            serialized_event: SerializableEventContent::new(&local_echo.into())
+                            serialized_event: SerializableEventContent::new(&(*local_echo).into())
                                 .ok()?,
                             send_handle: SendHandle {
                                 room: room.clone(),
@@ -1620,7 +1620,7 @@ impl QueueStorage {
                     client,
                     dependent_request.own_transaction_id.into(),
                     parent_key,
-                    local_echo,
+                    *local_echo,
                     file_upload,
                     thumbnail_info,
                     new_updates,
