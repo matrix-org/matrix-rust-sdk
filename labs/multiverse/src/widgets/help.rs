@@ -24,7 +24,9 @@ impl Widget for &mut HelpView {
         let rows = vec![
             Row::new(vec![Cell::from("F1"), Cell::from("Open Help")]),
             Row::new(vec![Cell::from("F10"), Cell::from("Open the encryption settings")]),
-            Row::new(vec![Cell::from("F8"), Cell::from("Open the details view of a room")]),
+            Row::new(vec![Cell::from("ALT-l"), Cell::from("Open the linked chunk details view")]),
+            Row::new(vec![Cell::from("ALT-e"), Cell::from("Open the events details view")]),
+            Row::new(vec![Cell::from("ALT-r"), Cell::from("Open the read receipt details view")]),
             Row::new(vec![Cell::from("Ctrl-q"), Cell::from("Quit Multiverse")]),
             Row::new(vec![
                 Cell::from("Ctrl-j / Ctrl-down"),

@@ -87,25 +87,19 @@ impl RoomView {
 
                 (KeyModifiers::NONE, PageUp) => self.back_paginate(),
 
-                (KeyModifiers::NONE, F(8)) => {
+                (KeyModifiers::ALT, Char('e')) => {
                     if self.selected_room.is_some() {
                         self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
                     }
                 }
 
-                (KeyModifiers::ALT, Char('1')) => {
-                    if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
-                    }
-                }
-
-                (KeyModifiers::ALT, Char('2')) => {
+                (KeyModifiers::ALT, Char('r')) => {
                     if self.selected_room.is_some() {
                         self.mode = Mode::Details { view: RoomDetails::with_receipts_as_selected() }
                     }
                 }
 
-                (KeyModifiers::ALT, Char('3')) => {
+                (KeyModifiers::ALT, Char('l')) => {
                     if self.selected_room.is_some() {
                         self.mode = Mode::Details { view: RoomDetails::with_chunks_as_selected() }
                     }
@@ -117,19 +111,19 @@ impl RoomView {
             Mode::Details { view } => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, PageUp) => self.back_paginate(),
 
-                (KeyModifiers::ALT, Char('1')) => {
+                (KeyModifiers::ALT, Char('e')) => {
                     if self.selected_room.is_some() {
                         self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
                     }
                 }
 
-                (KeyModifiers::ALT, Char('2')) => {
+                (KeyModifiers::ALT, Char('r')) => {
                     if self.selected_room.is_some() {
                         self.mode = Mode::Details { view: RoomDetails::with_receipts_as_selected() }
                     }
                 }
 
-                (KeyModifiers::ALT, Char('3')) => {
+                (KeyModifiers::ALT, Char('l')) => {
                     if self.selected_room.is_some() {
                         self.mode = Mode::Details { view: RoomDetails::with_chunks_as_selected() }
                     }
