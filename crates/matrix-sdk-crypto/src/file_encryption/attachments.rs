@@ -21,7 +21,7 @@ use aes::{
     cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
     Aes256,
 };
-use rand::{thread_rng, RngCore};
+use rand::{rng, RngCore};
 use ruma::{
     events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit},
     serde::Base64,
@@ -228,7 +228,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
         let mut key = [0u8; KEY_SIZE];
         let mut iv = [0u8; IV_SIZE];
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         rng.fill_bytes(&mut key);
         // Only populate the first 8 bytes with randomness, the rest is 0

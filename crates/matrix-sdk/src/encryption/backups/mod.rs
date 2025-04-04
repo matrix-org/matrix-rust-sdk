@@ -102,10 +102,7 @@ impl Backups {
             let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
             // Create a new backup recovery key.
-            let decryption_key = BackupDecryptionKey::new().expect(
-                "We should be able to generate enough randomness to create a new backup recovery \
-                 key",
-            );
+            let decryption_key = BackupDecryptionKey::new();
 
             // Get the info about the new backup key, this needs to be uploaded to the
             // homeserver[1].

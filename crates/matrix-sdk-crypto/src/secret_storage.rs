@@ -23,8 +23,8 @@ pub use hmac::digest::MacError;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{
-    distributions::{Alphanumeric, DistString},
-    thread_rng, RngCore,
+    distr::{Alphanumeric, SampleString},
+    rng, RngCore,
 };
 use ruma::{
     events::{
@@ -302,7 +302,7 @@ impl SecretStorageKey {
     /// Create a new random [`SecretStorageKey`].
     pub fn new() -> Self {
         let mut key = Box::new([0u8; KEY_SIZE]);
-        let mut rng = thread_rng();
+        let mut rng = rng();
         rng.fill_bytes(key.as_mut_slice());
 
         let key_id = Alphanumeric.sample_string(&mut rng, Self::DEFAULT_KEY_ID_LEN);
@@ -318,7 +318,7 @@ impl SecretStorageKey {
     /// [spec]: https://spec.matrix.org/v1.8/client-server-api/#deriving-keys-from-passphrases
     pub fn new_from_passphrase(passphrase: &str) -> Self {
         let mut key = Box::new([0u8; 32]);
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let salt = Alphanumeric.sample_string(&mut rng, Self::DEFAULT_KEY_ID_LEN);
 
         pbkdf2::<Hmac<Sha512>>(

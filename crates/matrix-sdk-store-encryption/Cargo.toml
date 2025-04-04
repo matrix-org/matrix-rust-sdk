@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-js = ["dep:getrandom", "getrandom?/js"]
+js = ["dep:getrandom", "getrandom?/wasm_js"]
 
 [dependencies]
 base64 = { workspace = true }

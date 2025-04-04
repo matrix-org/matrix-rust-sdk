@@ -22,7 +22,7 @@ use matrix_sdk_qrcode::{
     qrcode::QrCode, EncodingError, QrVerificationData, SelfVerificationData,
     SelfVerificationNoMasterKey, VerificationData,
 };
-use rand::{thread_rng, RngCore};
+use rand::{rng, RngCore};
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
@@ -495,7 +495,7 @@ impl QrVerification {
 
     fn generate_secret() -> Base64 {
         let mut shared_secret = vec![0u8; SECRET_SIZE];
-        let mut rng = thread_rng();
+        let mut rng = rng();
         rng.fill_bytes(&mut shared_secret);
 
         Base64::new(shared_secret)
