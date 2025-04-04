@@ -292,7 +292,7 @@ mod tests {
             self.events
                 .get(event_id)
                 .cloned()
-                .ok_or(Error::EventCache(EventCacheError::ClientDropped))
+                .ok_or(Error::EventCache(Box::new(EventCacheError::ClientDropped)))
         }
     }
 
