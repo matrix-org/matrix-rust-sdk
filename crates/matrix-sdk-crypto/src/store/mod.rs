@@ -754,6 +754,12 @@ impl BackupDecryptionKey {
     }
 }
 
+impl Default for BackupDecryptionKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl Debug for BackupDecryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -809,6 +815,12 @@ impl DehydratedDeviceKey {
     /// Export the [`DehydratedDeviceKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
         base64_encode(self.inner.as_slice())
+    }
+}
+
+impl Default for DehydratedDeviceKey {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
