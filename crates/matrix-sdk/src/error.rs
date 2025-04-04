@@ -375,7 +375,7 @@ pub enum Error {
 
     /// An item has been wedged in the send queue.
     #[error(transparent)]
-    SendQueueWedgeError(#[from] QueueWedgeError),
+    SendQueueWedgeError(Box<QueueWedgeError>),
 
     /// Backups are not enabled
     #[error("backups are not enabled")]
@@ -492,6 +492,12 @@ impl From<OAuthError> for Error {
 impl From<EventCacheError> for Error {
     fn from(error: EventCacheError) -> Self {
         Error::EventCache(Box::new(error))
+    }
+}
+
+impl From<QueueWedgeError> for Error {
+    fn from(error: QueueWedgeError) -> Self {
+        Error::SendQueueWedgeError(Box::new(error))
     }
 }
 
