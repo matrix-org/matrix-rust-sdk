@@ -371,7 +371,7 @@ pub enum Error {
 
     /// An error coming from the event cache subsystem.
     #[error(transparent)]
-    EventCache(#[from] EventCacheError),
+    EventCache(Box<EventCacheError>),
 
     /// An item has been wedged in the send queue.
     #[error(transparent)]
@@ -486,6 +486,12 @@ impl From<SlidingSyncError> for Error {
 impl From<OAuthError> for Error {
     fn from(error: OAuthError) -> Self {
         Error::OAuth(Box::new(error))
+    }
+}
+
+impl From<EventCacheError> for Error {
+    fn from(error: EventCacheError) -> Self {
+        Error::EventCache(Box::new(error))
     }
 }
 
