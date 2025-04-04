@@ -74,6 +74,9 @@ simpler methods:
   `ClientBuilder::sqlite_store_with_config_and_cache_path` to configure the
   SQLite store with the new `SqliteStoreConfig` structure
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870))
+- Add `Client::logout()` that allows to log out regardless of the `AuthApi` that
+  is used for the session.
+  ([#4886](https://github.com/matrix-org/matrix-rust-sdk/pull/4886))
 
 ### Bug Fixes
 
@@ -201,7 +204,7 @@ simpler methods:
   - `OAuthError::MissingDeviceId` was removed, it cannot occur anymore.
 - [**breaking**] `OidcRegistrations` was renamed to `OAuthRegistrationStore`.
   ([#4814](https://github.com/matrix-org/matrix-rust-sdk/pull/4814))
-  - `OidcRegistrationsError` was renamed to `OAuthRegistrationStoreError`. 
+  - `OidcRegistrationsError` was renamed to `OAuthRegistrationStoreError`.
   - The `registrations` module was renamed and is now private.
     `OAuthRegistrationStore` and `ClientId` are exported from `oauth`, and
     `OAuthRegistrationStoreError` is exported from `oauth::error`.
