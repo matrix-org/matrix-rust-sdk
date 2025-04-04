@@ -348,7 +348,7 @@ pub enum Error {
     /// specific membership state in the room, but the membership state is
     /// different.
     #[error("wrong room state: {0}")]
-    WrongRoomState(WrongRoomState),
+    WrongRoomState(Box<WrongRoomState>),
 
     /// Session callbacks have been set multiple times.
     #[error("session callbacks have been set multiple times")]
