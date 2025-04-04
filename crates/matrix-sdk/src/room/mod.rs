@@ -210,7 +210,10 @@ impl Room {
     pub async fn leave(&self) -> Result<()> {
         let state = self.state();
         if state == RoomState::Left {
-            return Err(Error::WrongRoomState(WrongRoomState::new("Joined or Invited", state)));
+            return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
+                "Joined or Invited",
+                state,
+            ))));
         }
 
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
@@ -226,7 +229,10 @@ impl Room {
     pub async fn join(&self) -> Result<()> {
         let state = self.state();
         if state == RoomState::Joined {
-            return Err(Error::WrongRoomState(WrongRoomState::new("Invited or Left", state)));
+            return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
+                "Invited or Left",
+                state,
+            ))));
         }
 
         let prev_room_state = self.inner.state();
@@ -2938,7 +2944,7 @@ impl Room {
     pub async fn invite_details(&self) -> Result<Invite> {
         let state = self.state();
         if state != RoomState::Invited {
-            return Err(Error::WrongRoomState(WrongRoomState::new("Invited", state)));
+            return Err(Error::WrongRoomState(Box::new(WrongRoomState::new("Invited", state))));
         }
 
         let invitee = self
@@ -2989,7 +2995,10 @@ impl Room {
         let state = self.state();
         match state {
             RoomState::Joined | RoomState::Invited | RoomState::Knocked => {
-                return Err(Error::WrongRoomState(WrongRoomState::new("Left / Banned", state)));
+                return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
+                    "Left / Banned",
+                    state,
+                ))));
             }
             RoomState::Left | RoomState::Banned => {}
         }
@@ -3016,7 +3025,7 @@ impl Room {
         if state == RoomState::Joined {
             Ok(())
         } else {
-            Err(Error::WrongRoomState(WrongRoomState::new("Joined", state)))
+            Err(Error::WrongRoomState(Box::new(WrongRoomState::new("Joined", state))))
         }
     }
 
@@ -3099,7 +3108,7 @@ impl Room {
     ) -> Result<report_content::v3::Response> {
         let state = self.state();
         if state != RoomState::Joined {
-            return Err(Error::WrongRoomState(WrongRoomState::new("Joined", state)));
+            return Err(Error::WrongRoomState(Box::new(WrongRoomState::new("Joined", state))));
         }
 
         let request = report_content::v3::Request::new(
