@@ -63,8 +63,7 @@ impl SelectedTab {
 
     /// Return tab's name as a styled `Line`
     fn title(self) -> Line<'static> {
-        let index = self as usize + 1;
-        format!("  {index}. {self}  ").fg(tailwind::SLATE.c200).bg(self.palette().c900).into()
+        format!("  {self}  ").fg(tailwind::SLATE.c200).bg(self.palette().c900).into()
     }
 
     const fn palette(&self) -> tailwind::Palette {
