@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use js_int::uint;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_base::deserialized_responses::AnySyncOrStrippedState;
 use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     event_id,
@@ -95,8 +94,9 @@ async fn test_start_live_location_share_for_room() {
 
     let raw_event = state_events.first().expect("There should be a beacon_info state event");
 
-    let ev = match raw_event.deserialize().expect("Failed to deserialize event") {
-        AnySyncOrStrippedState::Sync(AnySyncStateEvent::BeaconInfo(ev)) => ev,
+    let ev = raw_event.deserialize().expect("Failed to deserialize event");
+    let ev = match ev.as_sync() {
+        Some(AnySyncStateEvent::BeaconInfo(ev)) => ev,
         _ => panic!("Expected a BeaconInfo event"),
     };
 
@@ -228,8 +228,9 @@ async fn test_stop_sharing_live_location() {
 
     let raw_event = state_events.first().expect("There should be a beacon_info state event");
 
-    let ev = match raw_event.deserialize().expect("Failed to deserialize event") {
-        AnySyncOrStrippedState::Sync(AnySyncStateEvent::BeaconInfo(ev)) => ev,
+    let ev = raw_event.deserialize().expect("Failed to deserialize event");
+    let ev = match ev.as_sync() {
+        Some(AnySyncStateEvent::BeaconInfo(ev)) => ev,
         _ => panic!("Expected a BeaconInfo event"),
     };
 
