@@ -298,7 +298,7 @@ pub enum Error {
 
     /// An error occurred with a cross-process store lock.
     #[error(transparent)]
-    CrossProcessLockError(#[from] LockStoreError),
+    CrossProcessLockError(Box<LockStoreError>),
 
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "e2e-encryption")]
@@ -441,6 +441,12 @@ impl From<HttpError> for Error {
 impl From<CryptoStoreError> for Error {
     fn from(error: CryptoStoreError) -> Self {
         Error::CryptoStoreError(Box::new(error))
+    }
+}
+
+impl From<LockStoreError> for Error {
+    fn from(error: LockStoreError) -> Self {
+        Error::CrossProcessLockError(Box::new(error))
     }
 }
 
