@@ -303,7 +303,7 @@ pub enum Error {
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
-    OlmError(#[from] OlmError),
+    OlmError(Box<OlmError>),
 
     /// An error occurred during a E2EE group operation.
     #[cfg(feature = "e2e-encryption")]
@@ -444,6 +444,13 @@ impl From<CryptoStoreError> for Error {
     }
 }
 
+#[cfg(feature = "e2e-encryption")]
+impl From<OlmError> for Error {
+    fn from(error: OlmError) -> Self {
+        Error::OlmError(Box::new(error))
+    }
+}
+
 /// Error for the room key importing functionality.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
@@ -502,7 +509,7 @@ impl From<SdkBaseError> for Error {
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
             #[cfg(feature = "e2e-encryption")]
-            SdkBaseError::OlmError(e) => Self::OlmError(e),
+            SdkBaseError::OlmError(e) => Self::OlmError(Box::new(e)),
             #[cfg(feature = "eyre")]
             _ => Self::UnknownError(eyre::eyre!(e).into()),
             #[cfg(all(not(feature = "eyre"), feature = "anyhow"))]
