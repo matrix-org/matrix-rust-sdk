@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg(feature = "e2e-encryption")]
-
 use std::collections::BTreeMap;
 
 use matrix_sdk_crypto::{store::RoomKeyInfo, EncryptionSyncChanges, OlmMachine};

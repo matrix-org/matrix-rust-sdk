@@ -40,7 +40,7 @@ use super::BaseClient;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    response_processors::{self as processors, account_data::AccountDataProcessor},
+    response_processors::account_data::AccountDataProcessor,
     rooms::{
         normal::{RoomHero, RoomInfoNotableUpdateReasons},
         RoomState,
@@ -53,7 +53,7 @@ use crate::{
 #[cfg(feature = "e2e-encryption")]
 use crate::{
     latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent},
-    RoomMemberships,
+    response_processors as processors, RoomMemberships,
 };
 
 impl BaseClient {
