@@ -317,7 +317,7 @@ pub enum Error {
 
     /// An error occurred in the state store.
     #[error(transparent)]
-    StateStore(#[from] StoreError),
+    StateStore(Box<StoreError>),
 
     /// An error occurred in the event cache store.
     #[error(transparent)]
@@ -458,6 +458,12 @@ impl From<MegolmError> for Error {
     }
 }
 
+impl From<StoreError> for Error {
+    fn from(error: StoreError) -> Self {
+        Error::StateStore(Box::new(error))
+    }
+}
+
 /// Error for the room key importing functionality.
 #[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
@@ -510,7 +516,7 @@ impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
 impl From<SdkBaseError> for Error {
     fn from(e: SdkBaseError) -> Self {
         match e {
-            SdkBaseError::StateStore(e) => Self::StateStore(e),
+            SdkBaseError::StateStore(e) => Self::StateStore(Box::new(e)),
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(Box::new(e)),
             #[cfg(feature = "e2e-encryption")]
