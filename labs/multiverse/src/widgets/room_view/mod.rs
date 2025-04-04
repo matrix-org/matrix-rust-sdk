@@ -22,11 +22,14 @@ mod details;
 mod input;
 mod timeline;
 
+const DEFAULT_TILING_DIRECTION: Direction = Direction::Horizontal;
+
 #[derive(Default)]
 enum Mode {
     #[default]
     Normal,
     Details {
+        tiling_direction: Direction,
         view: RoomDetails,
     },
 }
@@ -89,43 +92,64 @@ impl RoomView {
 
                 (KeyModifiers::ALT, Char('e')) => {
                     if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
+                        self.mode = Mode::Details {
+                            tiling_direction: DEFAULT_TILING_DIRECTION,
+                            view: RoomDetails::with_events_as_selected(),
+                        }
                     }
                 }
 
                 (KeyModifiers::ALT, Char('r')) => {
                     if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::with_receipts_as_selected() }
+                        self.mode = Mode::Details {
+                            tiling_direction: DEFAULT_TILING_DIRECTION,
+                            view: RoomDetails::with_receipts_as_selected(),
+                        }
                     }
                 }
 
                 (KeyModifiers::ALT, Char('l')) => {
                     if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::with_chunks_as_selected() }
+                        self.mode = Mode::Details {
+                            tiling_direction: DEFAULT_TILING_DIRECTION,
+                            view: RoomDetails::with_chunks_as_selected(),
+                        }
                     }
                 }
 
                 _ => self.input.handle_key_press(key),
             },
 
-            Mode::Details { view } => match (key.modifiers, key.code) {
+            Mode::Details { view, tiling_direction } => match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, PageUp) => self.back_paginate(),
 
+                (KeyModifiers::ALT, Char('t')) => {
+                    let new_layout = match tiling_direction {
+                        Direction::Horizontal => Direction::Vertical,
+                        Direction::Vertical => Direction::Horizontal,
+                    };
+
+                    *tiling_direction = new_layout;
+                }
+
                 (KeyModifiers::ALT, Char('e')) => {
-                    if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::with_events_as_selected() }
+                    self.mode = Mode::Details {
+                        tiling_direction: *tiling_direction,
+                        view: RoomDetails::with_events_as_selected(),
                     }
                 }
 
                 (KeyModifiers::ALT, Char('r')) => {
-                    if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::with_receipts_as_selected() }
+                    self.mode = Mode::Details {
+                        tiling_direction: *tiling_direction,
+                        view: RoomDetails::with_receipts_as_selected(),
                     }
                 }
 
                 (KeyModifiers::ALT, Char('l')) => {
-                    if self.selected_room.is_some() {
-                        self.mode = Mode::Details { view: RoomDetails::with_chunks_as_selected() }
+                    self.mode = Mode::Details {
+                        tiling_direction: *tiling_direction,
+                        view: RoomDetails::with_chunks_as_selected(),
                     }
                 }
 
@@ -252,7 +276,7 @@ impl Widget for &mut RoomView {
         // Create a space for the header, timeline, and input area.
         let vertical =
             Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]);
-        let [header_area, timeline_area, input_area] = vertical.areas(area);
+        let [header_area, middle_area, input_area] = vertical.areas(area);
 
         let header_block = Block::default()
             .borders(Borders::NONE)
@@ -261,48 +285,56 @@ impl Widget for &mut RoomView {
             .title("Room view")
             .title_alignment(Alignment::Center);
 
-        let timeline_block = Block::default()
+        let middle_block = Block::default()
             .border_set(symbols::border::THICK)
             .bg(NORMAL_ROW_COLOR)
             .padding(Padding::horizontal(1));
 
         // Let's render the backgrounds for the header and the timeline.
         header_block.render(header_area, buf);
-        timeline_block.render(timeline_area, buf);
+        middle_block.render(middle_area, buf);
 
         // Helper to render some string as a paragraph.
         let render_paragraph = |buf: &mut Buffer, content: String| {
             Paragraph::new(content)
                 .fg(TEXT_COLOR)
                 .wrap(Wrap { trim: false })
-                .render(timeline_area, buf);
+                .render(middle_area, buf);
         };
 
         if let Some(room_id) = self.selected_room.as_deref() {
+            let rooms = self.ui_rooms.lock();
+            let mut room = rooms.get(room_id);
+
             if let Some(items) =
                 self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
             {
+                let timeline_area = match &mut self.mode {
+                    Mode::Normal => {
+                        self.input.render(input_area, buf, &mut room);
+                        middle_area
+                    }
+                    Mode::Details { view, tiling_direction } => {
+                        let vertical = Layout::new(
+                            *tiling_direction,
+                            [Constraint::Percentage(50), Constraint::Percentage(50)],
+                        );
+                        let [timeline_area, details_area] = vertical.areas(middle_area);
+                        Clear.render(details_area, buf);
+
+                        view.render(details_area, buf, &mut room);
+
+                        timeline_area
+                    }
+                };
+
                 let items = items.lock();
                 let mut timeline = TimelineView::new(items.deref());
+
                 timeline.render(timeline_area, buf);
             } else {
                 render_paragraph(buf, "(room's timeline disappeared)".to_owned())
             };
-
-            let rooms = self.ui_rooms.lock();
-            let mut room = rooms.get(room_id);
-
-            self.input.render(input_area, buf, &mut room);
-
-            match &mut self.mode {
-                Mode::Normal => {}
-                Mode::Details { view } => {
-                    let details_area = area.inner(Margin::new(0, 1));
-                    Clear.render(details_area, buf);
-
-                    view.render(details_area, buf, &mut room);
-                }
-            }
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
         };
