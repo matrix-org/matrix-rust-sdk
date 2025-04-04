@@ -321,7 +321,7 @@ pub enum Error {
 
     /// An error occurred in the event cache store.
     #[error(transparent)]
-    EventCacheStore(#[from] EventCacheStoreError),
+    EventCacheStore(Box<EventCacheStoreError>),
 
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
@@ -461,6 +461,12 @@ impl From<MegolmError> for Error {
 impl From<StoreError> for Error {
     fn from(error: StoreError) -> Self {
         Error::StateStore(Box::new(error))
+    }
+}
+
+impl From<EventCacheStoreError> for Error {
+    fn from(error: EventCacheStoreError) -> Self {
+        Error::EventCacheStore(Box::new(error))
     }
 }
 
