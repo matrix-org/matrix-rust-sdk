@@ -334,7 +334,7 @@ pub enum Error {
     /// An error while scanning a QR code.
     #[cfg(feature = "qrcode")]
     #[error(transparent)]
-    QrCodeScanError(#[from] ScanError),
+    QrCodeScanError(Box<ScanError>),
 
     /// An error encountered when trying to parse a user tag name.
     #[error(transparent)]
@@ -467,6 +467,13 @@ impl From<StoreError> for Error {
 impl From<EventCacheStoreError> for Error {
     fn from(error: EventCacheStoreError) -> Self {
         Error::EventCacheStore(Box::new(error))
+    }
+}
+
+#[cfg(feature = "qrcode")]
+impl From<ScanError> for Error {
+    fn from(error: ScanError) -> Self {
+        Error::QrCodeScanError(Box::new(error))
     }
 }
 
