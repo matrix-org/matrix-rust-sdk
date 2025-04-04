@@ -18,13 +18,14 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use ruma::{events::AnyTimelineEvent, serde::Raw};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
-use tracing::{debug, error};
+use tracing::debug;
 
 use super::{
-    filter::MatrixEventFilterInput, EventFilter, MessageLikeEventFilter, StateEventFilter,
+    filter::{EventAndRequestFilter, MatrixEventFilterInput},
+    EventFilter, MessageLikeEventFilter, StateEventFilter,
 };
+use crate::widget::filter::ToDeviceEventFilter;
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -58,25 +59,21 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// Tells if a given raw event matches the read filter.
-    pub fn raw_event_matches_read_filter(&self, raw: &Raw<AnyTimelineEvent>) -> bool {
-        let filter_in = match raw.deserialize_as::<MatrixEventFilterInput>() {
-            Ok(filter) => filter,
-            Err(err) => {
-                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
-                return false;
-            }
-        };
-
-        self.read.iter().any(|f| f.matches(&filter_in))
+    pub(super) fn allow_reading(&self, event_filter_input: &MatrixEventFilterInput) -> bool {
+        self.read.iter().any(|f| f.matches_event(event_filter_input))
+    }
+    pub(super) fn allow_sending(&self, event_filter_input: &MatrixEventFilterInput) -> bool {
+        self.send.iter().any(|f| f.matches_event(event_filter_input))
     }
 }
 
-const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
-const READ_EVENT: &str = "org.matrix.msc2762.receive.event";
-const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
-const READ_STATE: &str = "org.matrix.msc2762.receive.state_event";
-const REQUIRES_CLIENT: &str = "io.element.requires_client";
+pub(super) const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
+pub(super) const RECEIVE_EVENT: &str = "org.matrix.msc2762.receive.event";
+pub(super) const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
+pub(super) const RECEIVE_STATE: &str = "org.matrix.msc2762.receive.state_event";
+pub(super) const SEND_TODEVICE: &str = "org.matrix.msc3819.send.to_device";
+pub(super) const RECEIVE_TODEVICE: &str = "org.matrix.msc3819.receive.to_device";
+pub(super) const REQUIRES_CLIENT: &str = "io.element.requires_client";
 pub(super) const SEND_DELAYED_EVENT: &str = "org.matrix.msc4157.send.delayed_event";
 pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed_event";
 
@@ -91,6 +88,7 @@ impl Serialize for Capabilities {
                 match self.0 {
                     EventFilter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
                     EventFilter::State(filter) => PrintStateEventFilter(filter).fmt(f),
+                    EventFilter::ToDevice(filter) => filter.fmt(f),
                 }
             }
         }
@@ -136,8 +134,9 @@ impl Serialize for Capabilities {
         }
         for filter in &self.read {
             let name = match filter {
-                EventFilter::MessageLike(_) => READ_EVENT,
-                EventFilter::State(_) => READ_STATE,
+                EventFilter::MessageLike(_) => RECEIVE_EVENT,
+                EventFilter::State(_) => RECEIVE_STATE,
+                EventFilter::ToDevice(_) => RECEIVE_TODEVICE,
             };
             seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
         }
@@ -145,6 +144,7 @@ impl Serialize for Capabilities {
             let name = match filter {
                 EventFilter::MessageLike(_) => SEND_EVENT,
                 EventFilter::State(_) => SEND_STATE,
+                EventFilter::ToDevice(_) => SEND_TODEVICE,
             };
             seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
         }
@@ -184,18 +184,24 @@ impl<'de> Deserialize<'de> for Capabilities {
                 }
 
                 match s.split_once(':') {
-                    Some((READ_EVENT, filter_s)) => Ok(Permission::Read(EventFilter::MessageLike(
-                        parse_message_event_filter(filter_s),
-                    ))),
+                    Some((RECEIVE_EVENT, filter_s)) => Ok(Permission::Read(
+                        EventFilter::MessageLike(parse_message_event_filter(filter_s)),
+                    )),
                     Some((SEND_EVENT, filter_s)) => Ok(Permission::Send(EventFilter::MessageLike(
                         parse_message_event_filter(filter_s),
                     ))),
-                    Some((READ_STATE, filter_s)) => {
+                    Some((RECEIVE_STATE, filter_s)) => {
                         Ok(Permission::Read(EventFilter::State(parse_state_event_filter(filter_s))))
                     }
                     Some((SEND_STATE, filter_s)) => {
                         Ok(Permission::Send(EventFilter::State(parse_state_event_filter(filter_s))))
                     }
+                    Some((RECEIVE_TODEVICE, filter_s)) => Ok(Permission::Read(
+                        EventFilter::ToDevice(parse_to_device_event_filter(filter_s)),
+                    )),
+                    Some((SEND_TODEVICE, filter_s)) => Ok(Permission::Send(EventFilter::ToDevice(
+                        parse_to_device_event_filter(filter_s),
+                    ))),
                     _ => {
                         debug!("Unknown capability `{s}`");
                         Ok(Self::Unknown)
@@ -220,6 +226,10 @@ impl<'de> Deserialize<'de> for Capabilities {
                 }
                 None => StateEventFilter::WithType(s.into()),
             }
+        }
+
+        fn parse_to_device_event_filter(s: &str) -> ToDeviceEventFilter {
+            ToDeviceEventFilter(s.into())
         }
 
         let mut capabilities = Capabilities::default();
@@ -263,8 +273,10 @@ mod tests {
             "org.matrix.msc2762.receive.event:org.matrix.rageshake_request",
             "org.matrix.msc2762.receive.state_event:m.room.member",
             "org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member",
+            "org.matrix.msc3819.receive.to_device:io.element.call.encryption_keys",
             "org.matrix.msc2762.send.event:org.matrix.rageshake_request",
             "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server",
+            "org.matrix.msc3819.send.to_device:io.element.call.encryption_keys",
             "org.matrix.msc4157.send.delayed_event",
             "org.matrix.msc4157.update_delayed_event"
         ]"#;
@@ -279,6 +291,9 @@ mod tests {
                 EventFilter::State(StateEventFilter::WithType(
                     "org.matrix.msc3401.call.member".into(),
                 )),
+                EventFilter::ToDevice(ToDeviceEventFilter(
+                    "io.element.call.encryption_keys".into(),
+                )),
             ],
             send: vec![
                 EventFilter::MessageLike(MessageLikeEventFilter::WithType(
@@ -287,6 +302,9 @@ mod tests {
                 EventFilter::State(StateEventFilter::WithTypeAndStateKey(
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
+                )),
+                EventFilter::ToDevice(ToDeviceEventFilter(
+                    "io.element.call.encryption_keys".into(),
                 )),
             ],
             requires_client: true,
@@ -309,6 +327,9 @@ mod tests {
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
                 )),
+                EventFilter::ToDevice(ToDeviceEventFilter(
+                    "io.element.call.encryption_keys".into(),
+                )),
             ],
             send: vec![
                 EventFilter::MessageLike(MessageLikeEventFilter::WithType(
@@ -318,6 +339,7 @@ mod tests {
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
                 )),
+                EventFilter::ToDevice(ToDeviceEventFilter("my.org.other.to_device_event".into())),
             ],
             requires_client: true,
             update_delayed_event: false,
