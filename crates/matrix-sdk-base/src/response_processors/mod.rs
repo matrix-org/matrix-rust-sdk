@@ -13,16 +13,22 @@
 // limitations under the License.
 
 pub mod account_data;
+#[cfg(feature = "e2e-encryption")]
 pub mod e2ee;
+#[cfg(feature = "e2e-encryption")]
 pub mod latest_event;
+#[cfg(feature = "e2e-encryption")]
 pub mod verification;
 
 use std::collections::BTreeMap;
 
-pub use e2ee::e2ee;
-pub use latest_event::decrypt_latest_events;
+#[cfg(feature = "e2e-encryption")]
+mod with_e2ee {
+    pub use super::{e2ee::e2ee, latest_event::decrypt_latest_events, verification::verification};
+}
 use ruma::OwnedRoomId;
-pub use verification::verification;
+#[cfg(feature = "e2e-encryption")]
+pub use with_e2ee::*;
 
 use crate::{RoomInfoNotableUpdateReasons, StateChanges};
 
