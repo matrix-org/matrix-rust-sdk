@@ -130,7 +130,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    ops::Deref,
     str::FromStr as _,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -705,9 +704,9 @@ impl RoomSendQueue {
 
                 let fut = async move {
                     let mime = Mime::from_str(&content_type).map_err(|_| {
-                        crate::Error::SendQueueWedgeError(QueueWedgeError::InvalidMimeType {
-                            mime_type: content_type.clone(),
-                        })
+                        crate::Error::SendQueueWedgeError(Box::new(
+                            QueueWedgeError::InvalidMimeType { mime_type: content_type.clone() },
+                        ))
                     })?;
 
                     let data = room
@@ -717,9 +716,9 @@ impl RoomSendQueue {
                         .await?
                         .get_media_content(&cache_key)
                         .await?
-                        .ok_or(crate::Error::SendQueueWedgeError(
+                        .ok_or(crate::Error::SendQueueWedgeError(Box::new(
                             QueueWedgeError::MissingMediaContent,
-                        ))?;
+                        )))?;
 
                     #[cfg(feature = "e2e-encryption")]
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
@@ -805,7 +804,7 @@ impl From<&crate::Error> for QueueWedgeError {
     fn from(value: &crate::Error) -> Self {
         match value {
             #[cfg(feature = "e2e-encryption")]
-            crate::Error::OlmError(error) => match error.deref() {
+            crate::Error::OlmError(error) => match &**error {
                 OlmError::SessionRecipientCollectionError(error) => match error {
                     SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
                         QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
@@ -824,7 +823,7 @@ impl From<&crate::Error> for QueueWedgeError {
             },
 
             // Flatten errors of `Self` type.
-            crate::Error::SendQueueWedgeError(error) => error.clone(),
+            crate::Error::SendQueueWedgeError(error) => *error.clone(),
 
             _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
         }

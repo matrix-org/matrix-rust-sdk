@@ -300,7 +300,9 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
     // It was persisted and it can be matched as a string now.
     let msg = assert_matches!(
         &**error,
-        Error::SendQueueWedgeError(QueueWedgeError::GenericApiError { msg }) => msg
+        Error::SendQueueWedgeError(error) => {
+            assert_matches!(&**error, QueueWedgeError::GenericApiError { msg } => { msg })
+        }
     );
     assert_eq!(
         msg,

@@ -1217,7 +1217,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     self.update_event_send_state(
                         &echo.transaction_id,
                         EventSendState::SendingFailed {
-                            error: Arc::new(matrix_sdk::Error::SendQueueWedgeError(send_error)),
+                            error: Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
+                                send_error,
+                            ))),
                             is_recoverable: false,
                         },
                     )
