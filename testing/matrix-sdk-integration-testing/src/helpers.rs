@@ -16,6 +16,7 @@ use matrix_sdk::{
         RoomId,
     },
     sliding_sync::VersionBuilder,
+    sync::SyncResponse,
     Client, ClientBuilder, Room,
 };
 use once_cell::sync::Lazy;
@@ -185,7 +186,7 @@ impl SyncTokenAwareClient {
         Self { client, token: Arc::new(None.into()) }
     }
 
-    pub async fn sync_once(&self) -> Result<()> {
+    pub async fn sync_once(&self) -> Result<SyncResponse> {
         let mut settings = SyncSettings::default().timeout(Duration::from_secs(1));
 
         let token = { self.token.lock().unwrap().clone() };
@@ -197,9 +198,9 @@ impl SyncTokenAwareClient {
 
         let mut prev_token = self.token.lock().unwrap();
         if prev_token.as_ref() != Some(&response.next_batch) {
-            *prev_token = Some(response.next_batch);
+            *prev_token = Some(response.next_batch.clone());
         }
-        Ok(())
+        Ok(response)
     }
 }
 

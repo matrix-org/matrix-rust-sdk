@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add experimental APIs for sharing encrypted room key history with new
+  members, `Store::build_room_key_bundle` and
+  `OlmMachine::share_room_key_bundle_data`.
+  ([#4775](https://github.com/matrix-org/matrix-rust-sdk/pull/4775),
+  [#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
+
 - [**breaking**] Add support for the shared history flag defined in [MSC3061](https://github.com/matrix-org/matrix-spec-proposals/pull/3061).
   The shared history flag is now respected when room keys are received as an
   `m.room_key` event as well as when they are imported from a backup or a file
@@ -32,7 +38,7 @@ All notable changes to this project will be documented in this file.
 
 - Room keys are not shared with unsigned dehydrated devices.
   ([#4551](https://github.com/matrix-org/matrix-rust-sdk/pull/4551))
-  
+
 - Have the `RoomIdentityProvider` return processing changes when identities transition
   to `IdentityState::Verified` too.
   ([#4670](https://github.com/matrix-org/matrix-rust-sdk/pull/4670))
