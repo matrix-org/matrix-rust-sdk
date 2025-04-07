@@ -16,17 +16,65 @@ use std::collections::BTreeMap;
 
 use matrix_sdk_crypto::{store::RoomKeyInfo, EncryptionSyncChanges, OlmMachine};
 use ruma::{
-    api::client::sync::sync_events::DeviceLists, events::AnyToDeviceEvent, serde::Raw,
+    api::client::sync::sync_events::{v3, v5, DeviceLists},
+    events::AnyToDeviceEvent,
+    serde::Raw,
     OneTimeKeyAlgorithm, UInt,
 };
 
 use super::Context;
 use crate::Result;
 
-/// Process the to-device events and other related e2ee data. This returns a
-/// list of all the to-device events that were passed in but encrypted ones
-/// were replaced with their decrypted version.
-pub async fn e2ee(
+/// Process the to-device events and other related e2ee data based on a response
+/// from a [MSC4186 request][`v5`].
+///
+/// This returns a list of all the to-device events that were passed in but
+/// encrypted ones were replaced with their decrypted version.
+pub async fn e2ee_from_msc4186(
+    context: &mut Context,
+    to_device: Option<&v5::response::ToDevice>,
+    e2ee: &v5::response::E2EE,
+    olm_machine: Option<&OlmMachine>,
+) -> Result<Output> {
+    e2ee_impl(
+        context,
+        olm_machine,
+        to_device.as_ref().map(|to_device| to_device.events.clone()).unwrap_or_default(),
+        &e2ee.device_lists,
+        &e2ee.device_one_time_keys_count,
+        e2ee.device_unused_fallback_key_types.as_deref(),
+        to_device.as_ref().map(|to_device| to_device.next_batch.clone()),
+    )
+    .await
+}
+
+/// Process the to-device events and other related e2ee data based on a response
+/// from a [`/v3/sync` request][`v3`].
+///
+/// This returns a list of all the to-device events that were passed in but
+/// encrypted ones were replaced with their decrypted version.
+pub async fn e2ee_from_sync_v3(
+    context: &mut Context,
+    response: &v3::Response,
+    olm_machine: Option<&OlmMachine>,
+) -> Result<Output> {
+    e2ee_impl(
+        context,
+        olm_machine,
+        response.to_device.events.clone(),
+        &response.device_lists,
+        &response.device_one_time_keys_count,
+        response.device_unused_fallback_key_types.as_deref(),
+        Some(response.next_batch.clone()),
+    )
+    .await
+}
+
+/// Process the to-device events and other related e2ee data.
+///
+/// This returns a list of all the to-device events that were passed in but
+/// encrypted ones were replaced with their decrypted version.
+async fn e2ee_impl(
     _context: &mut Context,
     olm_machine: Option<&OlmMachine>,
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,

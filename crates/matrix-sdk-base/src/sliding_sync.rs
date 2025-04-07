@@ -74,11 +74,9 @@ impl BaseClient {
             return Ok(None);
         }
 
-        let to_device_events =
-            to_device.as_ref().map(|to_device| to_device.events.clone()).unwrap_or_default();
-
         trace!(
-            to_device_events = to_device_events.len(),
+            to_device_events =
+                to_device.map(|to_device| to_device.events.len()).unwrap_or_default(),
             device_one_time_keys_count = e2ee.device_one_time_keys_count.len(),
             device_unused_fallback_key_types =
                 e2ee.device_unused_fallback_key_types.as_ref().map(|v| v.len()),
@@ -90,16 +88,8 @@ impl BaseClient {
         let mut context = processors::Context::new(StateChanges::default(), Default::default());
 
         let processors::e2ee::Output { decrypted_to_device_events, room_key_updates } =
-            processors::e2ee(
-                &mut context,
-                olm_machine.as_ref(),
-                to_device_events,
-                &e2ee.device_lists,
-                &e2ee.device_one_time_keys_count,
-                e2ee.device_unused_fallback_key_types.as_deref(),
-                to_device.as_ref().map(|to_device| to_device.next_batch.clone()),
-            )
-            .await?;
+            processors::e2ee_from_msc4186(&mut context, to_device, e2ee, olm_machine.as_ref())
+                .await?;
 
         processors::decrypt_latest_events(
             &mut context,

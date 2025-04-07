@@ -951,16 +951,8 @@ impl BaseClient {
             let processors::e2ee::Output {
                 decrypted_to_device_events: to_device,
                 room_key_updates,
-            } = processors::e2ee(
-                &mut context,
-                olm_machine.as_ref(),
-                response.to_device.events,
-                &response.device_lists,
-                &response.device_one_time_keys_count,
-                response.device_unused_fallback_key_types.as_deref(),
-                Some(response.next_batch.clone()),
-            )
-            .await?;
+            } = processors::e2ee_from_sync_v3(&mut context, &response, olm_machine.as_ref())
+                .await?;
 
             processors::decrypt_latest_events(
                 &mut context,
