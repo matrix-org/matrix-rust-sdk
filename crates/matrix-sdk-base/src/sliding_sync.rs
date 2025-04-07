@@ -15,8 +15,6 @@
 //! Extend `BaseClient` with capabilities to handle MSC4186.
 
 use std::collections::BTreeMap;
-#[cfg(feature = "e2e-encryption")]
-use std::ops::Deref;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
@@ -37,9 +35,12 @@ use ruma::{
 use tracing::{instrument, trace, warn};
 
 use super::BaseClient;
+#[cfg(feature = "e2e-encryption")]
+use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
+    response_processors as processors,
     response_processors::account_data::AccountDataProcessor,
     rooms::{
         normal::{RoomHero, RoomInfoNotableUpdateReasons},
@@ -49,11 +50,6 @@ use crate::{
     store::{ambiguity_map::AmbiguityCache, BaseStateStore, StateChanges},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     RequestedRequiredStates, Room, RoomInfo,
-};
-#[cfg(feature = "e2e-encryption")]
-use crate::{
-    latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent},
-    response_processors as processors, RoomMemberships,
 };
 
 impl BaseClient {
@@ -357,7 +353,7 @@ impl BaseClient {
         requested_required_states: &[(StateEventType, String)],
         room_data: &http::response::Room,
         rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
-        store: &BaseStateStore,
+        state_store: &BaseStateStore,
         user_id: &UserId,
         account_data_processor: &AccountDataProcessor,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
@@ -381,7 +377,7 @@ impl BaseClient {
         };
 
         // Find or create the room in the store
-        let is_new_room = !store.room_exists(room_id);
+        let is_new_room = !state_store.room_exists(room_id);
 
         let stripped_state: Option<Vec<(Raw<AnyStrippedStateEvent>, AnyStrippedStateEvent)>> =
             room_data
@@ -395,7 +391,7 @@ impl BaseClient {
                 context,
                 &state_events,
                 stripped_state.as_ref(),
-                store,
+                state_store,
                 user_id,
                 room_id,
             );
@@ -403,7 +399,7 @@ impl BaseClient {
         room_info.mark_state_partially_synced();
         room_info.handle_encryption_state(requested_required_states);
 
-        let mut user_ids = if !state_events.is_empty() {
+        let mut new_user_ids = if !state_events.is_empty() {
             self.handle_state(
                 context,
                 &raw_state_events,
@@ -442,7 +438,7 @@ impl BaseClient {
                 true,
                 room_data.prev_batch.clone(),
                 &push_rules,
-                &mut user_ids,
+                &mut new_user_ids,
                 &mut room_info,
                 notifications,
                 ambiguity_cache,
@@ -457,26 +453,21 @@ impl BaseClient {
             &mut room_info,
             &timeline.events,
             Some(&context.state_changes),
-            Some(store),
+            Some(state_store),
         )
         .await;
 
         #[cfg(feature = "e2e-encryption")]
-        if room_info.encryption_state().is_encrypted() {
-            if let Some(o) = self.olm_machine().await.as_ref() {
-                if !room.encryption_state().is_encrypted() {
-                    // The room turned on encryption in this sync, we need
-                    // to also get all the existing users and mark them for
-                    // tracking.
-                    let user_ids = store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
-                }
-
-                if !user_ids.is_empty() {
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
-                }
-            }
-        }
+        processors::e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
+            context,
+            self.olm_machine().await.as_ref(),
+            &new_user_ids,
+            room_info.encryption_state(),
+            room.encryption_state(),
+            room_id,
+            state_store,
+        )
+        .await?;
 
         let notification_count = room_data.unread_notifications.clone().into();
         room_info.update_notification_count(notification_count);

@@ -1023,7 +1023,7 @@ impl BaseClient {
             let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
                 state_events.into_iter().unzip();
 
-            let mut user_ids = self
+            let mut new_user_ids = self
                 .handle_state(
                     &mut context,
                     &raw_state_events,
@@ -1033,7 +1033,7 @@ impl BaseClient {
                 )
                 .await?;
 
-            updated_members_in_room.insert(room_id.to_owned(), user_ids.clone());
+            updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
 
             for raw in &new_info.ephemeral.events {
                 match raw.deserialize() {
@@ -1065,7 +1065,7 @@ impl BaseClient {
                     false,
                     new_info.timeline.prev_batch,
                     &push_rules,
-                    &mut user_ids,
+                    &mut new_user_ids,
                     &mut room_info,
                     &mut notifications,
                     &mut ambiguity_cache,
@@ -1086,22 +1086,16 @@ impl BaseClient {
             let mut room_info = context.state_changes.room_infos.get(&room_id).unwrap().clone();
 
             #[cfg(feature = "e2e-encryption")]
-            if room_info.encryption_state().is_encrypted() {
-                if let Some(o) = self.olm_machine().await.as_ref() {
-                    if !room.encryption_state().is_encrypted() {
-                        // The room turned on encryption in this sync, we need
-                        // to also get all the existing users and mark them for
-                        // tracking.
-                        let user_ids = self
-                            .state_store
-                            .get_user_ids(&room_id, RoomMemberships::ACTIVE)
-                            .await?;
-                        o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
-                    }
-
-                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?;
-                }
-            }
+            processors::e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
+                &mut context,
+                olm_machine.as_ref(),
+                &new_user_ids,
+                room_info.encryption_state(),
+                room.encryption_state(),
+                &room_id,
+                &self.state_store,
+            )
+            .await?;
 
             let notification_count = new_info.unread_notifications.into();
             room_info.update_notification_count(notification_count);
@@ -1439,11 +1433,13 @@ impl BaseClient {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        if room.encryption_state().is_encrypted() {
-            if let Some(o) = self.olm_machine().await.as_ref() {
-                o.update_tracked_users(user_ids.iter().map(Deref::deref)).await?
-            }
-        }
+        processors::e2ee::tracked_users::update(
+            &mut context,
+            self.olm_machine().await.as_ref(),
+            room.encryption_state(),
+            &user_ids,
+        )
+        .await?;
 
         context.state_changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
 
