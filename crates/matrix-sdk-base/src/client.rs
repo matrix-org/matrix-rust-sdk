@@ -636,19 +636,19 @@ impl BaseClient {
         &self,
         context: &mut Context,
         room: &Room,
-        events: &[(Raw<AnyStrippedStateEvent>, AnyStrippedStateEvent)],
+        events: (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>),
         push_rules: &Ruleset,
         room_info: &mut RoomInfo,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
-        for (raw_event, event) in events {
-            room_info.handle_stripped_state_event(event);
+        for (raw_event, event) in events.0.into_iter().zip(events.1.into_iter()) {
+            room_info.handle_stripped_state_event(&event);
             state_events
                 .entry(event.event_type())
                 .or_insert_with(BTreeMap::new)
-                .insert(event.state_key().to_owned(), raw_event.clone());
+                .insert(event.state_key().to_owned(), raw_event);
         }
 
         context
@@ -1018,9 +1018,8 @@ impl BaseClient {
             room_info.mark_state_fully_synced();
             room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
-            let state_events = Self::deserialize_state_events(&new_info.state.events);
-            let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
-                state_events.into_iter().unzip();
+            let (raw_state_events, state_events) =
+                processors::state_events::collect_sync(&mut context, &new_info.state.events);
 
             let mut new_user_ids = self
                 .handle_state(
@@ -1128,9 +1127,8 @@ impl BaseClient {
             room_info.mark_state_partially_synced();
             room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
-            let state_events = Self::deserialize_state_events(&new_info.state.events);
-            let (raw_state_events, state_events): (Vec<_>, Vec<_>) =
-                state_events.into_iter().unzip();
+            let (raw_state_events, state_events) =
+                processors::state_events::collect_sync(&mut context, &new_info.state.events);
 
             let mut user_ids = self
                 .handle_state(
@@ -1184,8 +1182,10 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
             );
 
-            let invite_state =
-                Self::deserialize_stripped_state_events(&new_info.invite_state.events);
+            let invite_state = processors::state_events::collect_stripped(
+                &mut context,
+                &new_info.invite_state.events,
+            );
 
             let mut room_info = room.clone_info();
             room_info.mark_as_invited();
@@ -1194,7 +1194,7 @@ impl BaseClient {
             self.handle_invited_state(
                 &mut context,
                 &room,
-                &invite_state,
+                invite_state,
                 &push_rules,
                 &mut room_info,
                 &mut notifications,
@@ -1213,7 +1213,10 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
             );
 
-            let knock_state = Self::deserialize_stripped_state_events(&new_info.knock_state.events);
+            let knock_state = processors::state_events::collect_stripped(
+                &mut context,
+                &new_info.knock_state.events,
+            );
 
             let mut room_info = room.clone_info();
             room_info.mark_as_knocked();
@@ -1222,7 +1225,7 @@ impl BaseClient {
             self.handle_invited_state(
                 &mut context,
                 &room,
-                &knock_state,
+                knock_state,
                 &push_rules,
                 &mut room_info,
                 &mut notifications,
@@ -1664,36 +1667,6 @@ impl BaseClient {
     /// list changes
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<String>> {
         self.ignore_user_list_changes.subscribe()
-    }
-
-    pub(crate) fn deserialize_state_events(
-        raw_events: &[Raw<AnySyncStateEvent>],
-    ) -> Vec<(Raw<AnySyncStateEvent>, AnySyncStateEvent)> {
-        raw_events
-            .iter()
-            .filter_map(|raw_event| match raw_event.deserialize() {
-                Ok(event) => Some((raw_event.clone(), event)),
-                Err(e) => {
-                    warn!("Couldn't deserialize state event: {e}");
-                    None
-                }
-            })
-            .collect()
-    }
-
-    pub(crate) fn deserialize_stripped_state_events(
-        raw_events: &[Raw<AnyStrippedStateEvent>],
-    ) -> Vec<(Raw<AnyStrippedStateEvent>, AnyStrippedStateEvent)> {
-        raw_events
-            .iter()
-            .filter_map(|raw_event| match raw_event.deserialize() {
-                Ok(event) => Some((raw_event.clone(), event)),
-                Err(e) => {
-                    warn!("Couldn't deserialize stripped state event: {e}");
-                    None
-                }
-            })
-            .collect()
     }
 
     /// Returns a new receiver that gets future room info notable updates.

@@ -19,6 +19,7 @@ pub mod e2ee;
 #[cfg(feature = "e2e-encryption")]
 pub mod latest_event;
 pub mod profiles;
+pub mod state_events;
 #[cfg(feature = "e2e-encryption")]
 pub mod verification;
 
