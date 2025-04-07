@@ -604,7 +604,7 @@ impl QueueStorage {
                     .await?;
 
                 trace!("caption successfully updated");
-                return Ok(Some(local_echo.into()));
+                return Ok(Some((*local_echo).into()));
             }
         }
 

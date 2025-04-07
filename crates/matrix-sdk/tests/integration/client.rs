@@ -4,11 +4,14 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
+    authentication::oauth::{error::OAuthTokenRevocationError, OAuthError},
     config::{RequestConfig, StoreConfig, SyncSettings},
     store::RoomLoadSettings,
     sync::RoomUpdate,
-    test_utils::{client::mock_matrix_session, no_retry_test_client_with_server},
-    Client, MemoryStore, StateChanges, StateStore,
+    test_utils::{
+        client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
+    },
+    Client, Error, MemoryStore, StateChanges, StateStore,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
@@ -567,7 +570,7 @@ async fn test_marking_room_as_dm_fails_if_undeserializable() {
 
     let result = client.account().mark_as_dm(&DEFAULT_TEST_ROOM_ID, &users).await;
 
-    assert_matches!(result, Err(matrix_sdk::Error::SerdeJson(_)));
+    assert_matches!(result, Err(Error::SerdeJson(_)));
 
     server.verify().await;
 }
@@ -1394,4 +1397,39 @@ async fn test_restore_room() {
     let room = client.get_room(room_id).unwrap();
     assert!(room.is_favourite());
     assert!(!room.pinned_event_ids().unwrap().is_empty());
+}
+
+#[async_test]
+async fn test_logout() {
+    let server = MatrixMockServer::new().await;
+
+    // Test unauthenticated client.
+    let unlogged_client = server.client_builder().unlogged().build().await;
+    let res = unlogged_client.logout().await;
+    assert_matches!(res, Err(Error::AuthenticationRequired));
+
+    // Test MatrixAuth.
+    server.mock_logout().ok().mock_once().named("matrix_logout").mount().await;
+
+    let matrix_auth_client = server.client_builder().build().await;
+    matrix_auth_client.logout().await.unwrap();
+
+    // Test OAuth.
+    server
+        .oauth()
+        .mock_server_metadata()
+        .ok()
+        .mock_once()
+        .named("oauth_server_metadata")
+        .mount()
+        .await;
+
+    let oauth_client = server.client_builder().logged_in_with_oauth().build().await;
+    let res = oauth_client.logout().await;
+
+    // This returns an error because it requires a HTTPS server URI, or to be able
+    // to call `OAuth::insecure_rewrite_https_to_http()`, but at least we are
+    // testing the OAuth branch inside `Client::logout()`.
+    assert_matches!(res, Err(Error::OAuth(oauth_error)));
+    assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
 }

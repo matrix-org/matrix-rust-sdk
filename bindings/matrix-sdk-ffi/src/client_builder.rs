@@ -259,6 +259,7 @@ pub struct ClientBuilder {
     session_pool_max_size: Option<usize>,
     session_cache_size: Option<u32>,
     session_journal_size_limit: Option<u32>,
+    system_is_memory_constrained: bool,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
     user_agent: Option<String>,
@@ -291,6 +292,7 @@ impl ClientBuilder {
             session_pool_max_size: None,
             session_cache_size: None,
             session_journal_size_limit: None,
+            system_is_memory_constrained: false,
             username: None,
             homeserver_cfg: None,
             user_agent: None,
@@ -421,6 +423,19 @@ impl ClientBuilder {
     pub fn session_journal_size_limit(self: Arc<Self>, limit: Option<u32>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.session_journal_size_limit = limit;
+        Arc::new(builder)
+    }
+
+    /// Tell the client that the system is memory constrained, like in a push
+    /// notification process for example.
+    ///
+    /// So far, at the time of writing (2025-04-07), it changes the defaults of
+    /// [`SqliteStoreConfig`], so one might not need to call
+    /// [`ClientBuilder::session_cache_size`] and siblings for example. Please
+    /// check [`SqliteStoreConfig::with_low_memory_config`].
+    pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.system_is_memory_constrained = true;
         Arc::new(builder)
     }
 
@@ -576,8 +591,14 @@ impl ClientBuilder {
             fs::create_dir_all(data_path)?;
             fs::create_dir_all(cache_path)?;
 
-            let mut sqlite_store_config =
-                SqliteStoreConfig::new(data_path).passphrase(builder.session_passphrase.as_deref());
+            let mut sqlite_store_config = if builder.system_is_memory_constrained {
+                SqliteStoreConfig::with_low_memory_config(data_path)
+            } else {
+                SqliteStoreConfig::new(data_path)
+            };
+
+            sqlite_store_config =
+                sqlite_store_config.passphrase(builder.session_passphrase.as_deref());
 
             if let Some(size) = builder.session_pool_max_size {
                 sqlite_store_config = sqlite_store_config.pool_max_size(size);
@@ -755,13 +776,12 @@ impl ClientBuilder {
             }
         })?;
 
-        let registrations = oidc_configuration
-            .registrations()
-            .await
+        let registration_data = oidc_configuration
+            .registration_data()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
         let oauth = client.inner.oauth();
-        let login = oauth.login_with_qr_code(&qr_code_data.inner, registrations.into());
+        let login = oauth.login_with_qr_code(&qr_code_data.inner, Some(&registration_data));
 
         let mut progress = login.subscribe_to_progress();
 

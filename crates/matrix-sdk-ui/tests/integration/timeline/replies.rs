@@ -4,7 +4,10 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{room::reply::EnforceThread, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{
+    room::reply::{EnforceThread, Reply},
+    test_utils::mocks::MatrixMockServer,
+};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
@@ -692,8 +695,10 @@ async fn test_send_reply() {
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            event_id_from_bob.to_owned(),
-            EnforceThread::MaybeThreaded,
+            Reply {
+                event_id: event_id_from_bob.into(),
+                enforce_thread: EnforceThread::MaybeThreaded,
+            },
         )
         .await
         .unwrap();
@@ -792,8 +797,10 @@ async fn test_send_reply_to_self() {
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to self"),
-            event_id_from_self.to_owned(),
-            EnforceThread::MaybeThreaded,
+            Reply {
+                event_id: event_id_from_self.into(),
+                enforce_thread: EnforceThread::MaybeThreaded,
+            },
         )
         .await
         .unwrap();
@@ -858,8 +865,7 @@ async fn test_send_reply_to_threaded() {
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Hello, Bob!"),
-            event_id_1.to_owned(),
-            EnforceThread::MaybeThreaded,
+            Reply { event_id: event_id_1.into(), enforce_thread: EnforceThread::MaybeThreaded },
         )
         .await
         .unwrap();
@@ -961,8 +967,10 @@ async fn test_send_reply_with_event_id() {
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            event_id_from_bob.to_owned(),
-            EnforceThread::MaybeThreaded,
+            Reply {
+                event_id: event_id_from_bob.into(),
+                enforce_thread: EnforceThread::MaybeThreaded,
+            },
         )
         .await
         .unwrap();
@@ -1047,8 +1055,10 @@ async fn test_send_reply_enforce_thread() {
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            event_id_from_bob.to_owned(),
-            EnforceThread::Threaded(ReplyWithinThread::No),
+            Reply {
+                event_id: event_id_from_bob.into(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+            },
         )
         .await
         .unwrap();
@@ -1144,8 +1154,10 @@ async fn test_send_reply_enforce_thread_is_reply() {
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            event_id_from_bob.to_owned(),
-            EnforceThread::Threaded(ReplyWithinThread::Yes),
+            Reply {
+                event_id: event_id_from_bob.into(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::Yes),
+            },
         )
         .await
         .unwrap();
@@ -1237,8 +1249,10 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     timeline
         .send_reply(
             RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
-            redacted_event_id_from_bob.to_owned(),
-            EnforceThread::MaybeThreaded,
+            Reply {
+                event_id: redacted_event_id_from_bob.into(),
+                enforce_thread: EnforceThread::MaybeThreaded,
+            },
         )
         .await
         .unwrap();

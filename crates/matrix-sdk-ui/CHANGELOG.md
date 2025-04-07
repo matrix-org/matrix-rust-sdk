@@ -28,6 +28,9 @@ All notable changes to this project will be documented in this file.
   from an [`EventTimelineItem`] by calling `.content().reactions()`. They're also returned by
   ownership (cloned) instead of by reference.
   ([#4576](https://github.com/matrix-org/matrix-rust-sdk/pull/4576))
+- [**breaking**] The parameters `event_id` and `enforce_thread` on [`Timeline::send_reply()`]
+  have been wrapped in a `reply` struct parameter.
+  ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
 
 ## [0.10.0] - 2025-02-04
 

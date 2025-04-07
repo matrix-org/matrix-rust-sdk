@@ -577,13 +577,12 @@ async fn test_oauth_refresh_token_handled_success() {
     oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
     oauth_server.mock_token().ok().expect(1).named("token").mount().await;
 
-    let issuer = server.server().uri();
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
     let oauth = client.oauth();
 
     oauth
         .restore_session(
-            mock_session(mock_prev_session_tokens_with_refresh(), issuer),
+            mock_session(mock_prev_session_tokens_with_refresh()),
             RoomLoadSettings::default(),
         )
         .await
@@ -632,13 +631,12 @@ async fn test_oauth_refresh_token_handled_failure() {
     // Return an error to fail the token refresh.
     oauth_server.mock_token().invalid_grant().expect(1).named("token").mount().await;
 
-    let issuer = server.server().uri();
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
     let oauth = client.oauth();
 
     oauth
         .restore_session(
-            mock_session(mock_prev_session_tokens_with_refresh(), issuer),
+            mock_session(mock_prev_session_tokens_with_refresh()),
             RoomLoadSettings::default(),
         )
         .await
@@ -686,13 +684,12 @@ async fn test_oauth_handle_refresh_tokens() {
 
     oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
 
-    let issuer = server.server().uri();
     let client = server.client_builder().unlogged().handle_refresh_tokens().build().await;
 
     let oauth = client.oauth();
     oauth
         .restore_session(
-            mock_session(mock_prev_session_tokens_with_refresh(), issuer),
+            mock_session(mock_prev_session_tokens_with_refresh()),
             RoomLoadSettings::default(),
         )
         .await

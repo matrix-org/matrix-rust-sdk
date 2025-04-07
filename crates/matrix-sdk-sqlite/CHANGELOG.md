@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
 - Implement `Clone` and `Debug` on `SqliteStoreConfig`
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
+- Add `SqliteStoreConfig::with_low_memory_config` constructor
+  ([#4894](https://github.com/matrix-org/matrix-rust-sdk/pull/4894))
 
 ## [0.10.0] - 2025-02-04
 

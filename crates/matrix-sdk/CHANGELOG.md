@@ -29,11 +29,10 @@ simpler methods:
   - `RoomPagination::run_backwards_once()`, which will run a single back-pagination (and retry if
   the timeline has been reset in the background).
   ([#4689](https://github.com/matrix-org/matrix-rust-sdk/pull/4689))
-- [**breaking**]: The `Oidc::account_management_url` method now caches the
-  result of a call, subsequent calls to the method will not contact the OIDC
-  provider for a while, instead the cached URI will be returned. If caching of
-  this URI is not desirable, the `Oidc::fetch_account_management_url` method
-  can be used.
+- [**breaking**]: The `OAuth::account_management_url` method now caches the
+  result of a call, subsequent calls to the method will not contact the server
+  for a while, instead the cached URI will be returned. If caching of this URI
+  is not desirable, the `OAuth::fetch_account_management_url` method can be used.
   ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
@@ -67,6 +66,7 @@ simpler methods:
   a server when the end-user needs to be redirected to an address on localhost.
   It was used for `SsoLoginBuilder` and can now be used in other cases, like for
   login with the OAuth 2.0 API.
+  ([#4804](https://github.com/matrix-org/matrix-rust-sdk/pull/4804)
 - The `OAuth` api is no longer gated behind the `experimental-oidc` cargo
   feature.
   ([#4830](https://github.com/matrix-org/matrix-rust-sdk/pull/4830))
@@ -74,6 +74,9 @@ simpler methods:
   `ClientBuilder::sqlite_store_with_config_and_cache_path` to configure the
   SQLite store with the new `SqliteStoreConfig` structure
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870))
+- Add `Client::logout()` that allows to log out regardless of the `AuthApi` that
+  is used for the session.
+  ([#4886](https://github.com/matrix-org/matrix-rust-sdk/pull/4886))
 
 ### Bug Fixes
 
@@ -90,88 +93,17 @@ simpler methods:
 - [**breaking**] We now require Rust 1.85 as the minimum supported Rust version to compile.
   Yay for async closures!
   ([#4745](https://github.com/matrix-org/matrix-rust-sdk/pull/4745)
-- [**breaking**]: The `Oidc` API only supports public clients, i.e. clients
-  without a secret.
-  ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
-  - `Oidc::restore_registered_client()` takes a `ClientId` instead of
-    `ClientCredentials`
-  - `Oidc::restore_registered_client()` must NOT be called after
-    `Oidc::register_client()` anymore.
-- [**breaking**]: The `authentication::qrcode` module now reexports types from
-  `oauth2` rather than `openidconnect`. Some type names might have changed.
-  ([#4604](https://github.com/matrix-org/matrix-rust-sdk/pull/4604))
-- [**breaking**] `Oidc::authorize_scope()` was removed because it has no use
-  case anymore, according to the latest version of
-  [MSC2967](https://github.com/matrix-org/matrix-spec-proposals/pull/2967).
-  ([#4664](https://github.com/matrix-org/matrix-rust-sdk/pull/4664))
-- The `UserSession` type cannot be deserialized from its old format anymore. The
-  old format used an `issuer_info` field instead of an `issuer` field.
-- [**breaking**]: The `Oidc` API uses the `GET /auth_metadata` endpoint from the
-  latest version of [MSC2965](https://github.com/matrix-org/matrix-spec-proposals/pull/2965)
-  by default. The previous `GET /auth_issuer` endpoint is still supported as a
-  fallback for now.
-  ([#4673](https://github.com/matrix-org/matrix-rust-sdk/pull/4673))
-  - It is not possible to provide a custom issuer anymore:
-    `Oidc::given_provider_metadata()` was removed, and the parameter was removed
-    from `Oidc::register_client()`.
-  - `Oidc::fetch_authentication_issuer()` was removed. To check if the
-    homeserver supports OAuth 2.0, use `Oidc::provider_metadata()`. To get the
-    issuer, use `VerifiedProviderMetadata::issuer()`.
-  - `Oidc::provider_metadata()` returns an `OAuthDiscoveryError`. It has a
-    `NotSupported` variant and an `is_not_supported()` method to check if the
-    error is due to the server not supporting OAuth 2.0.
-  - `OidcError::MissingAuthenticationIssuer` was removed.
-- [**breaking**]: The `authentication::qrcode` module was moved inside
-  `authentication::oidc`, because it is only available through the `Oidc` API.
-- [**breaking**]: The behavior of `Oidc::logout()` is now aligned with
-  [MSC4254](https://github.com/matrix-org/matrix-spec-proposals/pull/4254)
-  ([#4674](https://github.com/matrix-org/matrix-rust-sdk/pull/4674))
-  - Support for [RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
-    was removed, so it doesn't return an `OidcEndSessionUrlBuilder` anymore.
-  - Only one request is made to revoke the access token, since the server is
-    supposed to revoke both the access token and the associated refresh token
-    when the request is made.
-- [**breaking**]: Remove most of the parameter methods of
-  `OidcAuthCodeUrlBuilder`, since they were parameters defined in OpenID
-  Connect. Only the `prompt` and `user_id_hint` parameters are still supported.
-  ([#4699](https://github.com/matrix-org/matrix-rust-sdk/pull/4699))
-- [**breaking**]: Remove support for ID tokens in the `Oidc` API.
-  ([#4726](https://github.com/matrix-org/matrix-rust-sdk/pull/4726))
-  - The `latest_id_token` field of `OidcSessionTokens` was removed. (De)
-    serialization of the type should be backwards-compatible.
-  - `Oidc::restore_registered_client()` doesn't take a `VerifiedClientMetadata`
-    anymore.
-  - `Oidc::latest_id_token()` and `Oidc::client_metadata()` were removed.
-- [**breaking**]: The `Oidc` API makes use of the oauth2 and ruma crates rather
-  than mas-oidc-client.
-  ([#4761](https://github.com/matrix-org/matrix-rust-sdk/pull/4761))
-  ([#4789](https://github.com/matrix-org/matrix-rust-sdk/pull/4789))
-  - `ClientId` is a different type reexported from the oauth2 crate.
-  - The error types that were in the `oidc` module have been moved to the
-    `oidc::error` module.
-  - The `prompt` parameter of `Oidc::url_for_oidc()` is now optional, and
-    `Prompt` is a different type reexported from Ruma, that only supports the
-    `create` value.
-  - The `device_id` parameter of `Oidc::login` is now an `Option<OwnedDeviceId>`.
-  - The `state` field of `OidcAuthorizationData` and `AuthorizationCode`, and
-    the parameter of the same name in `Oidc::abort_authorization()` now use
-    `CsrfToken`.
-  - The `error` field of `AuthorizationError` uses an error type from the oauth2
-    crate rather than one from mas-oidc-client.
-  - The `types` and `requests` modules are gone and the necessary types are
-    exported from the `oidc` module or available from `ruma`.
-  - `AccountManagementUrlFull` now takes an `OwnedDeviceId` when a device ID is
-    required.
-  - `(Verified)ProviderMetadata` was replaced by `AuthorizationServerMetadata`.
-  - The `issuer` is now a `Url`.
-  - `Oidc::register()` doesn't accept a software statement anymore.
-  - `(Verified)ClientMetadata` was replaced by the opinionated `ClientMetadata`.
+- [**breaking**] The `server_url` and `server_response` methods of
+  `SsoLoginBuilder` are replaced by `server_builder()`, which allows more
+  fine-grained settings for the server.
+  ([#4804](https://github.com/matrix-org/matrix-rust-sdk/pull/4804)
 - [**breaking**]: `OidcSessionTokens` and `MatrixSessionTokens` have been merged
   into `SessionTokens`. Methods to get and watch session tokens are now
   available directly on `Client`.
   `(MatrixAuth/Oidc)::session_tokens_stream()`, can be replaced by
   `Client::subscribe_to_session_changes()` and then calling
   `Client::session_tokens()` on a `SessionChange::TokenRefreshed`.
+  ([#4772](https://github.com/matrix-org/matrix-rust-sdk/pull/4772))
 - [**breaking**] `Oidc::url_for_oidc()` doesn't take the `VerifiedClientMetadata`
   to register as an argument, the one in `OidcRegistrations` is used instead.
   However it now takes the redirect URI to use, instead of always using the
@@ -201,7 +133,7 @@ simpler methods:
   - `OAuthError::MissingDeviceId` was removed, it cannot occur anymore.
 - [**breaking**] `OidcRegistrations` was renamed to `OAuthRegistrationStore`.
   ([#4814](https://github.com/matrix-org/matrix-rust-sdk/pull/4814))
-  - `OidcRegistrationsError` was renamed to `OAuthRegistrationStoreError`. 
+  - `OidcRegistrationsError` was renamed to `OAuthRegistrationStoreError`.
   - The `registrations` module was renamed and is now private.
     `OAuthRegistrationStore` and `ClientId` are exported from `oauth`, and
     `OAuthRegistrationStoreError` is exported from `oauth::error`.
@@ -215,12 +147,12 @@ simpler methods:
 - [**breaking**] Allow to use any registration method with `OAuth::login()` and
   `OAuth::login_with_qr_code()`.
   ([#4827](https://github.com/matrix-org/matrix-rust-sdk/pull/4827))
-  - `OAuth::login` takes an `ClientRegistrationMethod` to be able to register
-    and login with a single function call.
+  - `OAuth::login` takes an optional `ClientRegistrationData` to be able to
+    register and login with a single function call.
   - `OAuth::url_for_oidc()` was removed, it can be replaced by a call to
     `OAuth::login()`.
-  - `OAuth::login_with_qr_code()` takes a `ClientRegistrationMethod` instead of
-    the client metadata.
+  - `OAuth::login_with_qr_code()` takes an optional `ClientRegistrationData`
+    instead of the client metadata.
   - `OAuth::finish_login` takes a `UrlOrQuery` instead of an
     `AuthorizationCode`. The deserialization of the query string will occur
     inside the method and eventual errors will be handled.
@@ -235,6 +167,129 @@ simpler methods:
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
 - [**breaking**] `Client::store` is renamed `state_store`
   ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
+- [**breaking**] The parameters `event_id` and `enforce_thread` on [`Room::make_reply_event()`]
+  have been wrapped in a `reply` struct parameter.
+  ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
+- [**breaking**]: The `Oidc` API was updated to match the latest version of the
+  next-gen auth MSCs. The most notable change is that these MSCs are now based
+  on OAuth 2.0 rather then OpenID Connect. To reflect that, most types have been
+  renamed, with the `Oidc` prefix changed to `OAuth`. The API has also been
+  cleaned up, it is now simpler and has fewer methods while keeping most of the
+  available features. Here is a detailed list of changes:
+  - Rename the `Oidc` API to `OAuth`, since it's using almost exclusively OAuth
+    2.0 rather than OpenID Connect.
+    ([#4805](https://github.com/matrix-org/matrix-rust-sdk/pull/4805))
+    - The `oidc` module was renamed to `oauth`.
+    - `Client::oidc()` was renamed to `Client::oauth()` and the `AuthApi::Oidc`
+      variant was renamed to `AuthApi::OAuth`.
+    - `OidcSession` was renamed to `OAuthSession` and the `AuthSession::Oidc`
+      variant was renamed to `AuthSession::OAuth`.
+    - `OidcAuthCodeUrlBuilder` and `OidcAuthorizationData` were renamed to
+      `OAuthAuthCodeUrlBuilder` and `OAuthAuthorizationData`.
+    - `OidcError` was renamed to `OAuthError` and the `RefreshTokenError::Oidc`
+      variant was renamed to `RefreshTokenError::OAuth`.
+    - `Oidc::provider_metadata()` was renamed to `OAuth::server_metadata()`.
+  - The `authentication::qrcode` module was moved inside `authentication::oauth`,
+    because it is only available through the `OAuth` API.
+    ([#4687](https://github.com/matrix-org/matrix-rust-sdk/pull/4687/))
+  - The `OAuth` API only supports public clients, i.e. clients
+    without a secret.
+    ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
+    - `OAuth::restore_registered_client()` takes a `ClientId` instead of
+      `ClientCredentials`
+    - `OAuth::restore_registered_client()` must NOT be called after
+      `OAuth::register_client()` anymore.
+  - `Oidc::authorize_scope()` was removed because it has no use
+    case anymore, according to the latest version of
+    [MSC2967](https://github.com/matrix-org/matrix-spec-proposals/pull/2967).
+    ([#4664](https://github.com/matrix-org/matrix-rust-sdk/pull/4664))
+  - The `OAuth` API uses the `GET /auth_metadata` endpoint from the
+    latest version of [MSC2965](https://github.com/matrix-org/matrix-spec-proposals/pull/2965)
+    by default. The previous `GET /auth_issuer` endpoint is still supported as a
+    fallback for now.
+    ([#4673](https://github.com/matrix-org/matrix-rust-sdk/pull/4673))
+    - It is not possible to provide a custom issuer anymore:
+      `Oidc::given_provider_metadata()` was removed, and the parameter was
+      removed from `OAuth::register_client()`.
+    - `Oidc::fetch_authentication_issuer()` was removed. To check if the
+      homeserver supports OAuth 2.0, use `OAuth::server_metadata()`.
+    - `OAuth::server_metadata()` returns an `OAuthDiscoveryError`. It has a
+      `NotSupported` variant and an `is_not_supported()` method to check if the
+      error is due to the server not supporting OAuth 2.0.
+    - `OAuthError::MissingAuthenticationIssuer` was removed.
+  - The behavior of `OAuth::logout()` is now aligned with
+    [MSC4254](https://github.com/matrix-org/matrix-spec-proposals/pull/4254)
+    ([#4674](https://github.com/matrix-org/matrix-rust-sdk/pull/4674))
+    - Support for [RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
+      was removed, so it doesn't return an `OidcEndSessionUrlBuilder` anymore.
+    - Only one request is made to revoke the access token, since the server is
+      supposed to revoke both the access token and the associated refresh token
+      when the request is made.
+  - Remove most of the parameter methods of `OAuthAuthCodeUrlBuilder`, since
+    they were parameters defined in OpenID Connect. Only the `prompt` and
+    `user_id_hint` parameters are still supported.
+    ([#4699](https://github.com/matrix-org/matrix-rust-sdk/pull/4699))
+  - Remove support for ID tokens in the `OAuth` API.
+    ([#4726](https://github.com/matrix-org/matrix-rust-sdk/pull/4726))
+    - `OAuth::restore_registered_client()` doesn't take a
+      `VerifiedClientMetadata` anymore.
+    - `Oidc::latest_id_token()` and `Oidc::client_metadata()` were removed.
+  - The `OAuth` API makes use of the oauth2 and ruma crates rather than
+    mas-oidc-client.
+    ([#4761](https://github.com/matrix-org/matrix-rust-sdk/pull/4761))
+    ([#4789](https://github.com/matrix-org/matrix-rust-sdk/pull/4789))
+    - `ClientId` is a different type reexported from the oauth2 crate.
+    - The error types that were in the `oauth` module have been moved to the
+      `oauth::error` module.
+    - The `device_id` parameter of `OAuth::login` is now an
+      `Option<OwnedDeviceId>`.
+    - The `state` field of `OAuthAuthorizationData` and the parameter of the
+      same name in `OAuth::abort_login()` now use `CsrfToken`.
+    - The `types` and `requests` modules are gone and the necessary types are
+      exported from the `oauth` module or available from `ruma`.
+    - `AccountManagementUrlFull` now takes an `OwnedDeviceId` when a device ID
+      is required.
+    - `(Verified)ProviderMetadata` was replaced by `AuthorizationServerMetadata`.
+    - `OAuth::register_client()` doesn't accept a software statement anymore.
+    - `(Verified)ClientMetadata` was replaced by `Raw<ClientMetadata>`.
+      `ClientMetadata` is an opinionated type that only supports the fields
+      required for the `OAuth` API, however any type can be used to construct
+      the metadata by serializing it to JSON and converting it.
+  - `OAuth::finish_login()` must always be called, instead of
+    `OAuth::finish_authorization()`
+    ([#4817](https://github.com/matrix-org/matrix-rust-sdk/pull/4817))
+    - `OAuth::abort_authorization()` was renamed to `OAuth::abort_login()`.
+    - `OAuth::finish_login()` can be called several times for the same session,
+      but it will return an error if it is called with a new session.
+    - `OAuthError::MissingDeviceId` was removed, it cannot occur anymore.
+  - Allow to use any registration method with `OAuth::login()` and
+    `OAuth::login_with_qr_code()`.
+    ([#4827](https://github.com/matrix-org/matrix-rust-sdk/pull/4827))
+    - `OAuth::login` takes an optional `ClientRegistrationData` to be able to
+      register and login with a single function call.
+    - `OAuth::url_for_oidc()` was removed, it can be replaced by a call to
+      `OAuth::login()`.
+    - `OAuth::login_with_qr_code()` takes an optional `ClientRegistrationData`
+      instead of the client metadata.
+    - `OAuth::finish_login` takes a `UrlOrQuery` instead of an
+      `AuthorizationCode`. The deserialization of the query string will occur
+      inside the method and eventual errors will be handled.
+    - `OAuth::login_with_oidc_callback()` was removed, it can be replaced by a
+      call to `OAuth::finish_login()`.
+    - `AuthorizationResponse`, `AuthorizationCode` and `AuthorizationError` are
+      now private.
+  - `OAuth::account_management_url()` and
+    `OAuth::fetch_account_management_url()` don't take an action anymore but
+    return an `AccountManagementUrlBuilder`. The final URL can be obtained with
+    `AccountManagementUrlBuilder::build()`.
+    ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
+  - `OidcRegistrations` was removed. Clients are supposed to re-register with
+    the homeserver for every login.
+    ([#4879](https://github.com/matrix-org/matrix-rust-sdk/pull/4879))
+  - `OAuth::restore_registered_client()` doesn't take an `issuer` anymore.
+    ([#4879](https://github.com/matrix-org/matrix-rust-sdk/pull/4879))
+    - `Oidc::issuer()` was removed.
+    - The `issuer` field of `UserSession` was removed.
 - [**breaking] `QueueStorage::handle_dependent_file_upload_with_thumbnail`
   was renamed to `handle_dependent_file_or_thumbnail_upload`. Under the
   `unstable-msc4274` feature, it was generalized to allow chaining multiple
