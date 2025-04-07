@@ -2246,7 +2246,7 @@ mod tests {
     };
     use crate::{
         latest_event::LatestEvent,
-        response_processors,
+        response_processors as processors,
         rooms::RoomNotableTags,
         store::{
             IntoStateStore, MemoryStore, RoomLoadSettings, StateChanges, StateStore, StoreConfig,
@@ -2579,14 +2579,17 @@ mod tests {
         .cast();
 
         // When the new tag is handled and applied.
-        let mut context =
-            response_processors::Context::new(StateChanges::default(), Default::default());
+        let mut context = processors::Context::new(StateChanges::default(), Default::default());
         client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
-        client.apply_changes(
-            &context.state_changes,
-            context.room_info_notable_updates.clone(),
+
+        processors::changes::save_and_apply(
+            context.clone(),
+            &client.state_store,
+            &client.ignore_user_list_changes,
             None,
-        );
+        )
+        .await
+        .unwrap();
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2605,7 +2608,15 @@ mod tests {
         .unwrap()
         .cast();
         client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
-        client.apply_changes(&context.state_changes, context.room_info_notable_updates, None);
+
+        processors::changes::save_and_apply(
+            context,
+            &client.state_store,
+            &client.ignore_user_list_changes,
+            None,
+        )
+        .await
+        .unwrap();
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2660,14 +2671,17 @@ mod tests {
         .cast();
 
         // When the new tag is handled and applied.
-        let mut context =
-            response_processors::Context::new(StateChanges::default(), Default::default());
+        let mut context = processors::Context::new(StateChanges::default(), Default::default());
         client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
-        client.apply_changes(
-            &context.state_changes,
-            context.room_info_notable_updates.clone(),
+
+        processors::changes::save_and_apply(
+            context.clone(),
+            &client.state_store,
+            &client.ignore_user_list_changes,
             None,
-        );
+        )
+        .await
+        .unwrap();
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2686,7 +2700,15 @@ mod tests {
         .unwrap()
         .cast();
         client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
-        client.apply_changes(&context.state_changes, context.room_info_notable_updates, None);
+
+        processors::changes::save_and_apply(
+            context,
+            &client.state_store,
+            &client.ignore_user_list_changes,
+            None,
+        )
+        .await
+        .unwrap();
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -3197,8 +3219,6 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_setting_the_latest_event_doesnt_cause_a_room_info_notable_update() {
-        use std::collections::BTreeMap;
-
         use assert_matches::assert_matches;
 
         use crate::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
@@ -3233,22 +3253,29 @@ mod tests {
         // And I provide a decrypted event to replace the encrypted one,
         let event = make_latest_event("$A");
 
-        let mut changes = StateChanges::default();
-        let mut room_info_notable_updates = BTreeMap::new();
+        let mut context = processors::Context::new(StateChanges::default(), Default::default());
         room.on_latest_event_decrypted(
             event.clone(),
             0,
-            &mut changes,
-            &mut room_info_notable_updates,
+            &mut context.state_changes,
+            &mut context.room_info_notable_updates,
         );
 
-        assert!(room_info_notable_updates.contains_key(room_id));
+        assert!(context.room_info_notable_updates.contains_key(room_id));
 
         // The subscriber isn't notified at this point.
         assert!(room_info_notable_update.try_recv().is_err());
 
         // Then updating the room info will store the event,
-        client.apply_changes(&changes, room_info_notable_updates, None);
+        processors::changes::save_and_apply(
+            context,
+            &client.state_store,
+            &client.ignore_user_list_changes,
+            None,
+        )
+        .await
+        .unwrap();
+
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
