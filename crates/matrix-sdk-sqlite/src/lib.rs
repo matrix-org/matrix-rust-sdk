@@ -81,6 +81,28 @@ impl SqliteStoreConfig {
         }
     }
 
+    /// Similar to [`SqliteStoreConfig::new`], but with defaults tailored for a
+    /// low memory usage environment.
+    ///
+    /// The following defaults are set:
+    ///
+    /// * The `pool_max_size` is set to the number of physical CPU, so one
+    ///   connection per physical thread,
+    /// * The `cache_size` is set to 500Kib,
+    /// * The `journal_size_limit` is set to 2Mib.
+    pub fn with_low_memory_config<P>(path: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        Self::new(path)
+            // Maximum one connection per physical thread.
+            .pool_max_size(num_cpus::get_physical())
+            // Cache size is 500Kib.
+            .cache_size(500_000)
+            // Journal size limit is 2Mib.
+            .journal_size_limit(2_000_000)
+    }
+
     /// Override the path.
     pub fn path<P>(mut self, path: P) -> Self
     where
@@ -197,6 +219,26 @@ mod tests {
     };
 
     use super::SqliteStoreConfig;
+
+    #[test]
+    fn test_new() {
+        let store_config = SqliteStoreConfig::new(Path::new("foo"));
+
+        assert_eq!(store_config.pool_config.max_size, num_cpus::get_physical() * 4);
+        assert!(store_config.runtime_config.optimize);
+        assert_eq!(store_config.runtime_config.cache_size, 2_000_000);
+        assert_eq!(store_config.runtime_config.journal_size_limit, 10_000_000);
+    }
+
+    #[test]
+    fn test_with_low_memory_config() {
+        let store_config = SqliteStoreConfig::with_low_memory_config(Path::new("foo"));
+
+        assert_eq!(store_config.pool_config.max_size, num_cpus::get_physical());
+        assert!(store_config.runtime_config.optimize);
+        assert_eq!(store_config.runtime_config.cache_size, 500_000);
+        assert_eq!(store_config.runtime_config.journal_size_limit, 2_000_000);
+    }
 
     #[test]
     fn test_store_config() {
