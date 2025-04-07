@@ -60,7 +60,7 @@ reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
-ruma = { git = "https://github.com/ruma/ruma", rev = "b1cb83544faafaef92be56c53cd98af4c51da858", features = [
+ruma = { version = "0.12.2", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -75,7 +75,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "b1cb83544faafaef92be56c53c
     "unstable-msc4140",
     "unstable-msc4171",
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "b1cb83544faafaef92be56c53cd98af4c51da858" }
+ruma-common = "0.15.2"
 serde = "1.0.217"
 serde_html_form = "0.2.7"
 serde_json = "1.0.138"
