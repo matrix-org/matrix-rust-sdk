@@ -16,8 +16,8 @@
 
 use std::time::Duration;
 
-use driver_req::UpdateDelayedEventRequest;
-use from_widget::UpdateDelayedEventResponse;
+use driver_req::{SendToDeviceRequest, UpdateDelayedEventRequest};
+use from_widget::{SendToDeviceEventResponse, UpdateDelayedEventResponse};
 use indexmap::IndexMap;
 use ruma::{
     serde::{JsonObject, Raw},
@@ -25,7 +25,8 @@ use ruma::{
 };
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::{debug, error, info, instrument, warn};
+use to_widget::NotifyNewToDeviceEvent;
+use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
 use self::{
@@ -270,6 +271,11 @@ impl WidgetMachine {
                 .map(|a| vec![a])
                 .unwrap_or_default(),
 
+            FromWidgetRequest::SendToDevice(req) => self
+                .process_to_device_request(req, raw_request)
+                .map(|a| vec![a])
+                .unwrap_or_default(),
+
             FromWidgetRequest::GetOpenId {} => {
                 let mut actions =
                     vec![Self::send_from_widget_response(raw_request, Ok(OpenIdResponse::Pending))];
@@ -353,7 +359,7 @@ impl WidgetMachine {
 
         match request {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
-                if !capabilities.allow_reading(&FilterInput::message_like(event_type.to_string())) {
+                if !capabilities.has_read_filter_for_type(&event_type.to_string()) {
                     return Some(Self::send_from_widget_error_string_response(
                         raw_request,
                         "Not allowed to read message like event",
@@ -398,6 +404,7 @@ impl WidgetMachine {
                     StateKeySelector::Any => None,
                     StateKeySelector::Key(key) => Some(key),
                 };
+
                 if capabilities
                     .allow_reading(&FilterInput::state(event_type.to_string(), state_key_option))
                 {
@@ -457,6 +464,38 @@ impl WidgetMachine {
             )]
         });
 
+        Some(action)
+    }
+
+    fn process_to_device_request(
+        &mut self,
+        request: SendToDeviceRequest,
+        raw_request: Raw<FromWidgetRequest>,
+    ) -> Option<Action> {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            error!("Received send event request before capabilities negotiation");
+            return None;
+        };
+
+        let filter_in =
+            FilterInput::ToDevice(FilterInputToDevice { event_type: request.event_type.clone() });
+
+        if !capabilities.allow_sending(&filter_in) {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                format!("Not allowed to send to-device message of type: {}", request.event_type),
+            ));
+        }
+
+        let (request, action) = self.send_matrix_driver_request(request)?;
+        request.then(|result, _| {
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result
+                    .map(Into::<SendToDeviceEventResponse>::into)
+                    .map_err(FromWidgetErrorResponse::from_error),
+            )]
+        });
         Some(action)
     }
 

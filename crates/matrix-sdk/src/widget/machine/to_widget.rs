@@ -14,7 +14,10 @@
 
 use std::marker::PhantomData;
 
-use ruma::{events::AnyTimelineEvent, serde::Raw};
+use ruma::{
+    events::{AnyTimelineEvent, AnyToDeviceEvent},
+    serde::Raw,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
@@ -124,3 +127,14 @@ impl ToWidgetRequest for NotifyNewMatrixEvent {
 
 #[derive(Deserialize)]
 pub(crate) struct Empty {}
+
+/// Notify the widget that we received a new matrix event.
+/// This is a "response" to the widget subscribing to the events in the room.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub(crate) struct NotifyNewToDeviceEvent(pub(crate) Raw<AnyToDeviceEvent>);
+
+impl ToWidgetRequest for NotifyNewToDeviceEvent {
+    const ACTION: &'static str = "send_to_device";
+    type ResponseData = Empty;
+}
