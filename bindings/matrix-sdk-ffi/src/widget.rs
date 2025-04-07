@@ -509,9 +509,9 @@ impl From<WidgetEventFilter> for matrix_sdk::widget::EventFilter {
     }
 }
 
-impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
-    fn from(value: matrix_sdk::widget::EventFilter) -> Self {
-        use matrix_sdk::widget::EventFilter as F;
+impl From<matrix_sdk::widget::Filter> for WidgetEventFilter {
+    fn from(value: matrix_sdk::widget::Filter) -> Self {
+        use matrix_sdk::widget::Filter as F;
 
         match value {
             F::MessageLike(MessageLikeEventFilter::WithType(event_type)) => {

@@ -18,13 +18,14 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use ruma::{events::AnyTimelineEvent, serde::Raw};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
-use tracing::{debug, error};
+use tracing::debug;
 
 use super::{
-    filter::MatrixEventFilterInput, EventFilter, MessageLikeEventFilter, StateEventFilter,
+    filter::{Filter, FilterInput},
+    MessageLikeEventFilter, StateEventFilter,
 };
+use crate::widget::filter::ToDeviceEventFilter;
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -42,9 +43,9 @@ pub trait CapabilitiesProvider: Send + Sync + 'static {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct Capabilities {
     /// Types of the messages that a widget wants to be able to fetch.
-    pub read: Vec<EventFilter>,
+    pub read: Vec<Filter>,
     /// Types of the messages that a widget wants to be able to send.
-    pub send: Vec<EventFilter>,
+    pub send: Vec<Filter>,
     /// If this capability is requested by the widget, it can not operate
     /// separately from the matrix client.
     ///
@@ -58,17 +59,17 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// Tells if a given raw event matches the read filter.
-    pub fn raw_event_matches_read_filter(&self, raw: &Raw<AnyTimelineEvent>) -> bool {
-        let filter_in = match raw.deserialize_as::<MatrixEventFilterInput>() {
-            Ok(filter) => filter,
-            Err(err) => {
-                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
-                return false;
-            }
-        };
-
-        self.read.iter().any(|f| f.matches(&filter_in))
+    pub(super) fn allow_reading(&self, event_filter_input: &FilterInput) -> bool {
+        self.read.iter().any(|f| f.matches(event_filter_input))
+    }
+    pub(super) fn allow_sending(&self, event_filter_input: &FilterInput) -> bool {
+        self.send.iter().any(|f| f.matches(event_filter_input))
+    }
+    /// Checks if a filter exists for the given event type, useful for
+    /// optimization. Avoids unnecessary requests when no matching filter is
+    /// present.
+    pub(super) fn has_read_filter_for_type(&self, event_type: &str) -> bool {
+        self.read.iter().any(|f| f.filter_event_type() == event_type)
     }
 }
 
@@ -85,12 +86,13 @@ impl Serialize for Capabilities {
     where
         S: Serializer,
     {
-        struct PrintEventFilter<'a>(&'a EventFilter);
+        struct PrintEventFilter<'a>(&'a Filter);
         impl fmt::Display for PrintEventFilter<'_> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match self.0 {
-                    EventFilter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
-                    EventFilter::State(filter) => PrintStateEventFilter(filter).fmt(f),
+                    Filter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
+                    Filter::State(filter) => PrintStateEventFilter(filter).fmt(f),
+                    Filter::ToDevice(filter) => filter.fmt(f),
                 }
             }
         }
@@ -136,15 +138,15 @@ impl Serialize for Capabilities {
         }
         for filter in &self.read {
             let name = match filter {
-                EventFilter::MessageLike(_) => READ_EVENT,
-                EventFilter::State(_) => READ_STATE,
+                Filter::MessageLike(_) => READ_EVENT,
+                Filter::State(_) => READ_STATE,
             };
             seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
         }
         for filter in &self.send {
             let name = match filter {
-                EventFilter::MessageLike(_) => SEND_EVENT,
-                EventFilter::State(_) => SEND_STATE,
+                Filter::MessageLike(_) => SEND_EVENT,
+                Filter::State(_) => SEND_STATE,
             };
             seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
         }
@@ -162,8 +164,8 @@ impl<'de> Deserialize<'de> for Capabilities {
             RequiresClient,
             UpdateDelayedEvent,
             SendDelayedEvent,
-            Read(EventFilter),
-            Send(EventFilter),
+            Read(Filter),
+            Send(Filter),
             Unknown,
         }
 
@@ -184,17 +186,17 @@ impl<'de> Deserialize<'de> for Capabilities {
                 }
 
                 match s.split_once(':') {
-                    Some((READ_EVENT, filter_s)) => Ok(Permission::Read(EventFilter::MessageLike(
+                    Some((READ_EVENT, filter_s)) => Ok(Permission::Read(Filter::MessageLike(
                         parse_message_event_filter(filter_s),
                     ))),
-                    Some((SEND_EVENT, filter_s)) => Ok(Permission::Send(EventFilter::MessageLike(
+                    Some((SEND_EVENT, filter_s)) => Ok(Permission::Send(Filter::MessageLike(
                         parse_message_event_filter(filter_s),
                     ))),
                     Some((READ_STATE, filter_s)) => {
-                        Ok(Permission::Read(EventFilter::State(parse_state_event_filter(filter_s))))
+                        Ok(Permission::Read(Filter::State(parse_state_event_filter(filter_s))))
                     }
                     Some((SEND_STATE, filter_s)) => {
-                        Ok(Permission::Send(EventFilter::State(parse_state_event_filter(filter_s))))
+                        Ok(Permission::Send(Filter::State(parse_state_event_filter(filter_s))))
                     }
                     _ => {
                         debug!("Unknown capability `{s}`");
@@ -272,19 +274,18 @@ mod tests {
         let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
         let expected = Capabilities {
             read: vec![
-                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                Filter::MessageLike(MessageLikeEventFilter::WithType(
                     "org.matrix.rageshake_request".into(),
                 )),
-                EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
-                EventFilter::State(StateEventFilter::WithType(
-                    "org.matrix.msc3401.call.member".into(),
+                Filter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+                Filter::State(StateEventFilter::WithType("org.matrix.msc3401.call.member".into())),
                 )),
             ],
             send: vec![
-                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
+                Filter::MessageLike(MessageLikeEventFilter::WithType(
                     "org.matrix.rageshake_request".into(),
                 )),
-                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                Filter::State(StateEventFilter::WithTypeAndStateKey(
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
                 )),
@@ -301,20 +302,16 @@ mod tests {
     fn serialization_and_deserialization_are_symmetrical() {
         let capabilities = Capabilities {
             read: vec![
-                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
-                    "io.element.custom".into(),
-                )),
-                EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
-                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                Filter::MessageLike(MessageLikeEventFilter::WithType("io.element.custom".into())),
+                Filter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
+                Filter::State(StateEventFilter::WithTypeAndStateKey(
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
                 )),
             ],
             send: vec![
-                EventFilter::MessageLike(MessageLikeEventFilter::WithType(
-                    "io.element.custom".into(),
-                )),
-                EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+                Filter::MessageLike(MessageLikeEventFilter::WithType("io.element.custom".into())),
+                Filter::State(StateEventFilter::WithTypeAndStateKey(
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
                 )),
