@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod account_data;
+pub mod changes;
 #[cfg(feature = "e2e-encryption")]
 pub mod e2ee;
 #[cfg(feature = "e2e-encryption")]
@@ -30,6 +31,7 @@ use crate::{RoomInfoNotableUpdateReasons, StateChanges};
 
 type RoomInfoNotableUpdates = BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>;
 
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct Context {
     pub(super) state_changes: StateChanges,
     pub(super) room_info_notable_updates: RoomInfoNotableUpdates,

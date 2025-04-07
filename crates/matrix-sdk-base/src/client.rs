@@ -39,7 +39,6 @@ use ruma::DeviceId;
 use ruma::{
     api::client::{self as api, sync::sync_events::v5},
     events::{
-        ignored_user_list::IgnoredUserListEvent,
         marked_unread::MarkedUnreadEventContent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
@@ -49,8 +48,8 @@ use ruma::{
             },
         },
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
-        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        GlobalAccountDataEventType, StateEvent, StateEventType,
+        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEvent,
+        StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -60,7 +59,7 @@ use ruma::{
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -1249,14 +1248,16 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
-        let (state_changes, room_info_notable_updates) = context.into_parts();
-
         {
             let _sync_lock = self.sync_lock().lock().await;
-            let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
-            self.state_store.save_changes(&state_changes).await?;
-            *self.state_store.sync_token.write().await = Some(response.next_batch.clone());
-            self.apply_changes(&state_changes, room_info_notable_updates, prev_ignored_user_list);
+
+            processors::changes::save_and_apply(
+                context,
+                &self.state_store,
+                &self.ignore_user_list_changes,
+                Some(response.next_batch.clone()),
+            )
+            .await?;
         }
 
         // Now that all the rooms information have been saved, update the display name
@@ -1284,62 +1285,6 @@ impl BaseClient {
         };
 
         Ok(response)
-    }
-
-    pub(crate) async fn load_previous_ignored_user_list(
-        &self,
-    ) -> Option<Raw<IgnoredUserListEvent>> {
-        self.state_store().get_account_data_event_static().await.ok().flatten()
-    }
-
-    pub(crate) fn apply_changes(
-        &self,
-        changes: &StateChanges,
-        room_info_notable_updates: BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
-        prev_ignored_user_list: Option<Raw<IgnoredUserListEvent>>,
-    ) {
-        if let Some(event) = changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
-        {
-            match event.deserialize_as::<IgnoredUserListEvent>() {
-                Ok(event) => {
-                    let user_ids: Vec<String> =
-                        event.content.ignored_users.keys().map(|id| id.to_string()).collect();
-
-                    // Try to only trigger the observable if the ignored user list has changed,
-                    // from the previous time we've seen it. If we couldn't load the previous event
-                    // for any reason, always trigger.
-                    if let Some(prev_user_ids) =
-                        prev_ignored_user_list.and_then(|raw| raw.deserialize().ok()).map(|event| {
-                            event
-                                .content
-                                .ignored_users
-                                .keys()
-                                .map(|id| id.to_string())
-                                .collect::<Vec<_>>()
-                        })
-                    {
-                        if user_ids != prev_user_ids {
-                            self.ignore_user_list_changes.set(user_ids);
-                        }
-                    } else {
-                        self.ignore_user_list_changes.set(user_ids);
-                    }
-                }
-
-                Err(error) => {
-                    error!("Failed to deserialize ignored user list event: {error}")
-                }
-            }
-        }
-
-        for (room_id, room_info) in &changes.room_infos {
-            if let Some(room) = self.state_store.room(room_id) {
-                let room_info_notable_update_reasons =
-                    room_info_notable_updates.get(room_id).copied().unwrap_or_default();
-
-                room.set_room_info(room_info.clone(), room_info_notable_update_reasons)
-            }
-        }
     }
 
     /// Receive a get member events response and convert it to a deserialized
@@ -1448,11 +1393,13 @@ impl BaseClient {
         room_info.mark_members_synced();
         context.state_changes.add_room(room_info);
 
-        let (state_changes, room_info_notable_updates) = context.into_parts();
-
-        let prev_ignored_user_list = self.load_previous_ignored_user_list().await;
-        self.state_store.save_changes(&state_changes).await?;
-        self.apply_changes(&state_changes, room_info_notable_updates, prev_ignored_user_list);
+        processors::changes::save_and_apply(
+            context,
+            &self.state_store,
+            &self.ignore_user_list_changes,
+            None,
+        )
+        .await?;
 
         let _ = room.room_member_updates_sender.send(RoomMembersUpdate::FullReload);
 
