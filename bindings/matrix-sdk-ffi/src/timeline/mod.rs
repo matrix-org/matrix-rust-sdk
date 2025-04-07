@@ -66,7 +66,6 @@ use uuid::Uuid;
 
 use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
 pub use self::msg_like::MessageContent;
-
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},

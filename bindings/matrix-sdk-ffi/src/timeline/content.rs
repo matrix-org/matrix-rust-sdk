@@ -12,89 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use matrix_sdk::room::power_levels::power_level_user_changes;
-use matrix_sdk_ui::timeline::{MsgLikeContent, MsgLikeKind, RoomPinnedEventsChange};
-use ruma::events::{room::MediaSource as RumaMediaSource, EventContent, FullStateEventContent};
+use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
+use ruma::events::FullStateEventContent;
 
-use crate::{
-    ruma::{ImageInfo, MediaSource, MediaSourceExt, MessageType, PollKind},
-    timeline::msg_like::{EncryptedMessage, MessageContent, PollAnswer},
-    utils::Timestamp,
-};
+use crate::{timeline::msg_like::MsgLikeContent, utils::Timestamp};
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
     fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
         match value {
-            Content::MsgLike(MsgLikeContent {
-                kind: MsgLikeKind::Message(message),
-                thread_root,
-                in_reply_to,
-                ..
-            }) => {
-                let message_type_string = message.msgtype().msgtype().to_owned();
-
-                match TryInto::<MessageType>::try_into(message.msgtype().clone()) {
-                    Ok(message_type) => TimelineItemContent::Message {
-                        content: MessageContent {
-                            msg_type: message_type,
-                            body: message.body().to_owned(),
-                            in_reply_to: in_reply_to.map(|r| Arc::new(r.into())),
-                            is_edited: message.is_edited(),
-                            thread_root: thread_root.map(|id| id.to_string()),
-                            mentions: message.mentions().cloned().map(|m| m.into()),
-                        },
-                    },
-                    Err(error) => TimelineItemContent::FailedToParseMessageLike {
-                        event_type: message_type_string,
-                        error: error.to_string(),
-                    },
-                }
-            }
-
-            Content::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted, .. }) => {
-                TimelineItemContent::RedactedMessage
-            }
-
-            Content::MsgLike(MsgLikeContent { kind: MsgLikeKind::Sticker(sticker), .. }) => {
-                let content = sticker.content();
-
-                let media_source = RumaMediaSource::from(content.source.clone());
-
-                if let Err(error) = media_source.verify() {
-                    return TimelineItemContent::FailedToParseMessageLike {
-                        event_type: sticker.content().event_type().to_string(),
-                        error: error.to_string(),
-                    };
-                }
-
-                match TryInto::<ImageInfo>::try_into(&content.info) {
-                    Ok(info) => TimelineItemContent::Sticker {
-                        body: content.body.clone(),
-                        info,
-                        source: Arc::new(MediaSource { media_source }),
-                    },
-                    Err(error) => TimelineItemContent::FailedToParseMessageLike {
-                        event_type: sticker.content().event_type().to_string(),
-                        error: error.to_string(),
-                    },
-                }
-            }
-
-            Content::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(poll_state), .. }) => {
-                TimelineItemContent::from(poll_state.results())
-            }
+            Content::MsgLike(msg_like) => match msg_like.try_into() {
+                Ok(content) => TimelineItemContent::MsgLike { content },
+                Err((error, event_type)) => TimelineItemContent::FailedToParseMessageLike {
+                    event_type,
+                    error: error.to_string(),
+                },
+            },
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
             Content::CallNotify => TimelineItemContent::CallNotify,
-
-            Content::MsgLike(MsgLikeContent {
-                kind: MsgLikeKind::UnableToDecrypt(msg), ..
-            }) => TimelineItemContent::UnableToDecrypt { msg: EncryptedMessage::new(&msg) },
 
             Content::MembershipChange(membership) => {
                 let reason = match membership.content() {
@@ -156,29 +97,11 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
 #[derive(Clone, uniffi::Enum)]
 pub enum TimelineItemContent {
-    Message {
-        content: MessageContent,
-    },
-    RedactedMessage,
-    Sticker {
-        body: String,
-        info: ImageInfo,
-        source: Arc<MediaSource>,
-    },
-    Poll {
-        question: String,
-        kind: PollKind,
-        max_selections: u64,
-        answers: Vec<PollAnswer>,
-        votes: HashMap<String, Vec<String>>,
-        end_time: Option<Timestamp>,
-        has_been_edited: bool,
+    MsgLike {
+        content: MsgLikeContent,
     },
     CallInvite,
     CallNotify,
-    UnableToDecrypt {
-        msg: EncryptedMessage,
-    },
     RoomMembership {
         user_id: String,
         user_display_name: Option<String>,

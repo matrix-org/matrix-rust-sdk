@@ -12,22 +12,142 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::crypto::types::events::UtdCause;
-use matrix_sdk_ui::timeline::PollResult;
+use ruma::events::{room::MediaSource as RumaMediaSource, EventContent};
 
-use super::{content::TimelineItemContent, reply::InReplyToDetails};
-use crate::ruma::{Mentions, MessageType, PollKind};
+use super::reply::InReplyToDetails;
+use crate::{
+    error::ClientError,
+    ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
+    utils::Timestamp,
+};
+
+#[derive(Clone, uniffi::Enum)]
+pub enum MsgLikeKind {
+    /// An `m.room.message` event or extensible event, including edits.
+    Message { content: MessageContent },
+    /// An `m.sticker` event.
+    Sticker { body: String, info: ImageInfo, source: Arc<MediaSource> },
+    /// An `m.poll.start` event.
+    Poll {
+        question: String,
+        kind: PollKind,
+        max_selections: u64,
+        answers: Vec<PollAnswer>,
+        votes: HashMap<String, Vec<String>>,
+        end_time: Option<Timestamp>,
+        has_been_edited: bool,
+    },
+
+    /// A redacted message.
+    Redacted,
+
+    /// An `m.room.encrypted` event that could not be decrypted.
+    UnableToDecrypt { msg: EncryptedMessage },
+}
+
+/// A special kind of [`super::TimelineItemContent`] that groups together
+/// different room message types with their respective reactions and thread
+/// information.
+#[derive(Clone, uniffi::Record)]
+pub struct MsgLikeContent {
+    pub kind: MsgLikeKind,
+    /// Event ID of the thread root, if this is a threaded message.
+    pub thread_root: Option<String>,
+    /// The event this message is replying to, if any.
+    pub in_reply_to: Option<Arc<InReplyToDetails>>,
+}
 
 #[derive(Clone, uniffi::Record)]
 pub struct MessageContent {
     pub msg_type: MessageType,
     pub body: String,
-    pub in_reply_to: Option<Arc<InReplyToDetails>>,
-    pub thread_root: Option<String>,
     pub is_edited: bool,
     pub mentions: Option<Mentions>,
+}
+
+impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
+    type Error = (ClientError, String);
+
+    fn try_from(value: matrix_sdk_ui::timeline::MsgLikeContent) -> Result<Self, Self::Error> {
+        use matrix_sdk_ui::timeline::MsgLikeKind as Kind;
+
+        match value.kind {
+            Kind::Message(message) => {
+                let msg_type = TryInto::<MessageType>::try_into(message.msgtype().clone())
+                    .map_err(|e| (e, message.msgtype().msgtype().to_owned()))?;
+
+                Self {
+                    kind: MsgLikeKind::Message {
+                        content: MessageContent {
+                            msg_type,
+                            body: message.body().to_owned(),
+                            is_edited: message.is_edited(),
+                            mentions: message.mentions().cloned().map(|m| m.into()),
+                        },
+                    },
+                    in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
+                    thread_root: value.thread_root.map(|id| id.to_string()),
+                }
+            }
+            Kind::Sticker(sticker) => {
+                let content = sticker.content();
+
+                let media_source = RumaMediaSource::from(content.source.clone());
+                media_source
+                    .verify()
+                    .map_err(|e| (e, sticker.content().event_type().to_string()))?;
+
+                let image_info = TryInto::<ImageInfo>::try_into(&content.info)
+                    .map_err(|e| (e, sticker.content().event_type().to_string()))?;
+
+                Self {
+                    kind: MsgLikeKind::Sticker {
+                        body: content.body.clone(),
+                        info: image_info,
+                        source: Arc::new(MediaSource { media_source }),
+                    },
+                    in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
+                    thread_root: value.thread_root.map(|id| id.to_string()),
+                }
+            }
+            Kind::Poll(poll_state) => {
+                let results = poll_state.results();
+
+                Self {
+                    kind: MsgLikeKind::Poll {
+                        question: results.question,
+                        kind: PollKind::from(results.kind),
+                        max_selections: results.max_selections,
+                        answers: results
+                            .answers
+                            .into_iter()
+                            .map(|i| PollAnswer { id: i.id, text: i.text })
+                            .collect(),
+                        votes: results.votes,
+                        end_time: results.end_time.map(|t| t.into()),
+                        has_been_edited: results.has_been_edited,
+                    },
+                    in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
+                    thread_root: value.thread_root.map(|id| id.to_string()),
+                }
+            }
+            Kind::Redacted => Self {
+                kind: MsgLikeKind::Redacted,
+                in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
+                thread_root: value.thread_root.map(|id| id.to_string()),
+            },
+            Kind::UnableToDecrypt(msg) => Self {
+                kind: MsgLikeKind::UnableToDecrypt { msg: EncryptedMessage::new(&msg) },
+                in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
+                thread_root: value.thread_root.map(|id| id.to_string()),
+            },
+        };
+
+        Ok(MsgLikeContent { kind: MsgLikeKind::Redacted, thread_root: None, in_reply_to: None })
+    }
 }
 
 impl From<ruma::events::Mentions> for Mentions {
@@ -80,22 +200,4 @@ impl EncryptedMessage {
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
-}
-
-impl From<PollResult> for TimelineItemContent {
-    fn from(value: PollResult) -> Self {
-        TimelineItemContent::Poll {
-            question: value.question,
-            kind: PollKind::from(value.kind),
-            max_selections: value.max_selections,
-            answers: value
-                .answers
-                .into_iter()
-                .map(|i| PollAnswer { id: i.id, text: i.text })
-                .collect(),
-            votes: value.votes,
-            end_time: value.end_time.map(|t| t.into()),
-            has_been_edited: value.has_been_edited,
-        }
-    }
 }
