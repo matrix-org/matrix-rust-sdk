@@ -14,6 +14,8 @@
 
 //! Private implementations of the media upload mechanism.
 
+#[cfg(feature = "unstable-msc4274")]
+use matrix_sdk_base::store::AccumulatedSentMediaInfo;
 use matrix_sdk_base::{
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::{MediaFormat, MediaRequestParameters},
@@ -348,7 +350,8 @@ impl QueueStorage {
     }
 
     /// Consumes a finished upload of a thumbnail and queues the file upload.
-    pub(super) async fn handle_dependent_file_upload_with_thumbnail(
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn handle_dependent_file_or_thumbnail_upload(
         &self,
         client: &Client,
         next_upload_txn: OwnedTransactionId,
@@ -356,28 +359,49 @@ impl QueueStorage {
         content_type: String,
         cache_key: MediaRequestParameters,
         event_txn: OwnedTransactionId,
+        depends_on_thumbnail: bool,
     ) -> Result<(), RoomSendQueueError> {
-        // The thumbnail has been sent, now transform the dependent file upload request
-        // into a ready one.
+        // The previous file or thumbnail has been sent, now transform the dependent
+        // file or thumbnail upload request into a ready one.
         let sent_media = parent_key
             .into_media()
             .ok_or(RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey))?;
 
-        // The media we just uploaded was a thumbnail, so the thumbnail shouldn't have
+        // If the previous upload was a thumbnail, it shouldn't have
         // a thumbnail itself.
-        debug_assert!(sent_media.thumbnail.is_none());
-        if sent_media.thumbnail.is_some() {
-            warn!("unexpected thumbnail for a thumbnail!");
+        if depends_on_thumbnail {
+            debug_assert!(sent_media.thumbnail.is_none());
+            if sent_media.thumbnail.is_some() {
+                warn!("unexpected thumbnail for a thumbnail!");
+            }
         }
 
-        trace!(related_to = %event_txn, "done uploading thumbnail, now queuing a request to send the media file itself");
+        trace!(related_to = %event_txn, "done uploading file or thumbnail, now queuing the dependent file or thumbnail upload request");
+
+        // If the previous upload was a thumbnail, forward the accumulated sent media
+        // unchangend. Otherwise, append the sent media to the accumulated
+        // vector.
+        #[cfg(feature = "unstable-msc4274")]
+        let accumulated = if depends_on_thumbnail {
+            sent_media.accumulated
+        } else {
+            let mut accumulated = sent_media.accumulated.clone();
+            accumulated.push(AccumulatedSentMediaInfo {
+                file: sent_media.file.clone(),
+                thumbnail: sent_media.thumbnail,
+            });
+            accumulated
+        };
 
         let request = QueuedRequestKind::MediaUpload {
             content_type,
             cache_key,
-            // The thumbnail for the next upload is the file we just uploaded here.
-            thumbnail_source: Some(sent_media.file),
+            // If the previous upload was a thumbnail, it becomse the thumbnail source for the next
+            // upload.
+            thumbnail_source: if depends_on_thumbnail { Some(sent_media.file) } else { None },
             related_to: event_txn,
+            #[cfg(feature = "unstable-msc4274")]
+            accumulated,
         };
 
         client

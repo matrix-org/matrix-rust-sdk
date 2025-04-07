@@ -103,6 +103,12 @@ pub enum QueuedRequestKind {
 
         /// To which media event transaction does this upload relate?
         related_to: OwnedTransactionId,
+
+        /// Accumulated list of infos for previously uploaded files and
+        /// thumbnails if used during a gallery transaction. Otherwise empty.
+        #[cfg(feature = "unstable-msc4274")]
+        #[serde(default)]
+        accumulated: Vec<AccumulatedSentMediaInfo>,
     },
 }
 
@@ -219,17 +225,22 @@ pub enum DependentQueuedRequestKind {
         key: String,
     },
 
-    /// Upload a file that had a thumbnail.
-    UploadFileWithThumbnail {
-        /// Content type for the file itself (not the thumbnail).
+    /// Upload a file or thumbnail depending on another file or thumbnail
+    /// upload.
+    UploadFileOrThumbnail {
+        /// Content type for the file or thumbnail.
         content_type: String,
 
-        /// Media request necessary to retrieve the file itself (not the
-        /// thumbnail).
+        /// Media request necessary to retrieve the file or thumbnail itself.
         cache_key: MediaRequestParameters,
 
         /// To which media transaction id does this upload relate to?
         related_to: OwnedTransactionId,
+
+        /// Whether the depended upon request was a thumbnail or a file upload.
+        #[cfg(feature = "unstable-msc4274")]
+        #[serde(default)]
+        depends_on_thumbnail: bool,
     },
 
     /// Finish an upload by updating references to the media cache and sending
@@ -308,10 +319,33 @@ impl From<OwnedTransactionId> for ChildTransactionId {
     }
 }
 
-/// Information about a media (and its thumbnail) that have been sent to an
+/// Information about a media (and its thumbnail) that have been sent to a
 /// homeserver.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SentMediaInfo {
+    /// File that was uploaded by this request.
+    ///
+    /// If the request related to a thumbnail upload, this contains the
+    /// thumbnail media source.
+    pub file: MediaSource,
+
+    /// Optional thumbnail previously uploaded, when uploading a file.
+    ///
+    /// When uploading a thumbnail, this is set to `None`.
+    pub thumbnail: Option<MediaSource>,
+
+    /// Accumulated list of infos for previously uploaded files and thumbnails
+    /// if used during a gallery transaction. Otherwise empty.
+    #[cfg(feature = "unstable-msc4274")]
+    #[serde(default)]
+    pub accumulated: Vec<AccumulatedSentMediaInfo>,
+}
+
+/// Accumulated information about a media (and its thumbnail) that have been
+/// sent to a homeserver.
+#[cfg(feature = "unstable-msc4274")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AccumulatedSentMediaInfo {
     /// File that was uploaded by this request.
     ///
     /// If the request related to a thumbnail upload, this contains the
@@ -388,7 +422,7 @@ impl DependentQueuedRequest {
             DependentQueuedRequestKind::EditEvent { .. }
             | DependentQueuedRequestKind::RedactEvent
             | DependentQueuedRequestKind::ReactEvent { .. }
-            | DependentQueuedRequestKind::UploadFileWithThumbnail { .. } => {
+            | DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
                 // These are all aggregated events, or non-visible items (file upload producing
                 // a new MXC ID).
                 false
