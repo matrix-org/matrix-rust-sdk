@@ -236,6 +236,8 @@ impl WidgetDriver {
                         .update_delayed_event(req.delay_id, req.action)
                         .await
                         .map(MatrixDriverResponse::MatrixDelayedEventUpdate),
+
+                    MatrixDriverRequestData::SendToDeviceEvent(req) => todo!(),
                 };
 
                 // Forward the matrix driver response to the incoming message stream.

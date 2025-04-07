@@ -23,7 +23,7 @@ use ruma::{
 use serde::Deserialize;
 use tracing::debug;
 
-use super::machine::SendEventRequest;
+use super::machine::{SendEventRequest, SendToDeviceRequest};
 
 /// A Filter for Matrix events. It is used to decide if a given event can be
 /// sent to the widget and if a widget is allowed to send an event to a
@@ -147,8 +147,8 @@ impl ToDeviceEventFilter {
 }
 
 impl ToDeviceEventFilter {
-    fn matches(&self, filter_input: &FilterInput) -> bool {
-        matches!(filter_input,FilterInput::ToDevice(f_in) if f_in.event_type == self.event_type)
+    fn matches(&self, filter_input: &FilterInput<'_>) -> bool {
+        matches!(filter_input,FilterInput::ToDevice(f_in) if f_in.event_type == self.event_type.to_string())
     }
 }
 
@@ -243,11 +243,17 @@ pub struct FilterInputToDevice<'a> {
 /// Create a filter input of type [`FilterInput::ToDevice`]`.
 impl<'a> TryFrom<&'a Raw<AnyToDeviceEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
-    fn try_from(raw_event: Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
+    fn try_from(raw_event: &'a Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
         // deserialize_as::<FilterInput> will first try state, message like and then to-device.
         // The `AnyToDeviceEvent` would match message like first, so we need to explicitly
         // deserialize as `FilterInputToDevice`.
-        raw_event.deserialize_as::<FilterInputToDevice>().map(FilterInput::ToDevice)
+        raw_event.deserialize_as::<FilterInputToDevice<'a>>().map(FilterInput::ToDevice)
+    }
+}
+
+impl<'a> From<&'a SendToDeviceRequest> for FilterInput<'a> {
+    fn from(request: &'a SendToDeviceRequest) -> Self {
+        FilterInput::ToDevice(FilterInputToDevice { event_type: &request.event_type })
     }
 }
 
