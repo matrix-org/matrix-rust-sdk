@@ -34,7 +34,7 @@ use ruma::{
         },
         reaction::ReactionEventContent,
         receipt::Receipt,
-        relation::Replacement,
+        relation::{BundledThread, Replacement},
         room::{
             encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
@@ -62,13 +62,13 @@ use super::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
         AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
         LocalEventTimelineItem, PollState, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
-        TimelineEventItemId,
+        ThreadSummary, TimelineEventItemId,
     },
     traits::RoomDataProvider,
     EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
     ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::ThreadSummaryLatestEvent};
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -418,6 +418,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                 reactions: Default::default(),
                                 thread_root: None,
                                 in_reply_to: None,
+                                thread_summary: None,
                             }),
                             None,
                         );
@@ -575,7 +576,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 _ => None,
             });
 
-        let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
+        let (edit_json, edit_content) = extract_room_msg_edit_content(relations.clone())
             .map(|content| {
                 let edit_json = self.ctx.flow.raw_event().and_then(extract_bundled_edit_event_json);
                 (edit_json, content)
@@ -622,9 +623,53 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 Default::default(),
                 thread_root,
                 in_reply_to_details,
+                self.build_thread_summary(relations.thread),
             ),
             edit_json,
         );
+    }
+
+    fn build_thread_summary(
+        &self,
+        bundled_thread: Option<Box<BundledThread>>,
+    ) -> Option<ThreadSummary> {
+        println!("Stefan: Building thread summary");
+
+        if let Some(thread) = bundled_thread {
+            println!("Stefan: found a bundled thread {:?}", thread);
+
+            let message_like_event = thread.latest_event.deserialize().unwrap();
+
+            println!("Stefan: got message like event {:?}", message_like_event);
+
+            let content = message_like_event.original_content().unwrap();
+
+            println!("Stefan: got content {:?}", content);
+
+            if let Some(timeline_item_content) =
+                TimelineItemContent::from_latest_thread_event_content(&content)
+            {
+                println!("Stefan: got timeline item content {:?}", timeline_item_content);
+
+                let thread_lastest_event = ThreadSummaryLatestEvent {
+                    content: timeline_item_content,
+                    sender: message_like_event.sender().to_owned(),
+                    sender_profile: TimelineDetails::Ready(
+                        self.ctx.sender_profile.clone().unwrap(),
+                    ),
+                };
+
+                let thread_summary = ThreadSummary {
+                    latest_event_details: TimelineDetails::Ready(Box::new(thread_lastest_event)),
+                };
+
+                Some(thread_summary)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -744,6 +789,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             reactions,
             thread_root,
             in_reply_to,
+            thread_summary,
         }) = item.content()
         else {
             info!(
@@ -762,6 +808,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: reactions.clone(),
                 thread_root: thread_root.clone(),
                 in_reply_to: in_reply_to.clone(),
+                thread_summary: thread_summary.clone(),
             }),
             edit_json,
         );
@@ -857,6 +904,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             reactions,
             thread_root,
             in_reply_to,
+            thread_summary,
         }) = &item.content()
         else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
@@ -869,6 +917,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: reactions.clone(),
                 thread_root: thread_root.clone(),
                 in_reply_to: in_reply_to.clone(),
+                thread_summary: thread_summary.clone(),
             }),
             None => {
                 info!("Not applying edit to a poll that's already ended");
@@ -921,6 +970,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: Default::default(),
                 thread_root: None,
                 in_reply_to: None,
+                thread_summary: None,
             }),
             edit_json,
         );
@@ -1403,6 +1453,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: msglike.reactions.clone(),
                 thread_root: msglike.thread_root.clone(),
                 in_reply_to,
+                thread_summary: msglike.thread_summary.clone(),
             });
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);

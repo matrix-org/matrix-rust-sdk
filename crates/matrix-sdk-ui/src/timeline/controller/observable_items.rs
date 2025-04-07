@@ -408,6 +408,7 @@ mod observable_items_tests {
                     reactions: Default::default(),
                     thread_root: None,
                     in_reply_to: None,
+                    thread_summary: None,
                 }),
                 EventTimelineItemKind::Remote(RemoteEventTimelineItem {
                     event_id: event_id.parse().unwrap(),

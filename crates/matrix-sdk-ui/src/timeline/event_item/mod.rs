@@ -53,7 +53,8 @@ pub use self::{
     content::{
         AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
         MembershipChange, Message, MsgLikeContent, MsgLikeKind, OtherState, PollResult, PollState,
-        RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineItemContent,
+        RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange, Sticker, ThreadSummary,
+        ThreadSummaryLatestEvent, TimelineItemContent,
     },
     local::EventSendState,
 };
