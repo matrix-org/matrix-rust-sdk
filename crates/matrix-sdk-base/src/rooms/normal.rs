@@ -2246,6 +2246,7 @@ mod tests {
     };
     use crate::{
         latest_event::LatestEvent,
+        response_processors,
         rooms::RoomNotableTags,
         store::{
             IntoStateStore, MemoryStore, RoomLoadSettings, StateChanges, StateStore, StoreConfig,
@@ -2578,11 +2579,14 @@ mod tests {
         .cast();
 
         // When the new tag is handled and applied.
-        let mut changes = StateChanges::default();
-        client
-            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
-            .await;
-        client.apply_changes(&changes, Default::default(), None);
+        let mut context =
+            response_processors::Context::new(StateChanges::default(), Default::default());
+        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+        client.apply_changes(
+            &context.state_changes,
+            context.room_info_notable_updates.clone(),
+            None,
+        );
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2600,10 +2604,8 @@ mod tests {
         }))
         .unwrap()
         .cast();
-        client
-            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
-            .await;
-        client.apply_changes(&changes, Default::default(), None);
+        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+        client.apply_changes(&context.state_changes, context.room_info_notable_updates, None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2658,11 +2660,14 @@ mod tests {
         .cast();
 
         // When the new tag is handled and applied.
-        let mut changes = StateChanges::default();
-        client
-            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
-            .await;
-        client.apply_changes(&changes, Default::default(), None);
+        let mut context =
+            response_processors::Context::new(StateChanges::default(), Default::default());
+        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+        client.apply_changes(
+            &context.state_changes,
+            context.room_info_notable_updates.clone(),
+            None,
+        );
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2680,10 +2685,8 @@ mod tests {
         }))
         .unwrap()
         .cast();
-        client
-            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
-            .await;
-        client.apply_changes(&changes, Default::default(), None);
+        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+        client.apply_changes(&context.state_changes, context.room_info_notable_updates, None);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
