@@ -16,8 +16,8 @@
 
 use std::{iter, time::Duration};
 
-use driver_req::UpdateDelayedEventRequest;
-use from_widget::UpdateDelayedEventResponse;
+use driver_req::{SendToDeviceRequest, UpdateDelayedEventRequest};
+use from_widget::{SendToDeviceEventResponse, UpdateDelayedEventResponse};
 use indexmap::IndexMap;
 use ruma::{
     serde::{JsonObject, Raw},
@@ -25,7 +25,8 @@ use ruma::{
 };
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::{debug, error, info, instrument, warn};
+use to_widget::NotifyNewToDeviceEvent;
+use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
 use self::{
@@ -179,6 +180,25 @@ impl WidgetMachine {
                 }
                 Vec::new()
             }
+            IncomingMessage::ToDeviceReceived(to_device_raw) => {
+                let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+                    error!("Received to device event before capabilities negotiation");
+                    return Vec::new();
+                };
+                let event_filter_in = match to_device_raw.clone().try_into() {
+                    Ok(filter_in) => filter_in,
+                    Err(e) => {
+                        error!("Failed to convert to device event to filter input: {e}");
+                        return Vec::new();
+                    }
+                };
+                if capabilities.allow_reading(&event_filter_in) {
+                    let action =
+                        self.send_to_widget_request(NotifyNewToDeviceEvent(to_device_raw)).1;
+                    return action.map(|a| vec![a]).unwrap_or_default();
+                }
+                Vec::new()
+            }
         }
     }
 
@@ -244,6 +264,11 @@ impl WidgetMachine {
 
             FromWidgetRequest::SendEvent(req) => self
                 .process_send_event_request(req, raw_request)
+                .map(|a| vec![a])
+                .unwrap_or_default(),
+
+            FromWidgetRequest::SendToDevice(req) => self
+                .process_to_device_request(req, raw_request)
                 .map(|a| vec![a])
                 .unwrap_or_default(),
 
@@ -317,7 +342,7 @@ impl WidgetMachine {
 
         match request {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
-                if !capabilities.allow_reading(&FilterInput::message_like(event_type.to_string())) {
+                if !capabilities.has_read_filter_for_type(&event_type.to_string()) {
                     return Some(Self::send_from_widget_error_string_response(
                         raw_request,
                         "Not allowed to read message like event",
@@ -362,6 +387,7 @@ impl WidgetMachine {
                     StateKeySelector::Any => None,
                     StateKeySelector::Key(key) => Some(key),
                 };
+
                 if capabilities
                     .allow_reading(&FilterInput::state(event_type.to_string(), state_key_option))
                 {
@@ -419,7 +445,38 @@ impl WidgetMachine {
                 result.map_err(FromWidgetErrorResponse::from_error),
             )]
         });
+        action
+    }
 
+    fn process_to_device_request(
+        &mut self,
+        request: SendToDeviceRequest,
+        raw_request: Raw<FromWidgetRequest>,
+    ) -> Option<Action> {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            error!("Received send event request before capabilities negotiation");
+            return None;
+        };
+
+        let filter_in =
+            FilterInput::ToDevice(FilterInputToDevice { event_type: request.event_type.clone() });
+
+        if !capabilities.allow_sending(&filter_in) {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                format!("Not allowed to send to-device message of type: {}", request.event_type),
+            ));
+        }
+
+        let (request, action) = self.send_matrix_driver_request(request);
+        request.then(|result, _| {
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result
+                    .map(Into::<SendToDeviceEventResponse>::into)
+                    .map_err(FromWidgetErrorResponse::from_error),
+            )]
+        });
         action
     }
 
