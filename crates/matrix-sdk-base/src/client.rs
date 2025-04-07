@@ -43,14 +43,14 @@ use ruma::{
         marked_unread::MarkedUnreadEventContent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
-            member::{MembershipState, RoomMemberEventContent, SyncRoomMemberEvent},
+            member::{MembershipState, SyncRoomMemberEvent},
             power_levels::{
                 RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
             },
         },
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        GlobalAccountDataEventType, StateEvent, StateEventType, SyncStateEvent,
+        GlobalAccountDataEventType, StateEvent, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -62,11 +62,13 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
 
+#[cfg(feature = "e2e-encryption")]
+use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, TimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
-    response_processors::{account_data::AccountDataProcessor, Context},
+    response_processors::{self as processors, account_data::AccountDataProcessor, Context},
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
         Room, RoomInfo, RoomState,
@@ -78,11 +80,6 @@ use crate::{
     },
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
     RoomStateFilter, SessionMeta,
-};
-#[cfg(feature = "e2e-encryption")]
-use crate::{
-    response_processors::{self as processors},
-    RoomMemberships,
 };
 
 /// A no (network) IO client implementation.
@@ -498,7 +495,7 @@ impl BaseClient {
                                         }
                                     }
 
-                                    handle_room_member_event_for_profiles(
+                                    processors::profiles::upsert_or_delete(
                                         context,
                                         room.room_id(),
                                         member,
@@ -716,7 +713,7 @@ impl BaseClient {
                     _ => (),
                 }
 
-                handle_room_member_event_for_profiles(context, &room_info.room_id, member);
+                processors::profiles::upsert_or_delete(context, &room_info.room_id, member);
             }
 
             state_events
@@ -1424,7 +1421,7 @@ impl BaseClient {
             }
 
             let sync_member: SyncRoomMemberEvent = member.clone().into();
-            handle_room_member_event_for_profiles(&mut context, room_id, &sync_member);
+            processors::profiles::upsert_or_delete(&mut context, room_id, &sync_member);
 
             context
                 .state_changes
@@ -1757,39 +1754,6 @@ impl BaseClient {
     /// Learn more by reading the [`RoomInfoNotableUpdate`] type.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.room_info_notable_update_sender.subscribe()
-    }
-}
-
-fn handle_room_member_event_for_profiles(
-    context: &mut Context,
-    room_id: &RoomId,
-    event: &SyncStateEvent<RoomMemberEventContent>,
-) {
-    // Senders can fake the profile easily so we keep track of profiles that the
-    // member set themselves to avoid having confusing profile changes when a
-    // member gets kicked/banned.
-    if event.state_key() == event.sender() {
-        context
-            .state_changes
-            .profiles
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(event.sender().to_owned(), event.into());
-    }
-
-    if *event.membership() == MembershipState::Invite {
-        // Remove any profile previously stored for the invited user.
-        //
-        // A room member could have joined the room and left it later; in that case, the
-        // server may return a dummy, empty profile along the `leave` event. We
-        // don't want to reuse that empty profile when the member has been
-        // re-invited, so we remove it from the database.
-        context
-            .state_changes
-            .profiles_to_delete
-            .entry(room_id.to_owned())
-            .or_default()
-            .push(event.state_key().clone());
     }
 }
 
