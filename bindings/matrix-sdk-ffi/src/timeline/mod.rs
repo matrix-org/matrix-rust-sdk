@@ -65,6 +65,8 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
+pub use self::msg_like::MessageContent;
+
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
@@ -80,9 +82,9 @@ use crate::{
 
 pub mod configuration;
 mod content;
+mod msg_like;
 mod reply;
 
-pub use content::MessageContent;
 use matrix_sdk::utils::formatted_body_from;
 
 use crate::error::QueueWedgeError;

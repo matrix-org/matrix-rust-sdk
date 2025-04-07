@@ -14,13 +14,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
-use matrix_sdk_ui::timeline::{MsgLikeContent, MsgLikeKind, PollResult, RoomPinnedEventsChange};
+use matrix_sdk::room::power_levels::power_level_user_changes;
+use matrix_sdk_ui::timeline::{MsgLikeContent, MsgLikeKind, RoomPinnedEventsChange};
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent, FullStateEventContent};
 
-use super::reply::InReplyToDetails;
 use crate::{
-    ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
+    ruma::{ImageInfo, MediaSource, MediaSourceExt, MessageType, PollKind},
+    timeline::msg_like::{EncryptedMessage, MessageContent, PollAnswer},
     utils::Timestamp,
 };
 
@@ -154,25 +154,6 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
     }
 }
 
-#[derive(Clone, uniffi::Record)]
-pub struct MessageContent {
-    pub msg_type: MessageType,
-    pub body: String,
-    pub in_reply_to: Option<Arc<InReplyToDetails>>,
-    pub thread_root: Option<String>,
-    pub is_edited: bool,
-    pub mentions: Option<Mentions>,
-}
-
-impl From<ruma::events::Mentions> for Mentions {
-    fn from(value: ruma::events::Mentions) -> Self {
-        Self {
-            user_ids: value.user_ids.iter().map(|id| id.to_string()).collect(),
-            room: value.room,
-        }
-    }
-}
-
 #[derive(Clone, uniffi::Enum)]
 pub enum TimelineItemContent {
     Message {
@@ -223,43 +204,6 @@ pub enum TimelineItemContent {
         state_key: String,
         error: String,
     },
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum EncryptedMessage {
-    OlmV1Curve25519AesSha2 {
-        /// The Curve25519 key of the sender.
-        sender_key: String,
-    },
-    // Other fields not included because UniFFI doesn't have the concept of
-    // deprecated fields right now.
-    MegolmV1AesSha2 {
-        /// The ID of the session used to encrypt the message.
-        session_id: String,
-
-        /// What we know about what caused this UTD. E.g. was this event sent
-        /// when we were not a member of this room?
-        cause: UtdCause,
-    },
-    Unknown,
-}
-
-impl EncryptedMessage {
-    fn new(msg: &matrix_sdk_ui::timeline::EncryptedMessage) -> Self {
-        use matrix_sdk_ui::timeline::EncryptedMessage as Message;
-
-        match msg {
-            Message::OlmV1Curve25519AesSha2 { sender_key } => {
-                let sender_key = sender_key.clone();
-                Self::OlmV1Curve25519AesSha2 { sender_key }
-            }
-            Message::MegolmV1AesSha2 { session_id, cause, .. } => {
-                let session_id = session_id.clone();
-                Self::MegolmV1AesSha2 { session_id, cause: *cause }
-            }
-            Message::Unknown => Self::Unknown,
-        }
-    }
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -411,30 +355,6 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
             Content::SpaceChild(_) => Self::SpaceChild,
             Content::SpaceParent(_) => Self::SpaceParent,
             Content::_Custom { event_type, .. } => Self::Custom { event_type: event_type.clone() },
-        }
-    }
-}
-
-#[derive(Clone, uniffi::Record)]
-pub struct PollAnswer {
-    pub id: String,
-    pub text: String,
-}
-
-impl From<PollResult> for TimelineItemContent {
-    fn from(value: PollResult) -> Self {
-        TimelineItemContent::Poll {
-            question: value.question,
-            kind: PollKind::from(value.kind),
-            max_selections: value.max_selections,
-            answers: value
-                .answers
-                .into_iter()
-                .map(|i| PollAnswer { id: i.id, text: i.text })
-                .collect(),
-            votes: value.votes,
-            end_time: value.end_time.map(|t| t.into()),
-            has_been_edited: value.has_been_edited,
         }
     }
 }
