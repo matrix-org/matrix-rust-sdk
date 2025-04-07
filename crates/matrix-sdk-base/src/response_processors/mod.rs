@@ -26,6 +26,7 @@ pub mod verification;
 use std::collections::BTreeMap;
 
 use ruma::OwnedRoomId;
+#[cfg(feature = "e2e-encryption")]
 pub use verification::verification;
 
 use crate::{RoomInfoNotableUpdateReasons, StateChanges};
