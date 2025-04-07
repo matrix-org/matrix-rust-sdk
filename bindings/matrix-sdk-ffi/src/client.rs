@@ -43,10 +43,7 @@ use matrix_sdk_ui::notification_client::{
 };
 use mime::Mime;
 use ruma::{
-    api::client::{
-        alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo,
-        error::ErrorKind, uiaa::UserIdentifier,
-    },
+    api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
@@ -408,10 +405,10 @@ impl Client {
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
-        let registrations = oidc_configuration.registrations().await?;
+        let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let mut url_builder = self.inner.oauth().login(registrations.into(), redirect_uri, None);
+        let mut url_builder = self.inner.oauth().login(redirect_uri, None, Some(registration_data));
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
@@ -811,24 +808,7 @@ impl Client {
 
     /// Log the current user out.
     pub async fn logout(&self) -> Result<(), ClientError> {
-        let Some(auth_api) = self.inner.auth_api() else {
-            return Err(anyhow!("Missing authentication API").into());
-        };
-
-        match auth_api {
-            AuthApi::Matrix(a) => {
-                tracing::info!("Logging out via the homeserver.");
-                a.logout().await?;
-                Ok(())
-            }
-
-            AuthApi::OAuth(api) => {
-                tracing::info!("Logging out via OAuth 2.0.");
-                api.logout().await?;
-                Ok(())
-            }
-            _ => Err(anyhow!("Unknown authentication API").into()),
-        }
+        Ok(self.inner.logout().await?)
     }
 
     /// Registers a pusher with given parameters
@@ -1659,10 +1639,9 @@ impl Session {
                 let matrix_sdk::authentication::oauth::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                    issuer,
                 } = api.user_session().context("Missing session")?;
                 let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
-                let oidc_data = OidcSessionData { client_id, issuer };
+                let oidc_data = OidcSessionData { client_id };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
                 Ok(Session {
@@ -1707,7 +1686,6 @@ impl TryFrom<Session> for AuthSession {
                     device_id: device_id.into(),
                 },
                 tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                issuer: oidc_data.issuer,
             };
 
             let session = OAuthSession { client_id: oidc_data.client_id, user: user_session };
@@ -1731,31 +1709,8 @@ impl TryFrom<Session> for AuthSession {
 /// Represents a client registration against an OpenID Connect authentication
 /// issuer.
 #[derive(Serialize, Deserialize)]
-#[serde(try_from = "OidcSessionDataDeHelper")]
 pub(crate) struct OidcSessionData {
     client_id: ClientId,
-    issuer: Url,
-}
-
-#[derive(Deserialize)]
-struct OidcSessionDataDeHelper {
-    client_id: ClientId,
-    issuer_info: Option<AuthenticationServerInfo>,
-    issuer: Option<Url>,
-}
-
-impl TryFrom<OidcSessionDataDeHelper> for OidcSessionData {
-    type Error = String;
-
-    fn try_from(value: OidcSessionDataDeHelper) -> Result<Self, Self::Error> {
-        let OidcSessionDataDeHelper { client_id, issuer_info, issuer } = value;
-
-        let issuer = issuer
-            .or(issuer_info.and_then(|info| Url::parse(&info.issuer).ok()))
-            .ok_or_else(|| "missing field `issuer`".to_owned())?;
-
-        Ok(Self { client_id, issuer })
-    }
 }
 
 #[derive(uniffi::Enum)]

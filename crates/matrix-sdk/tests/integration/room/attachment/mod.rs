@@ -1,11 +1,9 @@
 use std::time::Duration;
 
 use matrix_sdk::{
-    attachment::{
-        AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseVideoInfo, Reply, Thumbnail,
-    },
+    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseVideoInfo, Thumbnail},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
-    room::reply::EnforceThread,
+    room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};

@@ -248,7 +248,7 @@ impl EventCacheStore for MemoryStore {
 
                 // Must not be filtered out.
                 if let Some(filters) = &filters {
-                    filters.iter().any(|f| *f == rel_type).then_some(event.clone())
+                    filters.contains(&rel_type).then_some(event.clone())
                 } else {
                     Some(event.clone())
                 }

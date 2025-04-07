@@ -236,7 +236,9 @@ pub enum DependentQueuedRequestKind {
     /// the final media event with the remote MXC URIs.
     FinishUpload {
         /// Local echo for the event (containing the local MXC URIs).
-        local_echo: RoomMessageEventContent,
+        ///
+        /// `Box` the local echo so that it reduces the size of the whole enum.
+        local_echo: Box<RoomMessageEventContent>,
 
         /// Transaction id for the file upload.
         file_upload: OwnedTransactionId,

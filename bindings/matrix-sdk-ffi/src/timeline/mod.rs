@@ -23,11 +23,14 @@ use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseVideoInfo, Reply, Thumbnail,
+        BaseVideoInfo, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
-    room::{edit::EditedContent as SdkEditedContent, reply::EnforceThread},
+    room::{
+        edit::EditedContent as SdkEditedContent,
+        reply::{EnforceThread, Reply},
+    },
 };
 use matrix_sdk_ui::timeline::{
     self, EventItemOrigin, Profile, RepliedToEvent, TimelineDetails,
@@ -116,31 +119,13 @@ impl Timeline {
             params.formatted_caption.map(Into::into),
         );
 
-        let reply = if let Some(reply_params) = params.reply_params {
-            let event_id = EventId::parse(reply_params.event_id)
-                .map_err(|_| RoomError::InvalidRepliedToEventId)?;
-            let enforce_thread = if reply_params.enforce_thread {
-                EnforceThread::Threaded(if reply_params.reply_within_thread {
-                    ReplyWithinThread::Yes
-                } else {
-                    ReplyWithinThread::No
-                })
-            } else {
-                EnforceThread::MaybeThreaded
-            };
-
-            Some(Reply { event_id, enforce_thread })
-        } else {
-            None
-        };
-
         let attachment_config = AttachmentConfig::new()
             .thumbnail(thumbnail)
             .info(attachment_info)
             .caption(params.caption)
             .formatted_caption(formatted_caption)
             .mentions(params.mentions.map(Into::into))
-            .reply(reply);
+            .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =
@@ -239,6 +224,26 @@ pub struct ReplyParameters {
     /// If enforcing a threaded relation, whether the message is a reply on a
     /// thread.
     reply_within_thread: bool,
+}
+
+impl TryInto<Reply> for ReplyParameters {
+    type Error = RoomError;
+
+    fn try_into(self) -> Result<Reply, Self::Error> {
+        let event_id =
+            EventId::parse(&self.event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
+        let enforce_thread = if self.enforce_thread {
+            EnforceThread::Threaded(if self.reply_within_thread {
+                ReplyWithinThread::Yes
+            } else {
+                ReplyWithinThread::No
+            })
+        } else {
+            EnforceThread::MaybeThreaded
+        };
+
+        Ok(Reply { event_id, enforce_thread })
+    }
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -502,45 +507,10 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        event_id: String,
+        reply_params: ReplyParameters,
     ) -> Result<(), ClientError> {
-        let event_id = EventId::parse(event_id)?;
         self.inner
-            .send_reply((*msg).clone(), event_id, EnforceThread::MaybeThreaded)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
-        Ok(())
-    }
-
-    /// Send a message on a thread.
-    ///
-    /// If the replied to event does not have a thread relation, it becomes the
-    /// root of a new thread.
-    ///
-    /// # Arguments
-    ///
-    /// * `msg` - Message content to send
-    ///
-    /// * `event_id` - ID of the event to reply to
-    ///
-    /// * `is_reply` - Whether the message is a reply on a thread
-    pub async fn send_thread_reply(
-        &self,
-        msg: Arc<RoomMessageEventContentWithoutRelation>,
-        event_id: String,
-        is_reply: bool,
-    ) -> Result<(), ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        self.inner
-            .send_reply(
-                (*msg).clone(),
-                event_id,
-                EnforceThread::Threaded(if is_reply {
-                    ReplyWithinThread::Yes
-                } else {
-                    ReplyWithinThread::No
-                }),
-            )
+            .send_reply((*msg).clone(), reply_params.try_into()?)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())

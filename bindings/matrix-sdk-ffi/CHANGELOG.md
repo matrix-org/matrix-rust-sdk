@@ -65,6 +65,14 @@ Breaking changes:
 - `ClientBuilder::passphrase` is renamed `session_passphrase`
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
 
+- Merge `Timeline::send_thread_reply` into `Timeline::send_reply`. This
+  changes the parameters of `send_reply` which now requires passing the
+  event ID (and thread reply behaviour) inside a `ReplyParameters` struct.
+  ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
+
+- The `dynamic_registrations_file` field of `OidcConfiguration` was removed.
+  Clients are supposed to re-register with the homeserver for every login.
+
 Additions:
 
 - Add `Encryption::get_user_identity` which returns `UserIdentity`
@@ -80,3 +88,6 @@ Additions:
   ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
 - Add `ClientBuilder::session_pool_max_size`, `::session_cache_size` and `::session_journal_size_limit` to control the stores configuration, especially their memory consumption
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
+- Add `ClientBuilder::system_is_memory_constrained` to indicate that the system
+  has less memory available than the current standard
+  ([#4894](https://github.com/matrix-org/matrix-rust-sdk/pull/4894))

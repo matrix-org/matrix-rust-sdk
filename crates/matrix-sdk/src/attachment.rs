@@ -25,10 +25,10 @@ use ruma::{
         },
         Mentions,
     },
-    OwnedEventId, OwnedTransactionId, TransactionId, UInt,
+    OwnedTransactionId, TransactionId, UInt,
 };
 
-use crate::room::reply::EnforceThread;
+use crate::room::reply::Reply;
 
 /// Base metadata about an image.
 #[derive(Debug, Clone, Default)]
@@ -179,15 +179,6 @@ impl Thumbnail {
         });
         (self.data, self.content_type, Box::new(thumbnail_info))
     }
-}
-
-/// Information needed to reply to an event.
-#[derive(Debug)]
-pub struct Reply {
-    /// The event ID of the event to reply to.
-    pub event_id: OwnedEventId,
-    /// Whether to enforce a thread relation.
-    pub enforce_thread: EnforceThread,
 }
 
 /// Configuration for sending an attachment.

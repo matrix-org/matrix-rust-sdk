@@ -104,7 +104,7 @@ async fn test_reset_oauth() {
     use similar_asserts::assert_eq;
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().logged_in_with_oauth(server.server().uri()).build().await;
+    let client = server.client_builder().logged_in_with_oauth().build().await;
 
     assert!(
         !client.encryption().cross_signing_status().await.unwrap().is_complete(),

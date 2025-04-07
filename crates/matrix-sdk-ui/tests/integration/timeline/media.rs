@@ -20,8 +20,8 @@ use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     assert_let_timeout,
-    attachment::{AttachmentConfig, Reply},
-    room::reply::EnforceThread,
+    attachment::AttachmentConfig,
+    room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};

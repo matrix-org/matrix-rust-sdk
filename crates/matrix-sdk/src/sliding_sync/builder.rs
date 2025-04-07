@@ -232,7 +232,7 @@ impl SlidingSyncBuilder {
         let version = self.version.unwrap_or_else(|| client.sliding_sync_version());
 
         if matches!(version, Version::None) {
-            return Err(crate::error::Error::SlidingSync(Error::VersionIsMissing));
+            return Err(crate::error::Error::SlidingSync(Box::new(Error::VersionIsMissing)));
         }
 
         let (internal_channel_sender, _internal_channel_receiver) = channel(8);

@@ -293,10 +293,7 @@ mod tests {
         let session_hash = compute_session_hash(&tokens);
         client
             .oauth()
-            .restore_session(
-                mock_session(tokens.clone(), "https://oauth.example.com/issuer"),
-                RoomLoadSettings::default(),
-            )
+            .restore_session(mock_session(tokens.clone()), RoomLoadSettings::default())
             .await?;
 
         assert_eq!(client.session_tokens().unwrap(), tokens);
@@ -324,12 +321,8 @@ mod tests {
         server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
 
         let tmp_dir = tempfile::tempdir()?;
-        let client = server
-            .client_builder()
-            .sqlite_store(&tmp_dir)
-            .registered_with_oauth(server.server().uri())
-            .build()
-            .await;
+        let client =
+            server.client_builder().sqlite_store(&tmp_dir).registered_with_oauth().build().await;
         let oauth = client.oauth();
 
         // Enable cross-process lock.
@@ -389,7 +382,7 @@ mod tests {
         // Restore the session.
         oauth
             .restore_session(
-                mock_session(mock_prev_session_tokens_with_refresh(), server.server().uri()),
+                mock_session(mock_prev_session_tokens_with_refresh()),
                 RoomLoadSettings::default(),
             )
             .await?;
@@ -417,7 +410,6 @@ mod tests {
     #[async_test]
     async fn test_cross_process_concurrent_refresh() -> anyhow::Result<()> {
         let server = MatrixMockServer::new().await;
-        let issuer = server.server().uri();
 
         let oauth_server = server.oauth();
         oauth_server.mock_server_metadata().ok().expect(1..).named("server_metadata").mount().await;
@@ -434,10 +426,7 @@ mod tests {
         oauth.enable_cross_process_refresh_lock("client1".to_owned()).await?;
 
         oauth
-            .restore_session(
-                mock_session(prev_tokens.clone(), issuer.clone()),
-                RoomLoadSettings::default(),
-            )
+            .restore_session(mock_session(prev_tokens.clone()), RoomLoadSettings::default())
             .await?;
 
         // Create a second client, without restoring it, to test that a token update
@@ -455,10 +444,7 @@ mod tests {
             let oauth3 = client3.oauth();
             oauth3.enable_cross_process_refresh_lock("client3".to_owned()).await?;
             oauth3
-                .restore_session(
-                    mock_session(prev_tokens.clone(), issuer.clone()),
-                    RoomLoadSettings::default(),
-                )
+                .restore_session(mock_session(prev_tokens.clone()), RoomLoadSettings::default())
                 .await?;
 
             // Run a refresh in the second client; this will invalidate the tokens from the
@@ -492,10 +478,7 @@ mod tests {
             )?;
 
             oauth
-                .restore_session(
-                    mock_session(prev_tokens.clone(), issuer),
-                    RoomLoadSettings::default(),
-                )
+                .restore_session(mock_session(prev_tokens.clone()), RoomLoadSettings::default())
                 .await?;
 
             // And this client is now aware of the latest tokens.
@@ -572,12 +555,7 @@ mod tests {
 
         // Restore the session.
         let tokens = mock_session_tokens_with_refresh();
-        oauth
-            .restore_session(
-                mock_session(tokens.clone(), server.server().uri()),
-                RoomLoadSettings::default(),
-            )
-            .await?;
+        oauth.restore_session(mock_session(tokens.clone()), RoomLoadSettings::default()).await?;
 
         oauth.logout().await.unwrap();
 

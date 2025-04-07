@@ -24,7 +24,7 @@ use ruma::{
 use tracing::{info, instrument};
 use url::Url;
 
-use super::{ClientRegistrationMethod, OAuth, OAuthError};
+use super::{ClientRegistrationData, OAuth, OAuthError};
 use crate::{authentication::oauth::AuthorizationValidationData, Result};
 
 /// Builder type used to configure optional settings for authorization with an
@@ -34,7 +34,7 @@ use crate::{authentication::oauth::AuthorizationValidationData, Result};
 #[allow(missing_debug_implementations)]
 pub struct OAuthAuthCodeUrlBuilder {
     oauth: OAuth,
-    registration_method: ClientRegistrationMethod,
+    registration_data: Option<ClientRegistrationData>,
     scopes: Vec<Scope>,
     device_id: OwnedDeviceId,
     redirect_uri: Url,
@@ -45,14 +45,14 @@ pub struct OAuthAuthCodeUrlBuilder {
 impl OAuthAuthCodeUrlBuilder {
     pub(super) fn new(
         oauth: OAuth,
-        registration_method: ClientRegistrationMethod,
         scopes: Vec<Scope>,
         device_id: OwnedDeviceId,
         redirect_uri: Url,
+        registration_data: Option<ClientRegistrationData>,
     ) -> Self {
         Self {
             oauth,
-            registration_method,
+            registration_data,
             scopes,
             device_id,
             redirect_uri,
@@ -93,23 +93,16 @@ impl OAuthAuthCodeUrlBuilder {
     /// request fails.
     #[instrument(target = "matrix_sdk::client", skip_all)]
     pub async fn build(self) -> Result<OAuthAuthorizationData, OAuthError> {
-        let Self {
-            oauth,
-            registration_method,
-            scopes,
-            device_id,
-            redirect_uri,
-            prompt,
-            login_hint,
-        } = self;
+        let Self { oauth, registration_data, scopes, device_id, redirect_uri, prompt, login_hint } =
+            self;
 
         let server_metadata = oauth.server_metadata().await?;
 
-        oauth.use_registration_method(&server_metadata, &registration_method).await?;
+        oauth.use_registration_data(&server_metadata, registration_data.as_ref()).await?;
 
         let data = oauth.data().expect("OAuth 2.0 data should be set after registration");
         info!(
-            issuer = data.issuer.as_str(),
+            issuer = server_metadata.issuer.as_str(),
             ?scopes,
             "Authorizing scope via the OAuth 2.0 Authorization Code flow"
         );

@@ -704,9 +704,9 @@ impl RoomSendQueue {
 
                 let fut = async move {
                     let mime = Mime::from_str(&content_type).map_err(|_| {
-                        crate::Error::SendQueueWedgeError(QueueWedgeError::InvalidMimeType {
-                            mime_type: content_type.clone(),
-                        })
+                        crate::Error::SendQueueWedgeError(Box::new(
+                            QueueWedgeError::InvalidMimeType { mime_type: content_type.clone() },
+                        ))
                     })?;
 
                     let data = room
@@ -716,9 +716,9 @@ impl RoomSendQueue {
                         .await?
                         .get_media_content(&cache_key)
                         .await?
-                        .ok_or(crate::Error::SendQueueWedgeError(
+                        .ok_or(crate::Error::SendQueueWedgeError(Box::new(
                             QueueWedgeError::MissingMediaContent,
-                        ))?;
+                        )))?;
 
                     #[cfg(feature = "e2e-encryption")]
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
@@ -804,24 +804,26 @@ impl From<&crate::Error> for QueueWedgeError {
     fn from(value: &crate::Error) -> Self {
         match value {
             #[cfg(feature = "e2e-encryption")]
-            crate::Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error
-            {
-                SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
-                    QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
-                }
+            crate::Error::OlmError(error) => match &**error {
+                OlmError::SessionRecipientCollectionError(error) => match error {
+                    SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
+                        QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
+                    }
 
-                SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
-                    QueueWedgeError::IdentityViolations { users: users.clone() }
-                }
+                    SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
+                        QueueWedgeError::IdentityViolations { users: users.clone() }
+                    }
 
-                SessionRecipientCollectionError::CrossSigningNotSetup
-                | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
-                    QueueWedgeError::CrossVerificationRequired
-                }
+                    SessionRecipientCollectionError::CrossSigningNotSetup
+                    | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
+                        QueueWedgeError::CrossVerificationRequired
+                    }
+                },
+                _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
             },
 
             // Flatten errors of `Self` type.
-            crate::Error::SendQueueWedgeError(error) => error.clone(),
+            crate::Error::SendQueueWedgeError(error) => *error.clone(),
 
             _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
         }
@@ -1262,7 +1264,7 @@ impl QueueStorage {
                 send_event_txn.into(),
                 created_at,
                 DependentQueuedRequestKind::FinishUpload {
-                    local_echo: event,
+                    local_echo: Box::new(event),
                     file_upload: upload_file_txn.clone(),
                     thumbnail_info,
                 },
@@ -1388,7 +1390,7 @@ impl QueueStorage {
                     Some(LocalEcho {
                         transaction_id: dep.own_transaction_id.clone().into(),
                         content: LocalEchoContent::Event {
-                            serialized_event: SerializableEventContent::new(&local_echo.into())
+                            serialized_event: SerializableEventContent::new(&(*local_echo).into())
                                 .ok()?,
                             send_handle: SendHandle {
                                 room: room.clone(),
@@ -1620,7 +1622,7 @@ impl QueueStorage {
                     client,
                     dependent_request.own_transaction_id.into(),
                     parent_key,
-                    local_echo,
+                    *local_echo,
                     file_upload,
                     thumbnail_info,
                     new_updates,

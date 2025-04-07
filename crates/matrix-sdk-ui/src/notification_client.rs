@@ -29,10 +29,11 @@ use ruma::{
     events::{
         room::{
             member::{MembershipState, StrippedRoomMemberEvent},
-            message::SyncRoomMessageEvent,
+            message::{Relation, SyncRoomMessageEvent},
         },
-        AnyFullStateEventContent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        FullStateEventContent, StateEventType, TimelineEventType,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnyStateEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, FullStateEventContent, StateEventType,
+        TimelineEventType,
     },
     html::RemoveReplyFallback,
     push::Action,
@@ -668,6 +669,7 @@ pub struct NotificationItem {
     /// It is set if and only if the push actions could be determined.
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
+    pub thread_id: Option<String>,
 }
 
 impl NotificationItem {
@@ -735,6 +737,18 @@ impl NotificationItem {
         let is_noisy = push_actions.map(|actions| actions.iter().any(|a| a.sound().is_some()));
         let has_mention = push_actions.map(|actions| actions.iter().any(|a| a.is_highlight()));
 
+        let thread_id = 'thread_id: {
+            if let NotificationEvent::Timeline(AnySyncTimelineEvent::MessageLike(event)) = &event {
+                let content = event.original_content();
+                if let Some(AnyMessageLikeEventContent::RoomMessage(content)) = content {
+                    if let Some(Relation::Thread(thread)) = content.relates_to {
+                        break 'thread_id Some(thread.event_id.to_string());
+                    }
+                }
+            };
+            None
+        };
+
         let item = NotificationItem {
             event,
             raw_event,
@@ -753,6 +767,7 @@ impl NotificationItem {
             joined_members_count: room.joined_members_count(),
             is_noisy,
             has_mention,
+            thread_id,
         };
 
         Ok(item)

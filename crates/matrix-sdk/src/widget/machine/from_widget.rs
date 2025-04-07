@@ -71,7 +71,7 @@ impl FromWidgetErrorResponse {
     /// Create a error response to send to the widget from a matrix sdk error.
     pub(crate) fn from_error(error: Error) -> Self {
         match error {
-            Error::Http(e) => FromWidgetErrorResponse::from_http_error(e),
+            Error::Http(e) => FromWidgetErrorResponse::from_http_error(*e),
             // For UnknownError's we do not want to have the `unknown error` bit in the message.
             // Hence we only convert the inner error to a string.
             Error::UnknownError(e) => FromWidgetErrorResponse::from_string(e.to_string()),
