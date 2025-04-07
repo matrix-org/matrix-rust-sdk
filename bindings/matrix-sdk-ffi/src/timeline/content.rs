@@ -15,12 +15,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
-use matrix_sdk_ui::timeline::{
-    MsgLikeContent, MsgLikeKind, PollResult, RoomPinnedEventsChange, TimelineDetails,
-};
+use matrix_sdk_ui::timeline::{MsgLikeContent, MsgLikeKind, PollResult, RoomPinnedEventsChange};
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent, FullStateEventContent};
 
-use super::ProfileDetails;
+use super::reply::InReplyToDetails;
 use crate::{
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
     utils::Timestamp,
@@ -225,57 +223,6 @@ pub enum TimelineItemContent {
         state_key: String,
         error: String,
     },
-}
-
-#[derive(Clone, uniffi::Object)]
-pub struct InReplyToDetails {
-    event_id: String,
-    event: RepliedToEventDetails,
-}
-
-impl InReplyToDetails {
-    pub(crate) fn new(event_id: String, event: RepliedToEventDetails) -> Self {
-        Self { event_id, event }
-    }
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl InReplyToDetails {
-    pub fn event_id(&self) -> String {
-        self.event_id.clone()
-    }
-
-    pub fn event(&self) -> RepliedToEventDetails {
-        self.event.clone()
-    }
-}
-
-impl From<matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
-    fn from(inner: matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
-        let event_id = inner.event_id.to_string();
-        let event = match &inner.event {
-            TimelineDetails::Unavailable => RepliedToEventDetails::Unavailable,
-            TimelineDetails::Pending => RepliedToEventDetails::Pending,
-            TimelineDetails::Ready(event) => RepliedToEventDetails::Ready {
-                content: event.content().clone().into(),
-                sender: event.sender().to_string(),
-                sender_profile: event.sender_profile().into(),
-            },
-            TimelineDetails::Error(err) => {
-                RepliedToEventDetails::Error { message: err.to_string() }
-            }
-        };
-
-        Self { event_id, event }
-    }
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum RepliedToEventDetails {
-    Unavailable,
-    Pending,
-    Ready { content: TimelineItemContent, sender: String, sender_profile: ProfileDetails },
-    Error { message: String },
 }
 
 #[derive(Clone, uniffi::Enum)]

@@ -17,7 +17,6 @@ use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 use anyhow::{Context, Result};
 use as_variant::as_variant;
 use async_compat::get_runtime_handle;
-use content::{InReplyToDetails, RepliedToEventDetails};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
@@ -37,6 +36,7 @@ use matrix_sdk_ui::timeline::{
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
+use reply::{InReplyToDetails, RepliedToEventDetails};
 use ruma::{
     events::{
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
@@ -80,6 +80,7 @@ use crate::{
 
 pub mod configuration;
 mod content;
+mod reply;
 
 pub use content::MessageContent;
 use matrix_sdk::utils::formatted_body_from;
