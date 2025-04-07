@@ -26,9 +26,7 @@ use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 mod with_e2ee {
     pub use super::{
-        e2ee::{e2ee_from_msc4186, e2ee_from_sync_v3},
-        latest_event::decrypt_latest_events,
-        verification::verification,
+        e2ee::to_device, latest_event::decrypt_latest_events, verification::verification,
     };
 }
 use ruma::OwnedRoomId;

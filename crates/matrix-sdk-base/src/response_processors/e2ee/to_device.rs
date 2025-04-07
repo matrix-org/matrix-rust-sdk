@@ -22,7 +22,7 @@ use ruma::{
     OneTimeKeyAlgorithm, UInt,
 };
 
-use super::Context;
+use super::super::Context;
 use crate::Result;
 
 /// Process the to-device events and other related e2ee data based on a response
@@ -30,13 +30,13 @@ use crate::Result;
 ///
 /// This returns a list of all the to-device events that were passed in but
 /// encrypted ones were replaced with their decrypted version.
-pub async fn e2ee_from_msc4186(
+pub async fn from_msc4186(
     context: &mut Context,
     to_device: Option<&v5::response::ToDevice>,
     e2ee: &v5::response::E2EE,
     olm_machine: Option<&OlmMachine>,
 ) -> Result<Output> {
-    e2ee_impl(
+    process(
         context,
         olm_machine,
         to_device.as_ref().map(|to_device| to_device.events.clone()).unwrap_or_default(),
@@ -53,12 +53,12 @@ pub async fn e2ee_from_msc4186(
 ///
 /// This returns a list of all the to-device events that were passed in but
 /// encrypted ones were replaced with their decrypted version.
-pub async fn e2ee_from_sync_v3(
+pub async fn from_sync_v3(
     context: &mut Context,
     response: &v3::Response,
     olm_machine: Option<&OlmMachine>,
 ) -> Result<Output> {
-    e2ee_impl(
+    process(
         context,
         olm_machine,
         response.to_device.events.clone(),
@@ -74,7 +74,7 @@ pub async fn e2ee_from_sync_v3(
 ///
 /// This returns a list of all the to-device events that were passed in but
 /// encrypted ones were replaced with their decrypted version.
-async fn e2ee_impl(
+async fn process(
     _context: &mut Context,
     olm_machine: Option<&OlmMachine>,
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,
