@@ -235,6 +235,8 @@ simpler methods:
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
 - [**breaking**] `Client::store` is renamed `state_store`
   ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
+- `SendHandle::media_handles` was generalized into a vector
+  ([#4898](https://github.com/matrix-org/matrix-rust-sdk/pull/4898))
 
 ## [0.10.0] - 2025-02-04
 
