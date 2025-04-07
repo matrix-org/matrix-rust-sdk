@@ -4,7 +4,7 @@ use async_compat::get_runtime_handle;
 use language_tags::LanguageTag;
 use matrix_sdk::{
     async_trait,
-    widget::{MessageLikeEventFilter, StateEventFilter},
+    widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
 };
 use ruma::events::MessageLikeEventType;
 use tracing::error;
@@ -488,9 +488,11 @@ pub enum WidgetEventFilter {
     StateWithType { event_type: String },
     /// Matches state events with the given `type` and `state_key`.
     StateWithTypeAndStateKey { event_type: String, state_key: String },
+    /// Matches ToDevice events with the given `type`.
+    ToDeviceWithType { event_type: String },
 }
 
-impl From<WidgetEventFilter> for matrix_sdk::widget::EventFilter {
+impl From<WidgetEventFilter> for matrix_sdk::widget::Filter {
     fn from(value: WidgetEventFilter) -> Self {
         match value {
             WidgetEventFilter::MessageLikeWithType { event_type } => {
@@ -504,6 +506,9 @@ impl From<WidgetEventFilter> for matrix_sdk::widget::EventFilter {
             }
             WidgetEventFilter::StateWithTypeAndStateKey { event_type, state_key } => {
                 Self::State(StateEventFilter::WithTypeAndStateKey(event_type.into(), state_key))
+            }
+            WidgetEventFilter::ToDeviceWithType { event_type } => {
+                Self::ToDevice(ToDeviceEventFilter::new(event_type.into()))
             }
         }
     }
@@ -525,6 +530,9 @@ impl From<matrix_sdk::widget::Filter> for WidgetEventFilter {
             }
             F::State(StateEventFilter::WithTypeAndStateKey(event_type, state_key)) => {
                 Self::StateWithTypeAndStateKey { event_type: event_type.to_string(), state_key }
+            }
+            F::ToDevice(to_device_event_filter) => {
+                Self::ToDeviceWithType { event_type: to_device_event_filter.event_type.to_string() }
             }
         }
     }
