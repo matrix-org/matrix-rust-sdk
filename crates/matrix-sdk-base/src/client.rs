@@ -963,11 +963,15 @@ impl BaseClient {
 
         #[cfg(feature = "e2e-encryption")]
         let to_device = {
-            let processors::e2ee::Output {
+            let processors::e2ee::to_device::Output {
                 decrypted_to_device_events: to_device,
                 room_key_updates,
-            } = processors::e2ee_from_sync_v3(&mut context, &response, olm_machine.as_ref())
-                .await?;
+            } = processors::e2ee::to_device::from_sync_v3(
+                &mut context,
+                &response,
+                olm_machine.as_ref(),
+            )
+            .await?;
 
             processors::decrypt_latest_events(
                 &mut context,
