@@ -7,6 +7,7 @@ use matrix_sdk::{
     crypto::LocalTrust,
     room::{
         edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
+        TryFromReportedContentScoreError,
     },
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
@@ -14,7 +15,6 @@ use matrix_sdk::{
 use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
 use mime::Mime;
 use ruma::{
-    api::client::room::{report_content, report_room},
     assign,
     events::{
         call::notify,
@@ -384,17 +384,18 @@ impl Room {
         score: Option<i32>,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        let int_score = score.map(|value| value.into());
         self.inner
-            .client()
-            .send(report_content::v3::Request::new(
-                self.inner.room_id().into(),
-                event_id,
-                int_score,
+            .report_content(
+                EventId::parse(event_id)?,
+                score.map(TryFrom::try_from).transpose().map_err(
+                    |error: TryFromReportedContentScoreError| ClientError::Generic {
+                        msg: error.to_string(),
+                    },
+                )?,
                 reason,
-            ))
+            )
             .await?;
+
         Ok(())
     }
 
@@ -409,10 +410,8 @@ impl Room {
     ///
     /// Returns an error if the room is not found or on rate limit
     pub async fn report_room(&self, reason: Option<String>) -> Result<(), ClientError> {
-        let mut request = report_room::v3::Request::new(self.inner.room_id().into());
-        request.reason = reason;
+        self.inner.report_room(reason).await?;
 
-        self.inner.client().send(request).await?;
         Ok(())
     }
 
