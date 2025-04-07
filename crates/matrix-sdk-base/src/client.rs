@@ -973,7 +973,7 @@ impl BaseClient {
             )
             .await?;
 
-            processors::decrypt_latest_events(
+            processors::latest_event::decrypt_from_rooms(
                 &mut context,
                 room_key_updates
                     .into_iter()
