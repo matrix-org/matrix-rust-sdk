@@ -17,11 +17,14 @@ use std::{collections::HashMap, sync::Arc};
 use matrix_sdk::crypto::types::events::UtdCause;
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent};
 
-use super::{content::Reaction, reply::InReplyToDetails};
+use super::{
+    content::{Reaction, TimelineItemContent},
+    reply::InReplyToDetails,
+};
 use crate::{
     error::ClientError,
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
-    timeline::content::ReactionSenderData,
+    timeline::{content::ReactionSenderData, ProfileDetails},
     utils::Timestamp,
 };
 
@@ -56,10 +59,12 @@ pub enum MsgLikeKind {
 pub struct MsgLikeContent {
     pub kind: MsgLikeKind,
     pub reactions: Vec<Reaction>,
-    /// Event ID of the thread root, if this is a threaded message.
-    pub thread_root: Option<String>,
     /// The event this message is replying to, if any.
     pub in_reply_to: Option<Arc<InReplyToDetails>>,
+    /// Event ID of the thread root, if this is a threaded message.
+    pub thread_root: Option<String>,
+    /// Details about the thread this message is the root of.
+    pub thread_summary: Option<Arc<ThreadSummary>>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -95,6 +100,21 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
 
         let thread_root = value.thread_root.map(|id| id.to_string());
 
+        let mut thread_summary = None;
+        if let Some(summary) = value.thread_summary {
+            if let Some(content) = summary.latest_event_content {
+                thread_summary = Some(Arc::new(ThreadSummary {
+                    latest_event_content: (*content).into(),
+                    sender: summary.sender.to_string(),
+                    sender_profile: summary.sender_profile.map(|p| ProfileDetails::Ready {
+                        avatar_url: p.avatar_url.map(|url| url.to_string()),
+                        display_name_ambiguous: false,
+                        display_name: p.display_name.map(|name| name.to_string()),
+                    }),
+                }));
+            }
+        }
+
         Ok(match value.kind {
             Kind::Message(message) => {
                 let msg_type = TryInto::<MessageType>::try_into(message.msgtype().clone())
@@ -112,6 +132,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     reactions,
                     in_reply_to,
                     thread_root,
+                    thread_summary,
                 }
             }
             Kind::Sticker(sticker) => {
@@ -134,6 +155,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     reactions,
                     in_reply_to,
                     thread_root,
+                    thread_summary,
                 }
             }
             Kind::Poll(poll_state) => {
@@ -156,16 +178,22 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     reactions,
                     in_reply_to,
                     thread_root,
+                    thread_summary,
                 }
             }
-            Kind::Redacted => {
-                Self { kind: MsgLikeKind::Redacted, reactions, in_reply_to, thread_root }
-            }
+            Kind::Redacted => Self {
+                kind: MsgLikeKind::Redacted,
+                reactions,
+                in_reply_to,
+                thread_root,
+                thread_summary,
+            },
             Kind::UnableToDecrypt(msg) => Self {
                 kind: MsgLikeKind::UnableToDecrypt { msg: EncryptedMessage::new(&msg) },
                 reactions,
                 in_reply_to,
                 thread_root,
+                thread_summary,
             },
         })
     }
@@ -221,4 +249,28 @@ impl EncryptedMessage {
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
+}
+
+#[derive(Clone, uniffi::Object)]
+pub struct ThreadSummary {
+    pub latest_event_content: TimelineItemContent,
+
+    pub sender: String,
+
+    pub sender_profile: Option<ProfileDetails>,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl ThreadSummary {
+    pub fn latest_event_content(&self) -> TimelineItemContent {
+        self.latest_event_content.clone()
+    }
+
+    pub fn sender(&self) -> String {
+        self.sender.clone()
+    }
+
+    pub fn sender_profile(&self) -> Option<ProfileDetails> {
+        self.sender_profile.clone()
+    }
 }

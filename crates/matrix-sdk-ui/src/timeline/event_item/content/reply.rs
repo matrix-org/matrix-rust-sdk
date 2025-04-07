@@ -135,11 +135,13 @@ impl RepliedToEvent {
         let content = match event.original_content() {
             Some(content) => match content {
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    // Assume we're not interested in reactions and thread info in this context:
+                    // Assume we're not interested in aggregations in this context:
                     // this is information for an embedded (replied-to) event, that will usually not
                     // include detailed information like reactions.
                     let reactions = ReactionsByKeyBySender::default();
                     let thread_root = None;
+                    let in_reply_to = None;
+                    let thread_summary = None;
 
                     TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Message(Message::from_event(
@@ -149,21 +151,25 @@ impl RepliedToEvent {
                         )),
                         reactions,
                         thread_root,
-                        in_reply_to: None,
+                        in_reply_to,
+                        thread_summary,
                     })
                 }
 
                 AnyMessageLikeEventContent::Sticker(content) => {
-                    // Assume we're not interested in reactions or thread info in this context.
+                    // Assume we're not interested in aggregations in this context.
                     // (See above an explanation as to why that's the case.)
-                    let reactions = ReactionsByKeyBySender::default();
+                    let reactions = Default::default();
                     let thread_root = None;
+                    let in_reply_to = None;
+                    let thread_summary = None;
 
                     TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Sticker(Sticker { content }),
                         reactions,
                         thread_root,
-                        in_reply_to: None,
+                        in_reply_to,
+                        thread_summary,
                     })
                 }
 
@@ -185,10 +191,12 @@ impl RepliedToEvent {
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(content),
                 ) => {
-                    // Assume we're not interested in reactions or thread info in this context.
+                    // Assume we're not interested in aggregations in this context.
                     // (See above an explanation as to why that's the case.)
-                    let reactions = ReactionsByKeyBySender::default();
+                    let reactions = Default::default();
                     let thread_root = None;
+                    let in_reply_to = None;
+                    let thread_summary = None;
 
                     // TODO: could we provide the bundled edit here?
                     let poll_state = PollState::new(content, None);
@@ -196,7 +204,8 @@ impl RepliedToEvent {
                         kind: MsgLikeKind::Poll(poll_state),
                         reactions,
                         thread_root,
-                        in_reply_to: None,
+                        in_reply_to,
+                        thread_summary,
                     })
                 }
 
