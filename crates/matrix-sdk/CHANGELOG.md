@@ -235,6 +235,11 @@ simpler methods:
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
 - [**breaking**] `Client::store` is renamed `state_store`
   ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
+- [**breaking] `QueueStorage::handle_dependent_file_upload_with_thumbnail`
+  was renamed to `handle_dependent_file_or_thumbnail_upload`. Under the
+  `unstable-msc4274` feature, it was generalized to allow chaining multiple
+  dependent file / thumbnail uploads.
+  ([#4897](https://github.com/matrix-org/matrix-rust-sdk/pull/4897))
 
 ## [0.10.0] - 2025-02-04
 
