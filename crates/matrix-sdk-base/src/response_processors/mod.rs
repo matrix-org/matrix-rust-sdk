@@ -23,17 +23,8 @@ pub mod verification;
 
 use std::collections::BTreeMap;
 
-#[cfg(feature = "e2e-encryption")]
-mod with_e2ee {
-    pub use super::{
-        e2ee::{to_device, tracked_users},
-        latest_event::decrypt_latest_events,
-        verification::verification,
-    };
-}
 use ruma::OwnedRoomId;
-#[cfg(feature = "e2e-encryption")]
-pub use with_e2ee::*;
+pub use verification::verification;
 
 use crate::{RoomInfoNotableUpdateReasons, StateChanges};
 

@@ -37,7 +37,7 @@ use crate::{
 /// If we can decrypt them, change [`Room::latest_event`] to reflect what we
 /// found, and remove any older encrypted events from
 /// [`Room::latest_encrypted_events`].
-pub async fn decrypt_latest_events(
+pub async fn decrypt_from_rooms(
     context: &mut Context,
     rooms: Vec<Room>,
     olm_machine: Option<&OlmMachine>,
@@ -52,7 +52,7 @@ pub async fn decrypt_latest_events(
         // Try to find a message we can decrypt and is suitable for using as the latest
         // event. If we found one, set it as the latest and delete any older
         // encrypted events
-        if let Some((found, found_index)) = decrypt_latest_suitable_event(
+        if let Some((found, found_index)) = find_suitable_and_decrypt(
             context,
             olm_machine,
             &room,
@@ -73,7 +73,7 @@ pub async fn decrypt_latest_events(
     Ok(())
 }
 
-async fn decrypt_latest_suitable_event(
+async fn find_suitable_and_decrypt(
     context: &mut Context,
     olm_machine: &OlmMachine,
     room: &Room,
@@ -194,7 +194,7 @@ mod tests {
     };
     use ruma::{event_id, events::room::member::MembershipState, room_id, user_id};
 
-    use super::{decrypt_latest_events, Context};
+    use super::{decrypt_from_rooms, Context};
     use crate::{
         rooms::normal::RoomInfoNotableUpdateReasons, test_utils::logged_in_base_client,
         StateChanges,
@@ -232,7 +232,7 @@ mod tests {
         // When I tell it to do some decryption
         let mut context = Context::new(StateChanges::default(), Default::default());
 
-        decrypt_latest_events(
+        decrypt_from_rooms(
             &mut context,
             vec![room.clone()],
             client.olm_machine().await.as_ref(),
