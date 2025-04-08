@@ -2,7 +2,7 @@
 <div align="center">
     <i>Your all-in-one toolkit for creating Matrix clients with Rust, from simple bots to full-featured apps.</i>
     <br/><br/>
-    <img src="contrib/logo.svg" width="300">
+    <img src="contrib/logo.svg">
     <br>
     <hr>
     <a href="https://github.com/matrix-org/matrix-rust-sdk/releases">
