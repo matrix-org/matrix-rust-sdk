@@ -290,6 +290,8 @@ simpler methods:
     ([#4879](https://github.com/matrix-org/matrix-rust-sdk/pull/4879))
     - `Oidc::issuer()` was removed.
     - The `issuer` field of `UserSession` was removed.
+- `SendHandle::media_handles` was generalized into a vector
+  ([#4898](https://github.com/matrix-org/matrix-rust-sdk/pull/4898))
 
 ## [0.10.0] - 2025-02-04
 
