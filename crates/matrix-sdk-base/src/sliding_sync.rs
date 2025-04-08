@@ -374,17 +374,17 @@ impl BaseClient {
         // Find or create the room in the store
         let is_new_room = !state_store.room_exists(room_id);
 
-        let stripped_state = room_data
+        let invite_state_events = room_data
             .invite_state
             .as_ref()
-            .map(|invite_state| processors::state_events::collect_stripped(context, invite_state));
+            .map(|events| processors::state_events::collect_stripped(context, events));
 
         #[allow(unused_mut)] // Required for some feature flag combinations
         let (mut room, mut room_info, invited_room, knocked_room) = self
             .process_sliding_sync_room_membership(
                 context,
                 &state_events,
-                &stripped_state,
+                &invite_state_events,
                 state_store,
                 user_id,
                 room_id,
@@ -409,7 +409,7 @@ impl BaseClient {
         let push_rules = self.get_push_rules(account_data_processor).await?;
 
         // This will be used for both invited and knocked rooms.
-        if let Some(invite_state) = stripped_state {
+        if let Some(invite_state) = invite_state_events {
             self.handle_invited_state(
                 context,
                 &room,
@@ -520,12 +520,12 @@ impl BaseClient {
         &self,
         context: &mut processors::Context,
         state_events: &[AnySyncStateEvent],
-        stripped_state: &Option<(Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>)>,
+        invite_state_events: &Option<(Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>)>,
         store: &BaseStateStore,
         user_id: &UserId,
         room_id: &RoomId,
     ) -> (Room, RoomInfo, Option<InvitedRoom>, Option<KnockedRoom>) {
-        if let Some(stripped_state) = stripped_state {
+        if let Some(state_events) = invite_state_events {
             let room = store.get_or_create_room(
                 room_id,
                 RoomState::Invited,
@@ -535,7 +535,7 @@ impl BaseClient {
 
             // We need to find the membership event since it could be for either an invited
             // or knocked room
-            let membership_event_content = stripped_state.1.iter().find_map(|event| {
+            let membership_event_content = state_events.1.iter().find_map(|event| {
                 if let AnyStrippedStateEvent::RoomMember(membership_event) = event {
                     if membership_event.state_key == user_id {
                         return Some(membership_event.content.clone());
@@ -548,7 +548,7 @@ impl BaseClient {
                 if membership_event_content.membership == MembershipState::Knock {
                     // If we have a `Knock` membership state, set the room as such
                     room_info.mark_as_knocked();
-                    let raw_events = stripped_state.0.clone();
+                    let raw_events = state_events.0.clone();
                     let knock_state = assign!(v3::KnockState::default(), { events: raw_events });
                     let knocked_room =
                         assign!(KnockedRoom::default(), { knock_state: knock_state });
@@ -558,7 +558,7 @@ impl BaseClient {
 
             // Otherwise assume it's an invited room
             room_info.mark_as_invited();
-            let raw_events = stripped_state.0.clone();
+            let raw_events = state_events.0.clone();
             let invited_room = InvitedRoom::from(v3::InviteState::from(raw_events));
             (room, room_info, Some(invited_room), None)
         } else {
