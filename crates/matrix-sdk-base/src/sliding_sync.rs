@@ -41,7 +41,6 @@ use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
     response_processors as processors,
-    response_processors::account_data::AccountDataProcessor,
     rooms::{
         normal::{RoomHero, RoomInfoNotableUpdateReasons},
         RoomState,
@@ -158,10 +157,11 @@ impl BaseClient {
 
         let mut context = processors::Context::new(StateChanges::default(), Default::default());
 
-        let store = self.state_store.clone();
-        let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
+        let state_store = self.state_store.clone();
+        let mut ambiguity_cache = AmbiguityCache::new(state_store.inner.clone());
 
-        let account_data_processor = AccountDataProcessor::process(&extensions.account_data.global);
+        let global_account_data_processor =
+            processors::account_data::global(&extensions.account_data.global);
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
@@ -181,9 +181,9 @@ impl BaseClient {
                     requested_required_states.for_room(room_id),
                     response_room_data,
                     &mut rooms_account_data,
-                    &store,
+                    &state_store,
                     &user_id,
-                    &account_data_processor,
+                    &global_account_data_processor,
                     &mut notifications,
                     &mut ambiguity_cache,
                 )
@@ -304,7 +304,7 @@ impl BaseClient {
             }
         }
 
-        account_data_processor.apply(&mut context.state_changes, &store).await;
+        global_account_data_processor.apply(&mut context, &state_store).await;
 
         // FIXME not yet supported by sliding sync.
         // changes.presence = presence
@@ -353,7 +353,7 @@ impl BaseClient {
         rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
         state_store: &BaseStateStore,
         user_id: &UserId,
-        account_data_processor: &AccountDataProcessor,
+        global_account_data_processor: &processors::account_data::Global,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<(
@@ -406,7 +406,7 @@ impl BaseClient {
             Default::default()
         };
 
-        let push_rules = self.get_push_rules(account_data_processor).await?;
+        let push_rules = self.get_push_rules(global_account_data_processor).await?;
 
         // This will be used for both invited and knocked rooms.
         if let Some(invite_state) = invite_state_events {

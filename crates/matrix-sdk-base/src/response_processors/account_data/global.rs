@@ -26,36 +26,23 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
+use super::super::Context;
 use crate::{store::BaseStateStore, RoomInfo, StateChanges};
 
-/// Applies a function to an existing `RoomInfo` if present in changes, or one
-/// loaded from the database.
-fn map_info<F: FnOnce(&mut RoomInfo)>(
-    room_id: &RoomId,
-    changes: &mut StateChanges,
-    store: &BaseStateStore,
-    f: F,
-) {
-    if let Some(info) = changes.room_infos.get_mut(room_id) {
-        f(info);
-    } else if let Some(room) = store.room(room_id) {
-        let mut info = room.clone_info();
-        f(&mut info);
-        changes.add_room(info);
-    } else {
-        debug!(room = %room_id, "couldn't find room in state changes or store");
-    }
+/// Create the [`Global`] account data processor.
+pub fn global(events: &[Raw<AnyGlobalAccountDataEvent>]) -> Global {
+    Global::process(events)
 }
 
 #[must_use]
-pub(crate) struct AccountDataProcessor {
+pub struct Global {
     parsed_events: Vec<AnyGlobalAccountDataEvent>,
     raw_by_type: BTreeMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
 }
 
-impl AccountDataProcessor {
+impl Global {
     /// Creates a new processor for global account data.
-    pub fn process(events: &[Raw<AnyGlobalAccountDataEvent>]) -> Self {
+    fn process(events: &[Raw<AnyGlobalAccountDataEvent>]) -> Self {
         let mut raw_by_type = BTreeMap::new();
         let mut parsed_events = Vec::new();
 
@@ -87,23 +74,24 @@ impl AccountDataProcessor {
     /// from the global account data and adds it to the room infos to
     /// save.
     #[instrument(skip_all)]
-    pub(crate) fn process_direct_rooms(
+    fn process_direct_rooms(
         &self,
         events: &[AnyGlobalAccountDataEvent],
-        store: &BaseStateStore,
-        changes: &mut StateChanges,
+        state_store: &BaseStateStore,
+        state_changes: &mut StateChanges,
     ) {
         for event in events {
             let AnyGlobalAccountDataEvent::Direct(direct_event) = event else { continue };
 
             let mut new_dms = HashMap::<&RoomId, HashSet<OwnedDirectUserIdentifier>>::new();
+
             for (user_identifier, rooms) in direct_event.content.iter() {
                 for room_id in rooms {
                     new_dms.entry(room_id).or_default().insert(user_identifier.clone());
                 }
             }
 
-            let rooms = store.rooms();
+            let rooms = state_store.rooms();
             let mut old_dms = rooms
                 .iter()
                 .filter_map(|r| {
@@ -120,7 +108,7 @@ impl AccountDataProcessor {
                     }
                 }
                 trace!(?room_id, targets = ?new_direct_targets, "Marking room as direct room");
-                map_info(room_id, changes, store, |info| {
+                map_info(room_id, state_changes, state_store, |info| {
                     info.base_info.dm_targets = new_direct_targets;
                 });
             }
@@ -128,17 +116,17 @@ impl AccountDataProcessor {
             // Remove the targets of old direct chats.
             for room_id in old_dms.keys() {
                 trace!(?room_id, "Unmarking room as direct room");
-                map_info(room_id, changes, store, |info| {
+                map_info(room_id, state_changes, state_store, |info| {
                     info.base_info.dm_targets.clear();
                 });
             }
         }
     }
 
-    /// Applies the processed data to the state changes.
-    pub async fn apply(mut self, changes: &mut StateChanges, store: &BaseStateStore) {
+    /// Applies the processed data to the state changes and the state store.
+    pub async fn apply(mut self, context: &mut Context, state_store: &BaseStateStore) {
         // Fill in the content of `changes.account_data`.
-        mem::swap(&mut changes.account_data, &mut self.raw_by_type);
+        mem::swap(&mut context.state_changes.account_data, &mut self.raw_by_type);
 
         // Process direct rooms.
         let has_new_direct_room_data = self
@@ -147,16 +135,39 @@ impl AccountDataProcessor {
             .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
 
         if has_new_direct_room_data {
-            self.process_direct_rooms(&self.parsed_events, store, changes);
+            self.process_direct_rooms(&self.parsed_events, state_store, &mut context.state_changes);
         } else if let Ok(Some(direct_account_data)) =
-            store.get_account_data_event(GlobalAccountDataEventType::Direct).await
+            state_store.get_account_data_event(GlobalAccountDataEventType::Direct).await
         {
             debug!("Found direct room data in the Store, applying it");
             if let Ok(direct_account_data) = direct_account_data.deserialize() {
-                self.process_direct_rooms(&[direct_account_data], store, changes);
+                self.process_direct_rooms(
+                    &[direct_account_data],
+                    state_store,
+                    &mut context.state_changes,
+                );
             } else {
                 warn!("Failed to deserialize direct room account data");
             }
         }
+    }
+}
+
+/// Applies a function to an existing `RoomInfo` if present in changes, or one
+/// loaded from the database.
+fn map_info<F: FnOnce(&mut RoomInfo)>(
+    room_id: &RoomId,
+    changes: &mut StateChanges,
+    store: &BaseStateStore,
+    f: F,
+) {
+    if let Some(info) = changes.room_infos.get_mut(room_id) {
+        f(info);
+    } else if let Some(room) = store.room(room_id) {
+        let mut info = room.clone_info();
+        f(&mut info);
+        changes.add_room(info);
+    } else {
+        debug!(room = %room_id, "couldn't find room in state changes or store");
     }
 }
