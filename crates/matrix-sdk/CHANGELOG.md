@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
     for backward compatibility)
     - `skip_lobby` -> `intent` (`Intent.StartCall`, `Intent.JoinExisting`. The widget URL query parameters will include `skip_lobby` if `intent` is `Intent.StartCall` for backward compatibility)
   - `VirtualElementCallWidgetOptions` now implements `Default`.
+  ([#4822](https://github.com/matrix-org/matrix-rust-sdk/pull/4822))
 - [**breaking**]: The `RoomPagination::run_backwards` method has been removed and replaced by two
 simpler methods:
   - `RoomPagination::run_backwards_until()`, which will retrigger back-paginations until a certain
