@@ -39,7 +39,6 @@ use ruma::DeviceId;
 use ruma::{
     api::client::{self as api, sync::sync_events::v5},
     events::{
-        marked_unread::MarkedUnreadEventContent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
             member::{MembershipState, SyncRoomMemberEvent},
@@ -47,9 +46,8 @@ use ruma::{
                 RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
             },
         },
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
-        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEvent,
-        StateEventType,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent, StateEvent, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -726,111 +724,6 @@ impl BaseClient {
         Ok(user_ids)
     }
 
-    #[instrument(skip_all, fields(?room_id))]
-    pub(crate) async fn handle_room_account_data(
-        &self,
-        context: &mut Context,
-        room_id: &RoomId,
-        events: &[Raw<AnyRoomAccountDataEvent>],
-    ) {
-        // Small helper to make the code easier to read.
-        //
-        // It finds the appropriate `RoomInfo`, allowing the caller to modify it, and
-        // save it in the correct place.
-        fn on_room_info<F>(
-            room_id: &RoomId,
-            state_changes: &mut StateChanges,
-            client: &BaseClient,
-            mut on_room_info: F,
-        ) where
-            F: FnMut(&mut RoomInfo),
-        {
-            // `StateChanges` has the `RoomInfo`.
-            if let Some(room_info) = state_changes.room_infos.get_mut(room_id) {
-                // Show time.
-                on_room_info(room_info);
-            }
-            // The `BaseClient` has the `Room`, which has the `RoomInfo`.
-            else if let Some(room) = client.state_store.room(room_id) {
-                // Clone the `RoomInfo`.
-                let mut room_info = room.clone_info();
-
-                // Show time.
-                on_room_info(&mut room_info);
-
-                // Update the `RoomInfo` via `StateChanges`.
-                state_changes.add_room(room_info);
-            }
-        }
-
-        // Helper to update the unread marker for stable and unstable prefixes.
-        fn on_unread_marker(
-            room_id: &RoomId,
-            content: &MarkedUnreadEventContent,
-            room_info: &mut RoomInfo,
-            room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
-        ) {
-            if room_info.base_info.is_marked_unread != content.unread {
-                // Notify the room list about a manual read marker change if the
-                // value's changed.
-                room_info_notable_updates
-                    .entry(room_id.to_owned())
-                    .or_default()
-                    .insert(RoomInfoNotableUpdateReasons::UNREAD_MARKER);
-            }
-
-            room_info.base_info.is_marked_unread = content.unread;
-        }
-
-        // Handle new events.
-        for raw_event in events {
-            match raw_event.deserialize() {
-                Ok(event) => {
-                    context.state_changes.add_room_account_data(
-                        room_id,
-                        event.clone(),
-                        raw_event.clone(),
-                    );
-
-                    match event {
-                        AnyRoomAccountDataEvent::MarkedUnread(event) => {
-                            on_room_info(room_id, &mut context.state_changes, self, |room_info| {
-                                on_unread_marker(
-                                    room_id,
-                                    &event.content,
-                                    room_info,
-                                    &mut context.room_info_notable_updates,
-                                );
-                            });
-                        }
-                        AnyRoomAccountDataEvent::UnstableMarkedUnread(event) => {
-                            on_room_info(room_id, &mut context.state_changes, self, |room_info| {
-                                on_unread_marker(
-                                    room_id,
-                                    &event.content.0,
-                                    room_info,
-                                    &mut context.room_info_notable_updates,
-                                );
-                            });
-                        }
-                        AnyRoomAccountDataEvent::Tag(event) => {
-                            on_room_info(room_id, &mut context.state_changes, self, |room_info| {
-                                room_info.base_info.handle_notable_tags(&event.content.tags);
-                            });
-                        }
-
-                        // Nothing.
-                        _ => {}
-                    }
-                }
-
-                Err(err) => {
-                    warn!("unable to deserialize account data event: {err}");
-                }
-            }
-        }
-    }
-
     /// User has knocked on a room.
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
@@ -1074,8 +967,13 @@ impl BaseClient {
             // Save the new `RoomInfo`.
             context.state_changes.add_room(room_info);
 
-            self.handle_room_account_data(&mut context, &room_id, &new_info.account_data.events)
-                .await;
+            processors::account_data::for_room(
+                &mut context,
+                &room_id,
+                &new_info.account_data.events,
+                &self.state_store,
+            )
+            .await;
 
             // `Self::handle_room_account_data` might have updated the `RoomInfo`. Let's
             // fetch it again.
@@ -1160,8 +1058,13 @@ impl BaseClient {
             // Save the new `RoomInfo`.
             context.state_changes.add_room(room_info);
 
-            self.handle_room_account_data(&mut context, &room_id, &new_info.account_data.events)
-                .await;
+            processors::account_data::for_room(
+                &mut context,
+                &room_id,
+                &new_info.account_data.events,
+                &self.state_store,
+            )
+            .await;
 
             let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
 

@@ -248,7 +248,7 @@ impl BaseClient {
 
         // Handle room account data
         for (room_id, raw) in &rooms_account_data {
-            self.handle_room_account_data(&mut context, room_id, raw).await;
+            processors::account_data::for_room(&mut context, room_id, raw, &self.state_store).await;
 
             if let Some(room) = self.state_store.room(room_id) {
                 match room.state() {
