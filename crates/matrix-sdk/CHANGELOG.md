@@ -290,6 +290,8 @@ simpler methods:
     ([#4879](https://github.com/matrix-org/matrix-rust-sdk/pull/4879))
     - `Oidc::issuer()` was removed.
     - The `issuer` field of `UserSession` was removed.
+- `SendHandle::media_handles` was generalized into a vector
+  ([#4898](https://github.com/matrix-org/matrix-rust-sdk/pull/4898))
 - [**breaking] `QueueStorage::handle_dependent_file_upload_with_thumbnail`
   was renamed to `handle_dependent_file_or_thumbnail_upload`. Under the
   `unstable-msc4274` feature, it was generalized to allow chaining multiple

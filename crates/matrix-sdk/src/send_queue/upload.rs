@@ -225,7 +225,7 @@ impl RoomSendQueue {
         let send_handle = SendHandle {
             room: self.clone(),
             transaction_id: send_event_txn.clone().into(),
-            media_handles: Some(MediaHandles { upload_thumbnail_txn, upload_file_txn }),
+            media_handles: vec![MediaHandles { upload_thumbnail_txn, upload_file_txn }],
             created_at,
         };
 
