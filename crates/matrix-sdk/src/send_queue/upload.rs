@@ -379,7 +379,7 @@ impl QueueStorage {
         trace!(related_to = %event_txn, "done uploading file or thumbnail, now queuing the dependent file or thumbnail upload request");
 
         // If the previous upload was a thumbnail, forward the accumulated sent media
-        // unchangend. Otherwise, append the sent media to the accumulated
+        // unchanged. Otherwise, append the sent media to the accumulated
         // vector.
         #[cfg(feature = "unstable-msc4274")]
         let accumulated = if depends_on_thumbnail {
