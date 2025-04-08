@@ -685,7 +685,7 @@ pub struct NotificationItem {
     /// It is set if and only if the push actions could be determined.
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
-    pub thread_id: Option<String>,
+    pub thread_id: Option<OwnedEventId>,
 }
 
 impl NotificationItem {
@@ -752,7 +752,7 @@ impl NotificationItem {
 
         let is_noisy = push_actions.map(|actions| actions.iter().any(|a| a.sound().is_some()));
         let has_mention = push_actions.map(|actions| actions.iter().any(|a| a.is_highlight()));
-        let thread_id = event.thread_id().map(|event_id| event_id.to_string());
+        let thread_id = event.thread_id().clone();
 
         let item = NotificationItem {
             event,
@@ -825,11 +825,12 @@ mod tests {
         let client = server.client_builder().build().await;
 
         let room_id = room_id!("!a:b.c");
+        let thread_root_event_id = event_id!("$root:b.c");
         let message = EventFactory::new()
             .room(room_id)
             .sender(user_id!("@sender:b.c"))
             .text_msg("Threaded")
-            .in_thread(event_id!("$root:b.c"), event_id!("$prev:b.c"))
+            .in_thread(thread_root_event_id, event_id!("$prev:b.c"))
             .into_raw_sync();
         let room = server.sync_joined_room(&client, room_id).await;
 
@@ -840,6 +841,6 @@ mod tests {
                 .expect("Could not create notification item");
 
         assert_let!(Some(thread_id) = notification_item.thread_id);
-        assert_eq!(thread_id, "$root:b.c");
+        assert_eq!(thread_id, thread_root_event_id);
     }
 }

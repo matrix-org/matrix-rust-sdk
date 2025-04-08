@@ -42,6 +42,7 @@ pub struct NotificationItem {
     /// information to create a push context.
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
+    pub thread_id: Option<String>,
 }
 
 impl NotificationItem {
@@ -54,7 +55,6 @@ impl NotificationItem {
                 NotificationEvent::Invite { sender: event.sender.to_string() }
             }
         };
-
         Self {
             event,
             sender_info: NotificationSenderInfo {
@@ -72,6 +72,7 @@ impl NotificationItem {
             },
             is_noisy: item.is_noisy,
             has_mention: item.has_mention,
+            thread_id: item.thread_id.map(|t| t.to_string()),
         }
     }
 }
