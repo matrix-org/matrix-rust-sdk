@@ -304,7 +304,7 @@ impl GroupSessionManager {
                         .or_insert_with(BTreeMap::new)
                         .insert(device_id, share_info);
                 }
-                MaybeEncryptedRoomKey::Withheld { .. } => {
+                MaybeEncryptedRoomKey::MissingSession => {
                     result_builder.on_missing_session(result.device);
                 }
             }
