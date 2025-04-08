@@ -8,6 +8,7 @@ license = "Apache-2.0"
 readme = "README.md"
 rust-version = { workspace = true }
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
@@ -23,7 +24,7 @@ vergen = { version = "8.1.3", features = ["build", "git", "gitcl"] }
 [dependencies]
 anyhow = { workspace = true }
 as_variant = { workspace = true }
-async-compat = "0.2.5"
+async-compat = "0.2.4"
 eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-util = { workspace = true }
@@ -80,4 +81,4 @@ features = [
 workspace = true
 
 [package.metadata.release]
-release = false
+release = true
