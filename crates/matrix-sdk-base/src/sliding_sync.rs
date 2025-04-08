@@ -588,7 +588,7 @@ impl BaseClient {
 
     /// Find any m.room.member events that refer to the current user, and update
     /// the state in room_info to reflect the "membership" property.
-    pub(crate) fn handle_own_room_membership(
+    fn handle_own_room_membership(
         &self,
         context: &mut processors::Context,
         state_events: &[AnySyncStateEvent],
