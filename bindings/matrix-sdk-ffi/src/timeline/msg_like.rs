@@ -17,10 +17,11 @@ use std::{collections::HashMap, sync::Arc};
 use matrix_sdk::crypto::types::events::UtdCause;
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent};
 
-use super::reply::InReplyToDetails;
+use super::{content::Reaction, reply::InReplyToDetails};
 use crate::{
     error::ClientError,
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
+    timeline::content::ReactionSenderData,
     utils::Timestamp,
 };
 
@@ -54,6 +55,7 @@ pub enum MsgLikeKind {
 #[derive(Clone, uniffi::Record)]
 pub struct MsgLikeContent {
     pub kind: MsgLikeKind,
+    pub reactions: Vec<Reaction>,
     /// Event ID of the thread root, if this is a threaded message.
     pub thread_root: Option<String>,
     /// The event this message is replying to, if any.
@@ -74,7 +76,26 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
     fn try_from(value: matrix_sdk_ui::timeline::MsgLikeContent) -> Result<Self, Self::Error> {
         use matrix_sdk_ui::timeline::MsgLikeKind as Kind;
 
-        match value.kind {
+        let reactions = value
+            .reactions
+            .iter()
+            .map(|(k, v)| Reaction {
+                key: k.to_owned(),
+                senders: v
+                    .into_iter()
+                    .map(|(sender_id, info)| ReactionSenderData {
+                        sender_id: sender_id.to_string(),
+                        timestamp: info.timestamp.into(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        let in_reply_to = value.in_reply_to.map(|r| Arc::new(r.into()));
+
+        let thread_root = value.thread_root.map(|id| id.to_string());
+
+        Ok(match value.kind {
             Kind::Message(message) => {
                 let msg_type = TryInto::<MessageType>::try_into(message.msgtype().clone())
                     .map_err(|e| (e, message.msgtype().msgtype().to_owned()))?;
@@ -88,8 +109,9 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                             mentions: message.mentions().cloned().map(|m| m.into()),
                         },
                     },
-                    in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
-                    thread_root: value.thread_root.map(|id| id.to_string()),
+                    reactions,
+                    in_reply_to,
+                    thread_root,
                 }
             }
             Kind::Sticker(sticker) => {
@@ -109,8 +131,9 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                         info: image_info,
                         source: Arc::new(MediaSource { media_source }),
                     },
-                    in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
-                    thread_root: value.thread_root.map(|id| id.to_string()),
+                    reactions,
+                    in_reply_to,
+                    thread_root,
                 }
             }
             Kind::Poll(poll_state) => {
@@ -130,23 +153,21 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                         end_time: results.end_time.map(|t| t.into()),
                         has_been_edited: results.has_been_edited,
                     },
-                    in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
-                    thread_root: value.thread_root.map(|id| id.to_string()),
+                    reactions,
+                    in_reply_to,
+                    thread_root,
                 }
             }
-            Kind::Redacted => Self {
-                kind: MsgLikeKind::Redacted,
-                in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
-                thread_root: value.thread_root.map(|id| id.to_string()),
-            },
+            Kind::Redacted => {
+                Self { kind: MsgLikeKind::Redacted, reactions, in_reply_to, thread_root }
+            }
             Kind::UnableToDecrypt(msg) => Self {
                 kind: MsgLikeKind::UnableToDecrypt { msg: EncryptedMessage::new(&msg) },
-                in_reply_to: value.in_reply_to.map(|r| Arc::new(r.into())),
-                thread_root: value.thread_root.map(|id| id.to_string()),
+                reactions,
+                in_reply_to,
+                thread_root,
             },
-        };
-
-        Ok(MsgLikeContent { kind: MsgLikeKind::Redacted, thread_root: None, in_reply_to: None })
+        })
     }
 }
 
