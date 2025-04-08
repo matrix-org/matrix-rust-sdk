@@ -64,7 +64,7 @@ use tokio::{
 use tracing::{error, warn};
 use uuid::Uuid;
 
-use self::content::{Reaction, ReactionSenderData, TimelineItemContent};
+use self::content::TimelineItemContent;
 pub use self::msg_like::MessageContent;
 use crate::{
     client::ProgressWatcher,
@@ -1061,7 +1061,6 @@ pub struct EventTimelineItem {
     is_editable: bool,
     content: TimelineItemContent,
     timestamp: Timestamp,
-    reactions: Vec<Reaction>,
     local_send_state: Option<EventSendState>,
     local_created_at: Option<u64>,
     read_receipts: HashMap<String, Receipt>,
@@ -1072,21 +1071,6 @@ pub struct EventTimelineItem {
 
 impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
     fn from(item: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
-        let reactions = item
-            .content()
-            .reactions()
-            .iter()
-            .map(|(k, v)| Reaction {
-                key: k.to_owned(),
-                senders: v
-                    .into_iter()
-                    .map(|(sender_id, info)| ReactionSenderData {
-                        sender_id: sender_id.to_string(),
-                        timestamp: info.timestamp.into(),
-                    })
-                    .collect(),
-            })
-            .collect();
         let item = Arc::new(item);
         let lazy_provider = Arc::new(LazyTimelineItemProvider(item.clone()));
         let read_receipts =
@@ -1100,7 +1084,6 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
             timestamp: item.timestamp().into(),
-            reactions,
             local_send_state: item.send_state().map(|s| s.into()),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
             read_receipts,
