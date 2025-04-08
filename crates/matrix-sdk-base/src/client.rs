@@ -67,7 +67,7 @@ use crate::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, TimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
-    response_processors::{self as processors, account_data::AccountDataProcessor, Context},
+    response_processors::{self as processors, Context},
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
         Room, RoomInfo, RoomState,
@@ -993,9 +993,10 @@ impl BaseClient {
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
 
-        let account_data_processor = AccountDataProcessor::process(&response.account_data.events);
+        let global_account_data_processor =
+            processors::account_data::global(&response.account_data.events);
 
-        let push_rules = self.get_push_rules(&account_data_processor).await?;
+        let push_rules = self.get_push_rules(&global_account_data_processor).await?;
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
@@ -1237,7 +1238,7 @@ impl BaseClient {
             new_rooms.knocked.insert(room_id, new_info);
         }
 
-        account_data_processor.apply(&mut context.state_changes, &self.state_store).await;
+        global_account_data_processor.apply(&mut context, &self.state_store).await;
 
         context.state_changes.presence = response
             .presence
@@ -1534,9 +1535,9 @@ impl BaseClient {
     /// is logged in.
     pub(crate) async fn get_push_rules(
         &self,
-        account_data_processor: &AccountDataProcessor,
+        global_account_data_processor: &processors::account_data::Global,
     ) -> Result<Ruleset> {
-        if let Some(event) = account_data_processor
+        if let Some(event) = global_account_data_processor
             .push_rules()
             .and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
         {
