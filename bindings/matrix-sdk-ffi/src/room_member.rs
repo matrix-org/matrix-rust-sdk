@@ -87,6 +87,7 @@ pub struct RoomMember {
     pub normalized_power_level: i64,
     pub is_ignored: bool,
     pub suggested_role_for_power_level: RoomMemberRole,
+    pub membership_change_sender_id: String,
     pub membership_change_reason: Option<String>,
 }
 
@@ -104,6 +105,7 @@ impl TryFrom<SdkRoomMember> for RoomMember {
             normalized_power_level: m.normalized_power_level(),
             is_ignored: m.is_ignored(),
             suggested_role_for_power_level: m.suggested_role_for_power_level(),
+            membership_change_sender_id: m.event().sender().to_string(),
             membership_change_reason: m.event().reason().map(|s| s.to_owned()),
         })
     }
