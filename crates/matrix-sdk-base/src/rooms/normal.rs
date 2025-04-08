@@ -2580,7 +2580,9 @@ mod tests {
 
         // When the new tag is handled and applied.
         let mut context = processors::Context::new(StateChanges::default(), Default::default());
-        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+
+        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
+            .await;
 
         processors::changes::save_and_apply(
             context.clone(),
@@ -2607,7 +2609,9 @@ mod tests {
         }))
         .unwrap()
         .cast();
-        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+
+        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
+            .await;
 
         processors::changes::save_and_apply(
             context,
@@ -2672,7 +2676,9 @@ mod tests {
 
         // When the new tag is handled and applied.
         let mut context = processors::Context::new(StateChanges::default(), Default::default());
-        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+
+        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
+            .await;
 
         processors::changes::save_and_apply(
             context.clone(),
@@ -2699,7 +2705,9 @@ mod tests {
         }))
         .unwrap()
         .cast();
-        client.handle_room_account_data(&mut context, room_id, &[tag_raw]).await;
+
+        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
+            .await;
 
         processors::changes::save_and_apply(
             context,
