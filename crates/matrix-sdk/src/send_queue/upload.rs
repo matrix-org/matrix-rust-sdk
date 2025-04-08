@@ -396,7 +396,7 @@ impl QueueStorage {
         let request = QueuedRequestKind::MediaUpload {
             content_type,
             cache_key,
-            // If the previous upload was a thumbnail, it becomse the thumbnail source for the next
+            // If the previous upload was a thumbnail, it becomes the thumbnail source for the next
             // upload.
             thumbnail_source: if depends_on_thumbnail { Some(sent_media.file) } else { None },
             related_to: event_txn,
