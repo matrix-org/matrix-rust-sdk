@@ -53,31 +53,39 @@ pub async fn sync_timeline_event(
             RoomEventDecryptionResult::Decrypted(decrypted) => {
                 let event: TimelineEvent = decrypted.into();
 
-                if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.raw().deserialize() {
-                    match &e {
+                if let Ok(AnySyncTimelineEvent::MessageLike(event)) = event.raw().deserialize() {
+                    // That's it, we are good, the event has been decrypted successfully.
+
+                    // However, let's run an additional action. Check if this is a verification
+                    // event (`m.key.verification.*`), and call `verification` accordingly.
+                    if match &event {
+                        // This is an original (i.e. non-redacted) `m.room.message` event and its
+                        // content is a verification request…
                         AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
                             original_event,
                         )) => {
-                            if let MessageType::VerificationRequest(_) =
-                                &original_event.content.msgtype
-                            {
-                                verification(
-                                    context,
-                                    verification_is_allowed,
-                                    Some(olm),
-                                    &e,
-                                    room_id,
-                                )
-                                .await?;
-                            }
+                            matches!(
+                                &original_event.content.msgtype,
+                                MessageType::VerificationRequest(_)
+                            )
                         }
-                        _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                            verification(context, verification_is_allowed, Some(olm), &e, room_id)
-                                .await?;
-                        }
-                        _ => (),
+
+                        // … or this is verification request event
+                        AnySyncMessageLikeEvent::KeyVerificationReady(_)
+                        | AnySyncMessageLikeEvent::KeyVerificationStart(_)
+                        | AnySyncMessageLikeEvent::KeyVerificationCancel(_)
+                        | AnySyncMessageLikeEvent::KeyVerificationAccept(_)
+                        | AnySyncMessageLikeEvent::KeyVerificationKey(_)
+                        | AnySyncMessageLikeEvent::KeyVerificationMac(_)
+                        | AnySyncMessageLikeEvent::KeyVerificationDone(_) => true,
+
+                        _ => false,
+                    } {
+                        verification(context, verification_is_allowed, Some(olm), &event, room_id)
+                            .await?;
                     }
                 }
+
                 event
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
