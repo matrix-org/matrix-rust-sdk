@@ -16,14 +16,7 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use matrix_sdk_crypto::{
     DecryptionSettings, OlmMachine, RoomEventDecryptionResult, TrustRequirement,
 };
-use ruma::{
-    events::{
-        room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        SyncMessageLikeEvent,
-    },
-    serde::Raw,
-    RoomId,
-};
+use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
 
 use super::super::{verification, Context};
 use crate::Result;
@@ -51,42 +44,20 @@ pub async fn sync_timeline_event(
     Ok(Some(
         match olm.try_decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await? {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let event: TimelineEvent = decrypted.into();
+                let timeline_event = TimelineEvent::from(decrypted);
 
-                if let Ok(AnySyncTimelineEvent::MessageLike(event)) = event.raw().deserialize() {
-                    // That's it, we are good, the event has been decrypted successfully.
-
-                    // However, let's run an additional action. Check if this is a verification
-                    // event (`m.key.verification.*`), and call `verification` accordingly.
-                    if match &event {
-                        // This is an original (i.e. non-redacted) `m.room.message` event and its
-                        // content is a verification request…
-                        AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                            original_event,
-                        )) => {
-                            matches!(
-                                &original_event.content.msgtype,
-                                MessageType::VerificationRequest(_)
-                            )
-                        }
-
-                        // … or this is verification request event
-                        AnySyncMessageLikeEvent::KeyVerificationReady(_)
-                        | AnySyncMessageLikeEvent::KeyVerificationStart(_)
-                        | AnySyncMessageLikeEvent::KeyVerificationCancel(_)
-                        | AnySyncMessageLikeEvent::KeyVerificationAccept(_)
-                        | AnySyncMessageLikeEvent::KeyVerificationKey(_)
-                        | AnySyncMessageLikeEvent::KeyVerificationMac(_)
-                        | AnySyncMessageLikeEvent::KeyVerificationDone(_) => true,
-
-                        _ => false,
-                    } {
-                        verification(context, verification_is_allowed, Some(olm), &event, room_id)
-                            .await?;
-                    }
+                if let Ok(sync_timeline_event) = timeline_event.raw().deserialize() {
+                    verification::process_if_candidate(
+                        context,
+                        &sync_timeline_event,
+                        verification_is_allowed,
+                        olm_machine,
+                        room_id,
+                    )
+                    .await?;
                 }
 
-                event
+                timeline_event
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
                 TimelineEvent::new_utd_event(event.clone(), utd_info)

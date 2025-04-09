@@ -16,16 +16,9 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use matrix_sdk_crypto::{
     DecryptionSettings, OlmMachine, RoomEventDecryptionResult, TrustRequirement,
 };
-use ruma::{
-    events::{
-        room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        SyncMessageLikeEvent,
-    },
-    serde::Raw,
-    RoomId,
-};
+use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
 
-use super::Context;
+use super::{verification, Context};
 use crate::{
     latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent},
     Result, Room,
@@ -145,35 +138,15 @@ async fn decrypt_sync_room_event(
         RoomEventDecryptionResult::Decrypted(decrypted) => {
             let event: TimelineEvent = decrypted.into();
 
-            if let Ok(AnySyncTimelineEvent::MessageLike(event)) = event.raw().deserialize() {
-                match &event {
-                    AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                        original_event,
-                    )) => {
-                        if let MessageType::VerificationRequest(_) = &original_event.content.msgtype
-                        {
-                            super::verification(
-                                context,
-                                verification_is_allowed,
-                                Some(olm_machine),
-                                &event,
-                                room_id,
-                            )
-                            .await?;
-                        }
-                    }
-                    _ if event.event_type().to_string().starts_with("m.key.verification") => {
-                        super::verification(
-                            context,
-                            verification_is_allowed,
-                            Some(olm_machine),
-                            &event,
-                            room_id,
-                        )
-                        .await?;
-                    }
-                    _ => (),
-                }
+            if let Ok(sync_timeline_event) = event.raw().deserialize() {
+                verification::process_if_candidate(
+                    context,
+                    &sync_timeline_event,
+                    verification_is_allowed,
+                    Some(olm_machine),
+                    room_id,
+                )
+                .await?;
             }
 
             event
