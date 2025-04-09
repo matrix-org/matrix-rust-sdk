@@ -30,39 +30,30 @@ use matrix_sdk_crypto::{
     OlmError, OlmMachine, TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    room::{history_visibility::HistoryVisibility, member::MembershipState},
-    SyncMessageLikeEvent,
-};
+use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 #[cfg(doc)]
 use ruma::DeviceId;
 use ruma::{
     api::client::{self as api, sync::sync_events::v5},
     events::{
         push_rules::{PushRulesEvent, PushRulesEventContent},
-        room::{
-            member::SyncRoomMemberEvent,
-            power_levels::{
-                RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
-            },
-        },
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
-        AnySyncStateEvent, AnySyncTimelineEvent, StateEvent, StateEventType,
+        room::member::SyncRoomMemberEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, StateEvent, StateEventType,
     },
-    push::{Action, PushConditionRoomCtx, Ruleset},
+    push::{Action, Ruleset},
     serde::Raw,
     time::Instant,
-    OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
+    OwnedRoomId, OwnedUserId, RoomId,
 };
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, instrument};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, TimelineEvent},
+    deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
     response_processors::{self as processors, Context},
@@ -75,7 +66,7 @@ use crate::{
         Result as StoreResult, RoomLoadSettings, StateChanges, StateStoreDataKey,
         StateStoreDataValue, StateStoreExt, StoreConfig,
     },
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse, Timeline},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     RoomStateFilter, SessionMeta,
 };
 
@@ -374,144 +365,6 @@ impl BaseClient {
         self.state_store.sync_token.read().await.clone()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
-    pub(crate) async fn handle_timeline(
-        &self,
-        context: &mut Context,
-        room: &Room,
-        limited: bool,
-        raw_events: Vec<Raw<AnySyncTimelineEvent>>,
-        prev_batch: Option<String>,
-        push_rules: &Ruleset,
-        room_info: &mut RoomInfo,
-        notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
-    ) -> Result<Timeline> {
-        let mut timeline = Timeline::new(limited, prev_batch);
-        let mut push_context =
-            self.get_push_room_context(room, room_info, &context.state_changes).await?;
-        let room_id = room.room_id();
-
-        for raw_event in raw_events {
-            // Start by assuming we have a plaintext event. We'll replace it with a
-            // decrypted or UTD event below if necessary.
-            let mut timeline_event = TimelineEvent::new(raw_event);
-
-            // Do some special stuff on the `timeline_event` before collecting it.
-            match timeline_event.raw().deserialize() {
-                Ok(sync_timeline_event) => {
-                    #[allow(clippy::single_match)]
-                    match &sync_timeline_event {
-                        // State events are ignored. They must be processed separately.
-                        AnySyncTimelineEvent::State(_) => {
-                            // do nothing
-                        }
-
-                        // A room redaction.
-                        AnySyncTimelineEvent::MessageLike(
-                            AnySyncMessageLikeEvent::RoomRedaction(redaction_event),
-                        ) => {
-                            let room_version =
-                                room_info.room_version().unwrap_or(&RoomVersionId::V1);
-
-                            if let Some(redacts) = redaction_event.redacts(room_version) {
-                                room_info.handle_redaction(
-                                    redaction_event,
-                                    timeline_event.raw().cast_ref(),
-                                );
-
-                                context.state_changes.add_redaction(
-                                    room_id,
-                                    redacts,
-                                    timeline_event.raw().clone().cast(),
-                                );
-                            }
-                        }
-
-                        // Decrypt encrypted event, or process verification event.
-                        #[cfg(feature = "e2e-encryption")]
-                        AnySyncTimelineEvent::MessageLike(sync_message_like_event) => {
-                            match sync_message_like_event {
-                                AnySyncMessageLikeEvent::RoomEncrypted(
-                                    SyncMessageLikeEvent::Original(_),
-                                ) => {
-                                    if let Some(decrypted_timeline_event) =
-                                        Box::pin(processors::e2ee::decrypt::sync_timeline_event(
-                                            context,
-                                            self.olm_machine().await.as_ref(),
-                                            timeline_event.raw(),
-                                            room_id,
-                                            self.decryption_trust_requirement,
-                                            self.handle_verification_events,
-                                        ))
-                                        .await?
-                                    {
-                                        timeline_event = decrypted_timeline_event;
-                                    }
-                                }
-
-                                _ => {
-                                    Box::pin(processors::verification::process_if_candidate(
-                                        context,
-                                        &sync_timeline_event,
-                                        self.handle_verification_events,
-                                        // TODO: move it outside the loop, but let's check if it
-                                        // cannot create a deadlock.
-                                        self.olm_machine().await.as_ref(),
-                                        room_id,
-                                    ))
-                                    .await?;
-                                }
-                            }
-                        }
-
-                        // Nothing particular to do.
-                        #[cfg(not(feature = "e2e-encryption"))]
-                        AnySyncTimelineEvent::MessageLike(_) => (),
-                    }
-
-                    if let Some(push_context) = &mut push_context {
-                        self.update_push_room_context(
-                            context,
-                            push_context,
-                            room.own_user_id(),
-                            room_info,
-                        )
-                    } else {
-                        push_context = self
-                            .get_push_room_context(room, room_info, &context.state_changes)
-                            .await?;
-                    }
-
-                    if let Some(context) = &push_context {
-                        let actions = push_rules.get_actions(timeline_event.raw(), context);
-
-                        if actions.iter().any(Action::should_notify) {
-                            notifications.entry(room_id.to_owned()).or_default().push(
-                                Notification {
-                                    actions: actions.to_owned(),
-                                    event: RawAnySyncOrStrippedTimelineEvent::Sync(
-                                        timeline_event.raw().clone(),
-                                    ),
-                                },
-                            );
-                        }
-
-                        timeline_event.push_actions = Some(actions.to_owned());
-                    }
-                }
-                Err(error) => {
-                    warn!("Error deserializing event: {error}");
-                }
-            }
-
-            // Finally, we have process the timeline event. We can collect it.
-            timeline.events.push(timeline_event);
-        }
-
-        Ok(timeline)
-    }
-
     /// Handles the stripped state events in `invite_state`, modifying the
     /// room's info and posting notifications as needed.
     ///
@@ -551,7 +404,8 @@ impl BaseClient {
         // We need to check for notifications after we have handled all state
         // events, to make sure we have the full push context.
         if let Some(push_context) =
-            self.get_push_room_context(room, room_info, &context.state_changes).await?
+            processors::timeline::get_push_room_context(context, room, room_info, &self.state_store)
+                .await?
         {
             // Check every event again for notification.
             for event in state_events.values().flat_map(|map| map.values()) {
@@ -805,18 +659,24 @@ impl BaseClient {
             new_user_ids.append(&mut other_new_user_ids);
             updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
 
-            let timeline = self
-                .handle_timeline(
-                    &mut context,
-                    &room,
-                    new_info.timeline.limited,
-                    new_info.timeline.events,
-                    new_info.timeline.prev_batch,
+            let timeline = processors::timeline::build(
+                &mut context,
+                &room,
+                &mut room_info,
+                processors::timeline::builder::Timeline::from(new_info.timeline),
+                processors::timeline::builder::Notification::new(
                     &push_rules,
-                    &mut room_info,
                     &mut notifications,
-                )
-                .await?;
+                    &self.state_store,
+                ),
+                #[cfg(feature = "e2e-encryption")]
+                processors::timeline::builder::E2EE::new(
+                    olm_machine.as_ref(),
+                    self.decryption_trust_requirement,
+                    self.handle_verification_events,
+                ),
+            )
+            .await?;
 
             // Save the new `RoomInfo`.
             context.state_changes.add_room(room_info);
@@ -906,18 +766,24 @@ impl BaseClient {
             .await?;
             new_user_ids.append(&mut other_new_user_ids);
 
-            let timeline = self
-                .handle_timeline(
-                    &mut context,
-                    &room,
-                    new_info.timeline.limited,
-                    new_info.timeline.events,
-                    new_info.timeline.prev_batch,
+            let timeline = processors::timeline::build(
+                &mut context,
+                &room,
+                &mut room_info,
+                processors::timeline::builder::Timeline::from(new_info.timeline),
+                processors::timeline::builder::Notification::new(
                     &push_rules,
-                    &mut room_info,
                     &mut notifications,
-                )
-                .await?;
+                    &self.state_store,
+                ),
+                #[cfg(feature = "e2e-encryption")]
+                processors::timeline::builder::E2EE::new(
+                    olm_machine.as_ref(),
+                    self.decryption_trust_requirement,
+                    self.handle_verification_events,
+                ),
+            )
+            .await?;
 
             // Save the new `RoomInfo`.
             context.state_changes.add_room(room_info);
@@ -1320,114 +1186,6 @@ impl BaseClient {
             Ok(Ruleset::server_default(&session_meta.user_id))
         } else {
             Ok(Ruleset::new())
-        }
-    }
-
-    /// Get the push context for the given room.
-    ///
-    /// Tries to get the data from `changes` or the up to date `room_info`.
-    /// Loads the data from the store otherwise.
-    ///
-    /// Returns `None` if some data couldn't be found. This should only happen
-    /// in brand new rooms, while we process its state.
-    pub async fn get_push_room_context(
-        &self,
-        room: &Room,
-        room_info: &RoomInfo,
-        changes: &StateChanges,
-    ) -> Result<Option<PushConditionRoomCtx>> {
-        let room_id = room.room_id();
-        let user_id = room.own_user_id();
-
-        let member_count = room_info.active_members_count();
-
-        // TODO: Use if let chain once stable
-        let user_display_name = if let Some(AnySyncStateEvent::RoomMember(member)) =
-            changes.state.get(room_id).and_then(|events| {
-                events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
-            }) {
-            member
-                .as_original()
-                .and_then(|ev| ev.content.displayname.clone())
-                .unwrap_or_else(|| user_id.localpart().to_owned())
-        } else if let Some(AnyStrippedStateEvent::RoomMember(member)) =
-            changes.stripped_state.get(room_id).and_then(|events| {
-                events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
-            })
-        {
-            member.content.displayname.unwrap_or_else(|| user_id.localpart().to_owned())
-        } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {
-            member.name().to_owned()
-        } else {
-            trace!("Couldn't get push context because of missing own member information");
-            return Ok(None);
-        };
-
-        let power_levels = if let Some(event) = changes.state.get(room_id).and_then(|types| {
-            types
-                .get(&StateEventType::RoomPowerLevels)?
-                .get("")?
-                .deserialize_as::<RoomPowerLevelsEvent>()
-                .ok()
-        }) {
-            Some(event.power_levels().into())
-        } else if let Some(event) = changes.stripped_state.get(room_id).and_then(|types| {
-            types
-                .get(&StateEventType::RoomPowerLevels)?
-                .get("")?
-                .deserialize_as::<StrippedRoomPowerLevelsEvent>()
-                .ok()
-        }) {
-            Some(event.power_levels().into())
-        } else {
-            self.state_store
-                .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
-                .await?
-                .and_then(|e| e.deserialize().ok())
-                .map(|event| event.power_levels().into())
-        };
-
-        Ok(Some(PushConditionRoomCtx {
-            user_id: user_id.to_owned(),
-            room_id: room_id.to_owned(),
-            member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
-            user_display_name,
-            power_levels,
-        }))
-    }
-
-    /// Update the push context for the given room.
-    ///
-    /// Updates the context data from `changes` or `room_info`.
-    fn update_push_room_context(
-        &self,
-        context: &mut Context,
-        push_rules: &mut PushConditionRoomCtx,
-        user_id: &UserId,
-        room_info: &RoomInfo,
-    ) {
-        let room_id = &*room_info.room_id;
-
-        push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
-
-        // TODO: Use if let chain once stable
-        if let Some(AnySyncStateEvent::RoomMember(member)) =
-            context.state_changes.state.get(room_id).and_then(|events| {
-                events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
-            })
-        {
-            push_rules.user_display_name = member
-                .as_original()
-                .and_then(|ev| ev.content.displayname.clone())
-                .unwrap_or_else(|| user_id.localpart().to_owned())
-        }
-
-        if let Some(AnySyncStateEvent::RoomPowerLevels(event)) =
-            context.state_changes.state.get(room_id).and_then(|types| {
-                types.get(&StateEventType::RoomPowerLevels)?.get("")?.deserialize().ok()
-            })
-        {
-            push_rules.power_levels = Some(event.power_levels().into());
         }
     }
 
