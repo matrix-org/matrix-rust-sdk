@@ -30,10 +30,7 @@ use matrix_sdk_crypto::{
     OlmError, OlmMachine, TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    room::{history_visibility::HistoryVisibility, message::MessageType},
-    SyncMessageLikeEvent,
-};
+use ruma::events::{room::history_visibility::HistoryVisibility, SyncMessageLikeEvent};
 #[cfg(doc)]
 use ruma::DeviceId;
 use ruma::{
@@ -390,6 +387,7 @@ impl BaseClient {
         let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context =
             self.get_push_room_context(room, room_info, &context.state_changes).await?;
+        let room_id = room.room_id();
 
         for raw_event in raw_events {
             // Start by assuming we have a plaintext event. We'll replace it with a
@@ -400,10 +398,12 @@ impl BaseClient {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
+                        // State events are ignored. They must be processed separately.
                         AnySyncTimelineEvent::State(_) => {
                             // do nothing
                         }
 
+                        // A room redaction.
                         AnySyncTimelineEvent::MessageLike(
                             AnySyncMessageLikeEvent::RoomRedaction(r),
                         ) => {
@@ -415,15 +415,16 @@ impl BaseClient {
                                 let raw_event = event.raw().clone().cast();
 
                                 context.state_changes.add_redaction(
-                                    room.room_id(),
+                                    room_id,
                                     redacts,
                                     raw_event,
                                 );
                             }
                         }
 
+                        // Decrypt encrypted event, or process verification event.
                         #[cfg(feature = "e2e-encryption")]
-                        AnySyncTimelineEvent::MessageLike(e) => match e {
+                        AnySyncTimelineEvent::MessageLike(me) => match me {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
@@ -432,7 +433,7 @@ impl BaseClient {
                                         context,
                                         self.olm_machine().await.as_ref(),
                                         event.raw(),
-                                        room.room_id(),
+                                        room_id,
                                         self.decryption_trust_requirement,
                                         self.handle_verification_events,
                                     ))
@@ -441,34 +442,22 @@ impl BaseClient {
                                     event = e;
                                 }
                             }
-                            AnySyncMessageLikeEvent::RoomMessage(
-                                SyncMessageLikeEvent::Original(original_event),
-                            ) => match &original_event.content.msgtype {
-                                MessageType::VerificationRequest(_) => {
-                                    Box::pin(processors::verification(
-                                        context,
-                                        self.handle_verification_events,
-                                        self.olm_machine().await.as_ref(),
-                                        e,
-                                        room.room_id(),
-                                    ))
-                                    .await?;
-                                }
-                                _ => (),
-                            },
-                            _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                                Box::pin(processors::verification(
+
+                            _ => {
+                                Box::pin(processors::verification::process_if_candidate(
                                     context,
+                                    &e,
                                     self.handle_verification_events,
+                                    // TODO: move it outside the loop, but let's check if it
+                                    // cannot create a deadlock.
                                     self.olm_machine().await.as_ref(),
-                                    e,
-                                    room.room_id(),
+                                    room_id,
                                 ))
                                 .await?;
                             }
-                            _ => (),
                         },
 
+                        // Nothing particular to do.
                         #[cfg(not(feature = "e2e-encryption"))]
                         AnySyncTimelineEvent::MessageLike(_) => (),
                     }
@@ -490,7 +479,7 @@ impl BaseClient {
                         let actions = push_rules.get_actions(event.raw(), context);
 
                         if actions.iter().any(Action::should_notify) {
-                            notifications.entry(room.room_id().to_owned()).or_default().push(
+                            notifications.entry(room_id.to_owned()).or_default().push(
                                 Notification {
                                     actions: actions.to_owned(),
                                     event: RawAnySyncOrStrippedTimelineEvent::Sync(
@@ -499,6 +488,7 @@ impl BaseClient {
                                 },
                             );
                         }
+
                         event.push_actions = Some(actions.to_owned());
                     }
                 }
@@ -507,6 +497,7 @@ impl BaseClient {
                 }
             }
 
+            // Finally, we have process the timeline event. We can collect it.
             timeline.events.push(event);
         }
 
