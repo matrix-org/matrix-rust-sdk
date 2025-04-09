@@ -26,8 +26,8 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, DecryptionSettings,
-    EncryptionSettings, OlmError, OlmMachine, RoomEventDecryptionResult, TrustRequirement,
+    store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, EncryptionSettings,
+    OlmError, OlmMachine, TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -374,76 +374,6 @@ impl BaseClient {
         self.state_store.sync_token.read().await.clone()
     }
 
-    /// Attempt to decrypt the given raw event into a [`TimelineEvent`].
-    ///
-    /// In the case of a decryption error, returns a [`TimelineEvent`]
-    /// representing the decryption error; in the case of problems with our
-    /// application, returns `Err`.
-    ///
-    /// Returns `Ok(None)` if encryption is not configured.
-    #[cfg(feature = "e2e-encryption")]
-    async fn decrypt_sync_room_event(
-        &self,
-        context: &mut Context,
-        event: &Raw<AnySyncTimelineEvent>,
-        room_id: &RoomId,
-    ) -> Result<Option<TimelineEvent>> {
-        let olm = self.olm_machine().await;
-
-        let Some(olm) = olm.as_ref() else { return Ok(None) };
-
-        let decryption_settings = DecryptionSettings {
-            sender_device_trust_requirement: self.decryption_trust_requirement,
-        };
-
-        let event = match olm
-            .try_decrypt_room_event(event.cast_ref(), room_id, &decryption_settings)
-            .await?
-        {
-            RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let event: TimelineEvent = decrypted.into();
-
-                if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.raw().deserialize() {
-                    match &e {
-                        AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                            original_event,
-                        )) => {
-                            if let MessageType::VerificationRequest(_) =
-                                &original_event.content.msgtype
-                            {
-                                processors::verification(
-                                    context,
-                                    self.handle_verification_events,
-                                    Some(olm),
-                                    &e,
-                                    room_id,
-                                )
-                                .await?;
-                            }
-                        }
-                        _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                            processors::verification(
-                                context,
-                                self.handle_verification_events,
-                                Some(olm),
-                                &e,
-                                room_id,
-                            )
-                            .await?;
-                        }
-                        _ => (),
-                    }
-                }
-                event
-            }
-            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                TimelineEvent::new_utd_event(event.clone(), utd_info)
-            }
-        };
-
-        Ok(Some(event))
-    }
-
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_timeline(
@@ -536,12 +466,16 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
-                                if let Some(e) = Box::pin(self.decrypt_sync_room_event(
-                                    context,
-                                    event.raw(),
-                                    room.room_id(),
-                                ))
-                                .await?
+                                if let Some(e) =
+                                    Box::pin(processors::e2ee::decrypt::sync_timeline_event(
+                                        context,
+                                        self.olm_machine().await.as_ref(),
+                                        event.raw(),
+                                        room.room_id(),
+                                        self.decryption_trust_requirement,
+                                        self.handle_verification_events,
+                                    ))
+                                    .await?
                                 {
                                     event = e;
                                 }

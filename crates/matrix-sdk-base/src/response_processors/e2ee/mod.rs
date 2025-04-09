@@ -12,5 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod decrypt;
 pub mod to_device;
 pub mod tracked_users;
