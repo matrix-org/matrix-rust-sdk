@@ -368,7 +368,7 @@ impl App {
         loop {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
-            if event::poll(Duration::from_millis(16))? {
+            if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
                         match &mut self.state.global_mode {
