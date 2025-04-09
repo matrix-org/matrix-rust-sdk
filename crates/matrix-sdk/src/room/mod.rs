@@ -3829,6 +3829,17 @@ impl EventSource for &Room {
 #[error("out of range conversion attempted")]
 pub struct TryFromReportedContentScoreError(());
 
+/// Contains the current user's room member info and the optional room member
+/// info of the sender of the `m.room.member` event that this info represents.
+#[derive(Debug)]
+pub struct RoomMemberWithSenderInfo {
+    /// The actual room member.
+    pub room_member: RoomMember,
+    /// The info of the sender of the event `room_member` is based on, if
+    /// available.
+    pub sender_info: Option<RoomMember>,
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use assert_matches2::assert_matches;
