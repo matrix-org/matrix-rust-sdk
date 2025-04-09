@@ -418,18 +418,24 @@ impl BaseClient {
 
         process_room_properties(context, room_id, room_data, &mut room_info, is_new_room);
 
-        let timeline = self
-            .handle_timeline(
-                context,
-                &room,
-                room_data.limited,
-                room_data.timeline.clone(),
-                room_data.prev_batch.clone(),
+        let timeline = processors::timeline::build(
+            context,
+            &room,
+            &mut room_info,
+            processors::timeline::builder::Timeline::from(room_data),
+            processors::timeline::builder::Notification::new(
                 &push_rules,
-                &mut room_info,
                 notifications,
-            )
-            .await?;
+                &self.state_store,
+            ),
+            #[cfg(feature = "e2e-encryption")]
+            processors::timeline::builder::E2EE::new(
+                self.olm_machine().await.as_ref(),
+                self.decryption_trust_requirement,
+                self.handle_verification_events,
+            ),
+        )
+        .await?;
 
         // Cache the latest decrypted event in room_info, and also keep any later
         // encrypted events, so we can slot them in when we get the keys.
