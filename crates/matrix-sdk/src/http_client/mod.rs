@@ -204,7 +204,10 @@ impl HttpClient {
             // in conjunction with request bodies
             if [Method::POST, Method::PUT, Method::PATCH].contains(method) {
                 let request_size = request.body().len().try_into().unwrap_or(u64::MAX);
-                span.record("request_size", ByteSize(request_size).to_string_as(true));
+                span.record(
+                    "request_size",
+                    ByteSize(request_size).display().si_short().to_string(),
+                );
             }
 
             request
