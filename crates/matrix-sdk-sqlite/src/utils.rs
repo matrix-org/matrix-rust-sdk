@@ -302,7 +302,7 @@ impl SqliteTransactionExt for Transaction<'_> {
     {
         // Divide by 2 to allow space for more static parameters (not part of
         // `keys_to_chunk`).
-        let maximum_chunk_size = self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER) / 2;
+        let maximum_chunk_size = self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER)? / 2;
         let maximum_chunk_size: usize = maximum_chunk_size
             .try_into()
             .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
