@@ -858,7 +858,7 @@ impl BaseClient {
             let processors::e2ee::to_device::Output {
                 decrypted_to_device_events: to_device,
                 room_key_updates,
-            } = processors::e2ee::to_device::from_sync_v3(
+            } = processors::e2ee::to_device::from_sync_v2(
                 &mut context,
                 &response,
                 olm_machine.as_ref(),
