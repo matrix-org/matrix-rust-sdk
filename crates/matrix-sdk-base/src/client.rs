@@ -30,7 +30,10 @@ use matrix_sdk_crypto::{
     OlmError, OlmMachine, TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::{room::history_visibility::HistoryVisibility, SyncMessageLikeEvent};
+use ruma::events::{
+    room::{history_visibility::HistoryVisibility, member::MembershipState},
+    SyncMessageLikeEvent,
+};
 #[cfg(doc)]
 use ruma::DeviceId;
 use ruma::{
@@ -38,7 +41,7 @@ use ruma::{
     events::{
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
-            member::{MembershipState, SyncRoomMemberEvent},
+            member::SyncRoomMemberEvent,
             power_levels::{
                 RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
             },
