@@ -610,54 +610,6 @@ impl BaseClient {
         Ok(())
     }
 
-    /// Process the events provided during a sync.
-    ///
-    /// events must be exactly the same list of events that are in raw_events,
-    /// but deserialised. We demand them here to avoid deserialising
-    /// multiple times.
-    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
-    pub(crate) async fn handle_state(
-        &self,
-        context: &mut Context,
-        raw_events: &[Raw<AnySyncStateEvent>],
-        events: &[AnySyncStateEvent],
-        room_info: &mut RoomInfo,
-        ambiguity_cache: &mut AmbiguityCache,
-    ) -> StoreResult<BTreeSet<OwnedUserId>> {
-        let mut state_events = BTreeMap::new();
-        let mut user_ids = BTreeSet::new();
-
-        assert_eq!(raw_events.len(), events.len());
-
-        for (raw_event, event) in iter::zip(raw_events, events) {
-            room_info.handle_state_event(event);
-
-            if let AnySyncStateEvent::RoomMember(member) = &event {
-                ambiguity_cache
-                    .handle_event(&context.state_changes, &room_info.room_id, member)
-                    .await?;
-
-                match member.membership() {
-                    MembershipState::Join | MembershipState::Invite => {
-                        user_ids.insert(member.state_key().to_owned());
-                    }
-                    _ => (),
-                }
-
-                processors::profiles::upsert_or_delete(context, &room_info.room_id, member);
-            }
-
-            state_events
-                .entry(event.event_type())
-                .or_insert_with(BTreeMap::new)
-                .insert(event.state_key().to_owned(), raw_event.clone());
-        }
-
-        context.state_changes.state.insert((*room_info.room_id).to_owned(), state_events);
-
-        Ok(user_ids)
-    }
-
     /// User has knocked on a room.
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
@@ -848,15 +800,13 @@ impl BaseClient {
             let (raw_state_events, state_events) =
                 processors::state_events::collect_sync(&mut context, &new_info.state.events);
 
-            let mut new_user_ids = self
-                .handle_state(
-                    &mut context,
-                    &raw_state_events,
-                    &state_events,
-                    &mut room_info,
-                    &mut ambiguity_cache,
-                )
-                .await?;
+            let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
+                &mut context,
+                (&raw_state_events, &state_events),
+                &mut room_info,
+                &mut ambiguity_cache,
+            )
+            .await?;
 
             updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
 
@@ -962,15 +912,13 @@ impl BaseClient {
             let (raw_state_events, state_events) =
                 processors::state_events::collect_sync(&mut context, &new_info.state.events);
 
-            let mut user_ids = self
-                .handle_state(
-                    &mut context,
-                    &raw_state_events,
-                    &state_events,
-                    &mut room_info,
-                    &mut ambiguity_cache,
-                )
-                .await?;
+            let mut user_ids = processors::state_events::dispatch_and_get_new_users(
+                &mut context,
+                (&raw_state_events, &state_events),
+                &mut room_info,
+                &mut ambiguity_cache,
+            )
+            .await?;
 
             let timeline = self
                 .handle_timeline(

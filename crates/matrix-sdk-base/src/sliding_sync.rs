@@ -393,18 +393,13 @@ impl BaseClient {
         room_info.mark_state_partially_synced();
         room_info.handle_encryption_state(requested_required_states);
 
-        let mut new_user_ids = if !state_events.is_empty() {
-            self.handle_state(
-                context,
-                &raw_state_events,
-                &state_events,
-                &mut room_info,
-                ambiguity_cache,
-            )
-            .await?
-        } else {
-            Default::default()
-        };
+        let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
+            context,
+            (&raw_state_events, &state_events),
+            &mut room_info,
+            ambiguity_cache,
+        )
+        .await?;
 
         let push_rules = self.get_push_rules(global_account_data_processor).await?;
 
