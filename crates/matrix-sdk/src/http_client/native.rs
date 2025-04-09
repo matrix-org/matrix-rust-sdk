@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 
-use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
+use backon::{ExponentialBuilder, Retryable};
 use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
@@ -45,50 +45,40 @@ impl HttpClient {
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        let backoff =
-            ExponentialBackoff { max_elapsed_time: config.retry_timeout, ..Default::default() };
+        // These values were picked because we used to use the `backoff` crate, those
+        // were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
+        let backoff = ExponentialBuilder::new()
+            .with_min_delay(Duration::from_millis(500))
+            .with_max_delay(Duration::from_secs(60))
+            .with_total_delay(Some(Duration::from_secs(15 * 60)))
+            .without_max_times();
+
+        // Let's now apply any override the user or the SDK might have set.
+        let backoff = if let Some(max_delay) = config.max_retry_time {
+            backoff.with_max_delay(max_delay)
+        } else {
+            backoff
+        };
+
+        let backoff = if let Some(max_times) = config.retry_limit {
+            // Backon behaves a bit differently to our own handcrafted max retry logic.
+            // We were counting from one while `backon` counts from zero.
+            backoff.with_max_times(max_times.saturating_sub(1))
+        } else {
+            backoff
+        };
+
         let retry_count = AtomicU64::new(1);
 
         let send_request = || {
             let send_progress = send_progress.clone();
+
             async {
-                debug!(num_attempt = retry_count.load(Ordering::SeqCst), "Sending request");
+                let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
+                debug!(num_attempt, "Sending request");
 
-                let stop = if let Some(retry_limit) = config.retry_limit {
-                    retry_count.fetch_add(1, Ordering::Relaxed) >= retry_limit
-                } else {
-                    false
-                };
-
-                // Turn errors into permanent errors when the retry limit is reached.
-                let error_type = |err: HttpError| {
-                    if stop {
-                        RetryError::Permanent(err)
-                    } else {
-                        let has_retry_limit = config.retry_limit.is_some();
-                        match err.retry_kind() {
-                            RetryKind::Transient { retry_after } => {
-                                RetryError::Transient { err, retry_after }
-                            }
-                            RetryKind::Permanent => RetryError::Permanent(err),
-                            RetryKind::NetworkFailure => {
-                                // If we ran into a network failure, only retry if there's some
-                                // retry limit associated to this request's configuration;
-                                // otherwise, we would end up running an infinite loop of network
-                                // requests in offline mode.
-                                if has_retry_limit {
-                                    RetryError::Transient { err, retry_after: None }
-                                } else {
-                                    RetryError::Permanent(err)
-                                }
-                            }
-                        }
-                    }
-                };
-
-                let response = send_request(&self.inner, &request, config.timeout, send_progress)
-                    .await
-                    .map_err(error_type)?;
+                let response =
+                    send_request(&self.inner, &request, config.timeout, send_progress).await?;
 
                 let status_code = response.status();
                 let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
@@ -109,12 +99,43 @@ impl HttpClient {
                     }
                 }
 
-                R::IncomingResponse::try_from_http_response(response)
-                    .map_err(|e| error_type(HttpError::from(e)))
+                R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)
             }
         };
 
-        retry::<_, HttpError, _, _, _>(backoff, send_request).await
+        let has_retry_limit = config.retry_limit.is_some();
+
+        send_request
+            .retry(backoff)
+            .adjust(|err, default_timeout| {
+                match err.retry_kind() {
+                    RetryKind::Transient { retry_after } => {
+                        // This bit is somewhat tricky but it's necessary so we respect the
+                        // `max_times` limit from `backon`.
+                        //
+                        // The exponential backoff in `backon` is implemented as an iterator that
+                        // returns `None` when we hit the `max_times` limit. So it's necessary to
+                        // only override the `default_timeout` if it's `Some`.
+                        if default_timeout.is_some() {
+                            retry_after.or(default_timeout)
+                        } else {
+                            None
+                        }
+                    }
+                    RetryKind::Permanent => None,
+                    RetryKind::NetworkFailure => {
+                        // If we ran into a network failure, only retry if there's some retry limit
+                        // associated to this request's configuration; otherwise, we would end up
+                        // running an infinite loop of network requests in offline mode.
+                        if has_retry_limit {
+                            default_timeout
+                        } else {
+                            None
+                        }
+                    }
+                }
+            })
+            .await
     }
 }
 
