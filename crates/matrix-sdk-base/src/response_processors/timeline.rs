@@ -67,7 +67,6 @@ pub async fn build<'notification, 'e2ee>(
         // Do some special stuff on the `timeline_event` before collecting it.
         match timeline_event.raw().deserialize() {
             Ok(sync_timeline_event) => {
-                #[allow(clippy::single_match)]
                 match &sync_timeline_event {
                     // State events are ignored. They must be processed separately.
                     AnySyncTimelineEvent::State(_) => {
