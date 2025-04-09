@@ -95,7 +95,7 @@ impl SettingsView {
         use KeyCode::*;
 
         match event.code {
-            Char('l') | Right => {
+            Right => {
                 self.next_tab();
                 false
             }
@@ -110,7 +110,7 @@ impl SettingsView {
                 false
             }
 
-            Char('h') | Left => {
+            Left => {
                 self.previous_tab();
                 false
             }
