@@ -392,12 +392,13 @@ impl BaseClient {
         for raw_event in raw_events {
             // Start by assuming we have a plaintext event. We'll replace it with a
             // decrypted or UTD event below if necessary.
-            let mut event = TimelineEvent::new(raw_event);
+            let mut timeline_event = TimelineEvent::new(raw_event);
 
-            match event.raw().deserialize() {
-                Ok(e) => {
+            // Do some special stuff on the `timeline_event` before collecting it.
+            match timeline_event.raw().deserialize() {
+                Ok(sync_timeline_event) => {
                     #[allow(clippy::single_match)]
-                    match &e {
+                    match &sync_timeline_event {
                         // State events are ignored. They must be processed separately.
                         AnySyncTimelineEvent::State(_) => {
                             // do nothing
@@ -405,57 +406,61 @@ impl BaseClient {
 
                         // A room redaction.
                         AnySyncTimelineEvent::MessageLike(
-                            AnySyncMessageLikeEvent::RoomRedaction(r),
+                            AnySyncMessageLikeEvent::RoomRedaction(redaction_event),
                         ) => {
                             let room_version =
                                 room_info.room_version().unwrap_or(&RoomVersionId::V1);
 
-                            if let Some(redacts) = r.redacts(room_version) {
-                                room_info.handle_redaction(r, event.raw().cast_ref());
-                                let raw_event = event.raw().clone().cast();
+                            if let Some(redacts) = redaction_event.redacts(room_version) {
+                                room_info.handle_redaction(
+                                    redaction_event,
+                                    timeline_event.raw().cast_ref(),
+                                );
 
                                 context.state_changes.add_redaction(
                                     room_id,
                                     redacts,
-                                    raw_event,
+                                    timeline_event.raw().clone().cast(),
                                 );
                             }
                         }
 
                         // Decrypt encrypted event, or process verification event.
                         #[cfg(feature = "e2e-encryption")]
-                        AnySyncTimelineEvent::MessageLike(me) => match me {
-                            AnySyncMessageLikeEvent::RoomEncrypted(
-                                SyncMessageLikeEvent::Original(_),
-                            ) => {
-                                if let Some(e) =
-                                    Box::pin(processors::e2ee::decrypt::sync_timeline_event(
+                        AnySyncTimelineEvent::MessageLike(sync_message_like_event) => {
+                            match sync_message_like_event {
+                                AnySyncMessageLikeEvent::RoomEncrypted(
+                                    SyncMessageLikeEvent::Original(_),
+                                ) => {
+                                    if let Some(decrypted_timeline_event) =
+                                        Box::pin(processors::e2ee::decrypt::sync_timeline_event(
+                                            context,
+                                            self.olm_machine().await.as_ref(),
+                                            timeline_event.raw(),
+                                            room_id,
+                                            self.decryption_trust_requirement,
+                                            self.handle_verification_events,
+                                        ))
+                                        .await?
+                                    {
+                                        timeline_event = decrypted_timeline_event;
+                                    }
+                                }
+
+                                _ => {
+                                    Box::pin(processors::verification::process_if_candidate(
                                         context,
-                                        self.olm_machine().await.as_ref(),
-                                        event.raw(),
-                                        room_id,
-                                        self.decryption_trust_requirement,
+                                        &sync_timeline_event,
                                         self.handle_verification_events,
+                                        // TODO: move it outside the loop, but let's check if it
+                                        // cannot create a deadlock.
+                                        self.olm_machine().await.as_ref(),
+                                        room_id,
                                     ))
-                                    .await?
-                                {
-                                    event = e;
+                                    .await?;
                                 }
                             }
-
-                            _ => {
-                                Box::pin(processors::verification::process_if_candidate(
-                                    context,
-                                    &e,
-                                    self.handle_verification_events,
-                                    // TODO: move it outside the loop, but let's check if it
-                                    // cannot create a deadlock.
-                                    self.olm_machine().await.as_ref(),
-                                    room_id,
-                                ))
-                                .await?;
-                            }
-                        },
+                        }
 
                         // Nothing particular to do.
                         #[cfg(not(feature = "e2e-encryption"))]
@@ -476,29 +481,29 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        let actions = push_rules.get_actions(event.raw(), context);
+                        let actions = push_rules.get_actions(timeline_event.raw(), context);
 
                         if actions.iter().any(Action::should_notify) {
                             notifications.entry(room_id.to_owned()).or_default().push(
                                 Notification {
                                     actions: actions.to_owned(),
                                     event: RawAnySyncOrStrippedTimelineEvent::Sync(
-                                        event.raw().clone(),
+                                        timeline_event.raw().clone(),
                                     ),
                                 },
                             );
                         }
 
-                        event.push_actions = Some(actions.to_owned());
+                        timeline_event.push_actions = Some(actions.to_owned());
                     }
                 }
-                Err(e) => {
-                    warn!("Error deserializing event: {e}");
+                Err(error) => {
+                    warn!("Error deserializing event: {error}");
                 }
             }
 
             // Finally, we have process the timeline event. We can collect it.
-            timeline.events.push(event);
+            timeline.events.push(timeline_event);
         }
 
         Ok(timeline)
