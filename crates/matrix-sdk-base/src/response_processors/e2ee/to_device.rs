@@ -53,7 +53,7 @@ pub async fn from_msc4186(
 ///
 /// This returns a list of all the to-device events that were passed in but
 /// encrypted ones were replaced with their decrypted version.
-pub async fn from_sync_v3(
+pub async fn from_sync_v2(
     context: &mut Context,
     response: &v3::Response,
     olm_machine: Option<&OlmMachine>,
