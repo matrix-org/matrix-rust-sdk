@@ -15,7 +15,7 @@ js = ["dep:getrandom", "getrandom?/js"]
 
 [dependencies]
 base64 = { workspace = true }
-blake3 = "1.5.5"
+blake3 = "1.8.1"
 chacha20poly1305 = { version = "0.10.1", features = ["std"] }
 getrandom = { workspace = true, optional = true }
 hmac = { workspace = true }
