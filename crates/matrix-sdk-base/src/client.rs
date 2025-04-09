@@ -307,6 +307,8 @@ impl BaseClient {
     /// # Panics
     ///
     /// This method panics if it is called twice.
+    ///
+    /// [`UserId`]: ruma::UserId
     pub async fn activate(
         &self,
         session_meta: SessionMeta,
