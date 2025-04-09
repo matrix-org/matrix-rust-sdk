@@ -58,7 +58,7 @@ pub async fn process_if_candidate(
 
             _ => false,
         } {
-            verification(context, verification_is_allowed, olm_machine, &event, room_id).await?;
+            verification(context, verification_is_allowed, olm_machine, event, room_id).await?;
         }
     }
 

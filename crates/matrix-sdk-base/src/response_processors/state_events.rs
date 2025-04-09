@@ -56,7 +56,7 @@ pub fn collect_sync_from_timeline(
     _context: &mut Context,
     raw_events: &[Raw<AnySyncTimelineEvent>],
 ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
-    collect(raw_events.into_iter().filter_map(|raw_event| {
+    collect(raw_events.iter().filter_map(|raw_event| {
         // State events have a `state_key` field.
         match raw_event.get_field::<&str>("state_key") {
             Ok(Some(_)) => Some(raw_event.cast_ref()),
