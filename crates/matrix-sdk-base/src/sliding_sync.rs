@@ -393,7 +393,7 @@ impl BaseClient {
         room_info.mark_state_partially_synced();
         room_info.handle_encryption_state(requested_required_states);
 
-        let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
+        let new_user_ids = processors::state_events::dispatch_and_get_new_users(
             context,
             (&raw_state_events, &state_events),
             &mut room_info,
@@ -424,13 +424,10 @@ impl BaseClient {
                 &room,
                 room_data.limited,
                 room_data.timeline.clone(),
-                true,
                 room_data.prev_batch.clone(),
                 &push_rules,
-                &mut new_user_ids,
                 &mut room_info,
                 notifications,
-                ambiguity_cache,
             )
             .await?;
 
