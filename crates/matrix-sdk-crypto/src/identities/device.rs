@@ -21,7 +21,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{deserialized_responses::WithheldCode, locks::RwLock};
+use matrix_sdk_common::locks::RwLock;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
@@ -64,9 +64,9 @@ pub enum MaybeEncryptedRoomKey {
         share_info: ShareInfo,
         message: Raw<AnyToDeviceEventContent>,
     },
-    Withheld {
-        code: WithheldCode,
-    },
+    /// We could not encrypt a message to this device because there is no active
+    /// Olm session.
+    MissingSession,
 }
 
 /// A read-only version of a `Device`.
@@ -841,9 +841,7 @@ impl DeviceData {
                 message: encrypted.cast(),
             }),
 
-            Err(OlmError::MissingSession) => {
-                Ok(MaybeEncryptedRoomKey::Withheld { code: WithheldCode::NoOlm })
-            }
+            Err(OlmError::MissingSession) => Ok(MaybeEncryptedRoomKey::MissingSession),
             Err(e) => Err(e),
         }
     }

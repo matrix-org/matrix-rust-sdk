@@ -26,7 +26,7 @@ use matrix_sdk_common::{
     deserialized_responses::WithheldCode, executor::spawn, locks::RwLock as StdRwLock,
 };
 use ruma::{
-    events::{AnyMessageLikeEventContent, ToDeviceEventType},
+    events::{AnyMessageLikeEventContent, AnyToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
@@ -254,18 +254,15 @@ impl GroupSessionManager {
         }
     }
 
-    /// Encrypt the given content for the given devices and create a to-device
+    /// Encrypt the given content for the given devices and create to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
         store: Arc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
         devices: Vec<DeviceData>,
     ) -> OlmResult<(
-        OwnedTransactionId,
-        ToDeviceRequest,
+        EncryptForDevicesResult,
         BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
-        Vec<Session>,
-        Vec<(DeviceData, WithheldCode)>,
     )> {
         // Use a named type instead of a tuple with rather long type name
         pub struct DeviceResult {
@@ -273,10 +270,8 @@ impl GroupSessionManager {
             maybe_encrypted_room_key: MaybeEncryptedRoomKey,
         }
 
-        let mut messages = BTreeMap::new();
-        let mut changed_sessions = Vec::new();
+        let mut result_builder = EncryptForDevicesResultBuilder::default();
         let mut share_infos = BTreeMap::new();
-        let mut withheld_devices = Vec::new();
 
         // XXX is there a way to do this that doesn't involve cloning the
         // `Arc<CryptoStoreWrapper>` for each device?
@@ -300,35 +295,22 @@ impl GroupSessionManager {
 
             match result.maybe_encrypted_room_key {
                 MaybeEncryptedRoomKey::Encrypted { used_session, share_info, message } => {
-                    changed_sessions.push(used_session);
+                    result_builder.on_successful_encryption(&result.device, used_session, message);
 
                     let user_id = result.device.user_id().to_owned();
                     let device_id = result.device.device_id().to_owned();
-
-                    messages
-                        .entry(user_id.to_owned())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(DeviceIdOrAllDevices::DeviceId(device_id.to_owned()), message);
-
                     share_infos
                         .entry(user_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(device_id, share_info);
                 }
-                MaybeEncryptedRoomKey::Withheld { code } => {
-                    withheld_devices.push((result.device, code));
+                MaybeEncryptedRoomKey::MissingSession => {
+                    result_builder.on_missing_session(result.device);
                 }
             }
         }
 
-        let txn_id = TransactionId::new();
-        let request = ToDeviceRequest {
-            event_type: ToDeviceEventType::RoomEncrypted,
-            txn_id: txn_id.to_owned(),
-            messages,
-        };
-
-        Ok((txn_id, request, share_infos, changed_sessions, withheld_devices))
+        Ok((result_builder.into_result(), share_infos))
     }
 
     /// Given a list of user and an outbound session, return the list of users
@@ -353,21 +335,16 @@ impl GroupSessionManager {
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,
     ) -> OlmResult<(Vec<Session>, Vec<(DeviceData, WithheldCode)>)> {
-        let (id, request, share_infos, used_sessions, no_olm) =
+        let (result, share_infos) =
             Self::encrypt_session_for(store, outbound.clone(), chunk).await?;
 
-        if !request.messages.is_empty() {
-            trace!(
-                recipient_count = request.message_count(),
-                transaction_id = ?id,
-                "Created a to-device request carrying a room_key"
-            );
-
+        if let Some(request) = result.to_device_request {
+            let id = request.txn_id.clone();
             outbound.add_request(id.clone(), request.into(), share_infos);
             sessions.mark_as_being_shared(id, outbound.clone());
         }
 
-        Ok((used_sessions, no_olm))
+        Ok((result.updated_olm_sessions, result.no_olm_devices))
     }
 
     pub(crate) fn session_cache(&self) -> GroupSessionCache {
@@ -768,6 +745,88 @@ impl GroupSessionManager {
         }
 
         Ok(requests)
+    }
+}
+
+/// Result of [`GroupSessionManager::encrypt_session_for`]
+#[derive(Debug)]
+struct EncryptForDevicesResult {
+    /// The request to send the to-device messages containing the encrypted
+    /// payload, if any devices were found.
+    to_device_request: Option<ToDeviceRequest>,
+
+    /// The devices which lack an Olm session and therefore need a withheld code
+    no_olm_devices: Vec<(DeviceData, WithheldCode)>,
+
+    /// The Olm sessions which were used to encrypt the requests and now need
+    /// persisting to the store.
+    updated_olm_sessions: Vec<Session>,
+}
+
+/// A helper for building [`EncryptForDevicesResult`]
+#[derive(Debug, Default)]
+struct EncryptForDevicesResultBuilder {
+    /// The payloads of the to-device messages
+    messages: BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+
+    /// The devices which lack an Olm session and therefore need a withheld code
+    no_olm_devices: Vec<(DeviceData, WithheldCode)>,
+
+    /// The Olm sessions which were used to encrypt the requests and now need
+    /// persisting to the store.
+    updated_olm_sessions: Vec<Session>,
+}
+
+impl EncryptForDevicesResultBuilder {
+    /// Record a successful encryption. The encrypted message is added to the
+    /// list to be sent, and the olm session is added to the list of those
+    /// that have been modified.
+    pub fn on_successful_encryption(
+        &mut self,
+        device: &DeviceData,
+        used_session: Session,
+        message: Raw<AnyToDeviceEventContent>,
+    ) {
+        self.updated_olm_sessions.push(used_session);
+
+        self.messages
+            .entry(device.user_id().to_owned())
+            .or_default()
+            .insert(DeviceIdOrAllDevices::DeviceId(device.device_id().to_owned()), message);
+    }
+
+    /// Record a device which didn't have an active Olm session.
+    pub fn on_missing_session(&mut self, device: DeviceData) {
+        self.no_olm_devices.push((device, WithheldCode::NoOlm));
+    }
+
+    /// Transform the accumulated results into an [`EncryptForDevicesResult`],
+    /// wrapping the messages, if any, into a `ToDeviceRequest`.
+    pub fn into_result(self) -> EncryptForDevicesResult {
+        let EncryptForDevicesResultBuilder { updated_olm_sessions, no_olm_devices, messages } =
+            self;
+
+        let mut encrypt_for_devices_result = EncryptForDevicesResult {
+            to_device_request: None,
+            updated_olm_sessions,
+            no_olm_devices,
+        };
+
+        if !messages.is_empty() {
+            let request = ToDeviceRequest {
+                event_type: ToDeviceEventType::RoomEncrypted,
+                txn_id: TransactionId::new(),
+                messages,
+            };
+            trace!(
+                recipient_count = request.message_count(),
+                transaction_id = ?request.txn_id,
+                "Created a to-device request carrying room keys",
+            );
+            encrypt_for_devices_result.to_device_request = Some(request);
+        };
+
+        encrypt_for_devices_result
     }
 }
 
