@@ -783,7 +783,6 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let olm_machine = self.olm_machine().await;
 
-        #[allow(unused_mut)]
         let mut context =
             Context::new(StateChanges::new(response.next_batch.clone()), Default::default());
 
