@@ -7,7 +7,7 @@ use crate::{
     client::JoinRule,
     error::ClientError,
     room::{Membership, RoomHero},
-    room_member::RoomMember,
+    room_member::{RoomMember, RoomMemberWithSenderInfo},
     utils::AsyncRuntimeDropped,
 };
 
@@ -86,30 +86,10 @@ impl RoomPreview {
     }
 
     /// Get the membership details for the current user.
-    pub async fn own_membership_details(&self) -> Option<RoomMembershipDetails> {
+    pub async fn own_membership_details(&self) -> Option<RoomMemberWithSenderInfo> {
         let room = self.client.get_room(&self.inner.room_id)?;
-
-        let (own_member, sender_member) = match room.own_membership_details().await {
-            Ok(memberships) => memberships,
-            Err(error) => {
-                warn!("Couldn't get membership info: {error}");
-                return None;
-            }
-        };
-
-        Some(RoomMembershipDetails {
-            own_room_member: own_member.try_into().ok()?,
-            sender_room_member: sender_member.and_then(|member| member.try_into().ok()),
-        })
+        room.member_with_sender_info(self.client.user_id()?).await.ok()?.try_into().ok()
     }
-}
-
-/// Contains the current user's room member info and the optional room member
-/// info of the sender of the `m.room.member` event that this info represents.
-#[derive(uniffi::Record)]
-pub struct RoomMembershipDetails {
-    pub own_room_member: RoomMember,
-    pub sender_room_member: Option<RoomMember>,
 }
 
 impl RoomPreview {

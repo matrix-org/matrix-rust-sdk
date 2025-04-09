@@ -108,3 +108,25 @@ impl TryFrom<SdkRoomMember> for RoomMember {
         })
     }
 }
+
+/// Contains the current user's room member info and the optional room member
+/// info of the sender of the `m.room.member` event that this info represents.
+#[derive(Clone, uniffi::Record)]
+pub struct RoomMemberWithSenderInfo {
+    /// The room member.
+    room_member: RoomMember,
+    /// The info of the sender of the event `room_member` is based on, if
+    /// available.
+    sender_info: Option<RoomMember>,
+}
+
+impl TryFrom<matrix_sdk::room::RoomMemberWithSenderInfo> for RoomMemberWithSenderInfo {
+    type Error = ClientError;
+
+    fn try_from(value: matrix_sdk::room::RoomMemberWithSenderInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            room_member: value.room_member.try_into()?,
+            sender_info: value.sender_info.map(|member| member.try_into()).transpose()?,
+        })
+    }
+}
