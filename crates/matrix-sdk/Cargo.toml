@@ -119,7 +119,7 @@ reqwest = { workspace = true, features = ["gzip", "http2"] }
 tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-backoff = { version = "0.4.0", features = ["tokio"] }
+backon = "1.5.0"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }

@@ -44,8 +44,8 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 #[derive(Copy, Clone)]
 pub struct RequestConfig {
     pub(crate) timeout: Duration,
-    pub(crate) retry_limit: Option<u64>,
-    pub(crate) retry_timeout: Option<Duration>,
+    pub(crate) retry_limit: Option<usize>,
+    pub(crate) max_retry_time: Option<Duration>,
     pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
     pub(crate) force_auth: bool,
     pub(crate) force_matrix_version: Option<MatrixVersion>,
@@ -57,7 +57,7 @@ impl Debug for RequestConfig {
         let Self {
             timeout,
             retry_limit,
-            retry_timeout,
+            max_retry_time: retry_timeout,
             force_auth,
             max_concurrent_requests,
             force_matrix_version,
@@ -66,7 +66,7 @@ impl Debug for RequestConfig {
         let mut res = fmt.debug_struct("RequestConfig");
         res.field("timeout", timeout)
             .maybe_field("retry_limit", retry_limit)
-            .maybe_field("retry_timeout", retry_timeout)
+            .maybe_field("max_retry_time", retry_timeout)
             .maybe_field("max_concurrent_requests", max_concurrent_requests)
             .maybe_field("force_matrix_version", force_matrix_version);
 
@@ -83,7 +83,7 @@ impl Default for RequestConfig {
         Self {
             timeout: DEFAULT_REQUEST_TIMEOUT,
             retry_limit: Default::default(),
-            retry_timeout: Default::default(),
+            max_retry_time: Default::default(),
             max_concurrent_requests: Default::default(),
             force_auth: false,
             force_matrix_version: Default::default(),
@@ -116,7 +116,7 @@ impl RequestConfig {
     /// The number of times a request should be retried. The default is no
     /// limit.
     #[must_use]
-    pub fn retry_limit(mut self, retry_limit: u64) -> Self {
+    pub fn retry_limit(mut self, retry_limit: usize) -> Self {
         self.retry_limit = Some(retry_limit);
         self
     }
@@ -137,11 +137,14 @@ impl RequestConfig {
         self
     }
 
-    /// Set a timeout for how long a request should be retried. The default is
-    /// no timeout, meaning requests are retried forever.
+    /// Set a time limit for how long a request should be retried. The default
+    /// is that there isn't a limit, meaning requests are retried forever.
+    ///
+    /// This is a time-based variant of the [`RequestConfig::retry_limit`]
+    /// method.
     #[must_use]
-    pub fn retry_timeout(mut self, retry_timeout: Duration) -> Self {
-        self.retry_timeout = Some(retry_timeout);
+    pub fn max_retry_time(mut self, retry_timeout: Duration) -> Self {
+        self.max_retry_time = Some(retry_timeout);
         self
     }
 
@@ -175,13 +178,13 @@ mod tests {
     fn smoketest() {
         let cfg = RequestConfig::new()
             .force_auth()
-            .retry_timeout(Duration::from_secs(32))
+            .max_retry_time(Duration::from_secs(32))
             .retry_limit(4)
             .timeout(Duration::from_secs(600));
 
         assert!(cfg.force_auth);
         assert_eq!(cfg.retry_limit, Some(4));
-        assert_eq!(cfg.retry_timeout, Some(Duration::from_secs(32)));
+        assert_eq!(cfg.max_retry_time, Some(Duration::from_secs(32)));
         assert_eq!(cfg.timeout, Duration::from_secs(600));
     }
 

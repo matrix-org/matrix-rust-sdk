@@ -2739,12 +2739,12 @@ pub(crate) mod tests {
         let retry_timeout = Duration::from_secs(5);
         let server = MockServer::start().await;
         let client = test_client_builder(Some(server.uri()))
-            .request_config(RequestConfig::new().retry_timeout(retry_timeout))
+            .request_config(RequestConfig::new().max_retry_time(retry_timeout))
             .build()
             .await
             .unwrap();
 
-        assert!(client.request_config().retry_timeout.unwrap() == retry_timeout);
+        assert!(client.request_config().max_retry_time.unwrap() == retry_timeout);
 
         Mock::given(method("POST"))
             .and(path("/_matrix/client/r0/login"))

@@ -91,9 +91,15 @@ simpler methods:
 
 ### Refactor
 
+
+- [**breaking**] Switched from the unmaintained backoff crate to the [backon](https://docs.rs/backon/1.5.0/backon/)
+  crate. As part of this change, the `RequestConfig::retry_limit` method was
+  renamed to `RequestConfig::max_retry_time` and the parameter for the method was
+  updated from a `u64` to a `usize`.
+  ([#4916](https://github.com/matrix-org/matrix-rust-sdk/pull/4916))
 - [**breaking**] We now require Rust 1.85 as the minimum supported Rust version to compile.
   Yay for async closures!
-  ([#4745](https://github.com/matrix-org/matrix-rust-sdk/pull/4745)
+  ([#4745](https://github.com/matrix-org/matrix-rust-sdk/pull/4745))
 - [**breaking**] The `server_url` and `server_response` methods of
   `SsoLoginBuilder` are replaced by `server_builder()`, which allows more
   fine-grained settings for the server.

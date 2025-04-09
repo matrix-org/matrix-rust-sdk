@@ -705,7 +705,8 @@ impl ClientBuilder {
         if let Some(config) = builder.request_config {
             let mut updated_config = matrix_sdk::config::RequestConfig::default();
             if let Some(retry_limit) = config.retry_limit {
-                updated_config = updated_config.retry_limit(retry_limit);
+                updated_config =
+                    updated_config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
             }
             if let Some(timeout) = config.timeout {
                 updated_config = updated_config.timeout(Duration::from_millis(timeout));
@@ -717,8 +718,9 @@ impl ClientBuilder {
                     ));
                 }
             }
-            if let Some(retry_timeout) = config.retry_timeout {
-                updated_config = updated_config.retry_timeout(Duration::from_millis(retry_timeout));
+            if let Some(max_retry_time) = config.max_retry_time {
+                updated_config =
+                    updated_config.max_retry_time(Duration::from_millis(max_retry_time));
             }
             inner_builder = inner_builder.request_config(updated_config);
         }
@@ -819,7 +821,7 @@ pub struct RequestConfig {
     /// Max number of concurrent requests. No value means no limits.
     max_concurrent_requests: Option<u64>,
     /// Base delay between retries.
-    retry_timeout: Option<u64>,
+    max_retry_time: Option<u64>,
 }
 
 #[derive(Clone, uniffi::Enum)]
