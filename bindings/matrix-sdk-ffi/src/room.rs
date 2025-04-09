@@ -39,7 +39,7 @@ use crate::{
     identity_status_change::IdentityStatusChange,
     live_location_share::{LastLocation, LiveLocationShare},
     room_info::RoomInfo,
-    room_member::RoomMember,
+    room_member::{RoomMember, RoomMemberWithSenderInfo},
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
@@ -281,6 +281,22 @@ impl Room {
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
         let avatar_url_string = member.display_name().map(|m| m.to_owned());
         Ok(avatar_url_string)
+    }
+
+    /// Get the membership details for the current user.
+    ///
+    /// Returns:
+    ///     - If the user was present in the room, a
+    ///       [`matrix_sdk::room::RoomMemberWithSenderInfo`] containing both the
+    ///       user info and the member info of the sender of the `m.room.member`
+    ///       event.
+    ///     - If the current user is not present, an error.
+    pub async fn member_with_sender_info(
+        &self,
+        user_id: String,
+    ) -> Result<RoomMemberWithSenderInfo, ClientError> {
+        let user_id = UserId::parse(&*user_id)?;
+        self.inner.member_with_sender_info(&user_id).await?.try_into()
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {

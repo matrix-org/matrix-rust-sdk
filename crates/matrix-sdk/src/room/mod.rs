@@ -2960,9 +2960,9 @@ impl Room {
     /// Get the membership details for the current user.
     ///
     /// Returns:
-    ///     - If the user was present in the room, a [RoomMemberWithSenderInfo]
-    ///       containing both the user info and the member info of the sender of
-    ///       the `m.room.member` event.
+    ///     - If the user was present in the room, a
+    ///       [`RoomMemberWithSenderInfo`] containing both the user info and the
+    ///       member info of the sender of the `m.room.member` event.
     ///     - If the current user is not present, an error.
     pub async fn member_with_sender_info(
         &self,
