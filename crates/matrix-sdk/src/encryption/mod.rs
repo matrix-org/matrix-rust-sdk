@@ -637,6 +637,7 @@ impl Client {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn send_outgoing_requests(&self) -> Result<()> {
         const MAX_CONCURRENT_REQUESTS: usize = 20;
 
