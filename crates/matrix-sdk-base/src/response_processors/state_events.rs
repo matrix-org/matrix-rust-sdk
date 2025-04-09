@@ -18,7 +18,10 @@ use std::{
 };
 
 use ruma::{
-    events::{room::member::MembershipState, AnyStrippedStateEvent, AnySyncStateEvent},
+    events::{
+        room::member::MembershipState, AnyStrippedStateEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent,
+    },
     serde::Raw,
     OwnedUserId,
 };
@@ -31,6 +34,7 @@ use crate::{
     RoomInfo,
 };
 
+/// Collect sync state events and map them with their deserialized form.
 pub fn collect_sync(
     _context: &mut Context,
     raw_events: &[Raw<AnySyncStateEvent>],
@@ -38,6 +42,7 @@ pub fn collect_sync(
     collect(raw_events)
 }
 
+/// Collect stripped state events and map them with their deserialized form.
 pub fn collect_stripped(
     _context: &mut Context,
     raw_events: &[Raw<AnyStrippedStateEvent>],
@@ -45,12 +50,28 @@ pub fn collect_stripped(
     collect(raw_events)
 }
 
-fn collect<'a, T>(raw_events: &'a [Raw<T>]) -> (Vec<Raw<T>>, Vec<T>)
+/// Collect sync timeline event, filter the sync state events, and map them with
+/// their deserialized form.
+pub fn collect_sync_from_timeline(
+    _context: &mut Context,
+    raw_events: &[Raw<AnySyncTimelineEvent>],
+) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
+    collect(raw_events.into_iter().filter_map(|raw_event| {
+        // State events have a `state_key` field.
+        match raw_event.get_field::<&str>("state_key") {
+            Ok(Some(_)) => Some(raw_event.cast_ref()),
+            _ => None,
+        }
+    }))
+}
+
+fn collect<'a, I, T>(raw_events: I) -> (Vec<Raw<T>>, Vec<T>)
 where
-    T: Deserialize<'a>,
+    I: IntoIterator<Item = &'a Raw<T>>,
+    T: Deserialize<'a> + 'a,
 {
     raw_events
-        .iter()
+        .into_iter()
         .filter_map(|raw_event| match raw_event.deserialize() {
             Ok(event) => Some((raw_event.clone(), event)),
             Err(e) => {

@@ -381,20 +381,17 @@ impl BaseClient {
         context: &mut Context,
         room: &Room,
         limited: bool,
-        events: Vec<Raw<AnySyncTimelineEvent>>,
-        ignore_state_events: bool,
+        raw_events: Vec<Raw<AnySyncTimelineEvent>>,
         prev_batch: Option<String>,
         push_rules: &Ruleset,
-        user_ids: &mut BTreeSet<OwnedUserId>,
         room_info: &mut RoomInfo,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
-        ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<Timeline> {
         let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context =
             self.get_push_room_context(room, room_info, &context.state_changes).await?;
 
-        for raw_event in events {
+        for raw_event in raw_events {
             // Start by assuming we have a plaintext event. We'll replace it with a
             // decrypted or UTD event below if necessary.
             let mut event = TimelineEvent::new(raw_event);
@@ -403,45 +400,9 @@ impl BaseClient {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
-                        AnySyncTimelineEvent::State(s) if !ignore_state_events => {
-                            match s {
-                                AnySyncStateEvent::RoomMember(member) => {
-                                    Box::pin(ambiguity_cache.handle_event(
-                                        &context.state_changes,
-                                        room.room_id(),
-                                        member,
-                                    ))
-                                    .await?;
-
-                                    match member.membership() {
-                                        MembershipState::Join | MembershipState::Invite => {
-                                            user_ids.insert(member.state_key().to_owned());
-                                        }
-                                        _ => {
-                                            user_ids.remove(member.state_key());
-                                        }
-                                    }
-
-                                    processors::profiles::upsert_or_delete(
-                                        context,
-                                        room.room_id(),
-                                        member,
-                                    );
-                                }
-                                _ => {
-                                    room_info.handle_state_event(s);
-                                }
-                            }
-
-                            let raw_event: Raw<AnySyncStateEvent> = event.raw().clone().cast();
-                            context.state_changes.add_state_event(
-                                room.room_id(),
-                                s.clone(),
-                                raw_event,
-                            );
+                        AnySyncTimelineEvent::State(_) => {
+                            // do nothing
                         }
-
-                        AnySyncTimelineEvent::State(_) => { /* do nothing */ }
 
                         AnySyncTimelineEvent::MessageLike(
                             AnySyncMessageLikeEvent::RoomRedaction(r),
@@ -808,8 +769,6 @@ impl BaseClient {
             )
             .await?;
 
-            updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
-
             for raw in &new_info.ephemeral.events {
                 match raw.deserialize() {
                     Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => {
@@ -831,19 +790,32 @@ impl BaseClient {
                 room_info.mark_members_missing();
             }
 
+            let (raw_state_events_from_timeline, state_events_from_timeline) =
+                processors::state_events::collect_sync_from_timeline(
+                    &mut context,
+                    &new_info.timeline.events,
+                );
+
+            let mut other_new_user_ids = processors::state_events::dispatch_and_get_new_users(
+                &mut context,
+                (&raw_state_events_from_timeline, &state_events_from_timeline),
+                &mut room_info,
+                &mut ambiguity_cache,
+            )
+            .await?;
+            new_user_ids.append(&mut other_new_user_ids);
+            updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
+
             let timeline = self
                 .handle_timeline(
                     &mut context,
                     &room,
                     new_info.timeline.limited,
                     new_info.timeline.events,
-                    false,
                     new_info.timeline.prev_batch,
                     &push_rules,
-                    &mut new_user_ids,
                     &mut room_info,
                     &mut notifications,
-                    &mut ambiguity_cache,
                 )
                 .await?;
 
@@ -912,7 +884,7 @@ impl BaseClient {
             let (raw_state_events, state_events) =
                 processors::state_events::collect_sync(&mut context, &new_info.state.events);
 
-            let mut user_ids = processors::state_events::dispatch_and_get_new_users(
+            let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
                 &mut context,
                 (&raw_state_events, &state_events),
                 &mut room_info,
@@ -920,19 +892,31 @@ impl BaseClient {
             )
             .await?;
 
+            let (raw_state_events_from_timeline, state_events_from_timeline) =
+                processors::state_events::collect_sync_from_timeline(
+                    &mut context,
+                    &new_info.timeline.events,
+                );
+
+            let mut other_new_user_ids = processors::state_events::dispatch_and_get_new_users(
+                &mut context,
+                (&raw_state_events_from_timeline, &state_events_from_timeline),
+                &mut room_info,
+                &mut ambiguity_cache,
+            )
+            .await?;
+            new_user_ids.append(&mut other_new_user_ids);
+
             let timeline = self
                 .handle_timeline(
                     &mut context,
                     &room,
                     new_info.timeline.limited,
                     new_info.timeline.events,
-                    false,
                     new_info.timeline.prev_batch,
                     &push_rules,
-                    &mut user_ids,
                     &mut room_info,
                     &mut notifications,
-                    &mut ambiguity_cache,
                 )
                 .await?;
 
