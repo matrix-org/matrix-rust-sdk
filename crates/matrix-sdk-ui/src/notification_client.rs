@@ -674,6 +674,8 @@ pub struct NotificationItem {
     pub room_canonical_alias: Option<String>,
     /// Is this room encrypted?
     pub is_room_encrypted: Option<bool>,
+    /// Is this a public room?
+    pub is_room_public: bool,
     /// Is this room considered a direct message?
     pub is_direct_message_room: bool,
     /// Numbers of members who joined the room.
@@ -764,6 +766,7 @@ impl NotificationItem {
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
             is_direct_message_room: room.is_direct().await?,
+            is_room_public: room.is_public(),
             is_room_encrypted: room
                 .latest_encryption_state()
                 .await
