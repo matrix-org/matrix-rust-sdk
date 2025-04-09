@@ -575,7 +575,7 @@ impl BaseClient {
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
-        for (raw_event, event) in events.0.into_iter().zip(events.1.into_iter()) {
+        for (raw_event, event) in iter::zip(events.0, events.1) {
             room_info.handle_stripped_state_event(&event);
             state_events
                 .entry(event.event_type())
