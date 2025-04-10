@@ -42,7 +42,7 @@ pub struct TestClientBuilder {
 
 impl TestClientBuilder {
     pub fn new(username: impl AsRef<str>) -> Self {
-        let suffix: u128 = rand::thread_rng().gen();
+        let suffix: u128 = rand::rng().random();
         let randomized_username = format!("{}{}", username.as_ref(), suffix);
         Self::with_exact_username(randomized_username)
     }

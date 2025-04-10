@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## Refactor
+
+- [**breaking**] `Error::Random` has been removed
+  ([#4885](https://github.com/matrix-org/matrix-rust-sdk/pull/4885))
+
 ## [0.10.0] - 2025-02-04
 
 ### Bug Fixes

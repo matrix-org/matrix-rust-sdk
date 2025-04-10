@@ -57,8 +57,7 @@ insta = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-# Enable the JS feature for getrandom.
-getrandom = { workspace = true, default-features = false, features = ["js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 js-sys = { workspace = true }
 
 [lints]

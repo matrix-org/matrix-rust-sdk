@@ -1941,8 +1941,7 @@ mod tests {
             client1.olm_machine().await.clone().expect("must have an olm machine");
 
         // Also enable backup to check that new machine has the same backup keys.
-        let decryption_key = matrix_sdk_base::crypto::store::BackupDecryptionKey::new()
-            .expect("Can't create new recovery key");
+        let decryption_key = matrix_sdk_base::crypto::store::BackupDecryptionKey::new();
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
         initial_olm_machine

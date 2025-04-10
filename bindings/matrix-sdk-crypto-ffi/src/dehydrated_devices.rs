@@ -28,8 +28,6 @@ pub enum DehydrationError {
     Store(#[from] matrix_sdk_crypto::CryptoStoreError),
     #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
     PickleKeyLength(usize),
-    #[error(transparent)]
-    Rand(#[from] rand::Error),
 }
 
 impl From<matrix_sdk_crypto::dehydrated_devices::DehydrationError> for DehydrationError {
@@ -226,9 +224,7 @@ mod tests {
 
     #[test]
     fn test_creating_dehydrated_key() {
-        let result = DehydratedDeviceKey::new();
-        assert!(result.is_ok());
-        let dehydrated_device_key = result.unwrap();
+        let dehydrated_device_key = DehydratedDeviceKey::new();
         let base_64 = dehydrated_device_key.to_base64();
         let inner_bytes = dehydrated_device_key.inner;
 

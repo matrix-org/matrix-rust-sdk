@@ -47,7 +47,7 @@ use std::{
 use axum::{body::Body, response::IntoResponse, routing::any_service};
 use http::{header, HeaderValue, Method, Request, StatusCode};
 use matrix_sdk_base::{boxed_into_future, locks::Mutex};
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use tokio::{net::TcpListener, sync::oneshot};
 use tower::service_fn;
 use url::Url;
@@ -142,7 +142,7 @@ impl LocalServerBuilder {
             let mut n = 0u8;
 
             loop {
-                let port = thread_rng().gen_range(port_range.clone());
+                let port = rng().random_range(port_range.clone());
                 let socket_addresses =
                     ip_addresses.iter().map(|ip| SocketAddr::new(*ip, port)).collect::<Vec<_>>();
 
