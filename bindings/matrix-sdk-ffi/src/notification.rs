@@ -26,6 +26,7 @@ pub struct NotificationRoomInfo {
     pub avatar_url: Option<String>,
     pub canonical_alias: Option<String>,
     pub joined_members_count: u64,
+    pub is_public: bool,
     pub is_encrypted: Option<bool>,
     pub is_direct: bool,
 }
@@ -67,6 +68,7 @@ impl NotificationItem {
                 avatar_url: item.room_avatar_url,
                 canonical_alias: item.room_canonical_alias,
                 joined_members_count: item.joined_members_count,
+                is_public: item.is_room_public,
                 is_encrypted: item.is_room_encrypted,
                 is_direct: item.is_direct_message_room,
             },

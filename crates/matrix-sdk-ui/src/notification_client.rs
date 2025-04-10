@@ -672,6 +672,8 @@ pub struct NotificationItem {
     pub room_avatar_url: Option<String>,
     /// Room canonical alias.
     pub room_canonical_alias: Option<String>,
+    /// Is this room public?
+    pub is_room_public: bool,
     /// Is this room encrypted?
     pub is_room_encrypted: Option<bool>,
     /// Is this room considered a direct message?
@@ -763,12 +765,13 @@ impl NotificationItem {
             room_computed_display_name: room.display_name().await?.to_string(),
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
-            is_direct_message_room: room.is_direct().await?,
+            is_room_public: room.is_public(),
             is_room_encrypted: room
                 .latest_encryption_state()
                 .await
                 .map(|state| state.is_encrypted())
                 .ok(),
+            is_direct_message_room: room.is_direct().await?,
             joined_members_count: room.joined_members_count(),
             is_noisy,
             has_mention,
