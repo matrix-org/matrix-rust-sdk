@@ -28,6 +28,7 @@ use ruma::{
     directory::RoomTypeFilter,
     events::{
         room::{
+            join_rules::JoinRule,
             member::{MembershipState, StrippedRoomMemberEvent},
             message::{Relation, SyncRoomMessageEvent},
         },
@@ -672,6 +673,8 @@ pub struct NotificationItem {
     pub room_avatar_url: Option<String>,
     /// Room canonical alias.
     pub room_canonical_alias: Option<String>,
+    /// Room join rule.
+    pub room_join_rule: JoinRule,
     /// Is this room encrypted?
     pub is_room_encrypted: Option<bool>,
     /// Is this a public room?
@@ -765,6 +768,7 @@ impl NotificationItem {
             room_computed_display_name: room.display_name().await?.to_string(),
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
+            room_join_rule: room.join_rule(),
             is_direct_message_room: room.is_direct().await?,
             is_room_public: room.is_public(),
             is_room_encrypted: room
