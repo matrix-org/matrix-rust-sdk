@@ -42,7 +42,7 @@ use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex as AsyncMutex, OwnedMutexGuard,
 };
-use tracing::{error, info, instrument, trace, warn, Instrument, Level};
+use tracing::{error, info, instrument, trace, warn, Instrument, Level, Span};
 
 use crate::{
     encryption_sync_service::{self, EncryptionSyncPermit, EncryptionSyncService, WithLocking},
@@ -237,6 +237,7 @@ impl SyncTaskSupervisor {
             MaybeAcquiredPermit::Acquired(encryption_sync_permit.clone().lock_owned().await);
 
         let offline_mode = inner.with_offline_mode;
+        let parent_span = inner.parent_span.clone();
 
         let future = async move {
             loop {
@@ -245,6 +246,7 @@ impl SyncTaskSupervisor {
                     encryption_sync.clone(),
                     sync_permit_guard,
                     sender.clone(),
+                    parent_span.clone(),
                 )
                 .await;
 
@@ -339,16 +341,23 @@ impl SyncTaskSupervisor {
         encryption_sync_service: Arc<EncryptionSyncService>,
         sync_permit_guard: MaybeAcquiredPermit,
         sender: Sender<TerminationReport>,
+        parent_span: Span,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         // First, take care of the room list.
-        let room_list_task = spawn(Self::room_list_sync_task(room_list_service, sender.clone()));
+        let room_list_task = spawn(
+            Self::room_list_sync_task(room_list_service, sender.clone())
+                .instrument(parent_span.clone()),
+        );
 
         // Then, take care of the encryption sync.
-        let encryption_sync_task = spawn(Self::encryption_sync_task(
-            encryption_sync_service,
-            sender.clone(),
-            sync_permit_guard.acquire().await,
-        ));
+        let encryption_sync_task = spawn(
+            Self::encryption_sync_task(
+                encryption_sync_service,
+                sender.clone(),
+                sync_permit_guard.acquire().await,
+            )
+            .instrument(parent_span),
+        );
 
         (room_list_task, encryption_sync_task)
     }
@@ -487,6 +496,14 @@ struct SyncServiceInner {
     /// The offline mode is described in the [`State::Offline`] enum variant.
     with_offline_mode: bool,
     state: SharedObservable<State>,
+
+    /// The parent tracing span to use for the tasks within this service.
+    ///
+    /// Normally this will be [`Span::none`], but it may be useful to assign a
+    /// defined span, for example if there is more than one active sync
+    /// service.
+    parent_span: Span,
+
     /// Supervisor task ensuring proper termination.
     ///
     /// This task is waiting for a [`TerminationReport`] from any of the other
@@ -725,11 +742,23 @@ pub struct SyncServiceBuilder {
     ///
     /// The offline mode is described in the [`State::Offline`] enum variant.
     with_offline_mode: bool,
+
+    /// The parent tracing span to use for the tasks within this service.
+    ///
+    /// Normally this will be [`Span::none`], but it may be useful to assign a
+    /// defined span, for example if there is more than one active sync
+    /// service.
+    parent_span: Span,
 }
 
 impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
-        Self { client, with_cross_process_lock: false, with_offline_mode: false }
+        Self {
+            client,
+            with_cross_process_lock: false,
+            with_offline_mode: false,
+            parent_span: Span::none(),
+        }
     }
 
     /// Enables the cross-process lock, if the sync service is being built in a
@@ -756,13 +785,20 @@ impl SyncServiceBuilder {
         self
     }
 
+    /// Set the parent tracing span to be used for the tasks within this
+    /// service.
+    pub fn with_parent_span(mut self, parent_span: Span) -> Self {
+        self.parent_span = parent_span;
+        self
+    }
+
     /// Finish setting up the [`SyncService`].
     ///
     /// This creates the underlying sliding syncs, and will *not* start them in
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
-        let Self { client, with_cross_process_lock, with_offline_mode } = self;
+        let Self { client, with_cross_process_lock, with_offline_mode, parent_span } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
@@ -785,6 +821,7 @@ impl SyncServiceBuilder {
                 encryption_sync_service: encryption_sync,
                 state,
                 with_offline_mode,
+                parent_span,
             })),
         })
     }

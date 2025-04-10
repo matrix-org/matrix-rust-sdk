@@ -576,11 +576,14 @@ impl SlidingSync {
                 // aborted as soon as possible.
 
                 let client = self.inner.client.clone();
-                let e2ee_uploads = spawn(async move {
-                    if let Err(error) = client.send_outgoing_requests().await {
-                        error!(?error, "Error while sending outgoing E2EE requests");
+                let e2ee_uploads = spawn(
+                    async move {
+                        if let Err(error) = client.send_outgoing_requests().await {
+                            error!(?error, "Error while sending outgoing E2EE requests");
+                        }
                     }
-                })
+                    .instrument(Span::current()),
+                )
                 // Ensure that the task is not running in detached mode. It is aborted when it's
                 // dropped.
                 .abort_on_drop();
