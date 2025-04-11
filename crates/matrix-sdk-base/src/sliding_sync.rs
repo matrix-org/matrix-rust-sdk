@@ -32,7 +32,9 @@ use ruma::{
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UserId,
 };
-use tracing::{instrument, trace, warn};
+#[cfg(feature = "e2e-encryption")]
+use tracing::warn;
+use tracing::{instrument, trace};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -213,19 +215,7 @@ impl BaseClient {
         // so they may exist without any update for the associated room.
 
         for (room_id, raw) in &extensions.receipts.rooms {
-            match raw.deserialize() {
-                Ok(event) => {
-                    context.state_changes.add_receipts(room_id, event.content);
-                }
-                Err(e) => {
-                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    #[rustfmt::skip]
-                    warn!(
-                        ?room_id, event_id,
-                        "Failed to deserialize read receipt room event: {e}"
-                    );
-                }
-            }
+            processors::ephemeral_events::dispatch_one(&mut context, raw.cast_ref(), room_id);
 
             // We assume this can only happen in joined rooms, or something's very wrong.
             new_rooms
@@ -394,7 +384,7 @@ impl BaseClient {
         room_info.handle_encryption_state(requested_required_states);
 
         #[cfg_attr(not(feature = "e2e-encryption"), allow(unused))]
-        let new_user_ids = processors::state_events::dispatch_and_get_new_users(
+        let new_user_ids = processors::state_events::sync::dispatch_and_get_new_users(
             context,
             (&raw_state_events, &state_events),
             &mut room_info,
@@ -405,14 +395,15 @@ impl BaseClient {
         let push_rules = self.get_push_rules(global_account_data_processor).await?;
 
         // This will be used for both invited and knocked rooms.
-        if let Some(invite_state) = invite_state_events {
-            self.handle_invited_state(
+        if let Some((raw_events, events)) = invite_state_events {
+            processors::state_events::stripped::dispatch_invite_or_knock(
                 context,
+                (&raw_events, &events),
                 &room,
-                invite_state,
-                &push_rules,
                 &mut room_info,
+                &push_rules,
                 notifications,
+                &self.state_store,
             )
             .await?;
         }
