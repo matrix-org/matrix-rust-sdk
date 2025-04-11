@@ -1,13 +1,15 @@
 use std::{ops::Deref, sync::Arc};
 
 use color_eyre::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyModifiers};
+use invited_room::InvitedRoomView;
 use matrix_sdk::{
     locks::Mutex,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::RoomMessageEventContent, OwnedRoomId,
     },
+    RoomState,
 };
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
@@ -20,18 +22,14 @@ use crate::{
 
 mod details;
 mod input;
+mod invited_room;
 mod timeline;
 
 const DEFAULT_TILING_DIRECTION: Direction = Direction::Horizontal;
 
-#[derive(Default)]
 enum Mode {
-    #[default]
-    Normal,
-    Details {
-        tiling_direction: Direction,
-        view: RoomDetails,
-    },
+    Normal { invited_room_view: Option<InvitedRoomView> },
+    Details { tiling_direction: Direction, view: RoomDetails },
 }
 
 pub struct RoomView {
@@ -60,109 +58,142 @@ impl RoomView {
             timelines,
             status_handle,
             current_pagination: Default::default(),
-            mode: Mode::default(),
+            mode: Mode::Normal { invited_room_view: None },
             input: Input::new(),
         }
     }
 
-    pub async fn handle_key_press(&mut self, key: KeyEvent) {
+    pub async fn handle_event(&mut self, event: Event) {
         use KeyCode::*;
 
         match &mut self.mode {
-            Mode::Normal => match (key.modifiers, key.code) {
-                (KeyModifiers::NONE, Enter) => {
-                    if !self.input.is_empty() {
-                        let message = self.input.get_text();
+            Mode::Normal { invited_room_view } => {
+                if let Some(view) = invited_room_view {
+                    view.handle_event(event);
+                } else if let Event::Key(key) = event {
+                    match (key.modifiers, key.code) {
+                        (KeyModifiers::NONE, Enter) => {
+                            if !self.input.is_empty() {
+                                let message = self.input.get_text();
 
-                        match self.send_message(message).await {
-                            Ok(_) => {
-                                self.input.clear();
+                                match self.send_message(message).await {
+                                    Ok(_) => {
+                                        self.input.clear();
+                                    }
+                                    Err(err) => {
+                                        self.status_handle.set_message(format!(
+                                            "error when sending event: {err}"
+                                        ));
+                                    }
+                                }
                             }
-                            Err(err) => {
-                                self.status_handle
-                                    .set_message(format!("error when sending event: {err}"));
+                        }
+
+                        (KeyModifiers::CONTROL, Char('l')) => {
+                            self.toggle_reaction_to_latest_msg().await
+                        }
+
+                        (KeyModifiers::NONE, PageUp) => self.back_paginate(),
+
+                        (KeyModifiers::ALT, Char('e')) => {
+                            if self.selected_room.is_some() {
+                                self.mode = Mode::Details {
+                                    tiling_direction: DEFAULT_TILING_DIRECTION,
+                                    view: RoomDetails::with_events_as_selected(),
+                                }
                             }
                         }
-                    }
-                }
 
-                (KeyModifiers::CONTROL, Char('l')) => self.toggle_reaction_to_latest_msg().await,
-
-                (KeyModifiers::NONE, PageUp) => self.back_paginate(),
-
-                (KeyModifiers::ALT, Char('e')) => {
-                    if self.selected_room.is_some() {
-                        self.mode = Mode::Details {
-                            tiling_direction: DEFAULT_TILING_DIRECTION,
-                            view: RoomDetails::with_events_as_selected(),
+                        (KeyModifiers::ALT, Char('r')) => {
+                            if self.selected_room.is_some() {
+                                self.mode = Mode::Details {
+                                    tiling_direction: DEFAULT_TILING_DIRECTION,
+                                    view: RoomDetails::with_receipts_as_selected(),
+                                }
+                            }
                         }
-                    }
-                }
 
-                (KeyModifiers::ALT, Char('r')) => {
-                    if self.selected_room.is_some() {
-                        self.mode = Mode::Details {
-                            tiling_direction: DEFAULT_TILING_DIRECTION,
-                            view: RoomDetails::with_receipts_as_selected(),
+                        (KeyModifiers::ALT, Char('l')) => {
+                            if self.selected_room.is_some() {
+                                self.mode = Mode::Details {
+                                    tiling_direction: DEFAULT_TILING_DIRECTION,
+                                    view: RoomDetails::with_chunks_as_selected(),
+                                }
+                            }
                         }
+
+                        _ => self.input.handle_key_press(key),
                     }
                 }
+            }
 
-                (KeyModifiers::ALT, Char('l')) => {
-                    if self.selected_room.is_some() {
-                        self.mode = Mode::Details {
-                            tiling_direction: DEFAULT_TILING_DIRECTION,
-                            view: RoomDetails::with_chunks_as_selected(),
+            Mode::Details { view, tiling_direction } => {
+                if let Event::Key(key) = event {
+                    match (key.modifiers, key.code) {
+                        (KeyModifiers::NONE, PageUp) => self.back_paginate(),
+
+                        (KeyModifiers::ALT, Char('t')) => {
+                            let new_layout = match tiling_direction {
+                                Direction::Horizontal => Direction::Vertical,
+                                Direction::Vertical => Direction::Horizontal,
+                            };
+
+                            *tiling_direction = new_layout;
                         }
+
+                        (KeyModifiers::ALT, Char('e')) => {
+                            self.mode = Mode::Details {
+                                tiling_direction: *tiling_direction,
+                                view: RoomDetails::with_events_as_selected(),
+                            }
+                        }
+
+                        (KeyModifiers::ALT, Char('r')) => {
+                            self.mode = Mode::Details {
+                                tiling_direction: *tiling_direction,
+                                view: RoomDetails::with_receipts_as_selected(),
+                            }
+                        }
+
+                        (KeyModifiers::ALT, Char('l')) => {
+                            self.mode = Mode::Details {
+                                tiling_direction: *tiling_direction,
+                                view: RoomDetails::with_chunks_as_selected(),
+                            }
+                        }
+
+                        _ => match view.handle_key_press(key) {
+                            ShouldExit::No => {}
+                            ShouldExit::OnlySubScreen => {}
+                            ShouldExit::Yes => self.mode = Mode::Normal { invited_room_view: None },
+                        },
                     }
                 }
-
-                _ => self.input.handle_key_press(key),
-            },
-
-            Mode::Details { view, tiling_direction } => match (key.modifiers, key.code) {
-                (KeyModifiers::NONE, PageUp) => self.back_paginate(),
-
-                (KeyModifiers::ALT, Char('t')) => {
-                    let new_layout = match tiling_direction {
-                        Direction::Horizontal => Direction::Vertical,
-                        Direction::Vertical => Direction::Horizontal,
-                    };
-
-                    *tiling_direction = new_layout;
-                }
-
-                (KeyModifiers::ALT, Char('e')) => {
-                    self.mode = Mode::Details {
-                        tiling_direction: *tiling_direction,
-                        view: RoomDetails::with_events_as_selected(),
-                    }
-                }
-
-                (KeyModifiers::ALT, Char('r')) => {
-                    self.mode = Mode::Details {
-                        tiling_direction: *tiling_direction,
-                        view: RoomDetails::with_receipts_as_selected(),
-                    }
-                }
-
-                (KeyModifiers::ALT, Char('l')) => {
-                    self.mode = Mode::Details {
-                        tiling_direction: *tiling_direction,
-                        view: RoomDetails::with_chunks_as_selected(),
-                    }
-                }
-
-                _ => match view.handle_key_press(key) {
-                    ShouldExit::No => {}
-                    ShouldExit::OnlySubScreen => {}
-                    ShouldExit::Yes => self.mode = Mode::Normal,
-                },
-            },
+            }
         }
     }
 
     pub fn set_selected_room(&mut self, room: Option<OwnedRoomId>) {
+        if let Some(room_id) = room.as_deref() {
+            let rooms = self.ui_rooms.lock();
+            let maybe_room = rooms.get(room_id);
+
+            if let Some(room) = maybe_room {
+                if matches!(room.state(), RoomState::Invited) {
+                    let room = room.clone();
+                    let view = InvitedRoomView::new(room);
+                    self.mode = Mode::Normal { invited_room_view: Some(view) }
+                } else {
+                    match &mut self.mode {
+                        Mode::Normal { invited_room_view } => {
+                            invited_room_view.take();
+                        }
+                        Mode::Details { .. } => {}
+                    }
+                }
+            }
+        }
+
         self.selected_room = room;
     }
 
@@ -266,6 +297,17 @@ impl RoomView {
             }
         }
     }
+
+    fn update(&mut self) {
+        match &mut self.mode {
+            Mode::Normal { invited_room_view } => {
+                if invited_room_view.as_ref().is_some_and(|view| view.should_switch()) {
+                    self.mode = Mode::Normal { invited_room_view: None };
+                }
+            }
+            Mode::Details { .. } => {}
+        }
+    }
 }
 
 impl Widget for &mut RoomView {
@@ -273,6 +315,8 @@ impl Widget for &mut RoomView {
     where
         Self: Sized,
     {
+        self.update();
+
         // Create a space for the header, timeline, and input area.
         let vertical =
             Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]);
@@ -304,37 +348,43 @@ impl Widget for &mut RoomView {
 
         if let Some(room_id) = self.selected_room.as_deref() {
             let rooms = self.ui_rooms.lock();
-            let mut room = rooms.get(room_id);
+            let mut maybe_room = rooms.get(room_id);
+
+            let timeline_area = match &mut self.mode {
+                Mode::Normal { invited_room_view } => {
+                    if let Some(view) = invited_room_view {
+                        view.render(middle_area, buf);
+
+                        None
+                    } else {
+                        self.input.render(input_area, buf, &mut maybe_room);
+                        Some(middle_area)
+                    }
+                }
+                Mode::Details { tiling_direction, view } => {
+                    let vertical = Layout::new(
+                        *tiling_direction,
+                        [Constraint::Percentage(50), Constraint::Percentage(50)],
+                    );
+                    let [timeline_area, details_area] = vertical.areas(middle_area);
+                    Clear.render(details_area, buf);
+
+                    view.render(details_area, buf, &mut maybe_room);
+
+                    Some(timeline_area)
+                }
+            };
 
             if let Some(items) =
                 self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
             {
-                let timeline_area = match &mut self.mode {
-                    Mode::Normal => {
-                        self.input.render(input_area, buf, &mut room);
-                        middle_area
-                    }
-                    Mode::Details { view, tiling_direction } => {
-                        let vertical = Layout::new(
-                            *tiling_direction,
-                            [Constraint::Percentage(50), Constraint::Percentage(50)],
-                        );
-                        let [timeline_area, details_area] = vertical.areas(middle_area);
-                        Clear.render(details_area, buf);
+                if let Some(timeline_area) = timeline_area {
+                    let items = items.lock();
+                    let mut timeline = TimelineView::new(items.deref());
 
-                        view.render(details_area, buf, &mut room);
-
-                        timeline_area
-                    }
-                };
-
-                let items = items.lock();
-                let mut timeline = TimelineView::new(items.deref());
-
-                timeline.render(timeline_area, buf);
-            } else {
-                render_paragraph(buf, "(room's timeline disappeared)".to_owned())
-            };
+                    timeline.render(timeline_area, buf);
+                }
+            }
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
         };

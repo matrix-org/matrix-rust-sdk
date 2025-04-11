@@ -8,7 +8,12 @@ use std::{
 
 use clap::Parser;
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::{
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    },
+    execute,
+};
 use futures_util::{pin_mut, StreamExt as _};
 use imbl::Vector;
 use layout::Flex;
@@ -110,6 +115,7 @@ async fn main() -> Result<()> {
     event_cache.enable_storage()?;
 
     let terminal = ratatui::init();
+    execute!(stdout(), EnableMouseCapture)?;
     let mut app = App::new(client).await?;
 
     app.run(terminal).await
@@ -315,29 +321,38 @@ impl App {
         self.state.global_mode = mode;
     }
 
-    async fn handle_global_key_press(&mut self, key: KeyEvent) -> Result<bool> {
+    async fn handle_global_event(&mut self, event: Event) -> Result<bool> {
         use KeyCode::*;
 
-        match (key.modifiers, key.code) {
-            (KeyModifiers::NONE, F(1)) => self.set_global_mode(GlobalMode::Help),
+        match event {
+            Event::Key(KeyEvent { code: F(1), modifiers: KeyModifiers::NONE, .. }) => {
+                self.set_global_mode(GlobalMode::Help)
+            }
 
-            (KeyModifiers::NONE, F(10)) => self.set_global_mode(GlobalMode::Settings {
-                view: SettingsView::new(self.client.clone(), self.sync_service.clone()),
-            }),
+            Event::Key(KeyEvent { code: F(10), modifiers: KeyModifiers::NONE, .. }) => self
+                .set_global_mode(GlobalMode::Settings {
+                    view: SettingsView::new(self.client.clone(), self.sync_service.clone()),
+                }),
 
-            (KeyModifiers::CONTROL, Char('j') | Down) => {
+            Event::Key(KeyEvent {
+                code: Char('j') | Down,
+                modifiers: KeyModifiers::CONTROL,
+                ..
+            }) => {
                 self.room_list.next_room();
                 let room_id = self.room_list.get_selected_room_id();
                 self.room_view.set_selected_room(room_id);
             }
 
-            (KeyModifiers::CONTROL, Char('k') | Up) => {
+            Event::Key(KeyEvent {
+                code: Char('k') | Up, modifiers: KeyModifiers::CONTROL, ..
+            }) => {
                 self.room_list.previous_room();
                 let room_id = self.room_list.get_selected_room_id();
                 self.room_view.set_selected_room(room_id);
             }
 
-            (KeyModifiers::CONTROL, Char('q')) => {
+            Event::Key(KeyEvent { code: Char('q'), modifiers: KeyModifiers::CONTROL, .. }) => {
                 if !matches!(self.state.global_mode, GlobalMode::Default) {
                     self.set_global_mode(GlobalMode::Default);
                 } else {
@@ -345,7 +360,7 @@ impl App {
                 }
             }
 
-            _ => self.room_view.handle_key_press(key).await,
+            _ => self.room_view.handle_event(event).await,
         }
 
         Ok(false)
@@ -369,43 +384,44 @@ impl App {
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
             if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        match &mut self.state.global_mode {
-                            GlobalMode::Default => {
-                                if self.handle_global_key_press(key).await? {
-                                    let sync_service = self.sync_service.clone();
-                                    let timelines = self.timelines.clone();
-                                    let listen_task = self.listen_task.abort_handle();
+                let event = event::read()?;
 
-                                    let shutdown_task = spawn(async move {
-                                        sync_service.stop().await;
+                match &mut self.state.global_mode {
+                    GlobalMode::Default => {
+                        if self.handle_global_event(event).await? {
+                            let sync_service = self.sync_service.clone();
+                            let timelines = self.timelines.clone();
+                            let listen_task = self.listen_task.abort_handle();
 
-                                        listen_task.abort();
+                            let shutdown_task = spawn(async move {
+                                sync_service.stop().await;
 
-                                        for timeline in timelines.lock().values() {
-                                            timeline.task.abort();
-                                        }
-                                    });
+                                listen_task.abort();
 
-                                    self.set_global_mode(GlobalMode::Exiting { shutdown_task });
+                                for timeline in timelines.lock().values() {
+                                    timeline.task.abort();
                                 }
-                            }
-                            GlobalMode::Help => {
-                                if let (KeyModifiers::NONE, Char('q') | Esc) =
-                                    (key.modifiers, key.code)
-                                {
-                                    self.set_global_mode(GlobalMode::Default)
-                                }
-                            }
-                            GlobalMode::Settings { view } => {
-                                if view.handle_key_press(key).await {
-                                    self.set_global_mode(GlobalMode::Default);
-                                }
-                            }
-                            GlobalMode::Exiting { .. } => {}
+                            });
+
+                            self.set_global_mode(GlobalMode::Exiting { shutdown_task });
                         }
                     }
+                    GlobalMode::Help => {
+                        if let Event::Key(key) = event {
+                            if let (KeyModifiers::NONE, Char('q') | Esc) = (key.modifiers, key.code)
+                            {
+                                self.set_global_mode(GlobalMode::Default)
+                            }
+                        }
+                    }
+                    GlobalMode::Settings { view } => {
+                        if let Event::Key(key) = event {
+                            if view.handle_key_press(key).await {
+                                self.set_global_mode(GlobalMode::Default);
+                            }
+                        }
+                    }
+                    GlobalMode::Exiting { .. } => {}
                 }
             }
 
@@ -432,6 +448,7 @@ impl App {
 
         // At this point the user has exited the loop, so shut down the application.
         ratatui::restore();
+        execute!(stdout(), DisableMouseCapture)?;
 
         Ok(())
     }
