@@ -38,7 +38,7 @@ use ruma::{
     events::{
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::member::SyncRoomMemberEvent,
-        AnySyncEphemeralRoomEvent, StateEvent, StateEventType,
+        StateEvent, StateEventType,
     },
     push::Ruleset,
     time::Instant,
@@ -564,22 +564,11 @@ impl BaseClient {
             )
             .await?;
 
-            for raw in &new_info.ephemeral.events {
-                match raw.deserialize() {
-                    Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => {
-                        context.state_changes.add_receipts(&room_id, event.content);
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                        #[rustfmt::skip]
-                        info!(
-                            ?room_id, event_id,
-                            "Failed to deserialize ephemeral room event: {e}"
-                        );
-                    }
-                }
-            }
+            processors::ephemeral_events::dispatch(
+                &mut context,
+                &new_info.ephemeral.events,
+                &room_id,
+            );
 
             if new_info.timeline.limited {
                 room_info.mark_members_missing();
