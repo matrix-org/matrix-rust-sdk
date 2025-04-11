@@ -139,7 +139,7 @@ async fn decrypt_sync_room_event(
             let event: TimelineEvent = decrypted.into();
 
             if let Ok(sync_timeline_event) = event.raw().deserialize() {
-                verification::process_if_candidate(
+                verification::process_if_relevant(
                     context,
                     &sync_timeline_event,
                     verification_is_allowed,

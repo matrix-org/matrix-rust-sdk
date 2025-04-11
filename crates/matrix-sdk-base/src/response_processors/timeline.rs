@@ -114,7 +114,7 @@ pub async fn build<'notification, 'e2ee>(
                             }
 
                             _ => {
-                                Box::pin(verification::process_if_candidate(
+                                Box::pin(verification::process_if_relevant(
                                     context,
                                     &sync_timeline_event,
                                     e2ee.verification_is_allowed,
