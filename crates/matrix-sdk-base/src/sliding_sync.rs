@@ -393,7 +393,8 @@ impl BaseClient {
         room_info.mark_state_partially_synced();
         room_info.handle_encryption_state(requested_required_states);
 
-        let _new_user_ids = processors::state_events::dispatch_and_get_new_users(
+        #[cfg_attr(not(feature = "e2e-encryption"), allow(unused))]
+        let new_user_ids = processors::state_events::dispatch_and_get_new_users(
             context,
             (&raw_state_events, &state_events),
             &mut room_info,
@@ -453,7 +454,7 @@ impl BaseClient {
         processors::e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
             context,
             self.olm_machine().await.as_ref(),
-            &_new_user_ids,
+            &new_user_ids,
             room_info.encryption_state(),
             room.encryption_state(),
             room_id,
