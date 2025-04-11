@@ -40,6 +40,9 @@ All notable changes to this project will be documented in this file.
   This allows for example to make the difference between an event sent in clear and an event successfully decrypted.
   For quick compatibility a helper `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
 
+- Add WidgetDriver support for to-device messages. This allows widgets to send and receive encrypted/unencrypted to-device
+  messages via the parent client as defined in [MSC3819](https://github.com/matrix-org/matrix-spec-proposals/pull/3819).
+
 - [**breaking**] Add support for the shared history flag defined in
   [MSC3061](https://github.com/matrix-org/matrix-spec-proposals/pull/3061).
   The shared history flag is now respected when room keys are received as an
