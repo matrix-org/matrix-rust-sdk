@@ -75,11 +75,11 @@ use crate::{
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
         PendingChanges, Result as StoreResult, RoomKeyInfo, RoomSettings, SecretImportError, Store,
-        StoreCache, StoreTransaction,
+        StoreCache, StoreTransaction, StoredRoomKeyBundleData,
     },
     types::{
         events::{
-            olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyEvent},
+            olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyBundleEvent, DecryptedRoomKeyEvent},
             room::encrypted::{
                 EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
@@ -1183,6 +1183,9 @@ impl OlmMachine {
             }
             AnyDecryptedOlmEvent::Dummy(_) => {
                 debug!("Received an `m.dummy` event");
+            }
+            AnyDecryptedOlmEvent::RoomKeyBundle(e) => {
+                debug!("Received a room key bundle event {:?}", e);
             }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
