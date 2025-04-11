@@ -346,8 +346,11 @@ impl Room {
     ///
     /// * `content` - The content of the event to send encoded as JSON string.
     pub async fn send_raw(&self, event_type: String, content: String) -> Result<(), ClientError> {
-        let content_json: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| ClientError::Generic { msg: format!("Failed to parse JSON: {e}") })?;
+        let content_json: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| ClientError::Generic {
+                msg: format!("Failed to parse JSON: {e}"),
+                details: Some(format!("{e:?}")),
+            })?;
 
         self.inner.send_raw(&event_type, content_json).await?;
 
@@ -404,9 +407,7 @@ impl Room {
             .report_content(
                 EventId::parse(event_id)?,
                 score.map(TryFrom::try_from).transpose().map_err(
-                    |error: TryFromReportedContentScoreError| ClientError::Generic {
-                        msg: error.to_string(),
-                    },
+                    |error: TryFromReportedContentScoreError| ClientError::from_err(error),
                 )?,
                 reason,
             )
@@ -689,10 +690,7 @@ impl Room {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        self.inner
-            .update_power_levels(updates)
-            .await
-            .map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+        self.inner.update_power_levels(updates).await.map_err(ClientError::from_err)?;
         Ok(())
     }
 

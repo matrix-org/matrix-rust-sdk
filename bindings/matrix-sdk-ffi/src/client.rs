@@ -486,7 +486,7 @@ impl Client {
                 auth_session,
                 room_load_settings
                     .try_into()
-                    .map_err(|error| ClientError::Generic { msg: error })?,
+                    .map_err(|error| ClientError::from_str(error, None))?,
             )
             .await?;
         self.inner.set_sliding_sync_version(sliding_sync_version.try_into()?);
@@ -525,7 +525,7 @@ impl Client {
             loop {
                 match subscriber.recv().await {
                     Ok(report) => listener
-                        .on_error(report.room_id.to_string(), ClientError::new(report.error)),
+                        .on_error(report.room_id.to_string(), ClientError::from_err(report.error)),
                     Err(err) => {
                         error!("error when listening to the send queue error reporter: {err}");
                     }
@@ -1519,7 +1519,8 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
                 Err(e) => {
                     return Err(ClientError::Generic {
                         msg: format!("Failed to serialize power levels, error: {e}"),
-                    })
+                        details: Some(format!("{e:?}")),
+                    });
                 }
             }
         }

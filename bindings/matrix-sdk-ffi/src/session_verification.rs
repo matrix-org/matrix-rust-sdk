@@ -94,7 +94,7 @@ impl SessionVerificationController {
             .encryption
             .get_verification_request(&sender_id, flow_id)
             .await
-            .ok_or(ClientError::new("Unknown session verification request"))?;
+            .ok_or(ClientError::from_str("Unknown session verification request", None))?;
 
         self.set_ongoing_verification_request(verification_request)
     }
@@ -131,10 +131,10 @@ impl SessionVerificationController {
             .encryption
             .get_user_identity(&user_id)
             .await?
-            .ok_or(ClientError::new("Unknown user identity"))?;
+            .ok_or(ClientError::from_str("Unknown user identity", None))?;
 
         if user_identity.is_verified() {
-            return Err(ClientError::new("User is already verified"));
+            return Err(ClientError::from_str("User is already verified", None));
         }
 
         let methods = vec![VerificationMethod::SasV1];
@@ -153,7 +153,7 @@ impl SessionVerificationController {
         let verification_request = self.verification_request.read().unwrap().clone();
 
         let Some(verification_request) = verification_request else {
-            return Err(ClientError::new("Verification request missing."));
+            return Err(ClientError::from_str("Verification request missing.", None));
         };
 
         match verification_request.start_sas().await {
@@ -183,7 +183,7 @@ impl SessionVerificationController {
         let sas_verification = self.sas_verification.read().unwrap().clone();
 
         let Some(sas_verification) = sas_verification else {
-            return Err(ClientError::new("SAS verification missing"));
+            return Err(ClientError::from_str("SAS verification missing", None));
         };
 
         Ok(sas_verification.confirm().await?)
@@ -194,7 +194,7 @@ impl SessionVerificationController {
         let sas_verification = self.sas_verification.read().unwrap().clone();
 
         let Some(sas_verification) = sas_verification else {
-            return Err(ClientError::new("SAS verification missing"));
+            return Err(ClientError::from_str("SAS verification missing", None));
         };
 
         Ok(sas_verification.mismatch().await?)
@@ -205,7 +205,7 @@ impl SessionVerificationController {
         let verification_request = self.verification_request.read().unwrap().clone();
 
         let Some(verification_request) = verification_request else {
-            return Err(ClientError::new("Verification request missing."));
+            return Err(ClientError::from_str("Verification request missing.", None));
         };
 
         Ok(verification_request.cancel().await?)
@@ -285,7 +285,10 @@ impl SessionVerificationController {
             if !ongoing_verification_request.is_done()
                 && !ongoing_verification_request.is_cancelled()
             {
-                return Err(ClientError::new("There is another verification flow ongoing."));
+                return Err(ClientError::from_str(
+                    "There is another verification flow ongoing.",
+                    None,
+                ));
             }
         }
 
