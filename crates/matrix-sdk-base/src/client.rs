@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    fmt, iter,
+    fmt,
     ops::Deref,
 };
 
@@ -38,10 +38,9 @@ use ruma::{
     events::{
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::member::SyncRoomMemberEvent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, StateEvent, StateEventType,
+        AnySyncEphemeralRoomEvent, StateEvent, StateEventType,
     },
-    push::{Action, Ruleset},
-    serde::Raw,
+    push::Ruleset,
     time::Instant,
     OwnedRoomId, OwnedUserId, RoomId,
 };
@@ -53,20 +52,20 @@ use tracing::{debug, info, instrument};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent},
+    deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
     response_processors::{self as processors, Context},
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
-        Room, RoomInfo, RoomState,
+        Room, RoomState,
     },
     store::{
         ambiguity_map::AmbiguityCache, BaseStateStore, DynStateStore, MemoryStore,
         Result as StoreResult, RoomLoadSettings, StateChanges, StateStoreDataKey,
         StateStoreDataValue, StateStoreExt, StoreConfig,
     },
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, SyncResponse},
     RoomStateFilter, SessionMeta,
 };
 
@@ -365,65 +364,6 @@ impl BaseClient {
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
         self.state_store.sync_token.read().await.clone()
-    }
-
-    /// Handles the stripped state events in `invite_state`, modifying the
-    /// room's info and posting notifications as needed.
-    ///
-    /// * `room` - The [`Room`] to modify.
-    /// * `events` - The contents of `invite_state` in the form of list of pairs
-    ///   of raw stripped state events with their deserialized counterpart.
-    /// * `push_rules` - The push rules for this room.
-    /// * `room_info` - The current room's info.
-    /// * `changes` - The accumulated list of changes to apply once the
-    ///   processing is finished.
-    /// * `notifications` - Notifications to post for the current room.
-    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
-    pub(crate) async fn handle_invited_state(
-        &self,
-        context: &mut Context,
-        room: &Room,
-        events: (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>),
-        push_rules: &Ruleset,
-        room_info: &mut RoomInfo,
-        notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
-    ) -> Result<()> {
-        let mut state_events = BTreeMap::new();
-
-        for (raw_event, event) in iter::zip(events.0, events.1) {
-            room_info.handle_stripped_state_event(&event);
-            state_events
-                .entry(event.event_type())
-                .or_insert_with(BTreeMap::new)
-                .insert(event.state_key().to_owned(), raw_event);
-        }
-
-        context
-            .state_changes
-            .stripped_state
-            .insert(room_info.room_id().to_owned(), state_events.clone());
-
-        // We need to check for notifications after we have handled all state
-        // events, to make sure we have the full push context.
-        if let Some(push_context) =
-            processors::timeline::get_push_room_context(context, room, room_info, &self.state_store)
-                .await?
-        {
-            // Check every event again for notification.
-            for event in state_events.values().flat_map(|map| map.values()) {
-                let actions = push_rules.get_actions(event, &push_context);
-                if actions.iter().any(Action::should_notify) {
-                    notifications.entry(room.room_id().to_owned()).or_default().push(
-                        Notification {
-                            actions: actions.to_owned(),
-                            event: RawAnySyncOrStrippedTimelineEvent::Stripped(event.clone()),
-                        },
-                    );
-                }
-            }
-        }
-
-        Ok(())
     }
 
     /// User has knocked on a room.
@@ -820,7 +760,7 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
             );
 
-            let invite_state = processors::state_events::stripped::collect(
+            let (raw_events, events) = processors::state_events::stripped::collect(
                 &mut context,
                 &new_info.invite_state.events,
             );
@@ -829,13 +769,14 @@ impl BaseClient {
             room_info.mark_as_invited();
             room_info.mark_state_fully_synced();
 
-            self.handle_invited_state(
+            processors::state_events::stripped::dispatch_invite_or_knock(
                 &mut context,
+                (&raw_events, &events),
                 &room,
-                invite_state,
-                &push_rules,
                 &mut room_info,
+                &push_rules,
                 &mut notifications,
+                &self.state_store,
             )
             .await?;
 
@@ -851,7 +792,7 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
             );
 
-            let knock_state = processors::state_events::stripped::collect(
+            let (raw_events, events) = processors::state_events::stripped::collect(
                 &mut context,
                 &new_info.knock_state.events,
             );
@@ -860,18 +801,18 @@ impl BaseClient {
             room_info.mark_as_knocked();
             room_info.mark_state_fully_synced();
 
-            self.handle_invited_state(
+            processors::state_events::stripped::dispatch_invite_or_knock(
                 &mut context,
+                (&raw_events, &events),
                 &room,
-                knock_state,
-                &push_rules,
                 &mut room_info,
+                &push_rules,
                 &mut notifications,
+                &self.state_store,
             )
             .await?;
 
             context.state_changes.add_room(room_info);
-
             new_rooms.knocked.insert(room_id, new_info);
         }
 

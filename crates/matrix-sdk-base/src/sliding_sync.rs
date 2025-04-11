@@ -405,14 +405,15 @@ impl BaseClient {
         let push_rules = self.get_push_rules(global_account_data_processor).await?;
 
         // This will be used for both invited and knocked rooms.
-        if let Some(invite_state) = invite_state_events {
-            self.handle_invited_state(
+        if let Some((raw_events, events)) = invite_state_events {
+            processors::state_events::stripped::dispatch_invite_or_knock(
                 context,
+                (&raw_events, &events),
                 &room,
-                invite_state,
-                &push_rules,
                 &mut room_info,
+                &push_rules,
                 notifications,
+                &self.state_store,
             )
             .await?;
         }
