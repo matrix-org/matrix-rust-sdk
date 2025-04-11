@@ -39,7 +39,7 @@ mod settings;
 
 pub use self::{
     capabilities::{Capabilities, CapabilitiesProvider},
-    filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
+    filter::{Filter, MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
     settings::{
         ClientProperties, EncryptionSystem, Intent, VirtualElementCallWidgetOptions, WidgetSettings,
     },
@@ -67,6 +67,8 @@ pub struct WidgetDriver {
     ///
     /// Only set if a subscription happened ([`Action::Subscribe`]).
     event_forwarding_guard: Option<DropGuard>,
+    /// JoinHandle for the matrix event subscribe task.
+    matrix_subscribe_join_handle: Option<matrix_sdk_common::executor::JoinHandle<()>>,
 }
 
 /// A handle that encapsulates the communication between a widget driver and the
@@ -115,7 +117,13 @@ impl WidgetDriver {
         let (from_widget_tx, from_widget_rx) = async_channel::unbounded();
         let (to_widget_tx, to_widget_rx) = async_channel::unbounded();
 
-        let driver = Self { settings, from_widget_rx, to_widget_tx, event_forwarding_guard: None };
+        let driver = Self {
+            settings,
+            from_widget_rx,
+            to_widget_tx,
+            event_forwarding_guard: None,
+            matrix_subscribe_join_handle: None,
+        };
         let channels = WidgetDriverHandle { from_widget_tx, to_widget_rx };
 
         (driver, channels)
@@ -139,7 +147,8 @@ impl WidgetDriver {
         let (incoming_msg_tx, mut incoming_msg_rx) = unbounded_channel();
 
         // Forward all of the incoming messages from the widget.
-        tokio::spawn({
+        // Store `_handle` to not interrupt the spawned task on wasm.
+        let _handle = matrix_sdk_common::executor::spawn({
             let incoming_msg_tx = incoming_msg_tx.clone();
             let from_widget_rx = self.from_widget_rx.clone();
             async move {
@@ -235,6 +244,17 @@ impl WidgetDriver {
                         .update_delayed_event(req.delay_id, req.action)
                         .await
                         .map(MatrixDriverResponse::MatrixDelayedEventUpdate),
+
+                    MatrixDriverRequestData::SendToDeviceEvent(send_to_device_request) => {
+                        matrix_driver
+                            .send_to_device(
+                                send_to_device_request.event_type,
+                                send_to_device_request.encrypted,
+                                send_to_device_request.messages,
+                            )
+                            .await
+                            .map(MatrixDriverResponse::MatrixToDeviceSent)
+                    }
                 };
 
                 // Forward the matrix driver response to the incoming message stream.
@@ -253,27 +273,33 @@ impl WidgetDriver {
                     let token = CancellationToken::new();
                     (token.child_token(), token.drop_guard())
                 };
-
-                self.event_forwarding_guard = Some(guard);
-
-                let mut matrix = matrix_driver.events();
+                let mut timeline_receiver = matrix_driver.events();
+                let mut to_device_receiver = matrix_driver.to_device_events();
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
-                tokio::spawn(async move {
+                // Keep a reference to the join handle, otherwise the wasm version of
+                // [`matrix_sdk_common::executor::spawn`] will stop the execution
+                // of the task when the handle is dropped.
+                // For tokio::spawn (non wasm) a reference to the handle is not needed.
+                let handle = matrix_sdk_common::executor::spawn(async move {
                     loop {
                         tokio::select! {
                             _ = stop_forwarding.cancelled() => {
-                                // Upon cancellation, stop this task.
                                 return;
                             }
 
-                            Some(event) = matrix.recv() => {
-                                // Forward all events to the incoming messages stream.
+                            Some(event) = timeline_receiver.recv() => {
                                 let _ = incoming_msg_tx.send(IncomingMessage::MatrixEventReceived(event));
+                            }
+
+                            Some(event) = to_device_receiver.recv() => {
+                                let _ = incoming_msg_tx.send(IncomingMessage::ToDeviceReceived(event));
                             }
                         }
                     }
                 });
+                self.matrix_subscribe_join_handle = Some(handle);
+                self.event_forwarding_guard = Some(guard);
             }
 
             Action::Unsubscribe => {
