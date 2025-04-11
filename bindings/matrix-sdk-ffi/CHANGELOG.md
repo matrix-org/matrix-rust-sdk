@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+Additions:
+
+- Add room topic string to `StateEventContent`
+
 ## [0.11.0] - 2025-04-11
 
 Breaking changes:
@@ -20,7 +24,7 @@ Breaking changes:
   programs can set it to `true`.
 
 - Matrix client API errors coming from API responses will now be mapped to `ClientError::MatrixApi`, containing both the
-  original message and the associated error code and kind. 
+  original message and the associated error code and kind.
 
 - `EventSendState` now has two additional variants: `CrossSigningNotSetup` and
   `SendingFromUnverifiedDevice`. These indicate that your own device is not

@@ -83,7 +83,7 @@ pub enum StateEventContent {
     RoomServerAcl,
     RoomThirdPartyInvite,
     RoomTombstone,
-    RoomTopic,
+    RoomTopic { topic: String },
     SpaceChild,
     SpaceParent,
 }
@@ -118,7 +118,11 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             AnySyncStateEvent::RoomServerAcl(_) => StateEventContent::RoomServerAcl,
             AnySyncStateEvent::RoomThirdPartyInvite(_) => StateEventContent::RoomThirdPartyInvite,
             AnySyncStateEvent::RoomTombstone(_) => StateEventContent::RoomTombstone,
-            AnySyncStateEvent::RoomTopic(_) => StateEventContent::RoomTopic,
+            AnySyncStateEvent::RoomTopic(content) => {
+                let content = get_state_event_original_content(content)?;
+
+                StateEventContent::RoomTopic { topic: content.topic }
+            }
             AnySyncStateEvent::SpaceChild(_) => StateEventContent::SpaceChild,
             AnySyncStateEvent::SpaceParent(_) => StateEventContent::SpaceParent,
             _ => bail!("Unsupported state event"),
