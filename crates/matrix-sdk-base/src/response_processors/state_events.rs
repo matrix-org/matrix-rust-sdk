@@ -18,10 +18,7 @@ use std::{
 };
 
 use ruma::{
-    events::{
-        room::member::MembershipState, AnyStrippedStateEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent,
-    },
+    events::{room::member::MembershipState, AnySyncStateEvent},
     serde::Raw,
     OwnedUserId,
 };
@@ -34,35 +31,51 @@ use crate::{
     RoomInfo,
 };
 
-/// Collect sync state events and map them with their deserialized form.
-pub fn collect_sync(
-    _context: &mut Context,
-    raw_events: &[Raw<AnySyncStateEvent>],
-) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
-    collect(raw_events)
+/// Collect [`AnySyncStateEvent`].
+pub mod sync {
+    use ruma::events::AnySyncTimelineEvent;
+
+    use super::{AnySyncStateEvent, Context, Raw};
+
+    /// Collect [`AnySyncStateEvent`] to [`AnySyncStateEvent`].
+    pub fn collect(
+        _context: &mut Context,
+        raw_events: &[Raw<AnySyncStateEvent>],
+    ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
+        super::collect(raw_events)
+    }
+
+    /// Collect [`AnySyncTimelineEvent`] to [`AnySyncStateEvent`].
+    ///
+    /// A [`AnySyncTimelineEvent`] can represent either message-like events or
+    /// state events. The message-like events are filtered out.
+    pub fn collect_from_timeline(
+        _context: &mut Context,
+        raw_events: &[Raw<AnySyncTimelineEvent>],
+    ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
+        super::collect(raw_events.iter().filter_map(|raw_event| {
+            // Only state events have a `state_key` field.
+            match raw_event.get_field::<&str>("state_key") {
+                Ok(Some(_)) => Some(raw_event.cast_ref()),
+                _ => None,
+            }
+        }))
+    }
 }
 
-/// Collect stripped state events and map them with their deserialized form.
-pub fn collect_stripped(
-    _context: &mut Context,
-    raw_events: &[Raw<AnyStrippedStateEvent>],
-) -> (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>) {
-    collect(raw_events)
-}
+/// Collect [`AnyStrippedStateEvent`].
+pub mod stripped {
+    use ruma::events::AnyStrippedStateEvent;
 
-/// Collect sync timeline event, filter the sync state events, and map them with
-/// their deserialized form.
-pub fn collect_sync_from_timeline(
-    _context: &mut Context,
-    raw_events: &[Raw<AnySyncTimelineEvent>],
-) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
-    collect(raw_events.iter().filter_map(|raw_event| {
-        // State events have a `state_key` field.
-        match raw_event.get_field::<&str>("state_key") {
-            Ok(Some(_)) => Some(raw_event.cast_ref()),
-            _ => None,
-        }
-    }))
+    use super::{Context, Raw};
+
+    /// Collect [`AnyStrippedStateEvent`] to [`AnyStrippedStateEvent`].
+    pub fn collect(
+        _context: &mut Context,
+        raw_events: &[Raw<AnyStrippedStateEvent>],
+    ) -> (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>) {
+        super::collect(raw_events)
+    }
 }
 
 fn collect<'a, I, T>(raw_events: I) -> (Vec<Raw<T>>, Vec<T>)

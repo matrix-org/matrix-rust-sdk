@@ -369,7 +369,7 @@ impl BaseClient {
         // incomplete or staled already. We must only read state events from
         // `required_state`.
         let (raw_state_events, state_events) =
-            processors::state_events::collect_sync(context, &room_data.required_state);
+            processors::state_events::sync::collect(context, &room_data.required_state);
 
         // Find or create the room in the store
         let is_new_room = !state_store.room_exists(room_id);
@@ -377,7 +377,7 @@ impl BaseClient {
         let invite_state_events = room_data
             .invite_state
             .as_ref()
-            .map(|events| processors::state_events::collect_stripped(context, events));
+            .map(|events| processors::state_events::stripped::collect(context, events));
 
         #[allow(unused_mut)] // Required for some feature flag combinations
         let (mut room, mut room_info, invited_room, knocked_room) = self

@@ -614,7 +614,7 @@ impl BaseClient {
             room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
             let (raw_state_events, state_events) =
-                processors::state_events::collect_sync(&mut context, &new_info.state.events);
+                processors::state_events::sync::collect(&mut context, &new_info.state.events);
 
             let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
                 &mut context,
@@ -646,7 +646,7 @@ impl BaseClient {
             }
 
             let (raw_state_events_from_timeline, state_events_from_timeline) =
-                processors::state_events::collect_sync_from_timeline(
+                processors::state_events::sync::collect_from_timeline(
                     &mut context,
                     &new_info.timeline.events,
                 );
@@ -743,7 +743,7 @@ impl BaseClient {
             room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
 
             let (raw_state_events, state_events) =
-                processors::state_events::collect_sync(&mut context, &new_info.state.events);
+                processors::state_events::sync::collect(&mut context, &new_info.state.events);
 
             let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
                 &mut context,
@@ -754,7 +754,7 @@ impl BaseClient {
             .await?;
 
             let (raw_state_events_from_timeline, state_events_from_timeline) =
-                processors::state_events::collect_sync_from_timeline(
+                processors::state_events::sync::collect_from_timeline(
                     &mut context,
                     &new_info.timeline.events,
                 );
@@ -818,7 +818,7 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
             );
 
-            let invite_state = processors::state_events::collect_stripped(
+            let invite_state = processors::state_events::stripped::collect(
                 &mut context,
                 &new_info.invite_state.events,
             );
@@ -849,7 +849,7 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
             );
 
-            let knock_state = processors::state_events::collect_stripped(
+            let knock_state = processors::state_events::stripped::collect(
                 &mut context,
                 &new_info.knock_state.events,
             );
