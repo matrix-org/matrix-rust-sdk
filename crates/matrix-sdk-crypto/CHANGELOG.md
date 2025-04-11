@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Check the `sender_device_keys` field on *all* incoming Olm-encrypted to-device messages
+  and ignore any to-device messages which include the field but whose data is invalid
+  (as per [MSC4147](https://github.com/matrix-org/matrix-spec-proposals/pull/4147)).
+  ([#4922](https://github.com/matrix-org/matrix-rust-sdk/pull/4922))
+
 ## [0.11.0] - 2025-04-11
 
 ### Features
