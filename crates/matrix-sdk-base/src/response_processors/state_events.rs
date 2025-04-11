@@ -12,30 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    iter,
-};
-
-use ruma::{
-    events::{room::member::MembershipState, AnySyncStateEvent},
-    serde::Raw,
-    OwnedUserId,
-};
+use ruma::{events::AnySyncStateEvent, serde::Raw};
 use serde::Deserialize;
-use tracing::{instrument, warn};
+use tracing::warn;
 
-use super::{profiles, Context};
-use crate::{
-    store::{ambiguity_map::AmbiguityCache, Result as StoreResult},
-    RoomInfo,
-};
+use super::Context;
 
 /// Collect [`AnySyncStateEvent`].
 pub mod sync {
-    use ruma::events::AnySyncTimelineEvent;
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        iter,
+    };
 
-    use super::{AnySyncStateEvent, Context, Raw};
+    use ruma::{
+        events::{room::member::MembershipState, AnySyncTimelineEvent},
+        OwnedUserId,
+    };
+    use tracing::instrument;
+
+    use super::{super::profiles, AnySyncStateEvent, Context, Raw};
+    use crate::{
+        store::{ambiguity_map::AmbiguityCache, Result as StoreResult},
+        RoomInfo,
+    };
 
     /// Collect [`AnySyncStateEvent`] to [`AnySyncStateEvent`].
     pub fn collect(
@@ -60,6 +60,56 @@ pub mod sync {
                 _ => None,
             }
         }))
+    }
+
+    /// Dispatch the state events and return the new users for this room.
+    ///
+    /// `raw_events` and `events` must be generated from [`collect_sync`].
+    /// Events must be exactly the same list of events that are in
+    /// raw_events, but deserialised. We demand them here to avoid
+    /// deserialising multiple times.
+    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
+    pub async fn dispatch_and_get_new_users(
+        context: &mut Context,
+        (raw_events, events): (&[Raw<AnySyncStateEvent>], &[AnySyncStateEvent]),
+        room_info: &mut RoomInfo,
+        ambiguity_cache: &mut AmbiguityCache,
+    ) -> StoreResult<BTreeSet<OwnedUserId>> {
+        let mut user_ids = BTreeSet::new();
+
+        if raw_events.is_empty() {
+            return Ok(user_ids);
+        }
+
+        let mut state_events = BTreeMap::new();
+
+        for (raw_event, event) in iter::zip(raw_events, events) {
+            room_info.handle_state_event(event);
+
+            if let AnySyncStateEvent::RoomMember(member) = event {
+                ambiguity_cache
+                    .handle_event(&context.state_changes, &room_info.room_id, member)
+                    .await?;
+
+                match member.membership() {
+                    MembershipState::Join | MembershipState::Invite => {
+                        user_ids.insert(member.state_key().to_owned());
+                    }
+                    _ => (),
+                }
+
+                profiles::upsert_or_delete(context, &room_info.room_id, member);
+            }
+
+            state_events
+                .entry(event.event_type())
+                .or_insert_with(BTreeMap::new)
+                .insert(event.state_key().to_owned(), raw_event.clone());
+        }
+
+        context.state_changes.state.insert(room_info.room_id.clone(), state_events);
+
+        Ok(user_ids)
     }
 }
 
@@ -93,53 +143,4 @@ where
             }
         })
         .unzip()
-}
-
-/// Dispatch the state events and return the new users for this room.
-///
-/// `raw_events` and `events` must be generated from [`collect_sync`]. Events
-/// must be exactly the same list of events that are in raw_events, but
-/// deserialised. We demand them here to avoid deserialising multiple times.
-#[instrument(skip_all, fields(room_id = ?room_info.room_id))]
-pub async fn dispatch_and_get_new_users(
-    context: &mut Context,
-    (raw_events, events): (&[Raw<AnySyncStateEvent>], &[AnySyncStateEvent]),
-    room_info: &mut RoomInfo,
-    ambiguity_cache: &mut AmbiguityCache,
-) -> StoreResult<BTreeSet<OwnedUserId>> {
-    let mut user_ids = BTreeSet::new();
-
-    if raw_events.is_empty() {
-        return Ok(user_ids);
-    }
-
-    let mut state_events = BTreeMap::new();
-
-    for (raw_event, event) in iter::zip(raw_events, events) {
-        room_info.handle_state_event(event);
-
-        if let AnySyncStateEvent::RoomMember(member) = event {
-            ambiguity_cache
-                .handle_event(&context.state_changes, &room_info.room_id, member)
-                .await?;
-
-            match member.membership() {
-                MembershipState::Join | MembershipState::Invite => {
-                    user_ids.insert(member.state_key().to_owned());
-                }
-                _ => (),
-            }
-
-            profiles::upsert_or_delete(context, &room_info.room_id, member);
-        }
-
-        state_events
-            .entry(event.event_type())
-            .or_insert_with(BTreeMap::new)
-            .insert(event.state_key().to_owned(), raw_event.clone());
-    }
-
-    context.state_changes.state.insert(room_info.room_id.clone(), state_events);
-
-    Ok(user_ids)
 }

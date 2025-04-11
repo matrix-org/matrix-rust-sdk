@@ -616,7 +616,7 @@ impl BaseClient {
             let (raw_state_events, state_events) =
                 processors::state_events::sync::collect(&mut context, &new_info.state.events);
 
-            let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
+            let mut new_user_ids = processors::state_events::sync::dispatch_and_get_new_users(
                 &mut context,
                 (&raw_state_events, &state_events),
                 &mut room_info,
@@ -651,13 +651,14 @@ impl BaseClient {
                     &new_info.timeline.events,
                 );
 
-            let mut other_new_user_ids = processors::state_events::dispatch_and_get_new_users(
-                &mut context,
-                (&raw_state_events_from_timeline, &state_events_from_timeline),
-                &mut room_info,
-                &mut ambiguity_cache,
-            )
-            .await?;
+            let mut other_new_user_ids =
+                processors::state_events::sync::dispatch_and_get_new_users(
+                    &mut context,
+                    (&raw_state_events_from_timeline, &state_events_from_timeline),
+                    &mut room_info,
+                    &mut ambiguity_cache,
+                )
+                .await?;
             new_user_ids.append(&mut other_new_user_ids);
             updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
 
@@ -745,7 +746,7 @@ impl BaseClient {
             let (raw_state_events, state_events) =
                 processors::state_events::sync::collect(&mut context, &new_info.state.events);
 
-            let mut new_user_ids = processors::state_events::dispatch_and_get_new_users(
+            let mut new_user_ids = processors::state_events::sync::dispatch_and_get_new_users(
                 &mut context,
                 (&raw_state_events, &state_events),
                 &mut room_info,
@@ -759,13 +760,14 @@ impl BaseClient {
                     &new_info.timeline.events,
                 );
 
-            let mut other_new_user_ids = processors::state_events::dispatch_and_get_new_users(
-                &mut context,
-                (&raw_state_events_from_timeline, &state_events_from_timeline),
-                &mut room_info,
-                &mut ambiguity_cache,
-            )
-            .await?;
+            let mut other_new_user_ids =
+                processors::state_events::sync::dispatch_and_get_new_users(
+                    &mut context,
+                    (&raw_state_events_from_timeline, &state_events_from_timeline),
+                    &mut room_info,
+                    &mut ambiguity_cache,
+                )
+                .await?;
             new_user_ids.append(&mut other_new_user_ids);
 
             let timeline = processors::timeline::build(

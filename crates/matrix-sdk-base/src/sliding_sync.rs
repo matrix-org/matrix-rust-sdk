@@ -394,7 +394,7 @@ impl BaseClient {
         room_info.handle_encryption_state(requested_required_states);
 
         #[cfg_attr(not(feature = "e2e-encryption"), allow(unused))]
-        let new_user_ids = processors::state_events::dispatch_and_get_new_users(
+        let new_user_ids = processors::state_events::sync::dispatch_and_get_new_users(
             context,
             (&raw_state_events, &state_events),
             &mut room_info,
