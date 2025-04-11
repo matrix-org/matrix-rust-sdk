@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.11.0] - 2025-04-11
+
 ### Features
 
 - Add a simple TTL cache implementation. The `TtlCache` struct can be used as a
@@ -14,9 +16,10 @@ All notable changes to this project will be documented in this file.
 
 ## [0.10.0] - 2025-02-04
 
-- [**breaking**]: `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
-  `TimelineEvent`, and its field `push_actions` has been made `Option`al (it is set to `None` when
-  we couldn't compute the push actions, because we lacked some information).
+- [**breaking**]: `SyncTimelineEvent` and `TimelineEvent` have been
+  fused into a single type `TimelineEvent`, and its field `push_actions`
+  has been made `Option`al (it is set to `None` when we couldn't
+  compute the push actions, because we lacked some information).
   ([#4568](https://github.com/matrix-org/matrix-rust-sdk/pull/4568))
 
 ## [0.9.0] - 2024-12-18
