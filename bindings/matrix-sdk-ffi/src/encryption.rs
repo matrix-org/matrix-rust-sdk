@@ -369,12 +369,8 @@ impl Encryption {
     /// Completely reset the current user's crypto identity: reset the cross
     /// signing keys, delete the existing backup and recovery key.
     pub async fn reset_identity(&self) -> Result<Option<Arc<IdentityResetHandle>>, ClientError> {
-        if let Some(reset_handle) = self
-            .inner
-            .recovery()
-            .reset_identity()
-            .await
-            .map_err(|e| ClientError::Generic { msg: e.to_string() })?
+        if let Some(reset_handle) =
+            self.inner.recovery().reset_identity().await.map_err(ClientError::from_err)?
         {
             return Ok(Some(Arc::new(IdentityResetHandle { inner: reset_handle })));
         }
@@ -541,12 +537,9 @@ impl IdentityResetHandle {
     /// 4. Finally, re-enable key backups only if they were enabled before
     pub async fn reset(&self, auth: Option<AuthData>) -> Result<(), ClientError> {
         if let Some(auth) = auth {
-            self.inner
-                .reset(Some(auth.into()))
-                .await
-                .map_err(|e| ClientError::Generic { msg: e.to_string() })
+            self.inner.reset(Some(auth.into())).await.map_err(ClientError::from_err)
         } else {
-            self.inner.reset(None).await.map_err(|e| ClientError::Generic { msg: e.to_string() })
+            self.inner.reset(None).await.map_err(ClientError::from_err)
         }
     }
 

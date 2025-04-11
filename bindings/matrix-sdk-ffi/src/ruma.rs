@@ -258,10 +258,10 @@ pub(crate) impl MediaSourceExt for RumaMediaSource {
     fn verify(&self) -> Result<(), ClientError> {
         match self {
             RumaMediaSource::Plain(url) => {
-                url.validate().map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+                url.validate().map_err(ClientError::from_err)?;
             }
             RumaMediaSource::Encrypted(file) => {
-                file.url.validate().map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+                file.url.validate().map_err(ClientError::from_err)?;
             }
         }
 
