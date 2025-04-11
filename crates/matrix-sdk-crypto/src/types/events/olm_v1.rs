@@ -152,7 +152,7 @@ impl AnyDecryptedOlmEvent {
     /// The sender's device keys, if supplied in the message as per MSC4147
     pub fn sender_device_keys(&self) -> Option<&DeviceKeys> {
         match self {
-            AnyDecryptedOlmEvent::Custom(_) => None,
+            AnyDecryptedOlmEvent::Custom(e) => e.sender_device_keys.as_ref(),
             AnyDecryptedOlmEvent::RoomKey(e) => e.sender_device_keys.as_ref(),
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.sender_device_keys.as_ref(),
             AnyDecryptedOlmEvent::SecretSend(e) => e.sender_device_keys.as_ref(),
@@ -274,6 +274,9 @@ pub struct ToDeviceCustomEvent {
     pub keys: OlmV1Keys,
     /// The recipient's signing keys of the encrypted event.
     pub recipient_keys: OlmV1Keys,
+    /// The device keys if supplied as per MSC4147
+    #[serde(alias = "org.matrix.msc4147.device_keys")]
+    pub sender_device_keys: Option<DeviceKeys>,
     /// The type of the event.
     #[serde(rename = "type")]
     pub event_type: String,

@@ -24,12 +24,17 @@ use ruma::{
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEvent},
     user_id, DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch,
 };
+use serde_json::json;
 use vodozemac::Ed25519SecretKey;
 
 use crate::{
     machine::{
-        test_helpers::{create_session, get_machine_pair, get_machine_pair_with_session},
+        test_helpers::{
+            create_session, get_machine_pair, get_machine_pair_with_session,
+            get_machine_pair_with_setup_sessions_test_helper,
+        },
         tests,
+        tests::megolm_sender_data::receive_to_device_event,
     },
     olm::utility::SignJson,
     store::Changes,
@@ -241,4 +246,53 @@ async fn test_olm_encryption() {
 #[async_test]
 async fn test_olm_encryption_with_fallback_key() {
     olm_encryption_test_helper(true).await;
+}
+
+/// Encrypted to-device messages which hold a `sender_device_keys`, but that
+/// data is unsigned, should not be decrypted.
+#[async_test]
+async fn test_decrypt_to_device_message_with_unsigned_sender_keys() {
+    let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
+        tests::alice_id(),
+        tests::user_id(),
+        false,
+    )
+    .await;
+
+    let mut alice_session = alice
+        .get_device(bob.user_id(), bob.device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .get_most_recent_session()
+        .await
+        .unwrap()
+        .unwrap();
+
+    let mut malformed_device_keys = alice_session.our_device_keys.clone();
+    malformed_device_keys.signatures.clear();
+    let plaintext = serde_json::to_string(&json!({
+        "sender": alice.user_id(),
+        "sender_device": alice.device_id(),
+        "keys": { "ed25519": alice.identity_keys().ed25519.to_base64() },
+        "recipient": bob.user_id(),
+        "recipient_keys": { "ed25519": bob.identity_keys().ed25519.to_base64() },
+        "type": "org.matrix.test",
+        "content": {"a": "b"},
+        "sender_device_keys": malformed_device_keys,
+    }))
+    .unwrap();
+
+    let ciphertext = alice_session.encrypt_helper(&plaintext).await;
+    let event = ToDeviceEvent::new(
+        alice.user_id().to_owned(),
+        alice_session.build_encrypted_event(ciphertext, None).await.unwrap(),
+    );
+
+    // Bob receives the to-device message
+    let (to_device_events, _) = receive_to_device_event(&bob, &event).await;
+
+    // The to-device event should remain decrypted.
+    let event = to_device_events.first().expect("Bob did not get a to-device event");
+    assert_eq!(event.get_field("type").unwrap(), Some("m.room.encrypted"));
 }

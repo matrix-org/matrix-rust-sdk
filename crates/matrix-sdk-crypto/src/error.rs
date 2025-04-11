@@ -207,6 +207,14 @@ pub enum EventError {
         decrypted event: expected {0}, got {1:?}"
     )]
     MismatchedRoom(OwnedRoomId, Option<OwnedRoomId>),
+
+    /// The event includes `sender_device_keys` as per [MSC4147], but the
+    /// signature was invalid, or the ed25519 or curve25519 key did not
+    /// match other data in the event.
+    ///
+    /// [MSC4147]: https://github.com/matrix-org/matrix-spec-proposals/pull/4147
+    #[error("the event included sender_device_keys which were invalid in some way")]
+    InvalidSenderDeviceKeys,
 }
 
 /// Error type describing different errors that can happen when we create an

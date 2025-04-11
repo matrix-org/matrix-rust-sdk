@@ -174,7 +174,10 @@ impl<'a> SenderDataFinder<'a> {
         if let Some(sender_device_keys) = &room_key_event.sender_device_keys {
             // Yes: use the device keys to continue.
 
-            // Validate the signature of the DeviceKeys supplied.
+            // Validate the signature of the DeviceKeys supplied. (We've actually already
+            // done this when decrypting the event, but doing it again here is
+            // relatively harmless and is the easiest way of getting hold of a
+            // DeviceData so that we can follow the rest of this logic).
             let sender_device_data = DeviceData::try_from(sender_device_keys)?;
             Ok(self.have_device_data(sender_device_data).await?)
         } else {
