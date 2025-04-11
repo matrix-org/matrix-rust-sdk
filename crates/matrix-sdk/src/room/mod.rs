@@ -2964,6 +2964,7 @@ impl Room {
     /// this room.
     pub async fn invite_details(&self) -> Result<Invite> {
         let state = self.state();
+
         if state != RoomState::Invited {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new("Invited", state))));
         }

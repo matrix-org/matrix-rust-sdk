@@ -23,6 +23,7 @@ matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 ratatui = { version = "0.29.0", features = ["unstable-widget-ref"] }
 throbber-widgets-tui = "0.8.0"
 tui-textarea = "0.7.0"
+tui-framework-experiment = "0.4.0"
 rpassword = "7.3.1"
 serde_json = { workspace = true }
 strum = { version = "0.27.1", features = ["derive"] }
