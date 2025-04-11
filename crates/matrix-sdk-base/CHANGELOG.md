@@ -40,6 +40,12 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `BaseClient::set_session_metadata` is renamed
   `activate`, and `BaseClient::logged_in` is renamed `is_activated`
   ([#4850](https://github.com/matrix-org/matrix-rust-sdk/pull/4850))
+- [**breaking] `DependentQueuedRequestKind::UploadFileWithThumbnail`
+  was renamed to `DependentQueuedRequestKind::UploadFileOrThumbnail`.
+  Under the `unstable-msc4274` feature, `DependentQueuedRequestKind::UploadFileOrThumbnail`
+  and `SentMediaInfo` were generalized to allow chaining multiple dependent
+  file / thumbnail uploads.
+  ([#4897](https://github.com/matrix-org/matrix-rust-sdk/pull/4897))
 
 ## [0.10.0] - 2025-02-04
 
