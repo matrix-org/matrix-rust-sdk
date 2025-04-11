@@ -47,7 +47,7 @@ pub async fn sync_timeline_event(
                 let timeline_event = TimelineEvent::from(decrypted);
 
                 if let Ok(sync_timeline_event) = timeline_event.raw().deserialize() {
-                    verification::process_if_candidate(
+                    verification::process_if_relevant(
                         context,
                         &sync_timeline_event,
                         verification_is_allowed,

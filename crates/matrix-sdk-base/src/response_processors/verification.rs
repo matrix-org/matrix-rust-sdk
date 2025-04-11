@@ -26,7 +26,7 @@ use crate::Result;
 
 /// Process the given event as a verification event if it is a candidate. The
 /// event must be decrypted.
-pub async fn process_if_candidate(
+pub async fn process_if_relevant(
     context: &mut Context,
     event: &AnySyncTimelineEvent,
     verification_is_allowed: bool,
