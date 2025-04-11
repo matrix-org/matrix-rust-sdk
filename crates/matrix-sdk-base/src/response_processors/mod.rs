@@ -16,6 +16,7 @@ pub mod account_data;
 pub mod changes;
 #[cfg(feature = "e2e-encryption")]
 pub mod e2ee;
+pub mod ephemeral_events;
 #[cfg(feature = "e2e-encryption")]
 pub mod latest_event;
 pub mod profiles;

@@ -32,7 +32,9 @@ use ruma::{
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UserId,
 };
-use tracing::{instrument, trace, warn};
+#[cfg(feature = "e2e-encryption")]
+use tracing::warn;
+use tracing::{instrument, trace};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -213,19 +215,7 @@ impl BaseClient {
         // so they may exist without any update for the associated room.
 
         for (room_id, raw) in &extensions.receipts.rooms {
-            match raw.deserialize() {
-                Ok(event) => {
-                    context.state_changes.add_receipts(room_id, event.content);
-                }
-                Err(e) => {
-                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    #[rustfmt::skip]
-                    warn!(
-                        ?room_id, event_id,
-                        "Failed to deserialize read receipt room event: {e}"
-                    );
-                }
-            }
+            processors::ephemeral_events::dispatch_one(&mut context, raw.cast_ref(), room_id);
 
             // We assume this can only happen in joined rooms, or something's very wrong.
             new_rooms
