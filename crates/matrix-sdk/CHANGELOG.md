@@ -6,21 +6,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.11.0] - 2025-04-11
+
 ### Features
 
 - `Room::load_or_fetch_event()` is a new method that will find an event in the event cache (if
   enabled), or using network like `Room::event()` does.
   ([#4837](https://github.com/matrix-org/matrix-rust-sdk/pull/4837))
-- [**breaking**]: The element call widget URL configuration struct (`VirtualElementCallWidgetOptions`) and URL generation
-  have changed.
+- [**breaking**]: The element call widget URL configuration struct
+  (`VirtualElementCallWidgetOptions`) and URL generation have changed.
   - It supports the new fields: `hide_screensharing`, `posthog_api_host`, `posthog_api_key`,
   `rageshake_submit_url`, `sentry_dsn`, `sentry_environment`.
   - The widget URL will no longer automatically add `/room` to the base domain. For backward compatibility
   the app itself would need to add `/room` to the `element_call_url`.
   - And replaced:
-    - `analytics_id` -> `posthog_user_id` (The widget URL query parameters will include `analytics_id` & `posthog_user_id`
-    for backward compatibility)
-    - `skip_lobby` -> `intent` (`Intent.StartCall`, `Intent.JoinExisting`. The widget URL query parameters will include `skip_lobby` if `intent` is `Intent.StartCall` for backward compatibility)
+    - `analytics_id` -> `posthog_user_id` (The widget URL query parameters will
+      include `analytics_id` & `posthog_user_id` for backward compatibility)
+    - `skip_lobby` -> `intent` (`Intent.StartCall`, `Intent.JoinExisting`.
+      The widget URL query parameters will include `skip_lobby` if `intent` is
+      `Intent.StartCall` for backward compatibility)
   - `VirtualElementCallWidgetOptions` now implements `Default`.
   ([#4822](https://github.com/matrix-org/matrix-rust-sdk/pull/4822))
 - [**breaking**]: The `RoomPagination::run_backwards` method has been removed and replaced by two
