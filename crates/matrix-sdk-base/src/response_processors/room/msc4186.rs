@@ -22,8 +22,8 @@ use ruma::{
     },
     assign,
     events::{
-        room::member::MembershipState, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, StateEventType,
+        room::member::{MembershipState, RoomMemberEventContent},
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, StateEventType,
     },
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UserId,
@@ -204,9 +204,9 @@ pub async fn update_any_room(
 
 /// Look through the sliding sync data for this room, find/create it in the
 /// store, and process any invite information.
-/// If any invite state events exist, we take it to mean that we are invited to
-/// this room, unless that state contains membership events that specify
-/// otherwise. https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#room-list-parameters
+///
+/// If there is any invite state events, the room can be considered an invited
+/// or knocked room, depending of the membership event (if any).
 fn membership(
     context: &mut Context,
     state_events: &[AnySyncStateEvent],
@@ -217,14 +217,16 @@ fn membership(
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     session_meta: Option<&SessionMeta>,
 ) -> (Room, RoomInfo, Option<RoomUpdateKind>) {
+    // There are invite state events. It means the room can be:
+    //
+    // 1. either an invited room,
+    // 2. or a knocked room.
+    //
+    // Let's find out.
     if let Some(state_events) = invite_state_events {
-        let room =
-            store.get_or_create_room(room_id, RoomState::Invited, room_info_notable_update_sender);
-        let mut room_info = room.clone_info();
-
         // We need to find the membership event since it could be for either an invited
-        // or knocked room
-        let membership_event_content = state_events.1.iter().find_map(|event| {
+        // or knocked room.
+        let membership_event = state_events.1.iter().find_map(|event| {
             if let AnyStrippedStateEvent::RoomMember(membership_event) = event {
                 if membership_event.state_key == user_id {
                     return Some(membership_event.content.clone());
@@ -233,23 +235,46 @@ fn membership(
             None
         });
 
-        if let Some(membership_event_content) = membership_event_content {
-            if membership_event_content.membership == MembershipState::Knock {
-                // If we have a `Knock` membership state, set the room as such
+        match membership_event {
+            // There is a membership event indicating it's a knocked room.
+            Some(RoomMemberEventContent { membership: MembershipState::Knock, .. }) => {
+                let room = store.get_or_create_room(
+                    room_id,
+                    RoomState::Knocked,
+                    room_info_notable_update_sender,
+                );
+                let mut room_info = room.clone_info();
+                // Override the room state if the room already exists.
                 room_info.mark_as_knocked();
+
                 let raw_events = state_events.0.clone();
                 let knock_state = assign!(KnockState::default(), { events: raw_events });
                 let knocked_room = assign!(KnockedRoom::default(), { knock_state: knock_state });
-                return (room, room_info, Some(RoomUpdateKind::Knocked(knocked_room)));
+
+                (room, room_info, Some(RoomUpdateKind::Knocked(knocked_room)))
+            }
+
+            // Otherwise, assume it's an invited room because there are invite state events.
+            _ => {
+                let room = store.get_or_create_room(
+                    room_id,
+                    RoomState::Invited,
+                    room_info_notable_update_sender,
+                );
+                let mut room_info = room.clone_info();
+                // Override the room state if the room already exists.
+                room_info.mark_as_invited();
+
+                let raw_events = state_events.0.clone();
+                let invited_room = InvitedRoom::from(InviteState::from(raw_events));
+
+                (room, room_info, Some(RoomUpdateKind::Invited(invited_room)))
             }
         }
-
-        // Otherwise assume it's an invited room
-        room_info.mark_as_invited();
-        let raw_events = state_events.0.clone();
-        let invited_room = InvitedRoom::from(InviteState::from(raw_events));
-        (room, room_info, Some(RoomUpdateKind::Invited(invited_room)))
-    } else {
+    }
+    // No invite state events. We assume this is a joined room for the moment. See this block to
+    // learn more.
+    else {
         let room =
             store.get_or_create_room(room_id, RoomState::Joined, room_info_notable_update_sender);
         let mut room_info = room.clone_info();
