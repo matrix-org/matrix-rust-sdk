@@ -136,17 +136,7 @@ impl BaseClient {
         previous_events_provider: &PEP,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<SyncResponse> {
-        let http::Response {
-            // FIXME not yet supported by sliding sync. see
-            // https://github.com/matrix-org/matrix-rust-sdk/issues/1014
-            // next_batch,
-            rooms,
-            lists,
-            extensions,
-            // FIXME: missing compared to v3::Response
-            //presence,
-            ..
-        } = response;
+        let http::Response { rooms, lists, extensions, .. } = response;
 
         trace!(
             rooms = rooms.len(),
@@ -300,16 +290,6 @@ impl BaseClient {
 
         global_account_data_processor.apply(&mut context, &state_store).await;
 
-        // FIXME not yet supported by sliding sync.
-        // changes.presence = presence
-        //     .events
-        //     .iter()
-        //     .filter_map(|e| {
-        //         let event = e.deserialize().ok()?;
-        //         Some((event.sender, e.clone()))
-        //     })
-        //     .collect();
-
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
         processors::changes::save_and_apply(
@@ -330,7 +310,6 @@ impl BaseClient {
         Ok(SyncResponse {
             rooms: new_rooms,
             notifications,
-            // FIXME not yet supported by sliding sync.
             presence: Default::default(),
             account_data: extensions.account_data.global.clone(),
             to_device: Default::default(),
