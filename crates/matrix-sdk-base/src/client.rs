@@ -610,28 +610,14 @@ impl BaseClient {
             new_rooms.invite.insert(room_id, invited_room_update);
         }
 
-        for (room_id, new_info) in response.rooms.knock {
-            let room = self.state_store.get_or_create_room(
+        for (room_id, knocked_room) in response.rooms.knock {
+            let knocked_room_update = processors::room::sync_v2::update_knocked_room(
+                &mut context,
                 &room_id,
-                RoomState::Knocked,
+                knocked_room,
+                &self.state_store,
                 self.room_info_notable_update_sender.clone(),
-            );
-
-            let (raw_events, events) = processors::state_events::stripped::collect(
-                &mut context,
-                &new_info.knock_state.events,
-            );
-
-            let mut room_info = room.clone_info();
-            room_info.mark_as_knocked();
-            room_info.mark_state_fully_synced();
-
-            processors::state_events::stripped::dispatch_invite_or_knock(
-                &mut context,
-                (&raw_events, &events),
-                &room,
-                &mut room_info,
-                processors::notification::Notification::new(
+                processors::timeline::builder::Notification::new(
                     &push_rules,
                     &mut notifications,
                     &self.state_store,
@@ -639,8 +625,7 @@ impl BaseClient {
             )
             .await?;
 
-            context.state_changes.add_room(room_info);
-            new_rooms.knocked.insert(room_id, new_info);
+            new_rooms.knocked.insert(room_id, knocked_room_update);
         }
 
         global_account_data_processor.apply(&mut context, &self.state_store).await;

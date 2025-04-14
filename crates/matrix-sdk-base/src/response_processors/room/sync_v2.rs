@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ruma::{
-    api::client::sync::sync_events::v3::{InvitedRoom, JoinedRoom, LeftRoom},
+    api::client::sync::sync_events::v3::{InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom},
     OwnedRoomId, OwnedUserId, RoomId,
 };
 use tokio::sync::broadcast::Sender;
@@ -25,7 +25,7 @@ use super::super::e2ee;
 use super::super::{account_data, ephemeral_events, state_events, timeline, Context};
 use crate::{
     store::{ambiguity_map::AmbiguityCache, BaseStateStore},
-    sync::{InvitedRoomUpdate, JoinedRoomUpdate, LeftRoomUpdate},
+    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     RequestedRequiredStates, Result, RoomInfoNotableUpdate, RoomState,
 };
 
@@ -245,4 +245,40 @@ pub async fn update_invited_room(
     context.state_changes.add_room(room_info);
 
     Ok(invited_room)
+}
+
+/// Process updates of a knocked room.
+pub async fn update_knocked_room(
+    context: &mut Context,
+    room_id: &RoomId,
+    knocked_room: KnockedRoom,
+    state_store: &BaseStateStore,
+    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
+    notification: timeline::builder::Notification<'_>,
+) -> Result<KnockedRoomUpdate> {
+    let room = state_store.get_or_create_room(
+        room_id,
+        RoomState::Knocked,
+        room_info_notable_update_sender,
+    );
+
+    let (raw_events, events) =
+        state_events::stripped::collect(context, &knocked_room.knock_state.events);
+
+    let mut room_info = room.clone_info();
+    room_info.mark_as_knocked();
+    room_info.mark_state_fully_synced();
+
+    state_events::stripped::dispatch_invite_or_knock(
+        context,
+        (&raw_events, &events),
+        &room,
+        &mut room_info,
+        notification,
+    )
+    .await?;
+
+    context.state_changes.add_room(room_info);
+
+    Ok(knocked_room)
 }
