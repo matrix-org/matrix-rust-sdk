@@ -65,7 +65,7 @@ use crate::{
         Result as StoreResult, RoomLoadSettings, StateChanges, StateStoreDataKey,
         StateStoreDataValue, StateStoreExt, StoreConfig,
     },
-    sync::{LeftRoomUpdate, RoomUpdates, SyncResponse},
+    sync::{RoomUpdates, SyncResponse},
     RoomStateFilter, SessionMeta,
 };
 
@@ -592,36 +592,22 @@ impl BaseClient {
             new_rooms.leave.insert(room_id, left_room_update);
         }
 
-        for (room_id, new_info) in response.rooms.invite {
-            let room = self.state_store.get_or_create_room(
+        for (room_id, invited_room) in response.rooms.invite {
+            let invited_room_update = processors::room::sync_v2::update_invited_room(
+                &mut context,
                 &room_id,
-                RoomState::Invited,
-                self.room_info_notable_update_sender.clone(),
-            );
-
-            let (raw_events, events) = processors::state_events::stripped::collect(
-                &mut context,
-                &new_info.invite_state.events,
-            );
-
-            let mut room_info = room.clone_info();
-            room_info.mark_as_invited();
-            room_info.mark_state_fully_synced();
-
-            processors::state_events::stripped::dispatch_invite_or_knock(
-                &mut context,
-                (&raw_events, &events),
-                &room,
-                &mut room_info,
-                &push_rules,
-                &mut notifications,
+                invited_room,
                 &self.state_store,
+                self.room_info_notable_update_sender.clone(),
+                processors::timeline::builder::Notification::new(
+                    &push_rules,
+                    &mut notifications,
+                    &self.state_store,
+                ),
             )
             .await?;
 
-            context.state_changes.add_room(room_info);
-
-            new_rooms.invite.insert(room_id, new_info);
+            new_rooms.invite.insert(room_id, invited_room_update);
         }
 
         for (room_id, new_info) in response.rooms.knock {
