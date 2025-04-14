@@ -1807,10 +1807,6 @@ impl Room {
     /// Share any shareable E2EE history in this room with the given recipient,
     /// as per [MSC4268].
     ///
-    /// # Panics
-    ///
-    /// Panics if the OlmMachine hasn't been set up on the client.
-    ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all, fields(room_id = ?self.room_id(), ?user_id))]

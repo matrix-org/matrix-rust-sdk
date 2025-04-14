@@ -16,14 +16,10 @@ use std::iter;
 
 use ruma::OwnedUserId;
 
-use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Result, Room};
+use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error, Result, Room};
 
 /// Share any shareable E2EE history in the given room with the given recipient,
 /// as per [MSC4268].
-///
-/// # Panics
-///
-/// Panics if the OlmMachine hasn't been set up on the client.
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
@@ -33,8 +29,7 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
     // 1. Construct the key bundle
     let bundle = {
         let olm_machine = client.olm_machine().await;
-        let olm_machine =
-            olm_machine.as_ref().expect("This should only be called once we have an OlmMachine");
+        let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
         olm_machine.store().build_room_key_bundle(room.room_id()).await?
     };
 
