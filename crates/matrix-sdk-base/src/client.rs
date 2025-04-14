@@ -566,57 +566,22 @@ impl BaseClient {
             new_rooms.join.insert(room_id, joined_room_update);
         }
 
-        for (room_id, new_info) in response.rooms.leave {
-            let room = self.state_store.get_or_create_room(
+        for (room_id, left_room) in response.rooms.leave {
+            let left_room_update = processors::room::sync_v2::update_left_room(
+                &mut context,
                 &room_id,
-                RoomState::Left,
+                left_room,
+                requested_required_states,
+                &self.state_store,
                 self.room_info_notable_update_sender.clone(),
-            );
-
-            let mut room_info = room.clone_info();
-            room_info.mark_as_left();
-            room_info.mark_state_partially_synced();
-            room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
-
-            let (raw_state_events, state_events) =
-                processors::state_events::sync::collect(&mut context, &new_info.state.events);
-
-            let mut new_user_ids = processors::state_events::sync::dispatch_and_get_new_users(
-                &mut context,
-                (&raw_state_events, &state_events),
-                &mut room_info,
                 &mut ambiguity_cache,
-            )
-            .await?;
-
-            let (raw_state_events_from_timeline, state_events_from_timeline) =
-                processors::state_events::sync::collect_from_timeline(
-                    &mut context,
-                    &new_info.timeline.events,
-                );
-
-            let mut other_new_user_ids =
-                processors::state_events::sync::dispatch_and_get_new_users(
-                    &mut context,
-                    (&raw_state_events_from_timeline, &state_events_from_timeline),
-                    &mut room_info,
-                    &mut ambiguity_cache,
-                )
-                .await?;
-            new_user_ids.append(&mut other_new_user_ids);
-
-            let timeline = processors::timeline::build(
-                &mut context,
-                &room,
-                &mut room_info,
-                processors::timeline::builder::Timeline::from(new_info.timeline),
                 processors::timeline::builder::Notification::new(
                     &push_rules,
                     &mut notifications,
                     &self.state_store,
                 ),
                 #[cfg(feature = "e2e-encryption")]
-                processors::timeline::builder::E2EE::new(
+                processors::e2ee::E2EE::new(
                     olm_machine.as_ref(),
                     self.decryption_trust_requirement,
                     self.handle_verification_events,
@@ -624,28 +589,7 @@ impl BaseClient {
             )
             .await?;
 
-            // Save the new `RoomInfo`.
-            context.state_changes.add_room(room_info);
-
-            processors::account_data::for_room(
-                &mut context,
-                &room_id,
-                &new_info.account_data.events,
-                &self.state_store,
-            )
-            .await;
-
-            let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
-
-            new_rooms.leave.insert(
-                room_id,
-                LeftRoomUpdate::new(
-                    timeline,
-                    new_info.state.events,
-                    new_info.account_data.events,
-                    ambiguity_changes,
-                ),
-            );
+            new_rooms.leave.insert(room_id, left_room_update);
         }
 
         for (room_id, new_info) in response.rooms.invite {
