@@ -631,9 +631,11 @@ impl BaseClient {
                 (&raw_events, &events),
                 &room,
                 &mut room_info,
-                &push_rules,
-                &mut notifications,
-                &self.state_store,
+                processors::notification::Notification::new(
+                    &push_rules,
+                    &mut notifications,
+                    &self.state_store,
+                ),
             )
             .await?;
 

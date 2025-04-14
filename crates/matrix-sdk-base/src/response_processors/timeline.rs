@@ -175,17 +175,11 @@ pub async fn build<'notification, 'e2ee>(
 /// Set of types used by [`build`] to reduce the number of arguments by grouping
 /// them by thematics.
 pub mod builder {
-    use std::collections::BTreeMap;
-
     use ruma::{
         api::client::sync::sync_events::{v3, v5},
         events::AnySyncTimelineEvent,
-        push::Ruleset,
         serde::Raw,
-        OwnedRoomId,
     };
-
-    use crate::{store::BaseStateStore, sync};
 
     pub struct Timeline {
         pub limited: bool,
@@ -209,24 +203,9 @@ pub mod builder {
         }
     }
 
-    pub struct Notification<'a> {
-        pub push_rules: &'a Ruleset,
-        pub notifications: &'a mut BTreeMap<OwnedRoomId, Vec<sync::Notification>>,
-        pub state_store: &'a BaseStateStore,
-    }
-
-    impl<'a> Notification<'a> {
-        pub fn new(
-            push_rules: &'a Ruleset,
-            notifications: &'a mut BTreeMap<OwnedRoomId, Vec<sync::Notification>>,
-            state_store: &'a BaseStateStore,
-        ) -> Self {
-            Self { push_rules, notifications, state_store }
-        }
-    }
-
     #[cfg(feature = "e2e-encryption")]
     pub use super::super::e2ee::E2EE;
+    pub use super::super::notification::Notification;
 }
 
 /// Update the push context for the given room.

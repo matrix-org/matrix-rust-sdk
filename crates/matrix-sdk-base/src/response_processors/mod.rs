@@ -19,6 +19,7 @@ pub mod e2ee;
 pub mod ephemeral_events;
 #[cfg(feature = "e2e-encryption")]
 pub mod latest_event;
+pub mod notification;
 pub mod profiles;
 pub mod room;
 pub mod state_events;
