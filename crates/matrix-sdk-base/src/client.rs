@@ -65,7 +65,7 @@ use crate::{
         Result as StoreResult, RoomLoadSettings, StateChanges, StateStoreDataKey,
         StateStoreDataValue, StateStoreExt, StoreConfig,
     },
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, SyncResponse},
+    sync::{LeftRoomUpdate, RoomUpdates, SyncResponse},
     RoomStateFilter, SessionMeta,
 };
 
@@ -539,71 +539,23 @@ impl BaseClient {
         let mut updated_members_in_room: BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>> =
             BTreeMap::new();
 
-        for (room_id, new_info) in response.rooms.join {
-            let room = self.state_store.get_or_create_room(
+        for (room_id, joined_room) in response.rooms.join {
+            let joined_room_update = processors::room::sync_v2::update_joined_room(
+                &mut context,
                 &room_id,
-                RoomState::Joined,
+                joined_room,
+                requested_required_states,
+                &self.state_store,
                 self.room_info_notable_update_sender.clone(),
-            );
-
-            let mut room_info = room.clone_info();
-
-            room_info.mark_as_joined();
-            room_info.update_from_ruma_summary(&new_info.summary);
-            room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
-            room_info.mark_state_fully_synced();
-            room_info.handle_encryption_state(requested_required_states.for_room(&room_id));
-
-            let (raw_state_events, state_events) =
-                processors::state_events::sync::collect(&mut context, &new_info.state.events);
-
-            let mut new_user_ids = processors::state_events::sync::dispatch_and_get_new_users(
-                &mut context,
-                (&raw_state_events, &state_events),
-                &mut room_info,
                 &mut ambiguity_cache,
-            )
-            .await?;
-
-            processors::ephemeral_events::dispatch(
-                &mut context,
-                &new_info.ephemeral.events,
-                &room_id,
-            );
-
-            if new_info.timeline.limited {
-                room_info.mark_members_missing();
-            }
-
-            let (raw_state_events_from_timeline, state_events_from_timeline) =
-                processors::state_events::sync::collect_from_timeline(
-                    &mut context,
-                    &new_info.timeline.events,
-                );
-
-            let mut other_new_user_ids =
-                processors::state_events::sync::dispatch_and_get_new_users(
-                    &mut context,
-                    (&raw_state_events_from_timeline, &state_events_from_timeline),
-                    &mut room_info,
-                    &mut ambiguity_cache,
-                )
-                .await?;
-            new_user_ids.append(&mut other_new_user_ids);
-            updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
-
-            let timeline = processors::timeline::build(
-                &mut context,
-                &room,
-                &mut room_info,
-                processors::timeline::builder::Timeline::from(new_info.timeline),
+                &mut updated_members_in_room,
                 processors::timeline::builder::Notification::new(
                     &push_rules,
                     &mut notifications,
                     &self.state_store,
                 ),
                 #[cfg(feature = "e2e-encryption")]
-                processors::timeline::builder::E2EE::new(
+                processors::e2ee::E2EE::new(
                     olm_machine.as_ref(),
                     self.decryption_trust_requirement,
                     self.handle_verification_events,
@@ -611,59 +563,7 @@ impl BaseClient {
             )
             .await?;
 
-            // Save the new `RoomInfo`.
-            context.state_changes.add_room(room_info);
-
-            processors::account_data::for_room(
-                &mut context,
-                &room_id,
-                &new_info.account_data.events,
-                &self.state_store,
-            )
-            .await;
-
-            // `processors::account_data::from_room` might have updated the `RoomInfo`.
-            // Let's fetch it again.
-            //
-            // SAFETY: `expect` is safe because the `RoomInfo` has been inserted 2 lines
-            // above.
-            let mut room_info = context
-                .state_changes
-                .room_infos
-                .get(&room_id)
-                .expect("`RoomInfo` must exist in `StateChanges` at this point")
-                .clone();
-
-            #[cfg(feature = "e2e-encryption")]
-            processors::e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
-                &mut context,
-                olm_machine.as_ref(),
-                &new_user_ids,
-                room_info.encryption_state(),
-                room.encryption_state(),
-                &room_id,
-                &self.state_store,
-            )
-            .await?;
-
-            let notification_count = new_info.unread_notifications.into();
-            room_info.update_notification_count(notification_count);
-
-            let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
-
-            new_rooms.join.insert(
-                room_id,
-                JoinedRoomUpdate::new(
-                    timeline,
-                    new_info.state.events,
-                    new_info.account_data.events,
-                    new_info.ephemeral.events,
-                    notification_count,
-                    ambiguity_changes,
-                ),
-            );
-
-            context.state_changes.add_room(room_info);
+            new_rooms.join.insert(room_id, joined_room_update);
         }
 
         for (room_id, new_info) in response.rooms.leave {
