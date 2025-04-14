@@ -12,4 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod msc4186;
 pub mod sync_v2;
