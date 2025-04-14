@@ -47,7 +47,7 @@ use ruma::{
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{debug, info, instrument};
+use tracing::{debug, enabled, info, instrument, Level};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -486,7 +486,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         }
 
-        let now = Instant::now();
+        let now = if enabled!(Level::INFO) { Some(Instant::now()) } else { None };
 
         #[cfg(feature = "e2e-encryption")]
         let olm_machine = self.olm_machine().await;
@@ -849,7 +849,9 @@ impl BaseClient {
             }
         }
 
-        info!("Processed a sync response in {:?}", now.elapsed());
+        if enabled!(Level::INFO) {
+            info!("Processed a sync response in {:?}", now.map(|now| now.elapsed()));
+        }
 
         let response = SyncResponse {
             rooms: new_rooms,
