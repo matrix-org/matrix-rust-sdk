@@ -72,7 +72,7 @@ impl BackupVersion {
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct MemoryStore {
     static_account: Arc<StdRwLock<Option<StaticAccountData>>>,
 
@@ -103,36 +103,10 @@ pub struct MemoryStore {
     dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
     next_batch_token: RwLock<Option<String>>,
     room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
-    save_changes_lock: Arc<Mutex<()>>,
-}
+    room_key_bundles:
+        StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, StoredRoomKeyBundleData>>>,
 
-impl Default for MemoryStore {
-    fn default() -> Self {
-        MemoryStore {
-            static_account: Default::default(),
-            account: Default::default(),
-            sessions: Default::default(),
-            inbound_group_sessions: Default::default(),
-            inbound_group_sessions_backed_up_to: Default::default(),
-            outbound_group_sessions: Default::default(),
-            private_identity: Default::default(),
-            tracked_users: Default::default(),
-            olm_hashes: Default::default(),
-            devices: DeviceStore::new(),
-            identities: Default::default(),
-            outgoing_key_requests: Default::default(),
-            key_requests_by_info: Default::default(),
-            direct_withheld_info: Default::default(),
-            custom_values: Default::default(),
-            leases: Default::default(),
-            backup_keys: Default::default(),
-            dehydrated_device_pickle_key: Default::default(),
-            secret_inbox: Default::default(),
-            next_batch_token: Default::default(),
-            room_settings: Default::default(),
-            save_changes_lock: Default::default(),
-        }
-    }
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 impl MemoryStore {
@@ -347,6 +321,16 @@ impl CryptoStore for MemoryStore {
         if !changes.room_settings.is_empty() {
             let mut settings = self.room_settings.write();
             settings.extend(changes.room_settings);
+        }
+
+        if !changes.received_room_key_bundles.is_empty() {
+            let mut room_key_bundles = self.room_key_bundles.write();
+            for bundle in changes.received_room_key_bundles {
+                room_key_bundles
+                    .entry(bundle.bundle_data.room_id.clone())
+                    .or_default()
+                    .insert(bundle.sender_user.clone(), bundle);
+            }
         }
 
         Ok(())
@@ -722,10 +706,14 @@ impl CryptoStore for MemoryStore {
 
     async fn get_received_room_key_bundle_data(
         &self,
-        _room_id: &RoomId,
-        _user_id: &UserId,
+        room_id: &RoomId,
+        user_id: &UserId,
     ) -> Result<Option<StoredRoomKeyBundleData>> {
-        todo!()
+        let guard = self.room_key_bundles.read();
+
+        let result = guard.get(room_id).and_then(|bundles| bundles.get(user_id).cloned());
+
+        Ok(result)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
