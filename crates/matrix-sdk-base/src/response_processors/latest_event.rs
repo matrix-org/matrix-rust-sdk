@@ -71,7 +71,7 @@ async fn find_suitable_and_decrypt(
         // async fn since it is likely that there aren't even any encrypted
         // events when calling it.
         let decrypt_sync_room_event =
-            Box::pin(decrypt_sync_room_event(context, event, &e2ee, room.room_id()));
+            Box::pin(decrypt_sync_room_event(context, event, e2ee, room.room_id()));
 
         if let Ok(decrypted) = decrypt_sync_room_event.await {
             // We found an event we can decrypt
