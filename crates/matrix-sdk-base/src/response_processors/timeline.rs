@@ -101,11 +101,9 @@ pub async fn build<'notification, 'e2ee>(
                                 if let Some(decrypted_timeline_event) =
                                     Box::pin(e2ee::decrypt::sync_timeline_event(
                                         context,
-                                        e2ee.olm_machine,
+                                        e2ee.clone(),
                                         timeline_event.raw(),
                                         room_id,
-                                        e2ee.decryption_trust_requirement,
-                                        e2ee.verification_is_allowed,
                                     ))
                                     .await?
                                 {
@@ -117,8 +115,7 @@ pub async fn build<'notification, 'e2ee>(
                                 Box::pin(verification::process_if_relevant(
                                     context,
                                     &sync_timeline_event,
-                                    e2ee.verification_is_allowed,
-                                    e2ee.olm_machine,
+                                    e2ee.clone(),
                                     room_id,
                                 ))
                                 .await?;
@@ -180,8 +177,6 @@ pub async fn build<'notification, 'e2ee>(
 pub mod builder {
     use std::collections::BTreeMap;
 
-    #[cfg(feature = "e2e-encryption")]
-    use matrix_sdk_crypto::{OlmMachine, TrustRequirement};
     use ruma::{
         api::client::sync::sync_events::{v3, v5},
         events::AnySyncTimelineEvent,
@@ -231,22 +226,7 @@ pub mod builder {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub struct E2EE<'a> {
-        pub olm_machine: Option<&'a OlmMachine>,
-        pub decryption_trust_requirement: TrustRequirement,
-        pub verification_is_allowed: bool,
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    impl<'a> E2EE<'a> {
-        pub fn new(
-            olm_machine: Option<&'a OlmMachine>,
-            decryption_trust_requirement: TrustRequirement,
-            verification_is_allowed: bool,
-        ) -> Self {
-            Self { olm_machine, decryption_trust_requirement, verification_is_allowed }
-        }
-    }
+    pub use super::super::e2ee::E2EE;
 }
 
 /// Update the push context for the given room.

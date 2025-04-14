@@ -39,6 +39,8 @@ use tracing::{instrument, trace};
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
+#[cfg(feature = "e2e-encryption")]
+use crate::store::StateChanges;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
@@ -48,7 +50,7 @@ use crate::{
         RoomState,
     },
     ruma::assign,
-    store::{ambiguity_map::AmbiguityCache, BaseStateStore, StateChanges},
+    store::{ambiguity_map::AmbiguityCache, BaseStateStore},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     RequestedRequiredStates, Room, RoomInfo,
 };
@@ -100,9 +102,11 @@ impl BaseClient {
                 .flatten()
                 .filter_map(|room_key_info| self.get_room(&room_key_info.room_id))
                 .collect(),
-            olm_machine.as_ref(),
-            self.decryption_trust_requirement,
-            self.handle_verification_events,
+            processors::e2ee::E2EE::new(
+                olm_machine.as_ref(),
+                self.decryption_trust_requirement,
+                self.handle_verification_events,
+            ),
         )
         .await?;
 
