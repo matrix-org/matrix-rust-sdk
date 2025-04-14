@@ -40,6 +40,14 @@ use crate::{
     RoomState, SessionMeta, StateChanges,
 };
 
+/// Represent any kind of room updates.
+pub enum RoomUpdateKind {
+    Joined(JoinedRoomUpdate),
+    Left(LeftRoomUpdate),
+    Invited(InvitedRoomUpdate),
+    Knocked(KnockedRoomUpdate),
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn update_any_room(
     context: &mut Context,
@@ -53,13 +61,7 @@ pub async fn update_any_room(
     mut notification: notification::Notification<'_>,
     ambiguity_cache: &mut AmbiguityCache,
     session_meta: Option<&SessionMeta>,
-) -> Result<(
-    RoomInfo,
-    Option<JoinedRoomUpdate>,
-    Option<LeftRoomUpdate>,
-    Option<InvitedRoomUpdate>,
-    Option<KnockedRoomUpdate>,
-)> {
+) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
     // Read state events from the `required_state` field.
     //
     // Don't read state events from the `timeline` field, because they might be
@@ -79,7 +81,7 @@ pub async fn update_any_room(
         .map(|events| state_events::stripped::collect(context, events));
 
     #[allow(unused_mut)] // Required for some feature flag combinations
-    let (mut room, mut room_info, invited_room, knocked_room) = membership(
+    let (mut room, mut room_info, maybe_room_update_kind) = membership(
         context,
         &state_events,
         &invite_state_events,
@@ -161,16 +163,16 @@ pub async fn update_any_room(
     let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
     let room_account_data = rooms_account_data.get(room_id).cloned();
 
-    match room_info.state() {
-        RoomState::Joined => {
+    match (room_info.state(), maybe_room_update_kind) {
+        (RoomState::Joined, None) => {
             // Ephemeral events are added separately, because we might not
             // have a room subsection in the response, yet we may have receipts for
             // that room.
             let ephemeral = Vec::new();
 
-            Ok((
+            Ok(Some((
                 room_info,
-                Some(JoinedRoomUpdate::new(
+                RoomUpdateKind::Joined(JoinedRoomUpdate::new(
                     timeline,
                     raw_state_events,
                     room_account_data.unwrap_or_default(),
@@ -178,28 +180,25 @@ pub async fn update_any_room(
                     notification_count,
                     ambiguity_changes,
                 )),
-                None,
-                None,
-                None,
-            ))
+            )))
         }
 
-        RoomState::Left | RoomState::Banned => Ok((
+        (RoomState::Left, None) | (RoomState::Banned, None) => Ok(Some((
             room_info,
-            None,
-            Some(LeftRoomUpdate::new(
+            RoomUpdateKind::Left(LeftRoomUpdate::new(
                 timeline,
                 raw_state_events,
                 room_account_data.unwrap_or_default(),
                 ambiguity_changes,
             )),
-            None,
-            None,
-        )),
+        ))),
 
-        RoomState::Invited => Ok((room_info, None, None, invited_room, None)),
+        (RoomState::Invited, Some(update @ RoomUpdateKind::Invited(_)))
+        | (RoomState::Knocked, Some(update @ RoomUpdateKind::Knocked(_))) => {
+            Ok(Some((room_info, update)))
+        }
 
-        RoomState::Knocked => Ok((room_info, None, None, None, knocked_room)),
+        _ => Ok(None),
     }
 }
 
@@ -217,7 +216,7 @@ fn membership(
     room_id: &RoomId,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     session_meta: Option<&SessionMeta>,
-) -> (Room, RoomInfo, Option<InvitedRoomUpdate>, Option<KnockedRoomUpdate>) {
+) -> (Room, RoomInfo, Option<RoomUpdateKind>) {
     if let Some(state_events) = invite_state_events {
         let room =
             store.get_or_create_room(room_id, RoomState::Invited, room_info_notable_update_sender);
@@ -241,7 +240,7 @@ fn membership(
                 let raw_events = state_events.0.clone();
                 let knock_state = assign!(KnockState::default(), { events: raw_events });
                 let knocked_room = assign!(KnockedRoom::default(), { knock_state: knock_state });
-                return (room, room_info, None, Some(knocked_room));
+                return (room, room_info, Some(RoomUpdateKind::Knocked(knocked_room)));
             }
         }
 
@@ -249,7 +248,7 @@ fn membership(
         room_info.mark_as_invited();
         let raw_events = state_events.0.clone();
         let invited_room = InvitedRoom::from(InviteState::from(raw_events));
-        (room, room_info, Some(invited_room), None)
+        (room, room_info, Some(RoomUpdateKind::Invited(invited_room)))
     } else {
         let room =
             store.get_or_create_room(room_id, RoomState::Joined, room_info_notable_update_sender);
@@ -268,7 +267,7 @@ fn membership(
         // looking for relevant membership events.
         own_membership(context, session_meta, state_events, &mut room_info);
 
-        (room, room_info, None, None)
+        (room, room_info, None)
     }
 }
 
