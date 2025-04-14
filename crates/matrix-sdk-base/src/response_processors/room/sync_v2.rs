@@ -22,7 +22,7 @@ use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
-use super::super::{account_data, ephemeral_events, state_events, timeline, Context};
+use super::super::{account_data, ephemeral_events, notification, state_events, timeline, Context};
 use crate::{
     store::{ambiguity_map::AmbiguityCache, BaseStateStore},
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
@@ -40,7 +40,7 @@ pub async fn update_joined_room(
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     ambiguity_cache: &mut AmbiguityCache,
     updated_members_in_room: &mut BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>>,
-    notification: timeline::builder::Notification<'_>,
+    notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {
     let room =
@@ -152,7 +152,7 @@ pub async fn update_left_room(
     state_store: &BaseStateStore,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     ambiguity_cache: &mut AmbiguityCache,
-    notification: timeline::builder::Notification<'_>,
+    notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<LeftRoomUpdate> {
     let room =
@@ -218,7 +218,7 @@ pub async fn update_invited_room(
     invited_room: InvitedRoom,
     state_store: &BaseStateStore,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
-    notification: timeline::builder::Notification<'_>,
+    notification: notification::Notification<'_>,
 ) -> Result<InvitedRoomUpdate> {
     let room = state_store.get_or_create_room(
         room_id,
@@ -254,7 +254,7 @@ pub async fn update_knocked_room(
     knocked_room: KnockedRoom,
     state_store: &BaseStateStore,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
-    notification: timeline::builder::Notification<'_>,
+    notification: notification::Notification<'_>,
 ) -> Result<KnockedRoomUpdate> {
     let room = state_store.get_or_create_room(
         room_id,

@@ -421,13 +421,13 @@ impl BaseClient {
             &room,
             &mut room_info,
             processors::timeline::builder::Timeline::from(room_data),
-            processors::timeline::builder::Notification::new(
+            processors::notification::Notification::new(
                 &push_rules,
                 notifications,
                 &self.state_store,
             ),
             #[cfg(feature = "e2e-encryption")]
-            processors::timeline::builder::E2EE::new(
+            processors::e2ee::E2EE::new(
                 self.olm_machine().await.as_ref(),
                 self.decryption_trust_requirement,
                 self.handle_verification_events,
