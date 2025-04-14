@@ -111,6 +111,7 @@ impl SqliteCryptoStore {
         let conn = pool.get().await?;
 
         let version = conn.db_version().await?;
+        debug!("Opened sqlite store with version {}", version);
         run_migrations(&conn, version).await?;
 
         let store_cipher = match passphrase {
@@ -207,7 +208,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 9;
+const DATABASE_VERSION: u8 = 10;
 
 /// key for the dehydrated device pickle key in the key/value table.
 const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
@@ -303,6 +304,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 10 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/010_received_room_key_bundles.sql"
+            ))?;
+            txn.set_db_version(10)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -350,6 +361,13 @@ trait SqliteConnectionExt {
     fn set_room_settings(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
 
     fn set_secret(&self, request_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+
+    fn set_received_room_key_bundle(
+        &self,
+        room_id: &[u8],
+        user_id: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionExt for rusqlite::Connection {
@@ -476,6 +494,21 @@ impl SqliteConnectionExt for rusqlite::Connection {
             (secret_name, data),
         )?;
 
+        Ok(())
+    }
+
+    fn set_received_room_key_bundle(
+        &self,
+        room_id: &[u8],
+        sender_user: &[u8],
+        data: &[u8],
+    ) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO received_room_key_bundle(room_id, sender_user, bundle_data)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT (room_id, sender_user) DO UPDATE SET bundle_data = ?3",
+            (room_id, sender_user, data),
+        )?;
         Ok(())
     }
 }
@@ -744,6 +777,21 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             .await
             .optional()?)
     }
+
+    async fn get_received_room_key_bundle(
+        &self,
+        room_id: Key,
+        sender_user: Key,
+    ) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .query_row(
+                "SELECT bundle_data FROM received_room_key_bundle WHERE room_id = ? AND sender_user = ?",
+                (room_id, sender_user),
+                |row| { row.get(0) },
+            )
+            .await
+            .optional()?)
+    }
 }
 
 #[async_trait]
@@ -945,6 +993,14 @@ impl CryptoStore for SqliteCryptoStore {
                     let secret_name = this.encode_key("secrets", secret.secret_name.to_string());
                     let value = this.serialize_json(&secret)?;
                     txn.set_secret(&secret_name, &value)?;
+                }
+
+                for bundle in changes.received_room_key_bundles {
+                    let room_id =
+                        this.encode_key("received_room_key_bundle", &bundle.bundle_data.room_id);
+                    let user_id = this.encode_key("received_room_key_bundle", &bundle.sender_user);
+                    let value = this.serialize_value(&bundle)?;
+                    txn.set_received_room_key_bundle(&room_id, &user_id, &value)?;
                 }
 
                 Ok::<_, Error>(())
@@ -1340,9 +1396,16 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_received_room_key_bundle_data(
         &self,
         room_id: &RoomId,
-        user_id: &UserId,
+        sender_user: &UserId,
     ) -> Result<Option<StoredRoomKeyBundleData>> {
-        todo!()
+        let room_id = self.encode_key("received_room_key_bundle", room_id);
+        let user_id = self.encode_key("received_room_key_bundle", sender_user);
+        self.acquire()
+            .await?
+            .get_received_room_key_bundle(room_id, user_id)
+            .await?
+            .map(|value| self.deserialize_value(&value))
+            .transpose()
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
