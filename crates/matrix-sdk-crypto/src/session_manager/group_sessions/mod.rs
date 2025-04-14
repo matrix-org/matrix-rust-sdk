@@ -51,6 +51,7 @@ use crate::{
         events::{
             room::encrypted::{RoomEncryptedEventContent, ToDeviceEncryptedEventContent},
             room_key_bundle::RoomKeyBundleContent,
+            EventType,
         },
         requests::ToDeviceRequest,
     },
@@ -267,7 +268,7 @@ impl GroupSessionManager {
     /// Encrypt the given group session key for the given devices and create
     /// to-device requests that sends the encrypted content to them.
     ///
-    /// See also [`Self::encrypt_content_for_devices_helper`] which is similar
+    /// See also [`encrypt_key_content_for_devices`] which is similar
     /// but is not specific to group sessions, and does not return the
     /// [`ShareInfo`] data.
     async fn encrypt_session_for(
@@ -761,6 +762,13 @@ impl GroupSessionManager {
     /// a room key bundle to those devices.
     ///
     /// Returns a list of to-device requests which must be sent.
+    ///
+    /// For security reasons, only "safe" [`CollectStrategy`]s are supported, in
+    /// which the recipient must have signed their
+    /// devices. [`CollectStrategy::AllDevices`] and
+    /// [`CollectStrategy::ErrorOnVerifiedUserProblem`] are "unsafe" in this
+    /// respect,and are treated the same as
+    /// [`CollectStrategy::IdentityBasedStrategy`].
     #[instrument(skip(self, bundle_data))]
     pub async fn share_room_key_bundle_data(
         &self,
@@ -791,7 +799,6 @@ impl GroupSessionManager {
             .await?;
 
         let devices = devices.into_values().flatten().collect();
-        use crate::types::events::EventType;
         let event_type = bundle_data.event_type().to_owned();
         let (requests, _) = self
             .encrypt_key_content_for_devices(devices, &event_type, bundle_data, &mut changes)

@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types for `io.element.msc4268.room_key_bundle` to-device events.
+//! Types for `io.element.msc4268.room_key_bundle` to-device events, per
+//! [MSC4268].
+//!
+//! [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 
 use ruma::OwnedRoomId;
 use serde::{Deserialize, Serialize};
 
 use super::EventType;
 
-/// The `io.element.msc4268.room_key_bundle` event content.
+/// The `io.element.msc4268.room_key_bundle` event content. See [MSC4268].
+///
+/// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomKeyBundleContent {
     /// The room that these keys are for
