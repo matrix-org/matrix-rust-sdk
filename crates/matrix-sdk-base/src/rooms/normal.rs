@@ -2579,7 +2579,7 @@ mod tests {
         .cast();
 
         // When the new tag is handled and applied.
-        let mut context = processors::Context::new(StateChanges::default(), Default::default());
+        let mut context = processors::Context::default();
 
         processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
             .await;
@@ -2675,7 +2675,7 @@ mod tests {
         .cast();
 
         // When the new tag is handled and applied.
-        let mut context = processors::Context::new(StateChanges::default(), Default::default());
+        let mut context = processors::Context::default();
 
         processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
             .await;
@@ -3261,7 +3261,7 @@ mod tests {
         // And I provide a decrypted event to replace the encrypted one,
         let event = make_latest_event("$A");
 
-        let mut context = processors::Context::new(StateChanges::default(), Default::default());
+        let mut context = processors::Context::default();
         room.on_latest_event_decrypted(
             event.clone(),
             0,

@@ -34,17 +34,15 @@ use crate::{RoomInfoNotableUpdateReasons, StateChanges};
 type RoomInfoNotableUpdates = BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>;
 
 #[cfg_attr(test, derive(Clone))]
+#[derive(Default)]
 pub(crate) struct Context {
     pub(super) state_changes: StateChanges,
     pub(super) room_info_notable_updates: RoomInfoNotableUpdates,
 }
 
 impl Context {
-    pub fn new(
-        state_changes: StateChanges,
-        room_info_notable_updates: RoomInfoNotableUpdates,
-    ) -> Self {
-        Self { state_changes, room_info_notable_updates }
+    pub fn new(state_changes: StateChanges) -> Self {
+        Self { state_changes, room_info_notable_updates: Default::default() }
     }
 
     pub fn into_parts(self) -> (StateChanges, RoomInfoNotableUpdates) {

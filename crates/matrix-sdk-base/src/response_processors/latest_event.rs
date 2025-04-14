@@ -203,7 +203,7 @@ mod tests {
         assert!(room.latest_event().is_none());
 
         // When I tell it to do some decryption
-        let mut context = Context::new(StateChanges::default(), Default::default());
+        let mut context = Context::default();
 
         decrypt_from_rooms(
             &mut context,

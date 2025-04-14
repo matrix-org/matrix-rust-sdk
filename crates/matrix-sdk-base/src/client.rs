@@ -491,8 +491,7 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let olm_machine = self.olm_machine().await;
 
-        let mut context =
-            Context::new(StateChanges::new(response.next_batch.clone()), Default::default());
+        let mut context = Context::new(StateChanges::new(response.next_batch.clone()));
 
         #[cfg(feature = "e2e-encryption")]
         let to_device = {
@@ -895,7 +894,7 @@ impl BaseClient {
         };
 
         let mut chunk = Vec::with_capacity(response.chunk.len());
-        let mut context = Context::new(StateChanges::default(), Default::default());
+        let mut context = Context::default();
 
         #[cfg(feature = "e2e-encryption")]
         let mut user_ids = BTreeSet::new();

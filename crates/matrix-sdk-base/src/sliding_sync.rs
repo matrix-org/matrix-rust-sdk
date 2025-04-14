@@ -82,7 +82,7 @@ impl BaseClient {
 
         let olm_machine = self.olm_machine().await;
 
-        let mut context = processors::Context::new(StateChanges::default(), Default::default());
+        let mut context = processors::Context::default();
 
         let processors::e2ee::to_device::Output { decrypted_to_device_events, room_key_updates } =
             processors::e2ee::to_device::from_msc4186(
@@ -157,7 +157,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         };
 
-        let mut context = processors::Context::new(StateChanges::default(), Default::default());
+        let mut context = processors::Context::default();
 
         let state_store = self.state_store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(state_store.inner.clone());
