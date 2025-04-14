@@ -33,6 +33,7 @@ use vodozemac::Curve25519PublicKey;
 use super::{
     caches::DeviceStore, Account, BackupKeys, Changes, CryptoStore, DehydratedDeviceKey,
     InboundGroupSession, PendingChanges, RoomKeyCounts, RoomSettings, Session,
+    StoredRoomKeyBundleData,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
@@ -719,6 +720,14 @@ impl CryptoStore for MemoryStore {
         Ok(self.room_settings.read().get(room_id).cloned())
     }
 
+    async fn get_received_room_key_bundle_data(
+        &self,
+        _room_id: &RoomId,
+        _user_id: &UserId,
+    ) -> Result<Option<StoredRoomKeyBundleData>> {
+        todo!()
+    }
+
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
         Ok(self.custom_values.read().get(key).cloned())
     }
@@ -1249,7 +1258,7 @@ mod integration_tests {
         },
         store::{
             BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-            RoomSettings,
+            RoomSettings, StoredRoomKeyBundleData,
         },
         types::events::room_key_withheld::RoomKeyWithheldEvent,
         Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, TrackedUser,
@@ -1509,6 +1518,14 @@ mod integration_tests {
             room_id: &RoomId,
         ) -> Result<Option<RoomSettings>, Self::Error> {
             self.0.get_room_settings(room_id).await
+        }
+
+        async fn get_received_room_key_bundle_data(
+            &self,
+            room_id: &RoomId,
+            user_id: &UserId,
+        ) -> crate::store::Result<Option<StoredRoomKeyBundleData>, Self::Error> {
+            self.0.get_received_room_key_bundle_data(room_id, user_id).await
         }
 
         async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
