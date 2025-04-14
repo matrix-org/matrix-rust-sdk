@@ -17,11 +17,11 @@
 use std::{collections::BTreeMap, fmt};
 
 use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::TimelineEvent};
+pub use ruma::api::client::sync::sync_events::v3::{
+    InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate,
+};
 use ruma::{
-    api::client::sync::sync_events::{
-        v3::{InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate},
-        UnreadNotificationsCount as RumaUnreadNotificationsCount,
-    },
+    api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
