@@ -263,6 +263,18 @@ pub enum RawAnySyncOrStrippedTimelineEvent {
     Stripped(Raw<AnyStrippedStateEvent>),
 }
 
+impl From<Raw<AnySyncTimelineEvent>> for RawAnySyncOrStrippedTimelineEvent {
+    fn from(event: Raw<AnySyncTimelineEvent>) -> Self {
+        Self::Sync(event)
+    }
+}
+
+impl From<Raw<AnyStrippedStateEvent>> for RawAnySyncOrStrippedTimelineEvent {
+    fn from(event: Raw<AnyStrippedStateEvent>) -> Self {
+        Self::Stripped(event)
+    }
+}
+
 /// Wrapper around both versions of any raw state event.
 #[derive(Clone, Debug, Serialize)]
 #[serde(untagged)]
