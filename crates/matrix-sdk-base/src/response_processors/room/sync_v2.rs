@@ -238,9 +238,7 @@ pub async fn update_invited_room(
         (&raw_events, &events),
         &room,
         &mut room_info,
-        notification.push_rules,
-        notification.notifications,
-        notification.state_store,
+        notification,
     )
     .await?;
 

@@ -117,18 +117,14 @@ pub mod sync {
 pub mod stripped {
     use std::{collections::BTreeMap, iter};
 
-    use ruma::{
-        events::AnyStrippedStateEvent,
-        push::{Action, Ruleset},
-        OwnedRoomId,
-    };
+    use ruma::{events::AnyStrippedStateEvent, push::Action};
     use tracing::instrument;
 
-    use super::{super::timeline, Context, Raw};
-    use crate::{
-        deserialized_responses::RawAnySyncOrStrippedTimelineEvent, store::BaseStateStore,
-        sync::Notification, Result, Room, RoomInfo,
+    use super::{
+        super::{notification, timeline},
+        Context, Raw,
     };
+    use crate::{Result, Room, RoomInfo};
 
     /// Collect [`AnyStrippedStateEvent`] to [`AnyStrippedStateEvent`].
     pub fn collect(
@@ -164,9 +160,7 @@ pub mod stripped {
         (raw_events, events): (&[Raw<AnyStrippedStateEvent>], &[AnyStrippedStateEvent]),
         room: &Room,
         room_info: &mut RoomInfo,
-        push_rules: &Ruleset,
-        notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
-        state_store: &BaseStateStore,
+        mut notification: notification::Notification<'_>,
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
@@ -186,20 +180,19 @@ pub mod stripped {
         // We need to check for notifications after we have handled all state
         // events, to make sure we have the full push context.
         if let Some(push_context) =
-            timeline::get_push_room_context(context, room, room_info, state_store).await?
+            timeline::get_push_room_context(context, room, room_info, notification.state_store)
+                .await?
         {
+            let room_id = room.room_id();
+
             // Check every event again for notification.
             for event in state_events.values().flat_map(|map| map.values()) {
-                let actions = push_rules.get_actions(event, &push_context);
-
-                if actions.iter().any(Action::should_notify) {
-                    notifications.entry(room.room_id().to_owned()).or_default().push(
-                        Notification {
-                            actions: actions.to_owned(),
-                            event: RawAnySyncOrStrippedTimelineEvent::Stripped(event.clone()),
-                        },
-                    );
-                }
+                notification.push_notification_from_event_if(
+                    room_id,
+                    &push_context,
+                    event,
+                    Action::should_notify,
+                );
             }
         }
 
