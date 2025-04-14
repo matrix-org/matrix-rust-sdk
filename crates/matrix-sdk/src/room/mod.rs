@@ -160,7 +160,7 @@ use crate::{
 #[cfg(feature = "e2e-encryption")]
 use crate::{
     crypto::types::events::CryptoContextInfo, encryption::backups::BackupState,
-    encryption::futures::ShareRoomHistory,
+    room::shared_room_history::share_room_history,
 };
 
 pub mod edit;
@@ -175,6 +175,7 @@ pub mod reply;
 
 /// Contains all the functionality for modifying the privacy settings in a room.
 pub mod privacy_settings;
+mod shared_room_history;
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -1813,8 +1814,8 @@ impl Room {
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all, fields(room_id = ?self.room_id(), ?user_id))]
-    pub fn share_history<'a>(&'a self, user_id: &UserId) -> ShareRoomHistory<'a> {
-        ShareRoomHistory::new(self, user_id.to_owned())
+    pub async fn share_history<'a>(&'a self, user_id: &UserId) -> Result<()> {
+        share_room_history(self, user_id.to_owned()).await
     }
 
     /// Wait for the room to be fully synced.
