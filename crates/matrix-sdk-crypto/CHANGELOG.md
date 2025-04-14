@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Check the `sender_device_keys` field on *all* incoming Olm-encrypted to-device messages
+  and ignore any to-device messages which include the field but whose data is invalid
+  (as per [MSC4147](https://github.com/matrix-org/matrix-spec-proposals/pull/4147)).
+  ([#4922](https://github.com/matrix-org/matrix-rust-sdk/pull/4922))
+
 - Add experimental APIs for sharing encrypted room key history with new members, `Store::build_room_key_bundle` and `OlmMachine::share_room_key_bundle_data`.
   ([#4775](https://github.com/matrix-org/matrix-rust-sdk/pull/4775), [#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
 
