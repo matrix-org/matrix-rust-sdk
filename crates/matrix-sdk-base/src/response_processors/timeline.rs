@@ -32,9 +32,8 @@ use super::Context;
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
 use crate::{
-    deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     store::{BaseStateStore, StateStoreExt as _},
-    sync::{Notification, Timeline},
+    sync::Timeline,
     Result, Room, RoomInfo,
 };
 
@@ -51,7 +50,7 @@ pub async fn build<'notification, 'e2ee>(
     room: &Room,
     room_info: &mut RoomInfo,
     timeline_inputs: builder::Timeline,
-    notification_inputs: builder::Notification<'notification>,
+    mut notification_inputs: builder::Notification<'notification>,
     #[cfg(feature = "e2e-encryption")] e2ee: builder::E2EE<'e2ee>,
 ) -> Result<Timeline> {
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
@@ -140,22 +139,13 @@ pub async fn build<'notification, 'e2ee>(
                     .await?;
                 }
 
-                if let Some(context) = &push_context {
-                    let actions =
-                        notification_inputs.push_rules.get_actions(timeline_event.raw(), context);
-
-                    if actions.iter().any(Action::should_notify) {
-                        notification_inputs
-                            .notifications
-                            .entry(room_id.to_owned())
-                            .or_default()
-                            .push(Notification {
-                                actions: actions.to_owned(),
-                                event: RawAnySyncOrStrippedTimelineEvent::Sync(
-                                    timeline_event.raw().clone(),
-                                ),
-                            });
-                    }
+                if let Some(push_context) = &push_context {
+                    let actions = notification_inputs.push_notification_from_event_if(
+                        room_id,
+                        push_context,
+                        timeline_event.raw(),
+                        Action::should_notify,
+                    );
 
                     timeline_event.push_actions = Some(actions.to_owned());
                 }
