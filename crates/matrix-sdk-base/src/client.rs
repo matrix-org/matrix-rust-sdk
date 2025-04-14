@@ -549,7 +549,7 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
                 &mut ambiguity_cache,
                 &mut updated_members_in_room,
-                processors::timeline::builder::Notification::new(
+                processors::notification::Notification::new(
                     &push_rules,
                     &mut notifications,
                     &self.state_store,
@@ -575,7 +575,7 @@ impl BaseClient {
                 &self.state_store,
                 self.room_info_notable_update_sender.clone(),
                 &mut ambiguity_cache,
-                processors::timeline::builder::Notification::new(
+                processors::notification::Notification::new(
                     &push_rules,
                     &mut notifications,
                     &self.state_store,
@@ -599,7 +599,7 @@ impl BaseClient {
                 invited_room,
                 &self.state_store,
                 self.room_info_notable_update_sender.clone(),
-                processors::timeline::builder::Notification::new(
+                processors::notification::Notification::new(
                     &push_rules,
                     &mut notifications,
                     &self.state_store,
@@ -617,7 +617,7 @@ impl BaseClient {
                 knocked_room,
                 &self.state_store,
                 self.room_info_notable_update_sender.clone(),
-                processors::timeline::builder::Notification::new(
+                processors::notification::Notification::new(
                     &push_rules,
                     &mut notifications,
                     &self.state_store,

@@ -28,9 +28,9 @@ use ruma::{
 };
 use tracing::{instrument, trace, warn};
 
-use super::Context;
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
+use super::{notification, Context};
 use crate::{
     store::{BaseStateStore, StateStoreExt as _},
     sync::Timeline,
@@ -50,12 +50,12 @@ pub async fn build<'notification, 'e2ee>(
     room: &Room,
     room_info: &mut RoomInfo,
     timeline_inputs: builder::Timeline,
-    mut notification_inputs: builder::Notification<'notification>,
-    #[cfg(feature = "e2e-encryption")] e2ee: builder::E2EE<'e2ee>,
+    mut notification: notification::Notification<'notification>,
+    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'e2ee>,
 ) -> Result<Timeline> {
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
     let mut push_context =
-        get_push_room_context(context, room, room_info, notification_inputs.state_store).await?;
+        get_push_room_context(context, room, room_info, notification.state_store).await?;
     let room_id = room.room_id();
 
     for raw_event in timeline_inputs.raw_events {
@@ -130,17 +130,13 @@ pub async fn build<'notification, 'e2ee>(
                 if let Some(push_context) = &mut push_context {
                     update_push_room_context(context, push_context, room.own_user_id(), room_info)
                 } else {
-                    push_context = get_push_room_context(
-                        context,
-                        room,
-                        room_info,
-                        notification_inputs.state_store,
-                    )
-                    .await?;
+                    push_context =
+                        get_push_room_context(context, room, room_info, notification.state_store)
+                            .await?;
                 }
 
                 if let Some(push_context) = &push_context {
-                    let actions = notification_inputs.push_notification_from_event_if(
+                    let actions = notification.push_notification_from_event_if(
                         room_id,
                         push_context,
                         timeline_event.raw(),
@@ -192,10 +188,6 @@ pub mod builder {
             }
         }
     }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub use super::super::e2ee::E2EE;
-    pub use super::super::notification::Notification;
 }
 
 /// Update the push context for the given room.
