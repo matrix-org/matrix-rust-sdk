@@ -538,7 +538,7 @@ impl EventCacheInner {
         let _lock = self.multiple_room_updates_lock.lock().await;
 
         // Left rooms.
-        for (room_id, left_room_update) in updates.leave {
+        for (room_id, left_room_update) in updates.left {
             let room = self.for_room(&room_id).await?;
 
             if let Err(err) =
@@ -550,7 +550,7 @@ impl EventCacheInner {
         }
 
         // Joined rooms.
-        for (room_id, joined_room_update) in updates.join {
+        for (room_id, joined_room_update) in updates.joined {
             let room = self.for_room(&room_id).await?;
 
             if let Err(err) =
@@ -810,8 +810,8 @@ mod tests {
         };
 
         let mut updates = RoomUpdates::default();
-        updates.join.insert(room_id1.to_owned(), joined_room_update1);
-        updates.join.insert(room_id2.to_owned(), joined_room_update2);
+        updates.joined.insert(room_id1.to_owned(), joined_room_update1);
+        updates.joined.insert(room_id2.to_owned(), joined_room_update2);
 
         // Have the event cache handle them.
         event_cache.inner.handle_room_updates(updates).await.unwrap();

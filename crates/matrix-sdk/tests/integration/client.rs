@@ -349,13 +349,13 @@ async fn test_subscribe_all_room_updates() {
     client.sync_once(sync_settings).await.unwrap();
 
     let room_updates = rx.recv().now_or_never().unwrap().unwrap();
-    assert_let!(RoomUpdates { leave, join, invite, knocked } = room_updates);
+    assert_let!(RoomUpdates { left, joined, invited, knocked } = room_updates);
 
     // Check the left room updates.
     {
-        assert_eq!(leave.len(), 1);
+        assert_eq!(left.len(), 1);
 
-        let (room_id, update) = leave.iter().next().unwrap();
+        let (room_id, update) = left.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
         assert!(update.state.is_empty());
@@ -365,9 +365,9 @@ async fn test_subscribe_all_room_updates() {
 
     // Check the joined room updates.
     {
-        assert_eq!(join.len(), 1);
+        assert_eq!(joined.len(), 1);
 
-        let (room_id, update) = join.iter().next().unwrap();
+        let (room_id, update) = joined.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_JOINED_ROOM_ID);
 
@@ -385,9 +385,9 @@ async fn test_subscribe_all_room_updates() {
 
     // Check the invited room updates.
     {
-        assert_eq!(invite.len(), 1);
+        assert_eq!(invited.len(), 1);
 
-        let (room_id, update) = invite.iter().next().unwrap();
+        let (room_id, update) = invited.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_INVITED_ROOM_ID);
         assert_eq!(update.invite_state.events.len(), 2);
@@ -938,7 +938,7 @@ async fn test_test_ambiguity_changes() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let changes = &response.rooms.join.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
+    let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
 
     // A new member always triggers an ambiguity change.
     let example_change = changes.get(event_id!("$151800140517rfvjc:localhost")).unwrap();
@@ -1009,7 +1009,7 @@ async fn test_test_ambiguity_changes() {
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
     server.reset().await;
 
-    let changes = &response.rooms.join.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
+    let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
 
     // First joined member made both members ambiguous.
     let example_2_change = changes.get(example_2_rename_1_event_id).unwrap();
@@ -1068,7 +1068,7 @@ async fn test_test_ambiguity_changes() {
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
     server.reset().await;
 
-    let changes = &response.rooms.join.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
+    let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
 
     // example 2 is not ambiguous anymore.
     let example_2_change = changes.get(example_2_rename_2_event_id).unwrap();
@@ -1114,7 +1114,7 @@ async fn test_test_ambiguity_changes() {
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
     server.reset().await;
 
-    let changes = &response.rooms.join.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
+    let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
 
     // example 3 is now ambiguous with example 2, not example.
     let example_3_change = changes.get(example_3_rename_event_id).unwrap();
@@ -1160,7 +1160,7 @@ async fn test_test_ambiguity_changes() {
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
     server.reset().await;
 
-    let changes = &response.rooms.join.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
+    let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
 
     // name change, even if still not ambiguous, triggers ambiguity change.
     let example_change = changes.get(example_rename_event_id).unwrap();
@@ -1207,7 +1207,7 @@ async fn test_test_ambiguity_changes() {
     server.reset().await;
 
     // Avatar change does not trigger ambiguity change.
-    assert!(response.rooms.join.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes.is_empty());
+    assert!(response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes.is_empty());
 
     let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.ambiguity_changes);
     assert!(changes.is_empty());

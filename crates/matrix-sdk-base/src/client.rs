@@ -563,7 +563,7 @@ impl BaseClient {
             )
             .await?;
 
-            new_rooms.join.insert(room_id, joined_room_update);
+            new_rooms.joined.insert(room_id, joined_room_update);
         }
 
         for (room_id, left_room) in response.rooms.leave {
@@ -589,7 +589,7 @@ impl BaseClient {
             )
             .await?;
 
-            new_rooms.leave.insert(room_id, left_room_update);
+            new_rooms.left.insert(room_id, left_room_update);
         }
 
         for (room_id, invited_room) in response.rooms.invite {
@@ -607,7 +607,7 @@ impl BaseClient {
             )
             .await?;
 
-            new_rooms.invite.insert(room_id, invited_room_update);
+            new_rooms.invited.insert(room_id, invited_room_update);
         }
 
         for (room_id, knocked_room) in response.rooms.knock {

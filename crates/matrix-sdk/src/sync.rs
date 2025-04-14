@@ -178,7 +178,7 @@ impl Client {
         // Ignore errors when there are no receivers.
         let _ = self.inner.room_updates_sender.send(rooms.clone());
 
-        for (room_id, room_info) in &rooms.join {
+        for (room_id, room_info) in &rooms.joined {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -207,7 +207,7 @@ impl Client {
             self.handle_sync_events(HandlerKind::EphemeralRoomData, room, ephemeral).await?;
         }
 
-        for (room_id, room_info) in &rooms.leave {
+        for (room_id, room_info) in &rooms.left {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -226,7 +226,7 @@ impl Client {
             self.handle_sync_timeline_events(room, &timeline.events).await?;
         }
 
-        for (room_id, room_info) in &rooms.invite {
+        for (room_id, room_info) in &rooms.invited {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
