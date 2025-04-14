@@ -780,8 +780,7 @@ fn process_room_properties(
     }
 
     // Sliding sync doesn't have a room summary, nevertheless it contains the joined
-    // and invited member counts, in addition to the heroes if it's been configured
-    // to return them (see the [`http::RequestRoomSubscription::include_heroes`]).
+    // and invited member counts, in addition to the heroes.
     if let Some(count) = room_data.joined_count {
         room_info.update_joined_member_count(count.into());
     }

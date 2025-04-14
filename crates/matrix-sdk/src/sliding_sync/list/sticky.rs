@@ -9,10 +9,6 @@ pub(super) struct SlidingSyncListStickyParameters {
     /// Required states to return per room.
     required_state: Vec<(StateEventType, String)>,
 
-    /// Return a stripped variant of membership events for the users used to
-    /// calculate the room name.
-    include_heroes: Option<bool>,
-
     /// Any filters to apply to the query.
     filters: Option<http::request::ListFilters>,
 }
@@ -20,12 +16,11 @@ pub(super) struct SlidingSyncListStickyParameters {
 impl SlidingSyncListStickyParameters {
     pub fn new(
         required_state: Vec<(StateEventType, String)>,
-        include_heroes: Option<bool>,
         filters: Option<http::request::ListFilters>,
     ) -> Self {
         // Consider that each list will have at least one parameter set, so invalidate
         // it by default.
-        Self { required_state, include_heroes, filters }
+        Self { required_state, filters }
     }
 }
 
@@ -34,7 +29,6 @@ impl StickyData for SlidingSyncListStickyParameters {
 
     fn apply(&self, request: &mut Self::Request) {
         request.room_details.required_state = self.required_state.to_vec();
-        request.include_heroes = self.include_heroes;
         request.filters = self.filters.clone();
     }
 }

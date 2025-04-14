@@ -34,7 +34,6 @@ struct SlidingSyncListCachedData {
 pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     required_state: Vec<(StateEventType, String)>,
-    include_heroes: Option<bool>,
     filters: Option<http::request::ListFilters>,
     timeline_limit: Bound,
     pub(crate) name: String,
@@ -57,7 +56,6 @@ impl fmt::Debug for SlidingSyncListBuilder {
             .debug_struct("SlidingSyncListBuilder")
             .field("sync_mode", &self.sync_mode)
             .field("required_state", &self.required_state)
-            .field("include_heroes", &self.include_heroes)
             .field("filters", &self.filters)
             .field("timeline_limit", &self.timeline_limit)
             .field("name", &self.name)
@@ -73,7 +71,6 @@ impl SlidingSyncListBuilder {
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomTombstone, "".to_owned()),
             ],
-            include_heroes: None,
             filters: None,
             timeline_limit: 1,
             name: name.into(),
@@ -105,12 +102,6 @@ impl SlidingSyncListBuilder {
     /// Required states to return per room.
     pub fn required_state(mut self, value: Vec<(StateEventType, String)>) -> Self {
         self.required_state = value;
-        self
-    }
-
-    /// Include heroes.
-    pub fn include_heroes(mut self, value: Option<bool>) -> Self {
-        self.include_heroes = value;
         self
     }
 
@@ -172,11 +163,7 @@ impl SlidingSyncListBuilder {
 
                 // From the builder
                 sticky: StdRwLock::new(SlidingSyncStickyManager::new(
-                    SlidingSyncListStickyParameters::new(
-                        self.required_state,
-                        self.include_heroes,
-                        self.filters,
-                    ),
+                    SlidingSyncListStickyParameters::new(self.required_state, self.filters),
                 )),
                 timeline_limit: StdRwLock::new(self.timeline_limit),
                 name: self.name,
