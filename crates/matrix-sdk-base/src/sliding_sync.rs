@@ -135,7 +135,7 @@ impl BaseClient {
             processors::account_data::global(&extensions.account_data.global);
         let push_rules = self.get_push_rules(&global_account_data_processor).await?;
 
-        let mut new_rooms = RoomUpdates::default();
+        let mut room_updates = RoomUpdates::default();
         let mut notifications = Default::default();
         let mut rooms_account_data = extensions.account_data.rooms.clone();
 
@@ -146,47 +146,52 @@ impl BaseClient {
             .to_owned();
 
         for (room_id, response_room_data) in rooms {
-            let (room_info, joined_room, left_room, invited_room, knocked_room) =
-                processors::room::msc4186::update_any_room(
-                    &mut context,
-                    &user_id,
-                    room_id,
-                    requested_required_states.for_room(room_id),
-                    response_room_data,
-                    self.room_info_notable_update_sender.clone(),
-                    &mut rooms_account_data,
-                    #[cfg(feature = "e2e-encryption")]
-                    processors::e2ee::E2EE::new(
-                        self.olm_machine().await.as_ref(),
-                        self.decryption_trust_requirement,
-                        self.handle_verification_events,
-                    ),
-                    processors::notification::Notification::new(
-                        &push_rules,
-                        &mut notifications,
-                        &self.state_store,
-                    ),
-                    &mut ambiguity_cache,
-                    self.session_meta(),
-                )
-                .await?;
+            let Some((room_info, room_update)) = processors::room::msc4186::update_any_room(
+                &mut context,
+                &user_id,
+                room_id,
+                requested_required_states.for_room(room_id),
+                response_room_data,
+                self.room_info_notable_update_sender.clone(),
+                &mut rooms_account_data,
+                #[cfg(feature = "e2e-encryption")]
+                processors::e2ee::E2EE::new(
+                    self.olm_machine().await.as_ref(),
+                    self.decryption_trust_requirement,
+                    self.handle_verification_events,
+                ),
+                processors::notification::Notification::new(
+                    &push_rules,
+                    &mut notifications,
+                    &self.state_store,
+                ),
+                &mut ambiguity_cache,
+                self.session_meta(),
+            )
+            .await?
+            else {
+                continue;
+            };
 
             context.state_changes.add_room(room_info);
 
-            if let Some(joined_room) = joined_room {
-                new_rooms.join.insert(room_id.clone(), joined_room);
-            }
+            let room_id = room_id.to_owned();
 
-            if let Some(left_room) = left_room {
-                new_rooms.leave.insert(room_id.clone(), left_room);
-            }
+            use processors::room::msc4186::RoomUpdateKind;
 
-            if let Some(invited_room) = invited_room {
-                new_rooms.invite.insert(room_id.clone(), invited_room);
-            }
-
-            if let Some(knocked_room) = knocked_room {
-                new_rooms.knocked.insert(room_id.clone(), knocked_room);
+            match room_update {
+                RoomUpdateKind::Joined(joined_room_update) => {
+                    room_updates.join.insert(room_id, joined_room_update);
+                }
+                RoomUpdateKind::Left(left_room_update) => {
+                    room_updates.leave.insert(room_id, left_room_update);
+                }
+                RoomUpdateKind::Invited(invited_room_update) => {
+                    room_updates.invite.insert(room_id, invited_room_update);
+                }
+                RoomUpdateKind::Knocked(knocked_room_update) => {
+                    room_updates.knocked.insert(room_id, knocked_room_update);
+                }
             }
         }
 
@@ -198,7 +203,7 @@ impl BaseClient {
             processors::ephemeral_events::dispatch_one(&mut context, raw.cast_ref(), room_id);
 
             // We assume this can only happen in joined rooms, or something's very wrong.
-            new_rooms
+            room_updates
                 .join
                 .entry(room_id.to_owned())
                 .or_insert_with(JoinedRoomUpdate::default)
@@ -208,7 +213,7 @@ impl BaseClient {
 
         for (room_id, raw) in &extensions.typing.rooms {
             // We assume this can only happen in joined rooms, or something's very wrong.
-            new_rooms
+            room_updates
                 .join
                 .entry(room_id.to_owned())
                 .or_insert_with(JoinedRoomUpdate::default)
@@ -222,13 +227,13 @@ impl BaseClient {
 
             if let Some(room) = self.state_store.room(room_id) {
                 match room.state() {
-                    RoomState::Joined => new_rooms
+                    RoomState::Joined => room_updates
                         .join
                         .entry(room_id.to_owned())
                         .or_insert_with(JoinedRoomUpdate::default)
                         .account_data
                         .append(&mut raw.to_vec()),
-                    RoomState::Left | RoomState::Banned => new_rooms
+                    RoomState::Left | RoomState::Banned => room_updates
                         .leave
                         .entry(room_id.to_owned())
                         .or_insert_with(LeftRoomUpdate::default)
@@ -243,7 +248,7 @@ impl BaseClient {
         // receipt. Update the read receipt accordingly.
         let user_id = &self.session_meta().expect("logged in user").user_id;
 
-        for (room_id, joined_room_update) in &mut new_rooms.join {
+        for (room_id, joined_room_update) in &mut room_updates.join {
             if let Some(mut room_info) = context
                 .state_changes
                 .room_infos
@@ -291,10 +296,10 @@ impl BaseClient {
         // live in memory, until the next sync which will saves the room info to
         // disk; we do this to avoid saving that would be redundant with the
         // above. Oh well.
-        new_rooms.update_in_memory_caches(&self.state_store).await;
+        room_updates.update_in_memory_caches(&self.state_store).await;
 
         Ok(SyncResponse {
-            rooms: new_rooms,
+            rooms: room_updates,
             notifications,
             presence: Default::default(),
             account_data: extensions.account_data.global.clone(),
