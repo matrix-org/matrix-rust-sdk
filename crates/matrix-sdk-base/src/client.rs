@@ -621,12 +621,17 @@ impl BaseClient {
             )
             .await;
 
-            // `Self::handle_room_account_data` might have updated the `RoomInfo`. Let's
-            // fetch it again.
+            // `processors::account_data::from_room` might have updated the `RoomInfo`.
+            // Let's fetch it again.
             //
-            // SAFETY: `unwrap` is safe because the `RoomInfo` has been inserted 2 lines
+            // SAFETY: `expect` is safe because the `RoomInfo` has been inserted 2 lines
             // above.
-            let mut room_info = context.state_changes.room_infos.get(&room_id).unwrap().clone();
+            let mut room_info = context
+                .state_changes
+                .room_infos
+                .get(&room_id)
+                .expect("`RoomInfo` must exist in `StateChanges` at this point")
+                .clone();
 
             #[cfg(feature = "e2e-encryption")]
             processors::e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
