@@ -181,13 +181,13 @@ impl BaseClient {
 
             match room_update {
                 RoomUpdateKind::Joined(joined_room_update) => {
-                    room_updates.join.insert(room_id, joined_room_update);
+                    room_updates.joined.insert(room_id, joined_room_update);
                 }
                 RoomUpdateKind::Left(left_room_update) => {
-                    room_updates.leave.insert(room_id, left_room_update);
+                    room_updates.left.insert(room_id, left_room_update);
                 }
                 RoomUpdateKind::Invited(invited_room_update) => {
-                    room_updates.invite.insert(room_id, invited_room_update);
+                    room_updates.invited.insert(room_id, invited_room_update);
                 }
                 RoomUpdateKind::Knocked(knocked_room_update) => {
                     room_updates.knocked.insert(room_id, knocked_room_update);
@@ -204,7 +204,7 @@ impl BaseClient {
 
             // We assume this can only happen in joined rooms, or something's very wrong.
             room_updates
-                .join
+                .joined
                 .entry(room_id.to_owned())
                 .or_insert_with(JoinedRoomUpdate::default)
                 .ephemeral
@@ -214,7 +214,7 @@ impl BaseClient {
         for (room_id, raw) in &extensions.typing.rooms {
             // We assume this can only happen in joined rooms, or something's very wrong.
             room_updates
-                .join
+                .joined
                 .entry(room_id.to_owned())
                 .or_insert_with(JoinedRoomUpdate::default)
                 .ephemeral
@@ -228,13 +228,13 @@ impl BaseClient {
             if let Some(room) = self.state_store.room(room_id) {
                 match room.state() {
                     RoomState::Joined => room_updates
-                        .join
+                        .joined
                         .entry(room_id.to_owned())
                         .or_insert_with(JoinedRoomUpdate::default)
                         .account_data
                         .append(&mut raw.to_vec()),
                     RoomState::Left | RoomState::Banned => room_updates
-                        .leave
+                        .left
                         .entry(room_id.to_owned())
                         .or_insert_with(LeftRoomUpdate::default)
                         .account_data
@@ -248,7 +248,7 @@ impl BaseClient {
         // receipt. Update the read receipt accordingly.
         let user_id = &self.session_meta().expect("logged in user").user_id;
 
-        for (room_id, joined_room_update) in &mut room_updates.join {
+        for (room_id, joined_room_update) in &mut room_updates.joined {
             if let Some(mut room_info) = context
                 .state_changes
                 .room_infos
@@ -380,7 +380,7 @@ mod tests {
             .expect("Failed to process sync");
 
         // Check it's present in the response.
-        let room = sync_response.rooms.join.get(room_id).unwrap();
+        let room = sync_response.rooms.joined.get(room_id).unwrap();
         assert_eq!(room.unread_notifications, count.clone().into());
 
         // Check it's been updated in the store.
@@ -421,9 +421,9 @@ mod tests {
         assert_eq!(client_room.state(), RoomState::Joined);
 
         // And it is added to the list of joined rooms only.
-        assert!(sync_resp.rooms.join.contains_key(room_id));
-        assert!(!sync_resp.rooms.leave.contains_key(room_id));
-        assert!(!sync_resp.rooms.invite.contains_key(room_id));
+        assert!(sync_resp.rooms.joined.contains_key(room_id));
+        assert!(!sync_resp.rooms.left.contains_key(room_id));
+        assert!(!sync_resp.rooms.invited.contains_key(room_id));
     }
 
     #[async_test]
@@ -449,9 +449,9 @@ mod tests {
         assert_eq!(client_room.state(), RoomState::Joined);
 
         // And it is added to the list of joined rooms only.
-        assert!(sync_resp.rooms.join.contains_key(room_id));
-        assert!(!sync_resp.rooms.leave.contains_key(room_id));
-        assert!(!sync_resp.rooms.invite.contains_key(room_id));
+        assert!(sync_resp.rooms.joined.contains_key(room_id));
+        assert!(!sync_resp.rooms.left.contains_key(room_id));
+        assert!(!sync_resp.rooms.invited.contains_key(room_id));
         assert!(!sync_resp.rooms.knocked.contains_key(room_id));
     }
 
@@ -509,9 +509,9 @@ mod tests {
         assert_eq!(client_room.state(), RoomState::Invited);
 
         // And it is added to the list of invited rooms only.
-        assert!(!sync_resp.rooms.join.contains_key(room_id));
-        assert!(!sync_resp.rooms.leave.contains_key(room_id));
-        assert!(sync_resp.rooms.invite.contains_key(room_id));
+        assert!(!sync_resp.rooms.joined.contains_key(room_id));
+        assert!(!sync_resp.rooms.left.contains_key(room_id));
+        assert!(sync_resp.rooms.invited.contains_key(room_id));
         assert!(!sync_resp.rooms.knocked.contains_key(room_id));
     }
 
@@ -655,9 +655,9 @@ mod tests {
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 
         // And it is added to the list of left rooms only.
-        assert!(!sync_resp.rooms.join.contains_key(room_id));
-        assert!(sync_resp.rooms.leave.contains_key(room_id));
-        assert!(!sync_resp.rooms.invite.contains_key(room_id));
+        assert!(!sync_resp.rooms.joined.contains_key(room_id));
+        assert!(sync_resp.rooms.left.contains_key(room_id));
+        assert!(!sync_resp.rooms.invited.contains_key(room_id));
         assert!(!sync_resp.rooms.knocked.contains_key(room_id));
     }
 
@@ -706,9 +706,9 @@ mod tests {
             }
 
             // And it is added to the list of left rooms only.
-            assert!(!sync_resp.rooms.join.contains_key(room_id));
-            assert!(sync_resp.rooms.leave.contains_key(room_id));
-            assert!(!sync_resp.rooms.invite.contains_key(room_id));
+            assert!(!sync_resp.rooms.joined.contains_key(room_id));
+            assert!(sync_resp.rooms.left.contains_key(room_id));
+            assert!(!sync_resp.rooms.invited.contains_key(room_id));
             assert!(!sync_resp.rooms.knocked.contains_key(room_id));
         }
     }
@@ -1021,8 +1021,8 @@ mod tests {
         assert_eq!(client_room.state(), RoomState::Invited);
 
         // And it is added to the list of invited rooms, not the joined ones
-        assert!(!sync_resp.rooms.invite[room_id].invite_state.is_empty());
-        assert!(!sync_resp.rooms.join.contains_key(room_id));
+        assert!(!sync_resp.rooms.invited[room_id].invite_state.is_empty());
+        assert!(!sync_resp.rooms.joined.contains_key(room_id));
     }
 
     #[async_test]

@@ -61,7 +61,7 @@ async fn test_notification() -> Result<()> {
     let bob_invite_response = bob.sync_once(Default::default()).await?;
     let sync_token = bob_invite_response.next_batch;
 
-    let mut invited_rooms = bob_invite_response.rooms.invite;
+    let mut invited_rooms = bob_invite_response.rooms.invited;
 
     assert_eq!(invited_rooms.len(), 1, "must be only one invitation");
 
@@ -145,7 +145,7 @@ async fn test_notification() -> Result<()> {
     // In this sync, Bob receives the message from Alice.
     let bob_response = bob.sync_once(SyncSettings::default().token(sync_token)).await?;
 
-    let mut joined_rooms = bob_response.rooms.join.into_iter();
+    let mut joined_rooms = bob_response.rooms.joined.into_iter();
     let (_, bob_room) = joined_rooms.next().expect("must have joined one room");
     assert!(joined_rooms.next().is_none(), "no more joined rooms: {joined_rooms:#?}");
 

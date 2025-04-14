@@ -248,7 +248,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
 ///
 /// This will only fill the in-memory caches, not save the info on disk.
 async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Result<()> {
-    for room_id in response.rooms.join.keys() {
+    for room_id in response.rooms.joined.keys() {
         let Some(room) = client.get_room(room_id) else {
             error!(room_id = ?room_id, "Cannot post process a room in sliding sync because it is missing");
             continue;
