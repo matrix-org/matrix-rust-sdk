@@ -29,7 +29,7 @@ use matrix_sdk_crypto::{
     },
     store::{
         BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-        RoomSettings,
+        RoomSettings, StoredRoomKeyBundleData,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
@@ -1335,6 +1335,14 @@ impl CryptoStore for SqliteCryptoStore {
         let settings = self.deserialize_value(&value)?;
 
         return Ok(Some(settings));
+    }
+
+    async fn get_received_room_key_bundle_data(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<StoredRoomKeyBundleData>> {
+        todo!()
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
