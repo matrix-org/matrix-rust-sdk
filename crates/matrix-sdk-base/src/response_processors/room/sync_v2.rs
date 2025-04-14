@@ -14,7 +14,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ruma::{api::client::sync::sync_events::v3::JoinedRoom, OwnedRoomId, OwnedUserId, RoomId};
+use ruma::{
+    api::client::sync::sync_events::v3::{JoinedRoom, LeftRoom},
+    OwnedRoomId, OwnedUserId, RoomId,
+};
 use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
@@ -22,7 +25,7 @@ use super::super::e2ee;
 use super::super::{account_data, ephemeral_events, state_events, timeline, Context};
 use crate::{
     store::{ambiguity_map::AmbiguityCache, BaseStateStore},
-    sync::JoinedRoomUpdate,
+    sync::{JoinedRoomUpdate, LeftRoomUpdate},
     RequestedRequiredStates, Result, RoomInfoNotableUpdate, RoomState,
 };
 
@@ -136,5 +139,74 @@ pub async fn update_joined_room(
         joined_room.ephemeral.events,
         notification_count,
         ambiguity_cache.changes.remove(room_id).unwrap_or_default(),
+    ))
+}
+
+/// Process historical updates of a left room.
+#[allow(clippy::too_many_arguments)]
+pub async fn update_left_room(
+    context: &mut Context,
+    room_id: &RoomId,
+    left_room: LeftRoom,
+    requested_required_states: &RequestedRequiredStates,
+    state_store: &BaseStateStore,
+    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
+    ambiguity_cache: &mut AmbiguityCache,
+    notification: timeline::builder::Notification<'_>,
+    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
+) -> Result<LeftRoomUpdate> {
+    let room =
+        state_store.get_or_create_room(room_id, RoomState::Left, room_info_notable_update_sender);
+
+    let mut room_info = room.clone_info();
+    room_info.mark_as_left();
+    room_info.mark_state_partially_synced();
+    room_info.handle_encryption_state(requested_required_states.for_room(room_id));
+
+    let (raw_state_events, state_events) =
+        state_events::sync::collect(context, &left_room.state.events);
+
+    let _ = state_events::sync::dispatch_and_get_new_users(
+        context,
+        (&raw_state_events, &state_events),
+        &mut room_info,
+        ambiguity_cache,
+    )
+    .await?;
+
+    let (raw_state_events_from_timeline, state_events_from_timeline) =
+        state_events::sync::collect_from_timeline(context, &left_room.timeline.events);
+
+    let _ = state_events::sync::dispatch_and_get_new_users(
+        context,
+        (&raw_state_events_from_timeline, &state_events_from_timeline),
+        &mut room_info,
+        ambiguity_cache,
+    )
+    .await?;
+
+    let timeline = timeline::build(
+        context,
+        &room,
+        &mut room_info,
+        timeline::builder::Timeline::from(left_room.timeline),
+        notification,
+        #[cfg(feature = "e2e-encryption")]
+        e2ee,
+    )
+    .await?;
+
+    // Save the new `RoomInfo`.
+    context.state_changes.add_room(room_info);
+
+    account_data::for_room(context, room_id, &left_room.account_data.events, state_store).await;
+
+    let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
+
+    Ok(LeftRoomUpdate::new(
+        timeline,
+        left_room.state.events,
+        left_room.account_data.events,
+        ambiguity_changes,
     ))
 }
