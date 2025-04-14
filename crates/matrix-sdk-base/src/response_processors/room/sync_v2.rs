@@ -85,7 +85,7 @@ pub async fn update_joined_room(
     updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
 
     #[cfg(feature = "e2e-encryption")]
-    let olm_machine = e2ee.olm_machine.clone();
+    let olm_machine = e2ee.olm_machine;
 
     let timeline = timeline::build(
         context,
