@@ -17,11 +17,11 @@
 use std::{collections::BTreeMap, fmt};
 
 use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::TimelineEvent};
+pub use ruma::api::client::sync::sync_events::v3::{
+    InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate,
+};
 use ruma::{
-    api::client::sync::sync_events::{
-        v3::{InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate},
-        UnreadNotificationsCount as RumaUnreadNotificationsCount,
-    },
+    api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
@@ -72,11 +72,11 @@ impl fmt::Debug for SyncResponse {
 #[derive(Clone, Default)]
 pub struct RoomUpdates {
     /// The rooms that the user has left or been banned from.
-    pub leave: BTreeMap<OwnedRoomId, LeftRoomUpdate>,
+    pub left: BTreeMap<OwnedRoomId, LeftRoomUpdate>,
     /// The rooms that the user has joined.
-    pub join: BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
+    pub joined: BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
     /// The rooms that the user has been invited to.
-    pub invite: BTreeMap<OwnedRoomId, InvitedRoomUpdate>,
+    pub invited: BTreeMap<OwnedRoomId, InvitedRoomUpdate>,
     /// The rooms that the user has knocked on.
     pub knocked: BTreeMap<OwnedRoomId, KnockedRoomUpdate>,
 }
@@ -87,10 +87,10 @@ impl RoomUpdates {
     /// This will only fill the in-memory caches, not save the info on disk.
     pub(crate) async fn update_in_memory_caches(&self, store: &BaseStateStore) {
         for room in self
-            .leave
+            .left
             .keys()
-            .chain(self.join.keys())
-            .chain(self.invite.keys())
+            .chain(self.joined.keys())
+            .chain(self.invited.keys())
             .chain(self.knocked.keys())
             .filter_map(|room_id| store.room(room_id))
         {
@@ -103,9 +103,9 @@ impl RoomUpdates {
 impl fmt::Debug for RoomUpdates {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RoomUpdates")
-            .field("leave", &self.leave)
-            .field("join", &self.join)
-            .field("invite", &DebugInvitedRoomUpdates(&self.invite))
+            .field("leave", &self.left)
+            .field("join", &self.joined)
+            .field("invite", &DebugInvitedRoomUpdates(&self.invited))
             .field("knocked", &DebugKnockedRoomUpdates(&self.knocked))
             .finish()
     }

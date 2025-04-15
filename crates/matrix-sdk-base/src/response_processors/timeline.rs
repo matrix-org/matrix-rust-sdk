@@ -28,13 +28,12 @@ use ruma::{
 };
 use tracing::{instrument, trace, warn};
 
-use super::Context;
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
+use super::{notification, Context};
 use crate::{
-    deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     store::{BaseStateStore, StateStoreExt as _},
-    sync::{Notification, Timeline},
+    sync::Timeline,
     Result, Room, RoomInfo,
 };
 
@@ -51,12 +50,12 @@ pub async fn build<'notification, 'e2ee>(
     room: &Room,
     room_info: &mut RoomInfo,
     timeline_inputs: builder::Timeline,
-    notification_inputs: builder::Notification<'notification>,
-    #[cfg(feature = "e2e-encryption")] e2ee: builder::E2EE<'e2ee>,
+    mut notification: notification::Notification<'notification>,
+    #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'e2ee>,
 ) -> Result<Timeline> {
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
     let mut push_context =
-        get_push_room_context(context, room, room_info, notification_inputs.state_store).await?;
+        get_push_room_context(context, room, room_info, notification.state_store).await?;
     let room_id = room.room_id();
 
     for raw_event in timeline_inputs.raw_events {
@@ -101,11 +100,9 @@ pub async fn build<'notification, 'e2ee>(
                                 if let Some(decrypted_timeline_event) =
                                     Box::pin(e2ee::decrypt::sync_timeline_event(
                                         context,
-                                        e2ee.olm_machine,
+                                        e2ee.clone(),
                                         timeline_event.raw(),
                                         room_id,
-                                        e2ee.decryption_trust_requirement,
-                                        e2ee.verification_is_allowed,
                                     ))
                                     .await?
                                 {
@@ -117,8 +114,7 @@ pub async fn build<'notification, 'e2ee>(
                                 Box::pin(verification::process_if_relevant(
                                     context,
                                     &sync_timeline_event,
-                                    e2ee.verification_is_allowed,
-                                    e2ee.olm_machine,
+                                    e2ee.clone(),
                                     room_id,
                                 ))
                                 .await?;
@@ -134,31 +130,18 @@ pub async fn build<'notification, 'e2ee>(
                 if let Some(push_context) = &mut push_context {
                     update_push_room_context(context, push_context, room.own_user_id(), room_info)
                 } else {
-                    push_context = get_push_room_context(
-                        context,
-                        room,
-                        room_info,
-                        notification_inputs.state_store,
-                    )
-                    .await?;
+                    push_context =
+                        get_push_room_context(context, room, room_info, notification.state_store)
+                            .await?;
                 }
 
-                if let Some(context) = &push_context {
-                    let actions =
-                        notification_inputs.push_rules.get_actions(timeline_event.raw(), context);
-
-                    if actions.iter().any(Action::should_notify) {
-                        notification_inputs
-                            .notifications
-                            .entry(room_id.to_owned())
-                            .or_default()
-                            .push(Notification {
-                                actions: actions.to_owned(),
-                                event: RawAnySyncOrStrippedTimelineEvent::Sync(
-                                    timeline_event.raw().clone(),
-                                ),
-                            });
-                    }
+                if let Some(push_context) = &push_context {
+                    let actions = notification.push_notification_from_event_if(
+                        room_id,
+                        push_context,
+                        timeline_event.raw(),
+                        Action::should_notify,
+                    );
 
                     timeline_event.push_actions = Some(actions.to_owned());
                 }
@@ -178,19 +161,11 @@ pub async fn build<'notification, 'e2ee>(
 /// Set of types used by [`build`] to reduce the number of arguments by grouping
 /// them by thematics.
 pub mod builder {
-    use std::collections::BTreeMap;
-
-    #[cfg(feature = "e2e-encryption")]
-    use matrix_sdk_crypto::{OlmMachine, TrustRequirement};
     use ruma::{
         api::client::sync::sync_events::{v3, v5},
         events::AnySyncTimelineEvent,
-        push::Ruleset,
         serde::Raw,
-        OwnedRoomId,
     };
-
-    use crate::{store::BaseStateStore, sync};
 
     pub struct Timeline {
         pub limited: bool,
@@ -211,40 +186,6 @@ pub mod builder {
                 raw_events: value.timeline.clone(),
                 prev_batch: value.prev_batch.clone(),
             }
-        }
-    }
-
-    pub struct Notification<'a> {
-        pub push_rules: &'a Ruleset,
-        pub notifications: &'a mut BTreeMap<OwnedRoomId, Vec<sync::Notification>>,
-        pub state_store: &'a BaseStateStore,
-    }
-
-    impl<'a> Notification<'a> {
-        pub fn new(
-            push_rules: &'a Ruleset,
-            notifications: &'a mut BTreeMap<OwnedRoomId, Vec<sync::Notification>>,
-            state_store: &'a BaseStateStore,
-        ) -> Self {
-            Self { push_rules, notifications, state_store }
-        }
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub struct E2EE<'a> {
-        pub olm_machine: Option<&'a OlmMachine>,
-        pub decryption_trust_requirement: TrustRequirement,
-        pub verification_is_allowed: bool,
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    impl<'a> E2EE<'a> {
-        pub fn new(
-            olm_machine: Option<&'a OlmMachine>,
-            decryption_trust_requirement: TrustRequirement,
-            verification_is_allowed: bool,
-        ) -> Self {
-            Self { olm_machine, decryption_trust_requirement, verification_is_allowed }
         }
     }
 }

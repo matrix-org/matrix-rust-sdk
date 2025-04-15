@@ -21,7 +21,7 @@ use ruma::{
     RoomId,
 };
 
-use super::Context;
+use super::{e2ee::E2EE, Context};
 use crate::Result;
 
 /// Process the given event as a verification event if it is a candidate. The
@@ -29,8 +29,7 @@ use crate::Result;
 pub async fn process_if_relevant(
     context: &mut Context,
     event: &AnySyncTimelineEvent,
-    verification_is_allowed: bool,
-    olm_machine: Option<&OlmMachine>,
+    e2ee: E2EE<'_>,
     room_id: &RoomId,
 ) -> Result<()> {
     if let AnySyncTimelineEvent::MessageLike(event) = event {
@@ -58,7 +57,8 @@ pub async fn process_if_relevant(
 
             _ => false,
         } {
-            verification(context, verification_is_allowed, olm_machine, event, room_id).await?;
+            verification(context, e2ee.verification_is_allowed, e2ee.olm_machine, event, room_id)
+                .await?;
         }
     }
 

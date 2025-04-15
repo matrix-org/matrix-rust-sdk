@@ -12,6 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_crypto::{OlmMachine, TrustRequirement};
+
 pub mod decrypt;
 pub mod to_device;
 pub mod tracked_users;
+
+/// A classical set of data used by some processors in this module.
+#[derive(Clone)]
+pub struct E2EE<'a> {
+    pub olm_machine: Option<&'a OlmMachine>,
+    pub decryption_trust_requirement: TrustRequirement,
+    pub verification_is_allowed: bool,
+}
+
+impl<'a> E2EE<'a> {
+    pub fn new(
+        olm_machine: Option<&'a OlmMachine>,
+        decryption_trust_requirement: TrustRequirement,
+        verification_is_allowed: bool,
+    ) -> Self {
+        Self { olm_machine, decryption_trust_requirement, verification_is_allowed }
+    }
+}

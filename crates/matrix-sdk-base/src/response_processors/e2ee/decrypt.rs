@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use matrix_sdk_crypto::{
-    DecryptionSettings, OlmMachine, RoomEventDecryptionResult, TrustRequirement,
-};
+use matrix_sdk_crypto::{DecryptionSettings, RoomEventDecryptionResult};
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
 
-use super::super::{verification, Context};
+use super::{
+    super::{verification, Context},
+    E2EE,
+};
 use crate::Result;
 
 /// Attempt to decrypt the given raw event into a [`TimelineEvent`].
@@ -30,16 +31,14 @@ use crate::Result;
 /// Returns `Ok(None)` if encryption is not configured.
 pub async fn sync_timeline_event(
     context: &mut Context,
-    olm_machine: Option<&OlmMachine>,
+    e2ee: E2EE<'_>,
     event: &Raw<AnySyncTimelineEvent>,
     room_id: &RoomId,
-    decryption_trust_requirement: TrustRequirement,
-    verification_is_allowed: bool,
 ) -> Result<Option<TimelineEvent>> {
-    let Some(olm) = olm_machine else { return Ok(None) };
+    let Some(olm) = e2ee.olm_machine else { return Ok(None) };
 
     let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: decryption_trust_requirement };
+        DecryptionSettings { sender_device_trust_requirement: e2ee.decryption_trust_requirement };
 
     Ok(Some(
         match olm.try_decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await? {
@@ -47,14 +46,8 @@ pub async fn sync_timeline_event(
                 let timeline_event = TimelineEvent::from(decrypted);
 
                 if let Ok(sync_timeline_event) = timeline_event.raw().deserialize() {
-                    verification::process_if_relevant(
-                        context,
-                        &sync_timeline_event,
-                        verification_is_allowed,
-                        olm_machine,
-                        room_id,
-                    )
-                    .await?;
+                    verification::process_if_relevant(context, &sync_timeline_event, e2ee, room_id)
+                        .await?;
                 }
 
                 timeline_event
