@@ -329,8 +329,10 @@ mod tests {
     use super::processors::room::msc4186::cache_latest_events;
     use crate::{
         rooms::normal::{RoomHero, RoomInfoNotableUpdateReasons},
+        store::{RoomLoadSettings, StoreConfig},
         test_utils::logged_in_base_client,
         BaseClient, EncryptionState, RequestedRequiredStates, RoomInfoNotableUpdate, RoomState,
+        SessionMeta,
     };
     #[cfg(feature = "e2e-encryption")]
     use crate::{store::MemoryStore, Room};
@@ -1085,6 +1087,68 @@ mod tests {
             "myroom"
         );
         assert!(client_room.name().is_none());
+    }
+
+    #[async_test]
+    async fn test_display_name_is_persisted_from_sliding_sync() {
+        let user_id = user_id!("@u:e.uk");
+        let room_id = room_id!("!r:e.uk");
+        let session_meta = SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() };
+        let state_store;
+
+        {
+            let client = {
+                let store = StoreConfig::new("cross-process-foo".to_owned());
+                state_store = store.state_store.clone();
+
+                let client = BaseClient::new(store);
+                client
+                    .activate(
+                        session_meta.clone(),
+                        RoomLoadSettings::default(),
+                        #[cfg(feature = "e2e-encryption")]
+                        None,
+                    )
+                    .await
+                    .expect("`activate` failed!");
+
+                client
+            };
+
+            // When the sliding sync response contains an explicit room name as well as an
+            // alias
+            let room = room_with_name("Hello World", user_id);
+            let response = response_with_room(room_id, room);
+            client
+                .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+                .await
+                .expect("Failed to process sync");
+
+            let room = client.get_room(room_id).expect("No room found");
+            assert_eq!(room.cached_display_name().unwrap().to_string(), "Hello World");
+        }
+
+        {
+            let client = {
+                let mut store = StoreConfig::new("cross-process-foo".to_owned());
+                store.state_store = state_store;
+                let client = BaseClient::new(store);
+                client
+                    .activate(
+                        session_meta,
+                        RoomLoadSettings::default(),
+                        #[cfg(feature = "e2e-encryption")]
+                        None,
+                    )
+                    .await
+                    .expect("`activate` failed!");
+
+                client
+            };
+
+            let room = client.get_room(room_id).expect("No room found");
+            assert_eq!(room.cached_display_name().unwrap().to_string(), "Hello World");
+        }
     }
 
     #[async_test]
@@ -2400,6 +2464,16 @@ mod tests {
             canonical_alias_event_content,
             None,
         ));
+
+        room
+    }
+
+    fn room_with_name(name: &str, user_id: &UserId) -> http::response::Room {
+        let mut room = http::response::Room::new();
+
+        let name_event_content = RoomNameEventContent::new(name.to_owned());
+
+        room.required_state.push(make_state_event(user_id, "", name_event_content, None));
 
         room
     }
