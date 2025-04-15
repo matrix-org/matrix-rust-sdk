@@ -380,21 +380,11 @@ impl RoomEventCacheInner {
             // Add all the events to the backend.
             trace!("adding new events");
 
-            // If we have storage, only keep the previous-batch token if we have a limited
-            // timeline. Otherwise, we know about all the events, and we don't need to
-            // back-paginate, so we wouldn't make use of the given previous-batch token.
-            //
-            // If we don't have storage, even if the timeline isn't limited, we may not have
-            // saved the previous events in any cache, so we should always be
-            // able to retrieve those.
-            let prev_batch =
-                if has_storage && !timeline.limited { None } else { timeline.prev_batch };
-
             let mut state = self.state.write().await;
             self.append_events_locked(
+                has_storage,
                 &mut state,
-                timeline.events,
-                prev_batch,
+                timeline,
                 ephemeral_events,
                 ambiguity_changes,
             )
@@ -438,10 +428,17 @@ impl RoomEventCacheInner {
         });
 
         // Push the new events.
+
+        // This method is only used when we don't have storage, and
+        // it's conservative to consider that this new timeline is "limited",
+        // since we don't know if we have a gap or not.
+        let has_storage = false;
+        let limited = true;
+
         self.append_events_locked(
+            has_storage,
             &mut state,
-            timeline_events,
-            prev_batch.clone(),
+            Timeline { limited, prev_batch, events: timeline_events },
             ephemeral_events,
             ambiguity_changes,
         )
@@ -456,18 +453,27 @@ impl RoomEventCacheInner {
     /// This is a private implementation. It must not be exposed publicly.
     async fn append_events_locked(
         &self,
+        has_storage: bool,
         state: &mut RoomEventCacheState,
-        timeline_events: Vec<TimelineEvent>,
-        prev_batch: Option<String>,
+        timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if timeline_events.is_empty()
+        let mut prev_batch = timeline.prev_batch;
+        if timeline.events.is_empty()
             && prev_batch.is_none()
             && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
         {
             return Ok(());
+        }
+
+        // Ditch the previous-batch token if we have storage, the sync isn't limited and
+        // we've seen at least one event in the past. In this case (and only this one),
+        // we should definitely know what the head of the timeline is (either we
+        // know about all the events, or we have a gap somewhere).
+        if has_storage && !timeline.limited && state.events().events().next().is_some() {
+            prev_batch = None;
         }
 
         let (
@@ -477,7 +483,7 @@ impl RoomEventCacheInner {
                 in_store_duplicated_event_ids,
             },
             all_duplicates,
-        ) = state.collect_valid_and_duplicated_events(timeline_events).await?;
+        ) = state.collect_valid_and_duplicated_events(timeline.events).await?;
 
         // During a sync, when a duplicated event is found, the old event is removed and
         // the new event is added.
@@ -532,11 +538,11 @@ impl RoomEventCacheInner {
 
             timeline_event_diffs.extend(new_timeline_event_diffs);
 
-            if prev_batch.is_some() && !all_duplicates {
-                // If there was a previous batch token, and there's at least one non-duplicated
-                // new event, unload the chunks so it only contains the last
-                // one; otherwise, there might be a valid gap in between, and
-                // observers may not render it (yet).
+            if timeline.limited && prev_batch.is_some() && !all_duplicates {
+                // If there was a previous batch token for a limited timeline, and there's at
+                // least one non-duplicated new event, unload the chunks so it
+                // only contains the last one; otherwise, there might be a valid
+                // gap in between, and observers may not render it (yet).
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
