@@ -14,9 +14,9 @@
 
 //! Extend `BaseClient` with capabilities to handle MSC4186.
 
+use ruma::api::client::sync::sync_events::v5 as http;
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::AnyToDeviceEvent;
-use ruma::{api::client::sync::sync_events::v5 as http, serde::Raw};
+use ruma::{events::AnyToDeviceEvent, serde::Raw};
 use tracing::{instrument, trace};
 
 use super::BaseClient;
@@ -31,7 +31,6 @@ use crate::{
 };
 
 impl BaseClient {
-    #[cfg(feature = "e2e-encryption")]
     /// Processes the E2EE-related events from the Sliding Sync response.
     ///
     /// In addition to writes to the crypto store, this may also write into the
@@ -39,6 +38,7 @@ impl BaseClient {
     /// store.
     ///
     /// Returns whether any change happened.
+    #[cfg(feature = "e2e-encryption")]
     pub async fn process_sliding_sync_e2ee(
         &self,
         to_device: Option<&http::response::ToDevice>,

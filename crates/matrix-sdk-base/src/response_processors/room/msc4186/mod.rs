@@ -16,7 +16,10 @@ pub mod extensions;
 
 use std::collections::BTreeMap;
 
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::StateEventType;
 use ruma::{
     api::client::sync::sync_events::{
         v3::{InviteState, InvitedRoom, KnockState, KnockedRoom},
@@ -25,7 +28,7 @@ use ruma::{
     assign,
     events::{
         room::member::{MembershipState, RoomMemberEventContent},
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, StateEventType,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
     },
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UserId,
@@ -38,11 +41,13 @@ use super::{
     super::{notification, state_events, timeline, Context},
     Room as RoomCreationData,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::StateChanges;
 use crate::{
     store::BaseStateStore,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
-    RoomState, StateChanges,
+    RoomState,
 };
 
 /// Represent any kind of room updates.
