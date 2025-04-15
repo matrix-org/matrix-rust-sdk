@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod extensions;
+
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;

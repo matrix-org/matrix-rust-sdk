@@ -24,12 +24,12 @@ pub fn dispatch(
     room_id: &RoomId,
 ) {
     for raw_event in raw_events {
-        dispatch_one(context, raw_event, room_id);
+        dispatch_receipt(context, raw_event, room_id);
     }
 }
 
-/// Dispatch a single [`AnySyncEphemeralRoomEvent`] on the [`Context`].
-pub fn dispatch_one(
+/// Dispatch the [`AnySyncEphemeralRoomEvent::Receipt`] on the [`Context`].
+pub(super) fn dispatch_receipt(
     context: &mut Context,
     raw_event: &Raw<AnySyncEphemeralRoomEvent>,
     room_id: &RoomId,
