@@ -22,7 +22,7 @@ use tracing::{error, instrument, trace};
 use super::Context;
 use crate::{
     store::{BaseStateStore, StateStoreExt as _},
-    Result,
+    Result, StateChanges,
 };
 
 /// Save the [`StateChanges`] from the [`Context`] inside the
@@ -39,14 +39,24 @@ pub async fn save_and_apply(
     let previous_ignored_user_list =
         state_store.get_account_data_event_static().await.ok().flatten();
 
-    state_store.save_changes(&context.state_changes).await?;
+    save_changes(&context.state_changes, state_store, sync_token).await?;
+    apply_changes(context, state_store, ignore_user_list_changes, previous_ignored_user_list);
+
+    trace!("applied changes");
+
+    Ok(())
+}
+
+async fn save_changes(
+    state_changes: &StateChanges,
+    state_store: &BaseStateStore,
+    sync_token: Option<String>,
+) -> Result<()> {
+    state_store.save_changes(state_changes).await?;
 
     if let Some(sync_token) = sync_token {
         *state_store.sync_token.write().await = Some(sync_token);
     }
-    apply_changes(context, state_store, ignore_user_list_changes, previous_ignored_user_list);
-
-    trace!("applied changes");
 
     Ok(())
 }
