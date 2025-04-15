@@ -21,7 +21,7 @@ use super::super::super::{
 };
 use crate::{
     store::BaseStateStore,
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates},
+    sync::{JoinedRoomUpdate, RoomUpdates},
     RoomState,
 };
 
@@ -36,7 +36,7 @@ pub fn ephemeral_events(
 
         joined_room_updates
             .entry(room_id.to_owned())
-            .or_insert_with(JoinedRoomUpdate::default)
+            .or_default()
             .ephemeral
             .push(raw.clone().cast());
     }
@@ -44,7 +44,7 @@ pub fn ephemeral_events(
     for (room_id, raw) in &typing.rooms {
         joined_room_updates
             .entry(room_id.to_owned())
-            .or_insert_with(JoinedRoomUpdate::default)
+            .or_default()
             .ephemeral
             .push(raw.clone().cast());
     }
@@ -64,13 +64,13 @@ pub async fn room_account_data(
                 RoomState::Joined => room_updates
                     .joined
                     .entry(room_id.to_owned())
-                    .or_insert_with(JoinedRoomUpdate::default)
+                    .or_default()
                     .account_data
                     .append(&mut raw.to_vec()),
                 RoomState::Left | RoomState::Banned => room_updates
                     .left
                     .entry(room_id.to_owned())
-                    .or_insert_with(LeftRoomUpdate::default)
+                    .or_default()
                     .account_data
                     .append(&mut raw.to_vec()),
                 RoomState::Invited | RoomState::Knocked => {}
