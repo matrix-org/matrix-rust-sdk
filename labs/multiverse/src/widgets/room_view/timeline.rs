@@ -102,11 +102,6 @@ impl Widget for &mut TimelineView<'_> {
         let list = List::new(list_items).highlight_spacing(HighlightSpacing::Always);
 
         let mut dummy_list_state = ListState::default();
-        // Scroll down to the bottom, so we always see the latest message.
-        //
-        // TODO: We should probably use the offset here instead of just scrolling down
-        // since this now selects the last item in the list.
-        dummy_list_state.scroll_down_by(list.len() as u16);
 
         StatefulWidget::render(list, area, buf, &mut dummy_list_state);
     }
