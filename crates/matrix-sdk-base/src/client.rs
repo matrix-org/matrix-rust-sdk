@@ -542,7 +542,7 @@ impl BaseClient {
         for (room_id, joined_room) in response.rooms.join {
             let joined_room_update = processors::room::sync_v2::update_joined_room(
                 &mut context,
-                processors::room::Room::new(
+                processors::room::RoomCreationData::new(
                     &room_id,
                     self.room_info_notable_update_sender.clone(),
                     requested_required_states,
@@ -570,7 +570,7 @@ impl BaseClient {
         for (room_id, left_room) in response.rooms.leave {
             let left_room_update = processors::room::sync_v2::update_left_room(
                 &mut context,
-                processors::room::Room::new(
+                processors::room::RoomCreationData::new(
                     &room_id,
                     self.room_info_notable_update_sender.clone(),
                     requested_required_states,
