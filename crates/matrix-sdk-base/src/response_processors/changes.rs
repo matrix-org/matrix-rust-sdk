@@ -25,6 +25,13 @@ use crate::{
     Result, StateChanges,
 };
 
+/// Save the [`StateChanges`] from the [`Context`] inside the [`BaseStateStore`]
+/// only! The changes aren't applied on the in-memory rooms.
+#[instrument(skip_all)]
+pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result<()> {
+    save_changes(&context.state_changes, state_store, None).await
+}
+
 /// Save the [`StateChanges`] from the [`Context`] inside the
 /// [`BaseStateStore`], and apply them on the in-memory rooms.
 #[instrument(skip_all)]
