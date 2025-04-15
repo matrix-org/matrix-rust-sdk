@@ -66,6 +66,23 @@ pub enum RoomDisplayName {
     Empty,
 }
 
+/// An internal representing whether a room display name is new or not when
+/// computed.
+pub(crate) enum UpdatedRoomDisplayName {
+    New(RoomDisplayName),
+    Same(RoomDisplayName),
+}
+
+impl UpdatedRoomDisplayName {
+    /// Get the inner [`RoomDisplayName`].
+    pub fn into_inner(self) -> RoomDisplayName {
+        match self {
+            UpdatedRoomDisplayName::New(room_display_name) => room_display_name,
+            UpdatedRoomDisplayName::Same(room_display_name) => room_display_name,
+        }
+    }
+}
+
 const WHITESPACE_REGEX: &str = r"\s+";
 const INVALID_SYMBOLS_REGEX: &str = r"[#,:\{\}\\]+";
 
