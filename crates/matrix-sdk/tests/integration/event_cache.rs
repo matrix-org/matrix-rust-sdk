@@ -2721,10 +2721,19 @@ async fn test_sync_while_back_paginate() {
     assert_event_matches_msg(&values[1], "sync2");
     assert_event_matches_msg(&values[2], "sync3");
 
-    assert!(subscriber.is_empty());
-
     // Back pagination should succeed, and we don't have reached the start.
     let outcome = back_pagination_handle.await.unwrap();
     assert!(outcome.reached_start.not());
     assert_eq!(outcome.events.len(), 3);
+
+    // And the back-paginated events come down from the subscriber too.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+    assert_eq!(diffs.len(), 3);
+    assert_let!(VectorDiff::Insert { index: 0, value: _ } = &diffs[0]);
+    assert_let!(VectorDiff::Insert { index: 1, value: _ } = &diffs[1]);
+    assert_let!(VectorDiff::Insert { index: 2, value: _ } = &diffs[2]);
+
+    assert!(subscriber.is_empty());
 }
