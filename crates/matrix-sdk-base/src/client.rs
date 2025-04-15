@@ -542,11 +542,13 @@ impl BaseClient {
         for (room_id, joined_room) in response.rooms.join {
             let joined_room_update = processors::room::sync_v2::update_joined_room(
                 &mut context,
-                &room_id,
+                processors::room::Room::new(
+                    &room_id,
+                    self.room_info_notable_update_sender.clone(),
+                    requested_required_states,
+                    &mut ambiguity_cache,
+                ),
                 joined_room,
-                requested_required_states,
-                self.room_info_notable_update_sender.clone(),
-                &mut ambiguity_cache,
                 &mut updated_members_in_room,
                 processors::notification::Notification::new(
                     &push_rules,
@@ -568,11 +570,13 @@ impl BaseClient {
         for (room_id, left_room) in response.rooms.leave {
             let left_room_update = processors::room::sync_v2::update_left_room(
                 &mut context,
-                &room_id,
+                processors::room::Room::new(
+                    &room_id,
+                    self.room_info_notable_update_sender.clone(),
+                    requested_required_states,
+                    &mut ambiguity_cache,
+                ),
                 left_room,
-                requested_required_states,
-                self.room_info_notable_update_sender.clone(),
-                &mut ambiguity_cache,
                 processors::notification::Notification::new(
                     &push_rules,
                     &mut notifications,
