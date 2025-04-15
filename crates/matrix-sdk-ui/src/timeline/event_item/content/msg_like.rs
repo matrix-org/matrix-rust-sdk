@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use as_variant::as_variant;
-use ruma::OwnedEventId;
+use ruma::{OwnedEventId, OwnedUserId};
 
-use super::{EncryptedMessage, InReplyToDetails, Message, PollState, Sticker};
-use crate::timeline::ReactionsByKeyBySender;
+use super::{EncryptedMessage, InReplyToDetails, Message, PollState, Sticker, TimelineItemContent};
+use crate::timeline::{Profile, ReactionsByKeyBySender, TimelineDetails};
 
 #[derive(Clone, Debug)]
 pub enum MsgLikeKind {
@@ -36,6 +36,18 @@ pub enum MsgLikeKind {
     UnableToDecrypt(EncryptedMessage),
 }
 
+#[derive(Clone, Debug)]
+pub struct ThreadSummary {
+    pub latest_event_details: TimelineDetails<Box<ThreadSummaryLatestEvent>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ThreadSummaryLatestEvent {
+    pub content: TimelineItemContent,
+    pub sender: OwnedUserId,
+    pub sender_profile: TimelineDetails<Profile>,
+}
+
 /// A special kind of [`super::TimelineItemContent`] that groups together
 /// different room message types with their respective reactions and thread
 /// information.
@@ -43,10 +55,12 @@ pub enum MsgLikeKind {
 pub struct MsgLikeContent {
     pub kind: MsgLikeKind,
     pub reactions: ReactionsByKeyBySender,
-    /// Event ID of the thread root, if this is a threaded message.
-    pub thread_root: Option<OwnedEventId>,
     /// The event this message is replying to, if any.
     pub in_reply_to: Option<InReplyToDetails>,
+    /// Event ID of the thread root, if this is a threaded message.
+    pub thread_root: Option<OwnedEventId>,
+    /// Information about the thread this message is the root of, if any.
+    pub thread_summary: Option<ThreadSummary>,
 }
 
 impl MsgLikeContent {
@@ -67,6 +81,7 @@ impl MsgLikeContent {
             reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
+            thread_summary: None,
         }
     }
 
@@ -76,6 +91,7 @@ impl MsgLikeContent {
             reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
+            thread_summary: None,
         }
     }
 

@@ -418,6 +418,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                 reactions: Default::default(),
                                 thread_root: None,
                                 in_reply_to: None,
+                                thread_summary: None,
                             }),
                             None,
                         );
@@ -622,6 +623,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 Default::default(),
                 thread_root,
                 in_reply_to_details,
+                None,
             ),
             edit_json,
         );
@@ -744,6 +746,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             reactions,
             thread_root,
             in_reply_to,
+            thread_summary,
         }) = item.content()
         else {
             info!(
@@ -762,6 +765,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: reactions.clone(),
                 thread_root: thread_root.clone(),
                 in_reply_to: in_reply_to.clone(),
+                thread_summary: thread_summary.clone(),
             }),
             edit_json,
         );
@@ -857,6 +861,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             reactions,
             thread_root,
             in_reply_to,
+            thread_summary,
         }) = &item.content()
         else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
@@ -869,6 +874,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: reactions.clone(),
                 thread_root: thread_root.clone(),
                 in_reply_to: in_reply_to.clone(),
+                thread_summary: thread_summary.clone(),
             }),
             None => {
                 info!("Not applying edit to a poll that's already ended");
@@ -921,6 +927,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: Default::default(),
                 thread_root: None,
                 in_reply_to: None,
+                thread_summary: None,
             }),
             edit_json,
         );
@@ -1403,6 +1410,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reactions: msglike.reactions.clone(),
                 thread_root: msglike.thread_root.clone(),
                 in_reply_to,
+                thread_summary: msglike.thread_summary.clone(),
             });
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);

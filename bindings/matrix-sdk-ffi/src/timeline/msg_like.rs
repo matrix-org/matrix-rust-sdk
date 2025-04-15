@@ -15,13 +15,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::crypto::types::events::UtdCause;
+use matrix_sdk_ui::timeline::TimelineDetails;
 use ruma::events::{room::MediaSource as RumaMediaSource, EventContent};
 
-use super::{content::Reaction, reply::InReplyToDetails};
+use super::{
+    content::{Reaction, TimelineItemContent},
+    reply::InReplyToDetails,
+};
 use crate::{
     error::ClientError,
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
-    timeline::content::ReactionSenderData,
+    timeline::{content::ReactionSenderData, ProfileDetails},
     utils::Timestamp,
 };
 
@@ -56,10 +60,12 @@ pub enum MsgLikeKind {
 pub struct MsgLikeContent {
     pub kind: MsgLikeKind,
     pub reactions: Vec<Reaction>,
-    /// Event ID of the thread root, if this is a threaded message.
-    pub thread_root: Option<String>,
     /// The event this message is replying to, if any.
     pub in_reply_to: Option<Arc<InReplyToDetails>>,
+    /// Event ID of the thread root, if this is a threaded message.
+    pub thread_root: Option<String>,
+    /// Details about the thread this message is the root of.
+    pub thread_summary: Option<Arc<ThreadSummary>>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -95,6 +101,8 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
 
         let thread_root = value.thread_root.map(|id| id.to_string());
 
+        let thread_summary = value.thread_summary.map(|t| Arc::new(t.into()));
+
         Ok(match value.kind {
             Kind::Message(message) => {
                 let msg_type = TryInto::<MessageType>::try_into(message.msgtype().clone())
@@ -112,6 +120,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     reactions,
                     in_reply_to,
                     thread_root,
+                    thread_summary,
                 }
             }
             Kind::Sticker(sticker) => {
@@ -134,6 +143,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     reactions,
                     in_reply_to,
                     thread_root,
+                    thread_summary,
                 }
             }
             Kind::Poll(poll_state) => {
@@ -156,16 +166,22 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     reactions,
                     in_reply_to,
                     thread_root,
+                    thread_summary,
                 }
             }
-            Kind::Redacted => {
-                Self { kind: MsgLikeKind::Redacted, reactions, in_reply_to, thread_root }
-            }
+            Kind::Redacted => Self {
+                kind: MsgLikeKind::Redacted,
+                reactions,
+                in_reply_to,
+                thread_root,
+                thread_summary,
+            },
             Kind::UnableToDecrypt(msg) => Self {
                 kind: MsgLikeKind::UnableToDecrypt { msg: EncryptedMessage::new(&msg) },
                 reactions,
                 in_reply_to,
                 thread_root,
+                thread_summary,
             },
         })
     }
@@ -221,4 +237,43 @@ impl EncryptedMessage {
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
+}
+
+#[derive(Clone, uniffi::Object)]
+pub struct ThreadSummary {
+    pub latest_event_details: ThreadSummaryLatestEventDetails,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl ThreadSummary {
+    pub fn latest_event_details(&self) -> ThreadSummaryLatestEventDetails {
+        self.latest_event_details.clone()
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum ThreadSummaryLatestEventDetails {
+    Unavailable,
+    Pending,
+    Ready { sender: String, sender_profile: ProfileDetails, content: TimelineItemContent },
+    Error { message: String },
+}
+
+impl From<matrix_sdk_ui::timeline::ThreadSummary> for ThreadSummary {
+    fn from(value: matrix_sdk_ui::timeline::ThreadSummary) -> Self {
+        let latest_event_details = match value.latest_event_details {
+            TimelineDetails::Unavailable => ThreadSummaryLatestEventDetails::Unavailable,
+            TimelineDetails::Pending => ThreadSummaryLatestEventDetails::Pending,
+            TimelineDetails::Ready(event) => ThreadSummaryLatestEventDetails::Ready {
+                content: event.content.into(),
+                sender: event.sender.to_string(),
+                sender_profile: (&event.sender_profile).into(),
+            },
+            TimelineDetails::Error(message) => {
+                ThreadSummaryLatestEventDetails::Error { message: message.to_string() }
+            }
+        };
+
+        Self { latest_event_details }
+    }
 }
