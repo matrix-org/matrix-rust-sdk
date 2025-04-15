@@ -25,7 +25,7 @@ use crate::{
     RoomState,
 };
 
-pub fn ephemeral_events(
+pub fn dispatch_ephemeral_events(
     context: &mut Context,
     receipts: &http::response::Receipts,
     typing: &http::response::Typing,

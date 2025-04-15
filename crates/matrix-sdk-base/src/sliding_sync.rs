@@ -198,7 +198,7 @@ impl BaseClient {
         // Handle read receipts and typing notifications independently of the rooms:
         // these both live in a different subsection of the server's response,
         // so they may exist without any update for the associated room.
-        processors::room::msc4186::extensions::ephemeral_events(
+        processors::room::msc4186::extensions::dispatch_ephemeral_events(
             &mut context,
             &extensions.receipts,
             &extensions.typing,
