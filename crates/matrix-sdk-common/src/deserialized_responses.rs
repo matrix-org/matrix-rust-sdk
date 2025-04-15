@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, fmt};
 #[cfg(doc)]
 use ruma::events::AnyTimelineEvent;
 use ruma::{
-    events::{AnyMessageLikeEvent, AnySyncTimelineEvent},
+    events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyToDeviceEvent},
     push::Action,
     serde::{
         AsRefStr, AsStrAsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, JsonObject, Raw,
@@ -281,6 +281,11 @@ pub enum AlgorithmInfo {
         /// decrypt this session. This map will usually contain a single ed25519
         /// key.
         sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+    },
+
+    OlmV1Curve25519AesSha2 {
+        // The sender key of the device that encrypted the message
+        curve25519_key: String,
     },
 }
 
@@ -612,6 +617,40 @@ impl fmt::Debug for DecryptedRoomEvent {
             .field("encryption_info", encryption_info)
             .maybe_field("unsigned_encryption_info", unsigned_encryption_info)
             .finish()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ProcessedToDeviceEvent {
+    /// A successfully-decrypted encrypted event.
+    Decrypted {
+        /// The decrypted to device event
+        decrypted_event: Raw<AnyToDeviceEvent>,
+        /// Sender encryption information
+        encryption_info: EncryptionInfo,
+    },
+
+    /// An encrypted event which could not be decrypted.
+    UnableToDecrypt {
+        /// The `m.room.encrypted` to device event.
+        event: Raw<AnyToDeviceEvent>,
+    },
+
+    /// An unencrypted event.
+    PlainText(Raw<AnyToDeviceEvent>),
+
+    /// An invalid to device event that was ignored
+    NotProcessed(Raw<AnyToDeviceEvent>),
+}
+
+impl ProcessedToDeviceEvent {
+    pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
+        match self {
+            ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } => decrypted_event.clone(),
+            ProcessedToDeviceEvent::UnableToDecrypt { event } => event.clone(),
+            ProcessedToDeviceEvent::PlainText(event) => event.clone(),
+            ProcessedToDeviceEvent::NotProcessed(event) => event.clone(),
+        }
     }
 }
 
