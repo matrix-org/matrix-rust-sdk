@@ -22,7 +22,10 @@ use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
-use super::super::{account_data, ephemeral_events, notification, state_events, timeline, Context};
+use super::{
+    super::{account_data, ephemeral_events, notification, state_events, timeline, Context},
+    Room as RoomCreationData,
+};
 use crate::{
     store::ambiguity_map::AmbiguityCache,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
@@ -33,15 +36,19 @@ use crate::{
 #[allow(clippy::too_many_arguments)]
 pub async fn update_joined_room(
     context: &mut Context,
-    room_id: &RoomId,
+    room_creation_data: RoomCreationData<'_>,
     joined_room: JoinedRoom,
-    requested_required_states: &RequestedRequiredStates,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
-    ambiguity_cache: &mut AmbiguityCache,
     updated_members_in_room: &mut BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>>,
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {
+    let RoomCreationData {
+        room_id,
+        room_info_notable_update_sender,
+        requested_required_states,
+        ambiguity_cache,
+    } = room_creation_data;
+
     let state_store = notification.state_store;
 
     let room =
@@ -147,14 +154,18 @@ pub async fn update_joined_room(
 #[allow(clippy::too_many_arguments)]
 pub async fn update_left_room(
     context: &mut Context,
-    room_id: &RoomId,
+    room_creation_data: RoomCreationData<'_>,
     left_room: LeftRoom,
-    requested_required_states: &RequestedRequiredStates,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
-    ambiguity_cache: &mut AmbiguityCache,
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<LeftRoomUpdate> {
+    let RoomCreationData {
+        room_id,
+        room_info_notable_update_sender,
+        requested_required_states,
+        ambiguity_cache,
+    } = room_creation_data;
+
     let state_store = notification.state_store;
 
     let room =
