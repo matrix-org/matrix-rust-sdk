@@ -65,7 +65,7 @@ pub async fn update_any_room(
     room_response: &http::response::Room,
     rooms_account_data: &BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
-    mut notification: notification::Notification<'_>,
+    notification: notification::Notification<'_>,
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
     let RoomCreationData {
         room_id,
@@ -123,9 +123,9 @@ pub async fn update_any_room(
             &room,
             &mut room_info,
             notification::Notification::new(
-                &notification.push_rules,
-                &mut notification.notifications,
-                &notification.state_store,
+                notification.push_rules,
+                notification.notifications,
+                notification.state_store,
             ),
         )
         .await?;
@@ -159,7 +159,7 @@ pub async fn update_any_room(
     #[cfg(feature = "e2e-encryption")]
     e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
         context,
-        e2ee.olm_machine.clone(),
+        e2ee.olm_machine,
         &new_user_ids,
         room_info.encryption_state(),
         room.encryption_state(),
