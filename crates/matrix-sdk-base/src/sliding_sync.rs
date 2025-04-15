@@ -24,9 +24,9 @@ use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
     response_processors as processors,
-    rooms::{normal::RoomInfoNotableUpdateReasons, RoomState},
+    rooms::normal::RoomInfoNotableUpdateReasons,
     store::ambiguity_map::AmbiguityCache,
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, SyncResponse},
+    sync::{RoomUpdates, SyncResponse},
     RequestedRequiredStates,
 };
 
@@ -137,7 +137,6 @@ impl BaseClient {
 
         let mut room_updates = RoomUpdates::default();
         let mut notifications = Default::default();
-        let mut rooms_account_data = extensions.account_data.rooms.clone();
 
         let user_id = self
             .session_meta()
@@ -156,7 +155,7 @@ impl BaseClient {
                     &mut ambiguity_cache,
                 ),
                 room_response,
-                &mut rooms_account_data,
+                &extensions.account_data.rooms,
                 #[cfg(feature = "e2e-encryption")]
                 processors::e2ee::E2EE::new(
                     self.olm_machine().await.as_ref(),
@@ -207,28 +206,14 @@ impl BaseClient {
             &mut room_updates.joined,
         );
 
-        // Handle room account data
-        for (room_id, raw) in &rooms_account_data {
-            processors::account_data::for_room(&mut context, room_id, raw, &self.state_store).await;
-
-            if let Some(room) = self.state_store.room(room_id) {
-                match room.state() {
-                    RoomState::Joined => room_updates
-                        .joined
-                        .entry(room_id.to_owned())
-                        .or_insert_with(JoinedRoomUpdate::default)
-                        .account_data
-                        .append(&mut raw.to_vec()),
-                    RoomState::Left | RoomState::Banned => room_updates
-                        .left
-                        .entry(room_id.to_owned())
-                        .or_insert_with(LeftRoomUpdate::default)
-                        .account_data
-                        .append(&mut raw.to_vec()),
-                    RoomState::Invited | RoomState::Knocked => {}
-                }
-            }
-        }
+        // Handle room account data.
+        processors::room::msc4186::extensions::room_account_data(
+            &mut context,
+            &extensions.account_data,
+            &mut room_updates,
+            &self.state_store,
+        )
+        .await;
 
         // Rooms in `new_rooms.join` either have a timeline update, or a new read
         // receipt. Update the read receipt accordingly.

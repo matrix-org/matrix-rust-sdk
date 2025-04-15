@@ -16,8 +16,14 @@ use std::collections::BTreeMap;
 
 use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
 
-use super::super::super::{ephemeral_events::dispatch_receipt, Context};
-use crate::sync::JoinedRoomUpdate;
+use super::super::super::{
+    account_data::for_room as account_data_for_room, ephemeral_events::dispatch_receipt, Context,
+};
+use crate::{
+    store::BaseStateStore,
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates},
+    RoomState,
+};
 
 pub fn ephemeral_events(
     context: &mut Context,
@@ -41,5 +47,34 @@ pub fn ephemeral_events(
             .or_insert_with(JoinedRoomUpdate::default)
             .ephemeral
             .push(raw.clone().cast());
+    }
+}
+
+pub async fn room_account_data(
+    context: &mut Context,
+    account_data: &http::response::AccountData,
+    room_updates: &mut RoomUpdates,
+    state_store: &BaseStateStore,
+) {
+    for (room_id, raw) in &account_data.rooms {
+        account_data_for_room(context, room_id, raw, state_store).await;
+
+        if let Some(room) = state_store.room(room_id) {
+            match room.state() {
+                RoomState::Joined => room_updates
+                    .joined
+                    .entry(room_id.to_owned())
+                    .or_insert_with(JoinedRoomUpdate::default)
+                    .account_data
+                    .append(&mut raw.to_vec()),
+                RoomState::Left | RoomState::Banned => room_updates
+                    .left
+                    .entry(room_id.to_owned())
+                    .or_insert_with(LeftRoomUpdate::default)
+                    .account_data
+                    .append(&mut raw.to_vec()),
+                RoomState::Invited | RoomState::Knocked => {}
+            }
+        }
     }
 }
