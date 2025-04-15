@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk_test::async_test;
-use ruma::{room_id, user_id, RoomId, TransactionId, UserId};
+use ruma::{events::AnyToDeviceEvent, room_id, serde::Raw, user_id, RoomId, TransactionId, UserId};
 use serde::Serialize;
 use serde_json::json;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
@@ -283,7 +283,10 @@ async fn create_and_share_session_without_sender_data(
 }
 
 /// Pipe a to-device event into an [`OlmMachine`].
-async fn receive_to_device_event<C>(machine: &OlmMachine, event: &ToDeviceEvent<C>)
+pub async fn receive_to_device_event<C>(
+    machine: &OlmMachine,
+    event: &ToDeviceEvent<C>,
+) -> (Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)
 where
     C: EventType + Serialize + Debug,
 {
@@ -298,7 +301,7 @@ where
             next_batch_token: None,
         })
         .await
-        .expect("Error receiving to-device event");
+        .expect("Error receiving to-device event")
 }
 
 /// Given the `room_keys_received_stream`, check that there is a pending update,

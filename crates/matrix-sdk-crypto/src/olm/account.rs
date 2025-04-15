@@ -1464,6 +1464,9 @@ impl Account {
             )
             .into())
         } else {
+            // If the event contained sender_device_keys, check them now.
+            Self::check_sender_device_keys(event.as_ref(), sender_key)?;
+
             // If this event is an `m.room_key` event, defer the check for the
             // Ed25519 key of the sender until we decrypt room events. This
             // ensures that we receive the room key even if we don't have access
@@ -1494,6 +1497,57 @@ impl Account {
                 sender_key,
             })
         }
+    }
+
+    /// If the plaintext of the decrypted message includes a
+    /// `sender_device_keys` property per [MSC4147], check that it is valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The decrypted and deserialized plaintext of the event.
+    /// * `sender_key` - The curve25519 key of the sender of the event.
+    ///
+    /// [MSC4147]: https://github.com/matrix-org/matrix-spec-proposals/pull/4147
+    fn check_sender_device_keys(
+        event: &AnyDecryptedOlmEvent,
+        sender_key: Curve25519PublicKey,
+    ) -> OlmResult<()> {
+        let Some(sender_device_keys) = event.sender_device_keys() else {
+            return Ok(());
+        };
+
+        // Check the signature within the device_keys structure
+        let sender_device_data = DeviceData::try_from(sender_device_keys).map_err(|err| {
+            warn!(
+                "Received a to-device message with sender_device_keys with invalid signature: {:?}",
+                err
+            );
+            OlmError::EventError(EventError::InvalidSenderDeviceKeys)
+        })?;
+
+        // Check that the Ed25519 key in the sender_device_keys matches the `ed25519`
+        // key in the `keys` field in the event.
+        if sender_device_data.ed25519_key() != Some(event.keys().ed25519) {
+            warn!(
+                    "Received a to-device message with sender_device_keys with incorrect ed25519 key: expected {:?}, got {:?}",
+                    event.keys().ed25519,
+                    sender_device_data.ed25519_key(),
+                );
+            return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
+        }
+
+        // Check that the Curve25519 key in the sender_device_keys matches the key that
+        // was used for the Olm session.
+        if sender_device_data.curve25519_key() != Some(sender_key) {
+            warn!(
+                    "Received a to-device message with sender_device_keys with incorrect curve25519 key: expected {:?}, got {:?}",
+                    sender_key,
+                    sender_device_data.curve25519_key(),
+                );
+            return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
+        }
+
+        Ok(())
     }
 
     /// Internal use only.
