@@ -18,8 +18,9 @@ use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
-    UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
+    AlgorithmInfo, ProcessedToDeviceEvent, UnableToDecryptInfo, UnableToDecryptReason,
+    UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
+    WithheldCode,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -397,7 +398,7 @@ async fn test_room_key_sharing() {
     let (decrypted, room_key_updates) =
         send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
 
-    let event = decrypted[0].deserialize().unwrap();
+    let event = decrypted[0].to_raw().deserialize().unwrap();
 
     if let AnyToDeviceEvent::RoomKey(event) = event {
         assert_eq!(&event.sender, alice.user_id());
@@ -489,7 +490,7 @@ async fn send_room_key_to_device(
     sender: &OlmMachine,
     receiver: &OlmMachine,
     room_id: &RoomId,
-) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
+) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
     let to_device_requests = sender
         .share_room_key(room_id, iter::once(receiver.user_id()), EncryptionSettings::default())
         .await

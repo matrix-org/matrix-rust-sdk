@@ -17,8 +17,9 @@ use std::{fmt::Debug, iter, pin::Pin};
 use assert_matches::assert_matches;
 use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
-use ruma::{events::AnyToDeviceEvent, room_id, serde::Raw, user_id, RoomId, TransactionId, UserId};
+use ruma::{room_id, user_id, RoomId, TransactionId, UserId};
 use serde::Serialize;
 use serde_json::json;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
@@ -286,7 +287,7 @@ async fn create_and_share_session_without_sender_data(
 pub async fn receive_to_device_event<C>(
     machine: &OlmMachine,
     event: &ToDeviceEvent<C>,
-) -> (Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)
+) -> (Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)
 where
     C: EventType + Serialize + Debug,
 {

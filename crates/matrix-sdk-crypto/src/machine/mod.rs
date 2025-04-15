@@ -21,9 +21,9 @@ use std::{
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
-        UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
-        VerificationState,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
+        ProcessedToDeviceEvent, UnableToDecryptInfo, UnableToDecryptReason,
+        UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
     BoxFuture,
@@ -1286,7 +1286,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
-    ) -> Option<Raw<AnyToDeviceEvent>> {
+    ) -> Option<ProcessedToDeviceEvent> {
         Self::record_message_id(&raw_event);
 
         let event: ToDeviceEvents = match raw_event.deserialize_as() {
@@ -1294,8 +1294,7 @@ impl OlmMachine {
             Err(e) => {
                 // Skip invalid events.
                 warn!("Received an invalid to-device event: {e}");
-
-                return Some(raw_event);
+                return Some(ProcessedToDeviceEvent::NotProcessed(raw_event));
             }
         };
 
@@ -1320,7 +1319,7 @@ impl OlmMachine {
                             }
                         }
 
-                        return Some(raw_event);
+                        return Some(ProcessedToDeviceEvent::UnableToDecrypt { event: raw_event });
                     }
                 };
 
@@ -1372,12 +1371,75 @@ impl OlmMachine {
                         raw_event = decrypted.result.raw_event;
                     }
                 }
+
+                let encryption_info =
+                    self.get_olm_encryption_info(&e.sender, decrypted.result.sender_key).await;
+
+                Some(ProcessedToDeviceEvent::Decrypted {
+                    decrypted_event: raw_event,
+                    encryption_info,
+                })
             }
 
-            e => self.handle_to_device_event(changes, &e).await,
+            e => {
+                self.handle_to_device_event(changes, &e).await;
+                Some(ProcessedToDeviceEvent::PlainText(raw_event))
+            }
         }
+    }
 
-        Some(raw_event)
+    /// Get the sender information for a successfully decrypted olm message.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender` - The claimed user_id retrieved from the event.
+    ///
+    /// * `sender_key` - The `Curve25519PublicKey` linked to the olm session
+    ///   that decrypted the message.
+    ///
+    /// # Returns
+    ///
+    /// A [`EncryptionInfo`] struct.
+    async fn get_olm_encryption_info(
+        &self,
+        sender: &UserId,
+        sender_key: Curve25519PublicKey,
+    ) -> EncryptionInfo {
+        let device =
+            self.store().get_device_from_curve_key(sender, sender_key).await.unwrap_or(None);
+
+        let state = if let Some(device) = &device {
+            if device.is_cross_signed_by_owner() {
+                if device.is_device_owner_verified() {
+                    VerificationState::Verified
+                } else {
+                    let identity = device
+                        .device_owner_identity
+                        .as_ref()
+                        .expect("This device is cross-signed, so the identity exists");
+                    if identity.was_previously_verified() {
+                        VerificationState::Unverified(VerificationLevel::VerificationViolation)
+                    } else {
+                        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+                    }
+                }
+            } else {
+                VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+            }
+        } else {
+            VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice))
+        };
+
+        EncryptionInfo {
+            sender: sender.to_owned(),
+            sender_device: device.map(|d| d.device_id().to_owned()),
+            algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                curve25519_key: sender_key.to_base64(),
+            },
+            verification_state: state,
+            // Only relevant for megolm
+            session_id: None,
+        }
     }
 
     /// Decide whether a decrypted to-device event was sent from a dehydrated
@@ -1435,7 +1497,7 @@ impl OlmMachine {
     pub async fn receive_sync_changes(
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
-    ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
 
         let (events, changes) =
@@ -1464,10 +1526,18 @@ impl OlmMachine {
         &self,
         transaction: &mut StoreTransaction,
         sync_changes: EncryptionSyncChanges<'_>,
-    ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Changes)> {
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Changes)> {
         // Remove verification objects that have expired or are done.
-        let mut events = self.inner.verification_machine.garbage_collect();
-
+        let mut events: Vec<ProcessedToDeviceEvent> = self
+            .inner
+            .verification_machine
+            .garbage_collect()
+            .iter()
+            // These are `fake` to device events just serving as local echo
+            // in order for own client to react quickly to cancelled transaction.
+            // Just use PlainText for that.
+            .map(|e| ProcessedToDeviceEvent::PlainText(e.clone()))
+            .collect();
         // The account is automatically saved by the store transaction created by the
         // caller.
         let mut changes = Default::default();

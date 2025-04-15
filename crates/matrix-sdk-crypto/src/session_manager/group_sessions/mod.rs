@@ -1031,7 +1031,7 @@ mod tests {
     };
 
     use assert_matches2::assert_let;
-    use matrix_sdk_common::deserialized_responses::WithheldCode;
+    use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, WithheldCode};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
         api::client::{
@@ -1822,8 +1822,12 @@ mod tests {
         let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
         assert_eq!(1, decrypted.len());
         use crate::types::events::EventType;
+        assert_let!(
+            ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } =
+                decrypted.first().unwrap().clone()
+        );
         assert_eq!(
-            decrypted[0].get_field::<String>("type").unwrap().unwrap(),
+            decrypted_event.get_field::<String>("type").unwrap().unwrap(),
             RoomKeyBundleContent::EVENT_TYPE,
         );
     }
