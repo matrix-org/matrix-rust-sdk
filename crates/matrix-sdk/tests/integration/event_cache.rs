@@ -2627,3 +2627,100 @@ async fn test_clear_all_rooms() {
         event_cache_store.load_last_chunk(sleeping_room_id).await.unwrap();
     assert!(maybe_last_chunk.is_none());
 }
+
+#[async_test]
+async fn test_sync_while_back_paginate() {
+    let server = MatrixMockServer::new().await;
+    let tmp_dir = tempfile::tempdir().unwrap();
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+    // Previous batch of events which will be received via /messages, in reverse
+    // chronological order.
+    let prev_events = vec![
+        f.text_msg("messages3").event_id(event_id!("$messages3")).into_raw_timeline(),
+        f.text_msg("messages2").event_id(event_id!("$messages2")).into_raw_timeline(),
+        f.text_msg("messages1").event_id(event_id!("$messages1")).into_raw_timeline(),
+    ];
+
+    // Batch of events which will be received via /sync, in chronological
+    // order.
+    let sync_events = [
+        f.text_msg("sync1").event_id(event_id!("$sync1")).into_raw_timeline(),
+        f.text_msg("sync2").event_id(event_id!("$sync2")).into_raw_timeline(),
+        f.text_msg("sync3").event_id(event_id!("$sync3")).into_raw_timeline(),
+    ];
+
+    {
+        // First, initialize the sync so the client is aware of the room, in the state
+        // store.
+        let client = server.client_builder().sqlite_store(&tmp_dir).build().await;
+        server.sync_joined_room(&client, room_id).await;
+    }
+
+    // Then, use a new client that will restore the state from the state store, and
+    // with an empty event cache store.
+    let client = server.client_builder().sqlite_store(&tmp_dir).build().await;
+    let room = client.get_room(room_id).unwrap();
+
+    client.event_cache().subscribe().unwrap();
+    client.event_cache().enable_storage().unwrap();
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await;
+    assert!(initial_events.is_empty());
+
+    // Mock /messages in case we use the prev_batch token from sync.
+    server
+        .mock_room_messages()
+        .match_from("token-before-sync-from-sync")
+        .ok(RoomMessagesResponseTemplate::default()
+            .end_token("token-before-messages")
+            .events(prev_events))
+        .named("messages")
+        .mount()
+        .await;
+    // Mock /messages in case we use no token.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default()
+            .end_token("token-before-sync-from-messages")
+            .events(sync_events.clone().into_iter().rev().collect()))
+        .named("messages")
+        .mount()
+        .await;
+
+    // Spawn back pagination.
+    let pagination = room_event_cache.pagination();
+    let back_pagination_handle =
+        spawn(async move { pagination.run_backwards_once(3).await.unwrap() });
+
+    // Receive a non-limited sync while back pagination is happening.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_prev_batch("token-before-sync-from-sync")
+                .add_timeline_bulk(sync_events.into_iter().map(ruma::serde::Raw::cast)),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = subscriber.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &diffs[0]);
+
+    assert_eq!(values.len(), 3);
+    assert_event_matches_msg(&values[0], "sync1");
+    assert_event_matches_msg(&values[1], "sync2");
+    assert_event_matches_msg(&values[2], "sync3");
+
+    assert!(subscriber.is_empty());
+
+    // Back pagination should succeed, and we don't have reached the start.
+    let outcome = back_pagination_handle.await.unwrap();
+    assert!(outcome.reached_start.not());
+    assert_eq!(outcome.events.len(), 3);
+}
