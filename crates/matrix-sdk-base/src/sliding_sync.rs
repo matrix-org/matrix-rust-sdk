@@ -199,28 +199,13 @@ impl BaseClient {
         // Handle read receipts and typing notifications independently of the rooms:
         // these both live in a different subsection of the server's response,
         // so they may exist without any update for the associated room.
-
-        for (room_id, raw) in &extensions.receipts.rooms {
-            processors::ephemeral_events::dispatch_one(&mut context, raw.cast_ref(), room_id);
-
+        processors::room::msc4186::extensions::ephemeral_events(
+            &mut context,
+            &extensions.receipts,
+            &extensions.typing,
             // We assume this can only happen in joined rooms, or something's very wrong.
-            room_updates
-                .joined
-                .entry(room_id.to_owned())
-                .or_insert_with(JoinedRoomUpdate::default)
-                .ephemeral
-                .push(raw.clone().cast());
-        }
-
-        for (room_id, raw) in &extensions.typing.rooms {
-            // We assume this can only happen in joined rooms, or something's very wrong.
-            room_updates
-                .joined
-                .entry(room_id.to_owned())
-                .or_insert_with(JoinedRoomUpdate::default)
-                .ephemeral
-                .push(raw.clone().cast());
-        }
+            &mut room_updates.joined,
+        );
 
         // Handle room account data
         for (room_id, raw) in &rooms_account_data {
