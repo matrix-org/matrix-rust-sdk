@@ -416,7 +416,10 @@ mod tests {
         // No m.room.name event, no heroes, no members => considered an empty room!
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "Empty Room");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "Empty Room"
+        );
         assert_eq!(client_room.state(), RoomState::Joined);
 
         // And it is added to the list of joined rooms only.
@@ -448,7 +451,10 @@ mod tests {
         // The name is known.
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name().as_deref(), Some("The Name"));
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "The Name");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "The Name"
+        );
     }
 
     #[async_test]
@@ -475,7 +481,7 @@ mod tests {
         assert!(client_room.name().is_none());
 
         // No m.room.name event, no heroes => using the invited member.
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "w");
+        assert_eq!(client_room.compute_display_name().await.unwrap().into_inner().to_string(), "w");
 
         assert_eq!(client_room.state(), RoomState::Invited);
 
@@ -512,7 +518,10 @@ mod tests {
         // The name is known.
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name().as_deref(), Some("The Name"));
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "The Name");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "The Name"
+        );
     }
 
     #[async_test]
@@ -1063,7 +1072,10 @@ mod tests {
 
         // Then the room's name is NOT overridden by the server-computed display name.
         let client_room = client.get_room(room_id).expect("No room found");
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "myroom");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "myroom"
+        );
         assert!(client_room.name().is_none());
     }
 
