@@ -148,7 +148,7 @@ impl BaseClient {
             let Some((room_info, room_update)) = processors::room::msc4186::update_any_room(
                 &mut context,
                 &user_id,
-                processors::room::Room::new(
+                processors::room::RoomCreationData::new(
                     room_id,
                     self.room_info_notable_update_sender.clone(),
                     requested_required_states,

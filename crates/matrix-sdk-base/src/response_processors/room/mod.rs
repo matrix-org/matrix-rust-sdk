@@ -21,14 +21,14 @@ pub mod msc4186;
 pub mod sync_v2;
 
 /// A classical set of data used by some processors in this module.
-pub struct Room<'a> {
+pub struct RoomCreationData<'a> {
     room_id: &'a RoomId,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     requested_required_states: &'a RequestedRequiredStates,
     ambiguity_cache: &'a mut AmbiguityCache,
 }
 
-impl<'a> Room<'a> {
+impl<'a> RoomCreationData<'a> {
     pub fn new(
         room_id: &'a RoomId,
         room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,

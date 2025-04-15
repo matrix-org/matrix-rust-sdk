@@ -39,7 +39,7 @@ use tokio::sync::broadcast::Sender;
 use super::super::e2ee;
 use super::{
     super::{notification, state_events, timeline, Context},
-    Room as RoomCreationData,
+    RoomCreationData,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::StateChanges;

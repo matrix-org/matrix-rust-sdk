@@ -24,7 +24,7 @@ use tokio::sync::broadcast::Sender;
 use super::super::e2ee;
 use super::{
     super::{account_data, ephemeral_events, notification, state_events, timeline, Context},
-    Room as RoomCreationData,
+    RoomCreationData,
 };
 use crate::{
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
