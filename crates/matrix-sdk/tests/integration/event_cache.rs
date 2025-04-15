@@ -2631,7 +2631,6 @@ async fn test_clear_all_rooms() {
 #[async_test]
 async fn test_sync_while_back_paginate() {
     let server = MatrixMockServer::new().await;
-    let tmp_dir = tempfile::tempdir().unwrap();
 
     let room_id = room_id!("!galette:saucisse.bzh");
     let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
@@ -2652,16 +2651,21 @@ async fn test_sync_while_back_paginate() {
         f.text_msg("sync3").event_id(event_id!("$sync3")).into_raw_timeline(),
     ];
 
+    let state_memory_store = matrix_sdk_base::store::MemoryStore::new();
+    let store_config = StoreConfig::new("le_store".to_owned())
+        .event_cache_store(Arc::new(MemoryStore::new()))
+        .state_store(state_memory_store);
+
     {
         // First, initialize the sync so the client is aware of the room, in the state
         // store.
-        let client = server.client_builder().sqlite_store(&tmp_dir).build().await;
+        let client = server.client_builder().store_config(store_config.clone()).build().await;
         server.sync_joined_room(&client, room_id).await;
     }
 
     // Then, use a new client that will restore the state from the state store, and
     // with an empty event cache store.
-    let client = server.client_builder().sqlite_store(&tmp_dir).build().await;
+    let client = server.client_builder().store_config(store_config).build().await;
     let room = client.get_room(room_id).unwrap();
 
     client.event_cache().subscribe().unwrap();
