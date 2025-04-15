@@ -54,7 +54,7 @@ pub async fn update_any_room(
     user_id: &UserId,
     room_id: &RoomId,
     requested_required_states: &[(StateEventType, String)],
-    room_data: &http::response::Room,
+    room_response: &http::response::Room,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
@@ -67,14 +67,14 @@ pub async fn update_any_room(
     // incomplete or staled already. We must only read state events from
     // `required_state`.
     let (raw_state_events, state_events) =
-        state_events::sync::collect(context, &room_data.required_state);
+        state_events::sync::collect(context, &room_response.required_state);
 
     let state_store = notification.state_store;
 
     // Find or create the room in the store
     let is_new_room = !state_store.room_exists(room_id);
 
-    let invite_state_events = room_data
+    let invite_state_events = room_response
         .invite_state
         .as_ref()
         .map(|events| state_events::stripped::collect(context, events));
@@ -118,13 +118,13 @@ pub async fn update_any_room(
         .await?;
     }
 
-    properties(context, room_id, room_data, &mut room_info, is_new_room);
+    properties(context, room_id, room_response, &mut room_info, is_new_room);
 
     let timeline = timeline::build(
         context,
         &room,
         &mut room_info,
-        timeline::builder::Timeline::from(room_data),
+        timeline::builder::Timeline::from(room_response),
         notification,
         #[cfg(feature = "e2e-encryption")]
         e2ee.clone(),
@@ -155,7 +155,7 @@ pub async fn update_any_room(
     )
     .await?;
 
-    let notification_count = room_data.unread_notifications.clone().into();
+    let notification_count = room_response.unread_notifications.clone().into();
     room_info.update_notification_count(notification_count);
 
     let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
@@ -330,7 +330,7 @@ fn own_membership(
 fn properties(
     context: &mut Context,
     room_id: &RoomId,
-    room_data: &http::response::Room,
+    room_response: &http::response::Room,
     room_info: &mut RoomInfo,
     is_new_room: bool,
 ) {
@@ -339,7 +339,7 @@ fn properties(
     // It can be updated via the state events, or via the
     // [`http::ResponseRoom::avatar`] field. This part of the code handles the
     // latter case. The former case is handled by [`BaseClient::handle_state`].
-    match &room_data.avatar {
+    match &room_response.avatar {
         // A new avatar!
         JsOption::Some(avatar_uri) => room_info.update_avatar(Some(avatar_uri.to_owned())),
         // Avatar must be removed.
@@ -350,14 +350,14 @@ fn properties(
 
     // Sliding sync doesn't have a room summary, nevertheless it contains the joined
     // and invited member counts, in addition to the heroes.
-    if let Some(count) = room_data.joined_count {
+    if let Some(count) = room_response.joined_count {
         room_info.update_joined_member_count(count.into());
     }
-    if let Some(count) = room_data.invited_count {
+    if let Some(count) = room_response.invited_count {
         room_info.update_invited_member_count(count.into());
     }
 
-    if let Some(heroes) = &room_data.heroes {
+    if let Some(heroes) = &room_response.heroes {
         room_info.update_heroes(
             heroes
                 .iter()
@@ -370,13 +370,13 @@ fn properties(
         );
     }
 
-    room_info.set_prev_batch(room_data.prev_batch.as_deref());
+    room_info.set_prev_batch(room_response.prev_batch.as_deref());
 
-    if room_data.limited {
+    if room_response.limited {
         room_info.mark_members_missing();
     }
 
-    if let Some(recency_stamp) = &room_data.bump_stamp {
+    if let Some(recency_stamp) = &room_response.bump_stamp {
         let recency_stamp: u64 = (*recency_stamp).into();
 
         if room_info.recency_stamp.as_ref() != Some(&recency_stamp) {

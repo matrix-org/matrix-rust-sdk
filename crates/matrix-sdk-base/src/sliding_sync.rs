@@ -145,13 +145,13 @@ impl BaseClient {
             .user_id
             .to_owned();
 
-        for (room_id, response_room_data) in rooms {
+        for (room_id, room_response) in rooms {
             let Some((room_info, room_update)) = processors::room::msc4186::update_any_room(
                 &mut context,
                 &user_id,
                 room_id,
                 requested_required_states.for_room(room_id),
-                response_room_data,
+                room_response,
                 self.room_info_notable_update_sender.clone(),
                 &mut rooms_account_data,
                 #[cfg(feature = "e2e-encryption")]
