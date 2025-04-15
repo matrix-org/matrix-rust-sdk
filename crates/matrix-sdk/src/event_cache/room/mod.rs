@@ -991,26 +991,33 @@ mod private {
             }
         }
 
-        /// Removes the bundled relations from an event, if they were present.
+        /// Removes a bundled edit from an event.
         ///
-        /// Only replaces the present if it contained bundled relations.
-        fn strip_relations_if_present<T>(event: &mut Raw<T>) {
-            // We're going to get rid of the `unsigned`/`m.relations` field, if it's
-            // present.
-            // Use a closure that returns an option so we can quickly short-circuit.
+        /// We do maintain other relations (`m.reference`, `m.thread`, custom
+        /// ones), because they might be useful later on.
+        ///
+        /// Only replaces the present if it contained a bundled edit relation.
+        fn strip_bundled_edit_if_present<T>(event: &mut Raw<T>) {
+            // We're going to get rid of the `unsigned`/`m.relations`/`m.replace` field, if
+            // it's present.
+            // Use a closure that returns an option so we can quickly short-circuit, and
+            // avoid a chain of `and_then` calls.
             let mut closure = || -> Option<()> {
                 let mut val: serde_json::Value = event.deserialize_as().ok()?;
                 let unsigned = val.get_mut("unsigned")?;
                 let unsigned_obj = unsigned.as_object_mut()?;
-                if unsigned_obj.remove("m.relations").is_some() {
-                    *event = Raw::new(&val).ok()?.cast();
+                if let Some(relations) = unsigned_obj.get_mut("m.relations") {
+                    let relations_obj = relations.as_object_mut()?;
+                    if relations_obj.remove("m.replace").is_some() {
+                        *event = Raw::new(&val).ok()?.cast();
+                    }
                 }
                 None
             };
             let _ = closure();
         }
 
-        fn strip_relations_from_event(ev: &mut TimelineEvent) {
+        fn strip_bundled_edit_from_event(ev: &mut TimelineEvent) {
             match &mut ev.kind {
                 TimelineEventKind::Decrypted(decrypted) => {
                     // Remove all information about encryption info for
@@ -1018,20 +1025,20 @@ mod private {
                     decrypted.unsigned_encryption_info = None;
 
                     // Remove the `unsigned`/`m.relations` field, if needs be.
-                    Self::strip_relations_if_present(&mut decrypted.event);
+                    Self::strip_bundled_edit_if_present(&mut decrypted.event);
                 }
 
                 TimelineEventKind::UnableToDecrypt { event, .. }
                 | TimelineEventKind::PlainText { event } => {
-                    Self::strip_relations_if_present(event);
+                    Self::strip_bundled_edit_if_present(event);
                 }
             }
         }
 
-        /// Strips the bundled relations from a collection of events.
-        fn strip_relations_from_events(items: &mut [TimelineEvent]) {
+        /// Strips the bundled edit relations from a collection of events.
+        fn strip_bundled_edit_from_events(items: &mut [TimelineEvent]) {
             for ev in items.iter_mut() {
-                Self::strip_relations_from_event(ev);
+                Self::strip_bundled_edit_from_event(ev);
             }
         }
 
@@ -1109,8 +1116,8 @@ mod private {
             // Strip relations from updates which insert or replace items.
             for update in updates.iter_mut() {
                 match update {
-                    Update::PushItems { items, .. } => Self::strip_relations_from_events(items),
-                    Update::ReplaceItem { item, .. } => Self::strip_relations_from_event(item),
+                    Update::PushItems { items, .. } => Self::strip_bundled_edit_from_events(items),
+                    Update::ReplaceItem { item, .. } => Self::strip_bundled_edit_from_event(item),
                     // Other update kinds don't involve adding new events.
                     Update::NewItemsChunk { .. }
                     | Update::NewGapChunk { .. }
@@ -1732,9 +1739,12 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
-    async fn test_write_to_storage_strips_bundled_relations() {
+    async fn test_write_to_storage_strips_bundled_edit() {
         use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
-        use ruma::events::BundledMessageLikeRelations;
+        use ruma::{
+            events::{relation::BundledThread, BundledMessageLikeRelations},
+            uint,
+        };
 
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
@@ -1759,13 +1769,26 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Propagate an update for a message with bundled relations.
-        let mut relations = BundledMessageLikeRelations::new();
-        relations.replace =
-            Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
-        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_event();
+        // Propagate an update for a message with a bundled edit.
+        let ev1 = {
+            let mut relations = BundledMessageLikeRelations::new();
+            relations.replace =
+                Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
+            f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_event()
+        };
 
-        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
+        // And another event with a bundled thread relation.
+        let ev2 = {
+            let mut relations = BundledMessageLikeRelations::new();
+            let latest_thread_event =
+                f.text_msg("and that, kiddos, is how i met your mother").sender(*BOB).into_raw();
+            relations.thread =
+                Some(Box::new(BundledThread::new(latest_thread_event, uint!(42), true)));
+
+            f.text_msg("threaddy kruger").sender(*ALICE).bundled_relations(relations).into_event()
+        };
+
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev1, ev2] };
 
         room_event_cache
             .inner
@@ -1773,23 +1796,39 @@ mod tests {
             .await
             .unwrap();
 
-        // The in-memory linked chunk keeps the bundled relation.
+        // Let's look at the in-memory linked chunk first.
         {
             let (events, _) = room_event_cache.subscribe().await;
 
-            assert_eq!(events.len(), 1);
+            assert_eq!(events.len(), 2);
 
-            let ev = events[0].raw().deserialize().unwrap();
-            assert_let!(
-                AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev
-            );
+            {
+                // The first message's bundled edit is still present.
+                let ev1 = events[0].raw().deserialize().unwrap();
+                assert_let!(
+                    AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) =
+                        ev1
+                );
 
-            let original = msg.as_original().unwrap();
-            assert_eq!(original.content.body(), "hey yo");
-            assert!(original.unsigned.relations.replace.is_some());
+                let original = msg.as_original().unwrap();
+                assert_eq!(original.content.body(), "hey yo");
+                assert!(original.unsigned.relations.replace.is_some());
+            }
+
+            {
+                // The second message still contains the bundled thread info.
+                let ev2 = events[1].raw().deserialize().unwrap();
+                assert_let!(
+                    AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) =
+                        ev2
+                );
+
+                let original = msg.as_original().unwrap();
+                assert_eq!(original.content.body(), "threaddy kruger");
+                assert!(original.unsigned.relations.thread.is_some());
+            }
         }
 
-        // The one in storage does not.
         let linked_chunk =
             from_all_chunks::<3, _, _>(event_cache_store.load_all_chunks(room_id).await.unwrap())
                 .unwrap()
@@ -1799,14 +1838,27 @@ mod tests {
 
         let mut chunks = linked_chunk.chunks();
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 1);
+            assert_eq!(events.len(), 2);
 
-            let ev = events[0].raw().deserialize().unwrap();
-            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev);
+            {
+                // The first event from the store doesn't include the bundled edit anymore.
+                let ev1 = events[0].raw().deserialize().unwrap();
+                assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev1);
 
-            let original = msg.as_original().unwrap();
-            assert_eq!(original.content.body(), "hey yo");
-            assert!(original.unsigned.relations.replace.is_none());
+                let original = msg.as_original().unwrap();
+                assert_eq!(original.content.body(), "hey yo");
+                assert!(original.unsigned.relations.replace.is_none());
+            }
+
+            {
+                // But the second event still contains the thread relation.
+                let ev2 = events[1].raw().deserialize().unwrap();
+                assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev2);
+
+                let original = msg.as_original().unwrap();
+                assert_eq!(original.content.body(), "threaddy kruger");
+                assert!(original.unsigned.relations.thread.is_some());
+            }
         });
 
         // That's all, folks!
