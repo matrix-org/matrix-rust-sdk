@@ -24,7 +24,7 @@ use tokio::sync::broadcast::Sender;
 use super::super::e2ee;
 use super::super::{account_data, ephemeral_events, notification, state_events, timeline, Context};
 use crate::{
-    store::{ambiguity_map::AmbiguityCache, BaseStateStore},
+    store::ambiguity_map::AmbiguityCache,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     RequestedRequiredStates, Result, RoomInfoNotableUpdate, RoomState,
 };
@@ -36,13 +36,14 @@ pub async fn update_joined_room(
     room_id: &RoomId,
     joined_room: JoinedRoom,
     requested_required_states: &RequestedRequiredStates,
-    state_store: &BaseStateStore,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     ambiguity_cache: &mut AmbiguityCache,
     updated_members_in_room: &mut BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>>,
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {
+    let state_store = notification.state_store;
+
     let room =
         state_store.get_or_create_room(room_id, RoomState::Joined, room_info_notable_update_sender);
 
@@ -149,12 +150,13 @@ pub async fn update_left_room(
     room_id: &RoomId,
     left_room: LeftRoom,
     requested_required_states: &RequestedRequiredStates,
-    state_store: &BaseStateStore,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     ambiguity_cache: &mut AmbiguityCache,
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
 ) -> Result<LeftRoomUpdate> {
+    let state_store = notification.state_store;
+
     let room =
         state_store.get_or_create_room(room_id, RoomState::Left, room_info_notable_update_sender);
 
@@ -216,10 +218,11 @@ pub async fn update_invited_room(
     context: &mut Context,
     room_id: &RoomId,
     invited_room: InvitedRoom,
-    state_store: &BaseStateStore,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     notification: notification::Notification<'_>,
 ) -> Result<InvitedRoomUpdate> {
+    let state_store = notification.state_store;
+
     let room = state_store.get_or_create_room(
         room_id,
         RoomState::Invited,
@@ -252,10 +255,11 @@ pub async fn update_knocked_room(
     context: &mut Context,
     room_id: &RoomId,
     knocked_room: KnockedRoom,
-    state_store: &BaseStateStore,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     notification: notification::Notification<'_>,
 ) -> Result<KnockedRoomUpdate> {
+    let state_store = notification.state_store;
+
     let room = state_store.get_or_create_room(
         room_id,
         RoomState::Knocked,
