@@ -37,7 +37,7 @@ use crate::{
     store::{ambiguity_map::AmbiguityCache, BaseStateStore},
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
-    RoomState, SessionMeta, StateChanges,
+    RoomState, StateChanges,
 };
 
 /// Represent any kind of room updates.
@@ -60,7 +60,6 @@ pub async fn update_any_room(
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
     mut notification: notification::Notification<'_>,
     ambiguity_cache: &mut AmbiguityCache,
-    session_meta: Option<&SessionMeta>,
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
     // Read state events from the `required_state` field.
     //
@@ -89,7 +88,6 @@ pub async fn update_any_room(
         user_id,
         room_id,
         room_info_notable_update_sender,
-        session_meta,
     );
 
     room_info.mark_state_partially_synced();
@@ -215,7 +213,6 @@ fn membership(
     user_id: &UserId,
     room_id: &RoomId,
     room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
-    session_meta: Option<&SessionMeta>,
 ) -> (Room, RoomInfo, Option<RoomUpdateKind>) {
     // There are invite state events. It means the room can be:
     //
@@ -290,7 +287,7 @@ fn membership(
         // property. In sliding sync we only have invite_state,
         // required_state and timeline, so we must process required_state and timeline
         // looking for relevant membership events.
-        own_membership(context, session_meta, state_events, &mut room_info);
+        own_membership(context, user_id, state_events, &mut room_info);
 
         (room, room_info, None)
     }
@@ -300,14 +297,10 @@ fn membership(
 /// the state in room_info to reflect the "membership" property.
 fn own_membership(
     context: &mut Context,
-    session_meta: Option<&SessionMeta>,
+    user_id: &UserId,
     state_events: &[AnySyncStateEvent],
     room_info: &mut RoomInfo,
 ) {
-    let Some(meta) = session_meta else {
-        return;
-    };
-
     // Start from the last event; the first membership event we see in that order is
     // the last in the regular order, so that's the only one we need to
     // consider.
@@ -315,7 +308,7 @@ fn own_membership(
         if let AnySyncStateEvent::RoomMember(member) = &event {
             // If this event updates the current user's membership, record that in the
             // room_info.
-            if member.state_key() == meta.user_id.as_str() {
+            if member.state_key() == user_id.as_str() {
                 let new_state: RoomState = member.membership().into();
 
                 if new_state != room_info.state() {

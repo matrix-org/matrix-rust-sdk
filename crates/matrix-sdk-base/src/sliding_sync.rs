@@ -166,7 +166,6 @@ impl BaseClient {
                     &self.state_store,
                 ),
                 &mut ambiguity_cache,
-                self.session_meta(),
             )
             .await?
             else {
