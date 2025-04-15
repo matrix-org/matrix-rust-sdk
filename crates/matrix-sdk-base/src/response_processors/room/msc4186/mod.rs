@@ -58,7 +58,7 @@ pub async fn update_any_room(
     user_id: &UserId,
     room_creation_data: RoomCreationData<'_>,
     room_response: &http::response::Room,
-    rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
+    rooms_account_data: &BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
     mut notification: notification::Notification<'_>,
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
@@ -167,7 +167,7 @@ pub async fn update_any_room(
     room_info.update_notification_count(notification_count);
 
     let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
-    let room_account_data = rooms_account_data.get(room_id).cloned();
+    let room_account_data = rooms_account_data.get(room_id);
 
     match (room_info.state(), maybe_room_update_kind) {
         (RoomState::Joined, None) => {
@@ -181,7 +181,7 @@ pub async fn update_any_room(
                 RoomUpdateKind::Joined(JoinedRoomUpdate::new(
                     timeline,
                     raw_state_events,
-                    room_account_data.unwrap_or_default(),
+                    room_account_data.cloned().unwrap_or_default(),
                     ephemeral,
                     notification_count,
                     ambiguity_changes,
@@ -194,7 +194,7 @@ pub async fn update_any_room(
             RoomUpdateKind::Left(LeftRoomUpdate::new(
                 timeline,
                 raw_state_events,
-                room_account_data.unwrap_or_default(),
+                room_account_data.cloned().unwrap_or_default(),
                 ambiguity_changes,
             )),
         ))),

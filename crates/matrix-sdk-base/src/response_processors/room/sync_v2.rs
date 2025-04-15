@@ -27,9 +27,8 @@ use super::{
     Room as RoomCreationData,
 };
 use crate::{
-    store::ambiguity_map::AmbiguityCache,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
-    RequestedRequiredStates, Result, RoomInfoNotableUpdate, RoomState,
+    Result, RoomInfoNotableUpdate, RoomState,
 };
 
 /// Process updates of a joined room.
