@@ -32,9 +32,12 @@ use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
-use super::super::{notification, state_events, timeline, Context};
+use super::{
+    super::{notification, state_events, timeline, Context},
+    Room as RoomCreationData,
+};
 use crate::{
-    store::{ambiguity_map::AmbiguityCache, BaseStateStore},
+    store::BaseStateStore,
     sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
     RoomState, StateChanges,
@@ -48,19 +51,22 @@ pub enum RoomUpdateKind {
     Knocked(KnockedRoomUpdate),
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn update_any_room(
     context: &mut Context,
     user_id: &UserId,
-    room_id: &RoomId,
-    requested_required_states: &[(StateEventType, String)],
+    room_creation_data: RoomCreationData<'_>,
     room_response: &http::response::Room,
-    room_info_notable_update_sender: Sender<RoomInfoNotableUpdate>,
     rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
     mut notification: notification::Notification<'_>,
-    ambiguity_cache: &mut AmbiguityCache,
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
+    let RoomCreationData {
+        room_id,
+        room_info_notable_update_sender,
+        requested_required_states,
+        ambiguity_cache,
+    } = room_creation_data;
+
     // Read state events from the `required_state` field.
     //
     // Don't read state events from the `timeline` field, because they might be
@@ -91,7 +97,7 @@ pub async fn update_any_room(
     );
 
     room_info.mark_state_partially_synced();
-    room_info.handle_encryption_state(requested_required_states);
+    room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
     #[cfg_attr(not(feature = "e2e-encryption"), allow(unused))]
     let new_user_ids = state_events::sync::dispatch_and_get_new_users(

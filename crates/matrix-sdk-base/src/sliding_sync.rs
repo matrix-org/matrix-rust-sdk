@@ -149,10 +149,13 @@ impl BaseClient {
             let Some((room_info, room_update)) = processors::room::msc4186::update_any_room(
                 &mut context,
                 &user_id,
-                room_id,
-                requested_required_states.for_room(room_id),
+                processors::room::Room::new(
+                    room_id,
+                    self.room_info_notable_update_sender.clone(),
+                    requested_required_states,
+                    &mut ambiguity_cache,
+                ),
                 room_response,
-                self.room_info_notable_update_sender.clone(),
                 &mut rooms_account_data,
                 #[cfg(feature = "e2e-encryption")]
                 processors::e2ee::E2EE::new(
@@ -165,7 +168,6 @@ impl BaseClient {
                     &mut notifications,
                     &self.state_store,
                 ),
-                &mut ambiguity_cache,
             )
             .await?
             else {
