@@ -16,7 +16,7 @@ use std::iter;
 
 use ruma::OwnedUserId;
 
-use crate::{Error, Result, Room};
+use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error, Result, Room};
 
 /// Share any shareable E2EE history in the given room with the given recipient,
 /// as per [MSC4268].
@@ -24,10 +24,11 @@ use crate::{Error, Result, Room};
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
     tracing::info!("Sharing message history in {} with {}", room.room_id(), user_id);
+    let client = &room.client;
 
     // 1. Construct the key bundle
     let bundle = {
-        let olm_machine = room.client.olm_machine().await;
+        let olm_machine = client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
         olm_machine.store().build_room_key_bundle(room.room_id()).await?
     };
@@ -40,7 +41,7 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
     // 2. Upload to the server as an encrypted file
     let json = serde_json::to_vec(&bundle)?;
     let upload =
-        room.client.upload_encrypted_file(&mime::APPLICATION_JSON, &mut (json.as_slice())).await?;
+        client.upload_encrypted_file(&mime::APPLICATION_JSON, &mut (json.as_slice())).await?;
 
     tracing::info!(
         media_url = ?upload.url,
@@ -49,8 +50,26 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
         "Uploaded encrypted key blob"
     );
 
-    // 3. Send to-device messages to the recipient to share the keys.
-    // TODO
+    // 3. Establish Olm sessions with all of the recipient's devices.
+    client.claim_one_time_keys(iter::once(user_id.as_ref())).await?;
 
+    // 4. Send to-device messages to the recipient to share the keys.
+    let content = RoomKeyBundleContent { room_id: room.room_id().to_owned(), file: upload };
+    let requests = {
+        let olm_machine = client.olm_machine().await;
+        let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
+        olm_machine
+            .share_room_key_bundle_data(
+                &user_id,
+                &client.base_client().room_key_recipient_strategy,
+                content,
+            )
+            .await?
+    };
+
+    for request in requests {
+        let response = client.send_to_device(&request).await?;
+        client.mark_request_as_sent(&request.txn_id, &response).await?;
+    }
     Ok(())
 }
