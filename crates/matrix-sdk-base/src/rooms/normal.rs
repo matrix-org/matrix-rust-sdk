@@ -62,7 +62,7 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::MemberRoomInfo, BaseRoomInfo, RoomCreateWithCreatorEventContent, RoomDisplayName,
-    RoomMember, RoomNotableTags,
+    RoomMember, RoomNotableTags, UpdatedRoomDisplayName,
 };
 use crate::{
     deserialized_responses::{
@@ -636,7 +636,7 @@ impl Room {
         if let Some(name) = self.cached_display_name() {
             Ok(name)
         } else {
-            self.compute_display_name().await
+            Ok(self.compute_display_name().await?.into_inner())
         }
     }
 
@@ -651,7 +651,7 @@ impl Room {
     /// be preferred in general.
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub(crate) async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
+    pub(crate) async fn compute_display_name(&self) -> StoreResult<UpdatedRoomDisplayName> {
         enum DisplayNameOrSummary {
             Summary(RoomSummary),
             DisplayName(RoomDisplayName),
@@ -685,16 +685,24 @@ impl Room {
         };
 
         // Update the cached display name before we return the newly computed value.
+        let mut updated = false;
+
         self.inner.update_if(|info| {
             if info.cached_display_name.as_ref() != Some(&display_name) {
                 info.cached_display_name = Some(display_name.clone());
+                updated = true;
+
                 true
             } else {
                 false
             }
         });
 
-        Ok(display_name)
+        Ok(if updated {
+            UpdatedRoomDisplayName::New(display_name)
+        } else {
+            UpdatedRoomDisplayName::Same(display_name)
+        })
     }
 
     /// Compute a [`RoomDisplayName`] from the given [`RoomSummary`].
@@ -2751,7 +2759,7 @@ mod tests {
     #[async_test]
     async fn test_display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Joined);
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2760,7 +2768,7 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
     }
@@ -2771,13 +2779,13 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Named("Test Room".to_owned())
         );
     }
@@ -2785,7 +2793,7 @@ mod tests {
     #[async_test]
     async fn test_display_name_for_invited_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Invited);
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2798,7 +2806,7 @@ mod tests {
         });
         room.inner.update(|info| info.base_info.name = Some(room_name));
 
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2807,7 +2815,7 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
     }
@@ -2818,13 +2826,13 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Named("Test Room".to_owned())
         );
     }
@@ -2866,7 +2874,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2888,7 +2896,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2921,7 +2929,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2968,7 +2976,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         // Bot should not contribute to the display name.
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -3012,7 +3020,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         // Bot should not contribute to the display name.
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -3037,7 +3045,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -3078,7 +3086,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -3135,7 +3143,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Bob, Carol, Denis, Erica, and 3 others".to_owned())
         );
     }
@@ -3187,7 +3195,7 @@ mod tests {
         }
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Alice, Bob, Carol, Denis, Erica, and 2 others".to_owned())
         );
     }
@@ -3219,7 +3227,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::EmptyWas("Matthew".to_owned())
         );
     }
