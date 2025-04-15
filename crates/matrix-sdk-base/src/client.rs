@@ -545,7 +545,6 @@ impl BaseClient {
                 &room_id,
                 joined_room,
                 requested_required_states,
-                &self.state_store,
                 self.room_info_notable_update_sender.clone(),
                 &mut ambiguity_cache,
                 &mut updated_members_in_room,
@@ -572,7 +571,6 @@ impl BaseClient {
                 &room_id,
                 left_room,
                 requested_required_states,
-                &self.state_store,
                 self.room_info_notable_update_sender.clone(),
                 &mut ambiguity_cache,
                 processors::notification::Notification::new(
@@ -597,7 +595,6 @@ impl BaseClient {
                 &mut context,
                 &room_id,
                 invited_room,
-                &self.state_store,
                 self.room_info_notable_update_sender.clone(),
                 processors::notification::Notification::new(
                     &push_rules,
@@ -615,7 +612,6 @@ impl BaseClient {
                 &mut context,
                 &room_id,
                 knocked_room,
-                &self.state_store,
                 self.room_info_notable_update_sender.clone(),
                 processors::notification::Notification::new(
                     &push_rules,
