@@ -254,6 +254,7 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
+        // Save the changes and apply them.
         processors::changes::save_and_apply(
             context,
             &self.state_store,
@@ -262,12 +263,19 @@ impl BaseClient {
         )
         .await?;
 
+        let mut context = processors::Context::default();
+
         // Now that all the rooms information have been saved, update the display name
-        // cache (which relies on information stored in the database). This will
-        // live in memory, until the next sync which will saves the room info to
-        // disk; we do this to avoid saving that would be redundant with the
-        // above. Oh well.
-        room_updates.update_in_memory_caches(&self.state_store).await;
+        // of the updated rooms (which relies on information stored in the database).
+        processors::room::display_name::update_for_rooms(
+            &mut context,
+            &room_updates,
+            &self.state_store,
+        )
+        .await;
+
+        // Save the new display name updates if any.
+        processors::changes::save_only(context, &self.state_store).await?;
 
         Ok(SyncResponse {
             rooms: room_updates,
