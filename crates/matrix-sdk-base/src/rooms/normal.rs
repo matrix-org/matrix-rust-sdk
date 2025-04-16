@@ -116,6 +116,18 @@ bitflags! {
 
         /// The display name has changed.
         const DISPLAY_NAME = 0b0010_0000;
+
+        /// This is a temporary hack.
+        ///
+        /// So here is the thing. Ideally, we DO NOT want to emit this reason. It does not
+        /// makes sense. However, all notable update reasons are not clearly identified
+        /// so far. Why is it a problem? The `matrix_sdk_ui::room_list_service::RoomList`
+        /// is listening this stream of [`RoomInfoNotableUpdate`], and emits an update on a
+        /// room item if it receives a notable reason. Because all reasons are not
+        /// identified, we are likely to miss particular updates, and it can feel broken.
+        /// Ultimately, we want to clearly identify all the notable update reasons, and
+        /// remove this one.
+        const NONE = 0b1000_0000;
     }
 }
 
@@ -1073,6 +1085,14 @@ impl Room {
             let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
                 room_id: self.room_id.clone(),
                 reasons: room_info_notable_update_reasons,
+            });
+        } else {
+            // TODO: remove this block!
+            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
+            // removed.
+            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+                room_id: self.room_id.clone(),
+                reasons: RoomInfoNotableUpdateReasons::NONE,
             });
         }
     }
