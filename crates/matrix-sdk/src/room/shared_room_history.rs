@@ -15,6 +15,7 @@
 use std::iter;
 
 use ruma::OwnedUserId;
+use tracing::instrument;
 
 use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error, Result, Room};
 
@@ -22,8 +23,9 @@ use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error,
 /// as per [MSC4268].
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+#[instrument(skip(room), fields(room_id = ?room.room_id()))]
 pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
-    tracing::info!("Sharing message history in {} with {}", room.room_id(), user_id);
+    tracing::info!("Sharing message history");
     let client = &room.client;
 
     // 1. Construct the key bundle
