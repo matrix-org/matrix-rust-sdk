@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+Breaking changes:
+
+- `UploadParameters` includes a new field, `file_data: Option<Vec<u8>>`, which allows a foreign
+  language to read file contents natively and then pass those contents to the foreign function
+  when uploading a file through the `Timeline`.
+  ([#4948](https://github.com/matrix-org/matrix-rust-sdk/pull/4948))
+
 Additions:
 
 - Add room topic string to `StateEventContent`
