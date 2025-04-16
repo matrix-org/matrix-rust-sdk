@@ -1111,6 +1111,13 @@ mod tests {
             room_info_notable_update.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
                 assert_eq!(received_room_id, room_id);
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::NONE));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
                 // The reason we are looking for :-].
                 assert!(reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
             }
@@ -1813,6 +1820,13 @@ mod tests {
                 assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_STAMP));
             }
         );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
         assert!(room_info_notable_update_stream.is_empty());
 
         // When I send sliding sync response containing a room with a recency stamp.
@@ -1858,6 +1872,13 @@ mod tests {
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
                 assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
             }
         );
         assert!(room_info_notable_update_stream.is_empty());
@@ -1910,6 +1931,13 @@ mod tests {
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
             }
         );
@@ -1938,6 +1966,13 @@ mod tests {
             .expect("Failed to process sync");
 
         // Room was already joined, no `MEMBERSHIP` update should be triggered here
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE));
+            }
+        );
         assert!(room_info_notable_update_stream.is_empty());
 
         let events = vec![Raw::from_json_string(
@@ -1987,7 +2022,14 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Another notable update is received, but not the one we are interested by.
+        // Other notable updates are received, but not the ones we are interested by.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
+            }
+        );
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -2034,6 +2076,13 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
+            }
+        );
         assert!(room_info_notable_update_stream.is_empty());
 
         // …Unless its value changes!
