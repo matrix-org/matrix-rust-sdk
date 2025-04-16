@@ -25,8 +25,19 @@ use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error,
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id()))]
 pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
-    tracing::info!("Sharing message history");
     let client = &room.client;
+
+    // 0. We can only share room history if our user has set up cross signing
+    let own_identity = match client.user_id() {
+        Some(own_user) => client.encryption().get_user_identity(own_user).await?,
+        None => None,
+    };
+    if own_identity.is_none() {
+        tracing::warn!("Not sharing message history as cross-signing is not set up");
+        return Ok(());
+    }
+
+    tracing::info!("Sharing message history");
 
     // 1. Construct the key bundle
     let bundle = {
