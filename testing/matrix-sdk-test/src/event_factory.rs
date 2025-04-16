@@ -57,8 +57,9 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
         typing::TypingEventContent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent,
+        AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+        BundledMessageLikeRelations, EventContent, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, StateEventContent,
     },
     serde::Raw,
     server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
@@ -438,6 +439,24 @@ where
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_event()
+    }
+}
+
+impl<E: StateEventContent> From<EventBuilder<E>> for Raw<AnySyncStateEvent>
+where
+    E::EventType: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::new(&val.construct_json(false)).unwrap().cast()
+    }
+}
+
+impl<E: StateEventContent> From<EventBuilder<E>> for Raw<AnyStateEvent>
+where
+    E::EventType: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::new(&val.construct_json(true)).unwrap().cast()
     }
 }
 
