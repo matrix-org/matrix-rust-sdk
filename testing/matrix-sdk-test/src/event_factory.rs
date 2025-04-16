@@ -78,7 +78,7 @@ impl TimestampArg for u64 {
 }
 
 /// A thin copy of [`ruma::events::UnsignedRoomRedactionEvent`].
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct RedactedBecause {
     /// Data specific to the event type.
     content: RoomRedactionEventContent,
@@ -94,7 +94,7 @@ struct RedactedBecause {
     origin_server_ts: MilliSecondsSinceUnixEpoch,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct Unsigned<C: EventContent> {
     #[serde(skip_serializing_if = "Option::is_none")]
     prev_content: Option<C>,
@@ -116,7 +116,7 @@ impl<C: EventContent> Default for Unsigned<C> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EventBuilder<C: EventContent> {
     sender: Option<OwnedUserId>,
     /// Whether the event is an ephemeral one. As such, it doesn't require a
@@ -124,8 +124,6 @@ pub struct EventBuilder<C: EventContent> {
     is_ephemeral: bool,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
-    /// Whether the event should *not* have an event id. False by default.
-    no_event_id: bool,
     redacts: Option<OwnedEventId>,
     content: C,
     server_ts: MilliSecondsSinceUnixEpoch,
@@ -149,13 +147,11 @@ where
 
     pub fn event_id(mut self, event_id: &EventId) -> Self {
         self.event_id = Some(event_id.to_owned());
-        self.no_event_id = false;
         self
     }
 
     pub fn no_event_id(mut self) -> Self {
         self.event_id = None;
-        self.no_event_id = true;
         self
     }
 
@@ -226,13 +222,7 @@ where
             map.insert("sender".to_owned(), json!(sender));
         }
 
-        let event_id = self
-            .event_id
-            .or_else(|| {
-                self.room.as_ref().map(|room_id| EventId::new(room_id.server_name().unwrap()))
-            })
-            .or_else(|| (!self.no_event_id).then(|| EventId::new(server_name!("dummy.org"))));
-        if let Some(event_id) = event_id {
+        if let Some(event_id) = self.event_id {
             map.insert("event_id".to_owned(), json!(event_id));
         }
 
@@ -420,8 +410,10 @@ impl EventFactory {
             is_ephemeral: false,
             room: self.room.clone(),
             server_ts: self.next_server_ts(),
-            event_id: None,
-            no_event_id: false,
+            event_id: Some(match &self.room {
+                Some(room_id) => EventId::new(room_id.server_name().unwrap()),
+                None => EventId::new(server_name!("dummy.org")),
+            }),
             redacts: None,
             content,
             unsigned: None,
