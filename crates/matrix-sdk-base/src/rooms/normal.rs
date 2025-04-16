@@ -1068,11 +1068,13 @@ impl Room {
     ) {
         self.inner.set(room_info);
 
-        // Ignore error if no receiver exists.
-        let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
-            room_id: self.room_id.clone(),
-            reasons: room_info_notable_update_reasons,
-        });
+        if !room_info_notable_update_reasons.is_empty() {
+            // Ignore error if no receiver exists.
+            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+                room_id: self.room_id.clone(),
+                reasons: room_info_notable_update_reasons,
+            });
+        }
     }
 
     /// Get the `RoomMember` with the given `user_id`.
