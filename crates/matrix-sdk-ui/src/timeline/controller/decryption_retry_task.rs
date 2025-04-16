@@ -542,6 +542,7 @@ mod tests {
                     ReactionsByKeyBySender::default(),
                     None,
                     None,
+                    None,
                 ),
                 event_kind,
                 true,

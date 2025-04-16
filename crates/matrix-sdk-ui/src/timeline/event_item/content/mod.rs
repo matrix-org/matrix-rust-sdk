@@ -74,7 +74,7 @@ pub(in crate::timeline) use self::message::{
 };
 pub use self::{
     message::Message,
-    msg_like::{MsgLikeContent, MsgLikeKind},
+    msg_like::{MsgLikeContent, MsgLikeKind, ThreadSummary, ThreadSummaryLatestEvent},
     polls::{PollResult, PollState},
     reply::{InReplyToDetails, RepliedToEvent},
 };
@@ -198,6 +198,7 @@ impl TimelineItemContent {
                 let reactions = Default::default();
                 let thread_root = None;
                 let in_reply_to = None;
+                let thread_summary = None;
 
                 let msglike = MsgLikeContent {
                     kind: MsgLikeKind::Message(Message::from_event(
@@ -208,6 +209,7 @@ impl TimelineItemContent {
                     reactions,
                     thread_root,
                     in_reply_to,
+                    thread_summary,
                 };
 
                 TimelineItemContent::MsgLike(msglike)
@@ -251,12 +253,14 @@ impl TimelineItemContent {
                 let reactions = Default::default();
                 let thread_root = None;
                 let in_reply_to = None;
+                let thread_summary = None;
 
                 let msglike = MsgLikeContent {
                     kind: MsgLikeKind::Sticker(Sticker { content: event_content }),
                     reactions,
                     thread_root,
                     in_reply_to,
+                    thread_summary,
                 };
 
                 TimelineItemContent::MsgLike(msglike)
@@ -292,6 +296,7 @@ impl TimelineItemContent {
         let reactions = Default::default();
         let thread_root = None;
         let in_reply_to = None;
+        let thread_summary = None;
 
         let msglike = MsgLikeContent {
             kind: MsgLikeKind::Poll(PollState::new(
@@ -301,6 +306,7 @@ impl TimelineItemContent {
             reactions,
             thread_root,
             in_reply_to,
+            thread_summary,
         };
 
         TimelineItemContent::MsgLike(msglike)
@@ -408,6 +414,7 @@ impl TimelineItemContent {
         reactions: ReactionsByKeyBySender,
         thread_root: Option<OwnedEventId>,
         in_reply_to: Option<InReplyToDetails>,
+        thread_summary: Option<ThreadSummary>,
     ) -> Self {
         let remove_reply_fallback =
             if in_reply_to.is_some() { RemoveReplyFallback::Yes } else { RemoveReplyFallback::No };
@@ -417,6 +424,7 @@ impl TimelineItemContent {
             reactions,
             thread_root,
             in_reply_to,
+            thread_summary,
         })
     }
 
@@ -511,7 +519,7 @@ impl TimelineItemContent {
         }
     }
 
-    /// Event ID of the thread root, if this is a threaded message.
+    /// Event ID of the thread root, if this is a message in a thread.
     pub fn thread_root(&self) -> Option<OwnedEventId> {
         as_variant!(self, Self::MsgLike)?.thread_root.clone()
     }
@@ -538,6 +546,11 @@ impl TimelineItemContent {
                 Default::default()
             }
         }
+    }
+
+    /// Information about the thread this item is the root for.
+    pub fn thread_summary(&self) -> Option<ThreadSummary> {
+        as_variant!(self, Self::MsgLike)?.thread_summary.clone()
     }
 
     /// Return a mutable handle to the reactions of this item.
