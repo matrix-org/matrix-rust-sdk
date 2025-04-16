@@ -878,7 +878,7 @@ async fn test_call_notifications_dont_notify_room_without_mention_powerlevel() {
     let (client, server) = logged_in_client_with_server().await;
 
     let mut sync_builder = SyncResponseBuilder::new();
-    let mut power_level_event = StateTestEvent::PowerLevels.into_json_value();
+    let mut power_level_event: Value = StateTestEvent::PowerLevels.into();
     // Allow noone to send room notify events.
     *power_level_event.get_mut("content").unwrap().get_mut("notifications").unwrap() =
         json!({"room": 101});
