@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use super::super::Context;
-use crate::{rooms::UpdatedRoomDisplayName, store::BaseStateStore, sync::RoomUpdates};
+use crate::{
+    rooms::UpdatedRoomDisplayName, store::BaseStateStore, sync::RoomUpdates,
+    RoomInfoNotableUpdateReasons,
+};
 
 pub async fn update_for_rooms(
     context: &mut Context,
@@ -31,7 +34,14 @@ pub async fn update_for_rooms(
         // Compute the display name. If it's different, let's register the `RoomInfo` in
         // the `StateChanges`.
         if let Ok(UpdatedRoomDisplayName::New(_)) = room.compute_display_name().await {
-            context.state_changes.room_infos.insert(room.room_id().to_owned(), room.clone_info());
+            let room_id = room.room_id().to_owned();
+
+            context.state_changes.room_infos.insert(room_id.clone(), room.clone_info());
+            context
+                .room_info_notable_updates
+                .entry(room_id)
+                .or_default()
+                .insert(RoomInfoNotableUpdateReasons::DISPLAY_NAME);
         }
     }
 }

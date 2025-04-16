@@ -113,6 +113,15 @@ bitflags! {
 
         /// A membership change happened for the current user.
         const MEMBERSHIP = 0b0001_0000;
+
+        /// The display name has changed.
+        const DISPLAY_NAME = 0b0010_0000;
+    }
+}
+
+impl Default for RoomInfoNotableUpdateReasons {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -131,12 +140,6 @@ struct ComputedSummary {
     /// The number of joined and invited members, not including any service
     /// members.
     num_joined_invited_guess: u64,
-}
-
-impl Default for RoomInfoNotableUpdateReasons {
-    fn default() -> Self {
-        Self::empty()
-    }
 }
 
 /// The underlying room data structure collecting state for joined, left and
