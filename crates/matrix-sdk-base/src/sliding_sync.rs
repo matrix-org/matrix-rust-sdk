@@ -1090,6 +1090,42 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_display_name_is_cached_and_emits_a_notable_update_reason() {
+        let client = logged_in_base_client(None).await;
+        let user_id = user_id!("@u:e.uk");
+        let room_id = room_id!("!r:e.uk");
+
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
+
+        let room = room_with_name("Hello World", user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        let room = client.get_room(room_id).expect("No room found");
+        assert_eq!(room.cached_display_name().unwrap().to_string(), "Hello World");
+
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                // Not the reason we are looking for.
+                assert!(!reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                // The reason we are looking for :-].
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
+    }
+
+    #[async_test]
     async fn test_display_name_is_persisted_from_sliding_sync() {
         let user_id = user_id!("@u:e.uk");
         let room_id = room_id!("!r:e.uk");
