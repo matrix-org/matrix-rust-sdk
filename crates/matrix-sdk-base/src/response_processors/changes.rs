@@ -22,14 +22,17 @@ use tracing::{error, instrument, trace};
 use super::Context;
 use crate::{
     store::{BaseStateStore, StateStoreExt as _},
-    Result, StateChanges,
+    Result,
 };
 
 /// Save the [`StateChanges`] from the [`Context`] inside the [`BaseStateStore`]
 /// only! The changes aren't applied on the in-memory rooms.
 #[instrument(skip_all)]
 pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result<()> {
-    save_changes(&context.state_changes, state_store, None).await
+    save_changes(&context, state_store, None).await?;
+    broadcast_room_info_notable_updates(&context, state_store);
+
+    Ok(())
 }
 
 /// Save the [`StateChanges`] from the [`Context`] inside the
@@ -46,8 +49,9 @@ pub async fn save_and_apply(
     let previous_ignored_user_list =
         state_store.get_account_data_event_static().await.ok().flatten();
 
-    save_changes(&context.state_changes, state_store, sync_token).await?;
-    apply_changes(context, state_store, ignore_user_list_changes, previous_ignored_user_list);
+    save_changes(&context, state_store, sync_token).await?;
+    apply_changes(&context, ignore_user_list_changes, previous_ignored_user_list);
+    broadcast_room_info_notable_updates(&context, state_store);
 
     trace!("applied changes");
 
@@ -55,11 +59,11 @@ pub async fn save_and_apply(
 }
 
 async fn save_changes(
-    state_changes: &StateChanges,
+    context: &Context,
     state_store: &BaseStateStore,
     sync_token: Option<String>,
 ) -> Result<()> {
-    state_store.save_changes(state_changes).await?;
+    state_store.save_changes(&context.state_changes).await?;
 
     if let Some(sync_token) = sync_token {
         *state_store.sync_token.write().await = Some(sync_token);
@@ -69,15 +73,12 @@ async fn save_changes(
 }
 
 fn apply_changes(
-    context: Context,
-    state_store: &BaseStateStore,
+    context: &Context,
     ignore_user_list_changes: &SharedObservable<Vec<String>>,
     previous_ignored_user_list: Option<Raw<IgnoredUserListEvent>>,
 ) {
-    let (state_changes, room_info_notable_updates) = context.into_parts();
-
     if let Some(event) =
-        state_changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
+        context.state_changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
     {
         match event.deserialize_as::<IgnoredUserListEvent>() {
             Ok(event) => {
@@ -110,11 +111,13 @@ fn apply_changes(
             }
         }
     }
+}
 
-    for (room_id, room_info) in &state_changes.room_infos {
+fn broadcast_room_info_notable_updates(context: &Context, state_store: &BaseStateStore) {
+    for (room_id, room_info) in &context.state_changes.room_infos {
         if let Some(room) = state_store.room(room_id) {
             let room_info_notable_update_reasons =
-                room_info_notable_updates.get(room_id).copied().unwrap_or_default();
+                context.room_info_notable_updates.get(room_id).copied().unwrap_or_default();
 
             room.set_room_info(room_info.clone(), room_info_notable_update_reasons)
         }
