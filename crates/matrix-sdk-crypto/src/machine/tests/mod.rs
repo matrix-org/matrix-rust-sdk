@@ -82,6 +82,7 @@ use crate::{
 mod decryption_verification_state;
 mod interactive_verification;
 mod megolm_sender_data;
+mod olm_decryption_encryption_info;
 mod olm_encryption;
 mod room_settings;
 mod send_encrypted_to_device;
@@ -837,6 +838,7 @@ async fn test_decrypt_unencrypted_event() {
     );
 }
 
+/// This only bootstrap cross-signing but it will not sign the current device !!
 pub async fn setup_cross_signing_for_machine_test_helper(alice: &OlmMachine, bob: &OlmMachine) {
     let CrossSigningBootstrapRequests { upload_signing_keys_req: alice_upload_signing, .. } =
         alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
