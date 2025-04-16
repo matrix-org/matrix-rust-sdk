@@ -1359,8 +1359,10 @@ impl_crypto_store! {
             .transpose()
     }
 
+    #[allow(clippy::unused_async)]
     async fn get_received_room_key_bundle_data(&self, _room_id: &RoomId, _user_id: &UserId) -> Result<Option<StoredRoomKeyBundleData>> {
-        todo!()
+        // TODO: not yet implemented for indexeddb
+        Ok(None)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
