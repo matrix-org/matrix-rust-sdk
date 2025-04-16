@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches2::assert_matches;
+use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, ProcessedToDeviceEvent, VerificationLevel, VerificationState,
 };
@@ -88,9 +88,9 @@ async fn test_send_encrypted_to_device() {
 
     assert_eq!(1, decrypted.len());
     let processed_event = &decrypted[0];
-    let ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } = processed_event else {
-        panic!("Unexpected variant");
-    };
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } = processed_event);
+
     let decrypted_event = decrypted_event.deserialize().unwrap();
 
     assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
@@ -210,17 +210,16 @@ async fn test_processed_to_device_variants() {
     assert_eq!(4, processed.len());
 
     let processed_event = &processed[0];
-    let ProcessedToDeviceEvent::Decrypted { encryption_info, .. } = processed_event else {
-        panic!("Unexpected variant");
-    };
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { encryption_info, .. } = processed_event);
 
     assert_eq!(alice.user_id().to_owned(), encryption_info.sender);
     assert_eq!(Some(alice.device_id().to_owned()), encryption_info.sender_device);
 
-    let AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_key } = &encryption_info.algorithm_info
-    else {
-        panic!("Unexpected algorithm info");
-    };
+    assert_let!(
+        AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_key } = &encryption_info.algorithm_info
+    );
+
     assert_eq!(curve25519_key.to_owned(), alice_curve.to_base64());
 
     assert_eq!(encryption_info.session_id, None);
@@ -230,19 +229,13 @@ async fn test_processed_to_device_variants() {
     );
 
     let processed_event = &processed[1];
-    let ProcessedToDeviceEvent::PlainText(_) = processed_event else {
-        panic!("Unexpected variant");
-    };
+    assert_matches!(processed_event, ProcessedToDeviceEvent::PlainText(_));
 
     let processed_event = &processed[2];
-    let ProcessedToDeviceEvent::NotProcessed(_) = processed_event else {
-        panic!("Unexpected variant");
-    };
+    assert_matches!(processed_event, ProcessedToDeviceEvent::NotProcessed(_));
 
     let processed_event = &processed[3];
-    let ProcessedToDeviceEvent::UnableToDecrypt { .. } = processed_event else {
-        panic!("Unexpected variant");
-    };
+    assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt { .. });
 }
 
 #[async_test]
