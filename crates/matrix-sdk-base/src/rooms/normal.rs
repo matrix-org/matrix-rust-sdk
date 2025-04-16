@@ -3285,7 +3285,7 @@ mod tests {
         assert!(context.room_info_notable_updates.contains_key(room_id));
 
         // The subscriber isn't notified at this point.
-        assert!(room_info_notable_update.try_recv().is_err());
+        assert!(room_info_notable_update.is_empty());
 
         // Then updating the room info will store the event,
         processors::changes::save_and_apply(
