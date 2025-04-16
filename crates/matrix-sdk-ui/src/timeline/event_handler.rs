@@ -741,14 +741,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::MsgLike(MsgLikeContent {
-            kind: MsgLikeKind::Message(msg),
-            reactions,
-            thread_root,
-            in_reply_to,
-            thread_summary,
-        }) = item.content()
-        else {
+        let TimelineItemContent::MsgLike(content) = item.content() else {
+            info!(
+                "Edit of message event applies to {:?}, discarding",
+                item.content().debug_string(),
+            );
+            return None;
+        };
+
+        let MsgLikeContent { kind: MsgLikeKind::Message(msg), .. } = content else {
             info!(
                 "Edit of message event applies to {:?}, discarding",
                 item.content().debug_string(),
@@ -760,13 +761,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         new_msg.apply_edit(new_content);
 
         let mut new_item = item.with_content_and_latest_edit(
-            TimelineItemContent::MsgLike(MsgLikeContent {
-                kind: MsgLikeKind::Message(new_msg),
-                reactions: reactions.clone(),
-                thread_root: thread_root.clone(),
-                in_reply_to: in_reply_to.clone(),
-                thread_summary: thread_summary.clone(),
-            }),
+            TimelineItemContent::MsgLike(content.with_kind(MsgLikeKind::Message(new_msg))),
             edit_json,
         );
 
@@ -856,26 +851,20 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        let TimelineItemContent::MsgLike(MsgLikeContent {
-            kind: MsgLikeKind::Poll(poll_state),
-            reactions,
-            thread_root,
-            in_reply_to,
-            thread_summary,
-        }) = &item.content()
-        else {
+        let TimelineItemContent::MsgLike(content) = &item.content() else {
+            info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
+            return None;
+        };
+
+        let MsgLikeContent { kind: MsgLikeKind::Poll(poll_state), .. } = content else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
             return None;
         };
 
         let new_content = match poll_state.edit(replacement.new_content) {
-            Some(edited_poll_state) => TimelineItemContent::MsgLike(MsgLikeContent {
-                kind: MsgLikeKind::Poll(edited_poll_state),
-                reactions: reactions.clone(),
-                thread_root: thread_root.clone(),
-                in_reply_to: in_reply_to.clone(),
-                thread_summary: thread_summary.clone(),
-            }),
+            Some(edited_poll_state) => TimelineItemContent::MsgLike(
+                content.with_kind(MsgLikeKind::Poll(edited_poll_state)),
+            ),
             None => {
                 info!("Not applying edit to a poll that's already ended");
                 return None;
@@ -1398,20 +1387,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let Some(in_reply_to) = msglike.in_reply_to.as_ref() else { continue };
 
             trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
-            let in_reply_to = Some(InReplyToDetails {
+            let in_reply_to = InReplyToDetails {
                 event_id: in_reply_to.event_id.clone(),
                 event: TimelineDetails::Ready(Box::new(RepliedToEvent::from_timeline_item(
                     new_item,
                 ))),
-            });
+            };
 
-            let new_reply_content = TimelineItemContent::MsgLike(MsgLikeContent {
-                kind: MsgLikeKind::Message(message.clone()),
-                reactions: msglike.reactions.clone(),
-                thread_root: msglike.thread_root.clone(),
-                in_reply_to,
-                thread_summary: msglike.thread_summary.clone(),
-            });
+            let new_reply_content = TimelineItemContent::MsgLike(
+                msglike
+                    .with_in_reply_to(in_reply_to)
+                    .with_kind(MsgLikeKind::Message(message.clone())),
+            );
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);
         }

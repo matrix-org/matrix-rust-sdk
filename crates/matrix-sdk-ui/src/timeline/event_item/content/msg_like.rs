@@ -38,7 +38,7 @@ pub enum MsgLikeKind {
 
 #[derive(Clone, Debug)]
 pub struct ThreadSummary {
-    pub latest_event_details: TimelineDetails<Box<ThreadSummaryLatestEvent>>,
+    pub latest_event: TimelineDetails<Box<ThreadSummaryLatestEvent>>,
 }
 
 #[derive(Clone, Debug)]
@@ -57,7 +57,7 @@ pub struct MsgLikeContent {
     pub reactions: ReactionsByKeyBySender,
     /// The event this message is replying to, if any.
     pub in_reply_to: Option<InReplyToDetails>,
-    /// Event ID of the thread root, if this is a threaded message.
+    /// Event ID of the thread root, if this is a message in a thread.
     pub thread_root: Option<OwnedEventId>,
     /// Information about the thread this message is the root of, if any.
     pub thread_summary: Option<ThreadSummary>,
@@ -102,6 +102,10 @@ impl MsgLikeContent {
 
     pub fn with_in_reply_to(&self, in_reply_to: InReplyToDetails) -> Self {
         Self { in_reply_to: Some(in_reply_to), ..self.clone() }
+    }
+
+    pub fn with_kind(&self, kind: MsgLikeKind) -> Self {
+        Self { kind, ..self.clone() }
     }
 
     /// If `kind` is of the [`MsgLikeKind`][MsgLikeKind::Message] variant,

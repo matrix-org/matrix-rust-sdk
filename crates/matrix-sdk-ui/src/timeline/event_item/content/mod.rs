@@ -519,7 +519,7 @@ impl TimelineItemContent {
         }
     }
 
-    /// Event ID of the thread root, if this is a threaded message.
+    /// Event ID of the thread root, if this is a message in a thread.
     pub fn thread_root(&self) -> Option<OwnedEventId> {
         as_variant!(self, Self::MsgLike)?.thread_root.clone()
     }

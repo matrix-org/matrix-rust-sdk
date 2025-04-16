@@ -62,7 +62,7 @@ pub struct MsgLikeContent {
     pub reactions: Vec<Reaction>,
     /// The event this message is replying to, if any.
     pub in_reply_to: Option<Arc<InReplyToDetails>>,
-    /// Event ID of the thread root, if this is a threaded message.
+    /// Event ID of the thread root, if this is a message in a thread.
     pub thread_root: Option<String>,
     /// Details about the thread this message is the root of.
     pub thread_summary: Option<Arc<ThreadSummary>>,
@@ -241,13 +241,13 @@ pub struct PollAnswer {
 
 #[derive(Clone, uniffi::Object)]
 pub struct ThreadSummary {
-    pub latest_event_details: ThreadSummaryLatestEventDetails,
+    pub latest_event: ThreadSummaryLatestEventDetails,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl ThreadSummary {
-    pub fn latest_event_details(&self) -> ThreadSummaryLatestEventDetails {
-        self.latest_event_details.clone()
+    pub fn latest_event(&self) -> ThreadSummaryLatestEventDetails {
+        self.latest_event.clone()
     }
 }
 
@@ -261,7 +261,7 @@ pub enum ThreadSummaryLatestEventDetails {
 
 impl From<matrix_sdk_ui::timeline::ThreadSummary> for ThreadSummary {
     fn from(value: matrix_sdk_ui::timeline::ThreadSummary) -> Self {
-        let latest_event_details = match value.latest_event_details {
+        let latest_event = match value.latest_event {
             TimelineDetails::Unavailable => ThreadSummaryLatestEventDetails::Unavailable,
             TimelineDetails::Pending => ThreadSummaryLatestEventDetails::Pending,
             TimelineDetails::Ready(event) => ThreadSummaryLatestEventDetails::Ready {
@@ -274,6 +274,6 @@ impl From<matrix_sdk_ui::timeline::ThreadSummary> for ThreadSummary {
             }
         };
 
-        Self { latest_event_details }
+        Self { latest_event }
     }
 }
