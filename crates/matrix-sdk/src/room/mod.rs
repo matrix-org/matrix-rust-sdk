@@ -79,9 +79,11 @@ use ruma::{
         read_marker::set_read_marker,
         receipt::create_receipt,
         redact::redact_event,
+        relations::get_relating_events_with_rel_type,
         room::{get_room_event, report_content, report_room},
         state::{get_state_events_for_key, send_state_event},
         tag::{create_tag, delete_tag},
+        threads::get_threads::{self, v1::IncludeThreads},
         typing::create_typing_event::{self, v3::Typing},
     },
     assign,
@@ -92,6 +94,7 @@ use ruma::{
         direct::DirectEventContent,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         receipt::{Receipt, ReceiptThread, ReceiptType},
+        relation::RelationType,
         room::{
             avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
@@ -3552,6 +3555,66 @@ impl Room {
     /// Access the room settings related to privacy and visibility.
     pub fn privacy_settings(&self) -> RoomPrivacySettings<'_> {
         RoomPrivacySettings::new(&self.inner, &self.client)
+    }
+
+    async fn decrypt_if_needed(
+        &self,
+        events: impl Iterator<Item = Raw<AnyTimelineEvent>> + ExactSizeIterator,
+    ) -> Vec<TimelineEvent> {
+        #[cfg(not(feature = "e2e-encryption"))]
+        events.into_iter().map(|raw| TimelineEvent::new(raw.cast())).collect();
+
+        #[cfg(feature = "e2e-encryption")]
+        {
+            let mut decrypted_events = Vec::with_capacity(events.len());
+            for event in events {
+                if let Ok(AnySyncTimelineEvent::MessageLike(
+                    AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
+                )) = event.deserialize_as::<AnySyncTimelineEvent>()
+                {
+                    if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
+                        decrypted_events.push(event);
+                    } else {
+                        decrypted_events.push(TimelineEvent::new(event.cast()));
+                    }
+                } else {
+                    decrypted_events.push(TimelineEvent::new(event.cast()));
+                }
+            }
+            decrypted_events
+        }
+    }
+
+    pub async fn list_threads(
+        &self,
+        include_threads: IncludeThreads,
+        from: Option<String>,
+    ) -> Result<(Vec<TimelineEvent>, Option<String>)> {
+        let mut request = get_threads::v1::Request::new(self.room_id().to_owned());
+        request.from = from;
+        request.include = include_threads;
+
+        let response = self.client.send(request).await?;
+        let chunk = self.decrypt_if_needed(response.chunk.into_iter()).await;
+        Ok((chunk, response.next_batch))
+    }
+
+    pub async fn relations_with_rel_type(
+        &self,
+        event_id: OwnedEventId,
+        rel_type: RelationType,
+        from: Option<String>,
+    ) -> Result<(Vec<TimelineEvent>, Option<String>)> {
+        let mut request = get_relating_events_with_rel_type::v1::Request::new(
+            self.room_id().to_owned(),
+            event_id,
+            rel_type,
+        );
+        request.from = from;
+
+        let response = self.client.send(request).await?;
+        let chunk = self.decrypt_if_needed(response.chunk.into_iter().map(|raw| raw.cast())).await;
+        Ok((chunk, response.next_batch))
     }
 }
 
