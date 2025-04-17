@@ -20,10 +20,7 @@ use super::Context;
 
 /// Collect [`AnySyncStateEvent`].
 pub mod sync {
-    use std::{
-        collections::{BTreeMap, BTreeSet},
-        iter,
-    };
+    use std::{collections::BTreeSet, iter};
 
     use ruma::{
         events::{room::member::MembershipState, AnySyncTimelineEvent},
@@ -81,8 +78,6 @@ pub mod sync {
             return Ok(user_ids);
         }
 
-        let mut state_events = BTreeMap::new();
-
         for (raw_event, event) in iter::zip(raw_events, events) {
             room_info.handle_state_event(event);
 
@@ -101,13 +96,15 @@ pub mod sync {
                 profiles::upsert_or_delete(context, &room_info.room_id, member);
             }
 
-            state_events
+            context
+                .state_changes
+                .state
+                .entry(room_info.room_id.to_owned())
+                .or_default()
                 .entry(event.event_type())
-                .or_insert_with(BTreeMap::new)
+                .or_default()
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
-
-        context.state_changes.state.insert(room_info.room_id.clone(), state_events);
 
         Ok(user_ids)
     }
