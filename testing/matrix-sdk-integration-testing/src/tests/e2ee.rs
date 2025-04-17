@@ -1289,8 +1289,7 @@ async fn test_history_share_on_invite() -> Result<()> {
         .expect("We should be able to send a message to the room");
 
     // Alice invites Bob to the room
-    // TODO: invite Bob rather than just call `share_history`
-    alice_room.share_history(bob.user_id().unwrap()).await?;
+    alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
 

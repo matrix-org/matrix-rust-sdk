@@ -48,6 +48,7 @@ uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 experimental-widgets = ["dep:uuid"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
+experimental-share-history-on-invite = []
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
