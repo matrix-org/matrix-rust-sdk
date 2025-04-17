@@ -337,37 +337,16 @@ impl Room {
         let request = options.into_request(room_id);
         let http_response = self.client.send(request).await?;
 
-        #[allow(unused_mut)]
+        let chunk =
+            try_join_all(http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev)))
+                .await?;
+
         let mut response = Messages {
             start: http_response.start,
             end: http_response.end,
-            #[cfg(not(feature = "e2e-encryption"))]
-            chunk: http_response
-                .chunk
-                .into_iter()
-                .map(|raw| TimelineEvent::new(raw.cast()))
-                .collect(),
-            #[cfg(feature = "e2e-encryption")]
-            chunk: Vec::with_capacity(http_response.chunk.len()),
+            chunk,
             state: http_response.state,
         };
-
-        #[cfg(feature = "e2e-encryption")]
-        for event in http_response.chunk {
-            let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
-                AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
-            )) = event.deserialize_as::<AnySyncTimelineEvent>()
-            {
-                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                    event
-                } else {
-                    TimelineEvent::new(event.cast())
-                }
-            } else {
-                TimelineEvent::new(event.cast())
-            };
-            response.chunk.push(decrypted_event);
-        }
 
         if let Some(push_context) = self.push_context().await? {
             let push_rules = self.client().account().push_rules().await?;
