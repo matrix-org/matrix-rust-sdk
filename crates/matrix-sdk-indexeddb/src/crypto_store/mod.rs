@@ -30,7 +30,7 @@ use matrix_sdk_crypto::{
     },
     store::{
         BackupKeys, Changes, CryptoStore, CryptoStoreError, DehydratedDeviceKey, PendingChanges,
-        RoomKeyCounts, RoomSettings,
+        RoomKeyCounts, RoomSettings, StoredRoomKeyBundleData,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
@@ -1357,6 +1357,12 @@ impl_crypto_store! {
             .await?
             .map(|v| self.serializer.deserialize_value(v))
             .transpose()
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn get_received_room_key_bundle_data(&self, _room_id: &RoomId, _user_id: &UserId) -> Result<Option<StoredRoomKeyBundleData>> {
+        // TODO: not yet implemented for indexeddb
+        Ok(None)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {

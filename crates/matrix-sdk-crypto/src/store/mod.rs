@@ -70,7 +70,7 @@ use crate::{
     identities::{user::UserIdentity, Device, DeviceData, UserDevices, UserIdentityData},
     olm::{
         Account, ExportedRoomKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
-        PrivateCrossSigningIdentity, Session, StaticAccountData,
+        PrivateCrossSigningIdentity, SenderData, Session, StaticAccountData,
     },
     types::{
         events::room_key_withheld::RoomKeyWithheldEvent, BackupSecrets, CrossSigningSecrets,
@@ -101,7 +101,8 @@ pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 use crate::types::{
-    events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle,
+    events::{room_key_bundle::RoomKeyBundleContent, room_key_withheld::RoomKeyWithheldContent},
+    room_history::RoomKeyBundle,
 };
 pub use crate::{
     dehydrated_devices::DehydrationError,
@@ -541,6 +542,24 @@ pub struct Changes {
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
     pub secrets: Vec<GossippedSecret>,
     pub next_batch_token: Option<String>,
+
+    /// Historical room key history bundles that we have received and should
+    /// store.
+    pub received_room_key_bundles: Vec<StoredRoomKeyBundleData>,
+}
+
+/// Information about an MSC4268 room key bundle.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StoredRoomKeyBundleData {
+    /// The user that sent us this data.
+    pub sender_user: OwnedUserId,
+
+    /// Information about the sender of this data and how much we trust that
+    /// information.
+    pub sender_data: SenderData,
+
+    /// The room key bundle data itself.
+    pub bundle_data: RoomKeyBundleContent,
 }
 
 /// A user for which we are tracking the list of devices.
@@ -573,6 +592,7 @@ impl Changes {
             && self.room_settings.is_empty()
             && self.secrets.is_empty()
             && self.next_batch_token.is_none()
+            && self.received_room_key_bundles.is_empty()
     }
 }
 

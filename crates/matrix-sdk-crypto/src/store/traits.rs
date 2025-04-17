@@ -23,7 +23,7 @@ use vodozemac::Curve25519PublicKey;
 
 use super::{
     BackupKeys, Changes, CryptoStoreError, DehydratedDeviceKey, PendingChanges, Result,
-    RoomKeyCounts, RoomSettings,
+    RoomKeyCounts, RoomSettings, StoredRoomKeyBundleData,
 };
 #[cfg(doc)]
 use crate::olm::SenderData;
@@ -323,6 +323,14 @@ pub trait CryptoStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Option<RoomSettings>, Self::Error>;
 
+    /// Get the details about the room key bundle data received from the given
+    /// user for the given room.
+    async fn get_received_room_key_bundle_data(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<StoredRoomKeyBundleData>, Self::Error>;
+
     /// Get arbitrary data from the store
     ///
     /// # Arguments
@@ -567,6 +575,14 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         self.0.get_room_settings(room_id).await.map_err(Into::into)
+    }
+
+    async fn get_received_room_key_bundle_data(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<StoredRoomKeyBundleData>> {
+        self.0.get_received_room_key_bundle_data(room_id, user_id).await.map_err(Into::into)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
