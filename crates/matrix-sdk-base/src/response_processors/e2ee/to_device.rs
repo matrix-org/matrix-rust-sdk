@@ -101,7 +101,7 @@ async fn process(
 
         let events = events
             .iter()
-            // XXX There is loss of information here, after calling `to_raw` it is not
+            // TODO: There is loss of information here, after calling `to_raw` it is not
             // possible to make the difference between a successfully decrypted event and a plain
             // text event. This information needs to be propagated to top layer at some point if
             // clients relies on custom encrypted to device events.
