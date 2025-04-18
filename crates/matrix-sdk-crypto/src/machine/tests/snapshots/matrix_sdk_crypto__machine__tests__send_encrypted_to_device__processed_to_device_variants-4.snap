@@ -1,0 +1,14 @@
+---
+source: crates/matrix-sdk-crypto/src/machine/tests/send_encrypted_to_device.rs
+expression: "serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap()"
+---
+{
+  "content": {
+    "algorithm": "m.olm.v1.curve25519-aes-sha2",
+    "ciphertext": "[++REDACTED++]",
+    "org.matrix.msgid": "93ee0170aa7740d0ac9ee137e820302d",
+    "sender_key": "[sender_ed25519_key]"
+  },
+  "sender": "@alice:example.org",
+  "type": "m.room.encrypted"
+}

@@ -20,6 +20,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of `ProcessedToDeviceEvent` 
+  instead of a list of `Raw<AnyToDeviceEvent>`. With variants like `Decrypted`|`UnableToDecrypt`|`PlainText`|`NotProcessed`.
+  This allows for example to make the difference between an event sent in clear and an event successfully decrypted.
+  For quick compatibility a helper `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
+
 - [**breaking**] Add support for the shared history flag defined in
   [MSC3061](https://github.com/matrix-org/matrix-spec-proposals/pull/3061).
   The shared history flag is now respected when room keys are received as an

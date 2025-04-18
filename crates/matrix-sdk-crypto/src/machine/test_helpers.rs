@@ -172,7 +172,7 @@ pub async fn get_machine_pair_with_session(
 }
 
 /// Create a session for the two supplied Olm machines to communicate.
-async fn build_session_for_pair(
+pub async fn build_session_for_pair(
     alice: OlmMachine,
     bob: OlmMachine,
     mut one_time_keys: BTreeMap<

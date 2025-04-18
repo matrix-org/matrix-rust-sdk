@@ -70,7 +70,7 @@ use crate::{
             ToDeviceEvent,
         },
         requests::{AnyOutgoingRequest, ToDeviceRequest},
-        DeviceKeys, SignedKey, SigningKeys,
+        DeviceKeys, ProcessedToDeviceEvent, SignedKey, SigningKeys,
     },
     utilities::json_convert,
     verification::tests::bob_id,
@@ -397,7 +397,7 @@ async fn test_room_key_sharing() {
     let (decrypted, room_key_updates) =
         send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
 
-    let event = decrypted[0].deserialize().unwrap();
+    let event = decrypted[0].to_raw().deserialize().unwrap();
 
     if let AnyToDeviceEvent::RoomKey(event) = event {
         assert_eq!(&event.sender, alice.user_id());
@@ -489,7 +489,7 @@ async fn send_room_key_to_device(
     sender: &OlmMachine,
     receiver: &OlmMachine,
     room_id: &RoomId,
-) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
+) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
     let to_device_requests = sender
         .share_room_key(room_id, iter::once(receiver.user_id()), EncryptionSettings::default())
         .await
@@ -836,6 +836,7 @@ async fn test_decrypt_unencrypted_event() {
     );
 }
 
+/// This only bootstrap cross-signing but it will not sign the current device !!
 pub async fn setup_cross_signing_for_machine_test_helper(alice: &OlmMachine, bob: &OlmMachine) {
     let CrossSigningBootstrapRequests { upload_signing_keys_req: alice_upload_signing, .. } =
         alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");

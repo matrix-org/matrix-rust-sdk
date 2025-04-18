@@ -554,8 +554,10 @@ impl OlmMachine {
             }),
         )?;
 
-        let to_device_events =
-            to_device_events.into_iter().map(|event| event.json().get().to_owned()).collect();
+        let to_device_events = to_device_events
+            .into_iter()
+            .map(|event| event.to_raw().json().get().to_owned())
+            .collect();
         let room_key_infos = room_key_infos.into_iter().map(|info| info.into()).collect();
 
         Ok(SyncChangesResult { to_device_events, room_key_infos })

@@ -95,7 +95,7 @@ use crate::{
             AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
             UploadSigningKeysRequest,
         },
-        EventEncryptionAlgorithm, Signatures,
+        EventEncryptionAlgorithm, ProcessedToDeviceEvent, Signatures,
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
@@ -1286,7 +1286,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
-    ) -> Option<Raw<AnyToDeviceEvent>> {
+    ) -> Option<ProcessedToDeviceEvent> {
         Self::record_message_id(&raw_event);
 
         let event: ToDeviceEvents = match raw_event.deserialize_as() {
@@ -1294,8 +1294,7 @@ impl OlmMachine {
             Err(e) => {
                 // Skip invalid events.
                 warn!("Received an invalid to-device event: {e}");
-
-                return Some(raw_event);
+                return Some(ProcessedToDeviceEvent::Invalid(raw_event));
             }
         };
 
@@ -1320,7 +1319,7 @@ impl OlmMachine {
                             }
                         }
 
-                        return Some(raw_event);
+                        return Some(ProcessedToDeviceEvent::UnableToDecrypt(raw_event));
                     }
                 };
 
@@ -1372,12 +1371,15 @@ impl OlmMachine {
                         raw_event = decrypted.result.raw_event;
                     }
                 }
+
+                Some(ProcessedToDeviceEvent::Decrypted(raw_event))
             }
 
-            e => self.handle_to_device_event(changes, &e).await,
+            e => {
+                self.handle_to_device_event(changes, &e).await;
+                Some(ProcessedToDeviceEvent::PlainText(raw_event))
+            }
         }
-
-        Some(raw_event)
     }
 
     /// Decide whether a decrypted to-device event was sent from a dehydrated
@@ -1435,7 +1437,7 @@ impl OlmMachine {
     pub async fn receive_sync_changes(
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
-    ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Vec<RoomKeyInfo>)> {
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
 
         let (events, changes) =
@@ -1464,10 +1466,18 @@ impl OlmMachine {
         &self,
         transaction: &mut StoreTransaction,
         sync_changes: EncryptionSyncChanges<'_>,
-    ) -> OlmResult<(Vec<Raw<AnyToDeviceEvent>>, Changes)> {
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Changes)> {
         // Remove verification objects that have expired or are done.
-        let mut events = self.inner.verification_machine.garbage_collect();
-
+        let mut events: Vec<ProcessedToDeviceEvent> = self
+            .inner
+            .verification_machine
+            .garbage_collect()
+            .iter()
+            // These are `fake` to device events just serving as local echo
+            // in order that our own client can react quickly to cancelled transaction.
+            // Just use PlainText for that.
+            .map(|e| ProcessedToDeviceEvent::PlainText(e.clone()))
+            .collect();
         // The account is automatically saved by the store transaction created by the
         // caller.
         let mut changes = Default::default();

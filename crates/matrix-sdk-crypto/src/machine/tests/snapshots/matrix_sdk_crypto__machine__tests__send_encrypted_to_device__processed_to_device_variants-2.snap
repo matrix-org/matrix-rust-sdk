@@ -1,0 +1,14 @@
+---
+source: crates/matrix-sdk-crypto/src/machine/tests/send_encrypted_to_device.rs
+expression: "serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap()"
+---
+{
+  "content": {
+    "device_id": "XYZABCDE",
+    "rooms": [
+      "!726s6s6q:example.com"
+    ]
+  },
+  "sender": "@alice:example.com",
+  "type": "m.new_device"
+}
