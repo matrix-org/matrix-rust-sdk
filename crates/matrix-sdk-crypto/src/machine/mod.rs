@@ -1474,7 +1474,7 @@ impl OlmMachine {
             .garbage_collect()
             .iter()
             // These are `fake` to device events just serving as local echo
-            // in order for own client to react quickly to cancelled transaction.
+            // in order that our own client can react quickly to cancelled transaction.
             // Just use PlainText for that.
             .map(|e| ProcessedToDeviceEvent::PlainText(e.clone()))
             .collect();
