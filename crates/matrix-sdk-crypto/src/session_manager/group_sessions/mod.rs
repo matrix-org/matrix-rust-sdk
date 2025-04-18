@@ -1063,11 +1063,10 @@ mod tests {
                 room_key_withheld::RoomKeyWithheldContent::{self, MegolmV1AesSha2},
             },
             requests::ToDeviceRequest,
-            DeviceKeys, EventEncryptionAlgorithm,
+            DeviceKeys, EventEncryptionAlgorithm, ProcessedToDeviceEvent,
         },
         EncryptionSettings, LocalTrust, OlmMachine,
     };
-    use crate::types::ProcessedToDeviceEvent;
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -1824,8 +1823,7 @@ mod tests {
         assert_eq!(1, decrypted.len());
         use crate::types::events::EventType;
         assert_let!(
-            ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } =
-                decrypted.first().unwrap().clone()
+            ProcessedToDeviceEvent::Decrypted(decrypted_event) = decrypted.first().unwrap().clone()
         );
         assert_eq!(
             decrypted_event.get_field::<String>("type").unwrap().unwrap(),

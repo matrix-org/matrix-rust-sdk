@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use assert_matches2::{assert_let, assert_matches};
-use crate::types::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
 use serde_json::{json, value::to_raw_value};
@@ -26,6 +25,7 @@ use crate::{
     types::{
         events::{ToDeviceCustomEvent, ToDeviceEvent},
         requests::ToDeviceRequest,
+        ProcessedToDeviceEvent,
     },
     utilities::json_convert,
     EncryptionSyncChanges, OlmError,
@@ -87,7 +87,7 @@ async fn test_send_encrypted_to_device() {
     assert_eq!(1, decrypted.len());
     let processed_event = &decrypted[0];
 
-    assert_let!(ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } = processed_event);
+    assert_let!(ProcessedToDeviceEvent::Decrypted(decrypted_event) = processed_event);
 
     let decrypted_event = decrypted_event.deserialize().unwrap();
 
@@ -208,7 +208,7 @@ async fn test_processed_to_device_variants() {
     assert_eq!(4, processed.len());
 
     let processed_event = &processed[0];
-    assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted { .. });
+    assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted(_));
 
     let processed_event = &processed[1];
     assert_matches!(processed_event, ProcessedToDeviceEvent::PlainText(_));

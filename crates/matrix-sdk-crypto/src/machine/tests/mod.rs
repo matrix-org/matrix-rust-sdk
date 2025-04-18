@@ -18,9 +18,8 @@ use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason,
-    UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
-    WithheldCode,
+    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
+    UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -71,14 +70,13 @@ use crate::{
             ToDeviceEvent,
         },
         requests::{AnyOutgoingRequest, ToDeviceRequest},
-        DeviceKeys, SignedKey, SigningKeys,
+        DeviceKeys, ProcessedToDeviceEvent, SignedKey, SigningKeys,
     },
     utilities::json_convert,
     verification::tests::bob_id,
     Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
     RoomEventDecryptionResult, TrustRequirement,
 };
-use crate::types::ProcessedToDeviceEvent;
 
 mod decryption_verification_state;
 mod interactive_verification;

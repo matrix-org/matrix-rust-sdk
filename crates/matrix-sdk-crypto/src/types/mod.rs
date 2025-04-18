@@ -36,13 +36,13 @@ use std::{
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
 use ruma::{
-    serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
+    events::AnyToDeviceEvent,
+    serde::{Raw, StringEnum},
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
-use ruma::serde::Raw;
-use ruma::events::AnyToDeviceEvent;
 
 mod backup;
 mod cross_signing;
@@ -633,16 +633,11 @@ mod test {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProcessedToDeviceEvent {
     /// A successfully-decrypted encrypted event.
-    Decrypted {
-        /// The decrypted to device event
-        decrypted_event: Raw<AnyToDeviceEvent>,
-    },
+    /// Contains the raw decrypted event .
+    Decrypted(Raw<AnyToDeviceEvent>),
 
     /// An encrypted event which could not be decrypted.
-    UnableToDecrypt {
-        /// The `m.room.encrypted` to device event.
-        event: Raw<AnyToDeviceEvent>,
-    },
+    UnableToDecrypt(Raw<AnyToDeviceEvent>),
 
     /// An unencrypted event.
     PlainText(Raw<AnyToDeviceEvent>),
@@ -652,11 +647,12 @@ pub enum ProcessedToDeviceEvent {
 }
 
 impl ProcessedToDeviceEvent {
-    /// Converts a ProcessedToDeviceEvent to the Raw<AnyToDeviceEvent> it encapsulates
+    /// Converts a ProcessedToDeviceEvent to the Raw<AnyToDeviceEvent> it
+    /// encapsulates
     pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
         match self {
-            ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } => decrypted_event.clone(),
-            ProcessedToDeviceEvent::UnableToDecrypt { event } => event.clone(),
+            ProcessedToDeviceEvent::Decrypted(decrypted_event) => decrypted_event.clone(),
+            ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
             ProcessedToDeviceEvent::PlainText(event) => event.clone(),
             ProcessedToDeviceEvent::NotProcessed(event) => event.clone(),
         }
