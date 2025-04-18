@@ -27,6 +27,7 @@ use tracing::{debug, instrument, trace};
 use super::OutboundGroupSession;
 use crate::{
     error::{OlmResult, SessionRecipientCollectionError},
+    olm::ShareInfo,
     store::Store,
     DeviceData, EncryptionSettings, LocalTrust, OlmError, OwnUserIdentityData, UserIdentityData,
 };
@@ -433,7 +434,11 @@ fn is_session_overshared_for_user(
     };
 
     // Devices that received this session
-    let shared: BTreeSet<&DeviceId> = shared.keys().map(|d| d.as_ref()).collect();
+    let shared: BTreeSet<&DeviceId> = shared
+        .iter()
+        .filter(|(_, info)| matches!(info, ShareInfo::Shared(_)))
+        .map(|(d, _)| d.as_ref())
+        .collect();
 
     // The set difference between
     //
