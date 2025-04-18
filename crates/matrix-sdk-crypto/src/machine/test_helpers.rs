@@ -18,7 +18,6 @@
 use std::collections::BTreeMap;
 
 use as_variant::as_variant;
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::{ruma_response_from_json, test_json};
 use ruma::{
     api::client::keys::{
@@ -30,20 +29,14 @@ use ruma::{
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
-    to_device::DeviceIdOrAllDevices,
     user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::{
-    machine::tests,
     store::{Changes, MemoryStore},
-    types::{
-        events::ToDeviceEvent,
-        requests::{AnyOutgoingRequest, ToDeviceRequest},
-    },
-    utilities::json_convert,
-    CrossSigningBootstrapRequests, DeviceData, EncryptionSyncChanges, OlmMachine,
+    types::{events::ToDeviceEvent, requests::AnyOutgoingRequest},
+    CrossSigningBootstrapRequests, DeviceData, OlmMachine,
 };
 
 /// These keys need to be periodically uploaded to the server.
@@ -282,52 +275,4 @@ pub fn bootstrap_requests_to_keys_query_response(
     }
 
     ruma_response_from_json(&kq_response)
-}
-
-/// Encrypt and send a given to device event from the sender to the recipient.
-///
-/// Simulates the reception by having the recipient machine receiving a sync
-/// with the encrypted message.
-/// Returns the event as received by the recipient.
-pub async fn encrypt_to_device_helper(
-    sender: &OlmMachine,
-    recipient: &OlmMachine,
-    event_type: &str,
-    event_content: Value,
-) -> ProcessedToDeviceEvent {
-    let device =
-        sender.get_device(recipient.user_id(), recipient.device_id(), None).await.unwrap().unwrap();
-    let raw_encrypted = device
-        .encrypt_event_raw(event_type, &event_content)
-        .await
-        .expect("Should have encrypted the content");
-
-    let request = ToDeviceRequest::new(
-        recipient.user_id(),
-        DeviceIdOrAllDevices::DeviceId(recipient.device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
-
-    let encrypted_event = ToDeviceEvent::new(
-        sender.user_id().to_owned(),
-        tests::to_device_requests_to_content(vec![request.clone().into()]),
-    );
-
-    let encrypted_event = json_convert(&encrypted_event).unwrap();
-
-    let sync_changes = EncryptionSyncChanges {
-        to_device_events: vec![encrypted_event],
-        changed_devices: &Default::default(),
-        one_time_keys_counts: &Default::default(),
-        unused_fallback_keys: None,
-        next_batch_token: None,
-    };
-
-    let (to_devices, _) = recipient
-        .receive_sync_changes(sync_changes)
-        .await
-        .expect("Receive Sync changes should not fail");
-
-    to_devices.first().unwrap().clone()
 }
