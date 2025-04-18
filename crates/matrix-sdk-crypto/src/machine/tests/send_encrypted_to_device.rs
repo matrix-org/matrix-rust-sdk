@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use assert_matches2::{assert_let, assert_matches};
+use insta::assert_json_snapshot;
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
-use serde_json::{json, value::to_raw_value};
+use serde_json::{json, value::to_raw_value, Value};
 
 use crate::{
     machine::{
@@ -112,11 +113,17 @@ async fn test_processed_to_device_variants() {
     let (alice, bob) =
         get_machine_pair_with_session(tests::alice_id(), tests::user_id(), false).await;
 
-    let custom_event_type = "m.new_device";
+    let custom_event_type = "rtc.call.encryption_keys";
 
     let custom_content = json!({
             "device_id": "XYZABCDE",
-            "rooms": ["!726s6s6q:example.com"]
+            "call_id": "",
+            "keys": [
+                {
+                    "index": 0,
+                    "key": "I7qrSrCR7Yo9B4iGVnR8IA"
+                }
+            ],
     });
 
     let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
@@ -210,14 +217,38 @@ async fn test_processed_to_device_variants() {
     let processed_event = &processed[0];
     assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted(_));
 
+    assert_json_snapshot!(
+        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+         {
+             ".keys.ed25519" => "[sender_ed25519_key]",
+             r#"["org.matrix.msc4147.device_keys"].device_id"# => "[ABCDEFGH]",
+             r#"["org.matrix.msc4147.device_keys"].keys"# => "++REDACTED++",
+             r#"["org.matrix.msc4147.device_keys"].signatures"# => "++REDACTED++",
+             ".recipient_keys.ed25519" => "[recipient_sender_key]",
+        }
+    );
+
     let processed_event = &processed[1];
     assert_matches!(processed_event, ProcessedToDeviceEvent::PlainText(_));
+    assert_json_snapshot!(
+        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+    );
 
     let processed_event = &processed[2];
     assert_matches!(processed_event, ProcessedToDeviceEvent::Invalid(_));
+    assert_json_snapshot!(
+        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+    );
 
     let processed_event = &processed[3];
-    assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt { .. });
+    assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt(_));
+    assert_json_snapshot!(
+        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+        {
+            ".content.sender_key" => "[sender_ed25519_key]",
+            ".content.ciphertext" => "[++REDACTED++]",
+        }
+    );
 }
 
 #[async_test]
