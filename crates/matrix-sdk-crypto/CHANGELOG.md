@@ -23,7 +23,6 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of `ProcessedToDeviceEvent` 
   instead of a list of `Raw<AnyToDeviceEvent>`. With variants like `Decrypted`|`UnableToDecrypt`|`PlainText`|`NotProcessed`.
   This allows for example to make the difference between an event sent in clear and an event successfully decrypted.
-  A `ProcessedToDeviceEvent::Decrypted` now contains the `encryption_info` and `verification_state` of the event. 
   For quick compatibility a helper `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
 
 - [**breaking**] Add support for the shared history flag defined in
