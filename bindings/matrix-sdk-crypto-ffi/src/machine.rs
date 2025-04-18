@@ -932,8 +932,6 @@ impl OlmMachine {
                     },
                 }
             }
-            // Should not happen
-            _ => panic!("Unsupported algorithm in room"),
         })
     }
 

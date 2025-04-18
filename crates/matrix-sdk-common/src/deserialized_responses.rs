@@ -282,11 +282,6 @@ pub enum AlgorithmInfo {
         /// key.
         sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
     },
-
-    OlmV1Curve25519AesSha2 {
-        // The sender key of the device that encrypted the message
-        curve25519_key: String,
-    },
 }
 
 /// Struct containing information on how an event was decrypted.
@@ -626,8 +621,6 @@ pub enum ProcessedToDeviceEvent {
     Decrypted {
         /// The decrypted to device event
         decrypted_event: Raw<AnyToDeviceEvent>,
-        /// Sender encryption information
-        encryption_info: EncryptionInfo,
     },
 
     /// An encrypted event which could not be decrypted.

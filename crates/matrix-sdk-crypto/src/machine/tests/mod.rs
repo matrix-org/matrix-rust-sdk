@@ -82,7 +82,6 @@ use crate::{
 mod decryption_verification_state;
 mod interactive_verification;
 mod megolm_sender_data;
-mod olm_decryption_encryption_info;
 mod olm_encryption;
 mod room_settings;
 mod send_encrypted_to_device;

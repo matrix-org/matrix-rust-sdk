@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use assert_matches2::{assert_let, assert_matches};
-use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, ProcessedToDeviceEvent, VerificationLevel, VerificationState,
-};
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
 use serde_json::{json, value::to_raw_value};
@@ -210,23 +208,7 @@ async fn test_processed_to_device_variants() {
     assert_eq!(4, processed.len());
 
     let processed_event = &processed[0];
-
-    assert_let!(ProcessedToDeviceEvent::Decrypted { encryption_info, .. } = processed_event);
-
-    assert_eq!(alice.user_id().to_owned(), encryption_info.sender);
-    assert_eq!(Some(alice.device_id().to_owned()), encryption_info.sender_device);
-
-    assert_let!(
-        AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_key } = &encryption_info.algorithm_info
-    );
-
-    assert_eq!(curve25519_key.to_owned(), alice_curve.to_base64());
-
-    assert_eq!(encryption_info.session_id, None);
-    assert_eq!(
-        encryption_info.verification_state,
-        VerificationState::Unverified(VerificationLevel::UnsignedDevice)
-    );
+    assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted { .. });
 
     let processed_event = &processed[1];
     assert_matches!(processed_event, ProcessedToDeviceEvent::PlainText(_));
