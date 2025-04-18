@@ -18,7 +18,7 @@ use std::{
 };
 
 use assert_matches2::assert_let;
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use crate::types::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
     device_id,

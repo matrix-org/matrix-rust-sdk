@@ -41,6 +41,8 @@ use ruma::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use ruma::serde::Raw;
+use ruma::events::AnyToDeviceEvent;
 
 mod backup;
 mod cross_signing;
@@ -624,5 +626,39 @@ mod test {
         };
 
         assert_json_snapshot!(secret_bundle);
+    }
+}
+
+/// Represents a to-device event after it has been processed by the olm machine.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ProcessedToDeviceEvent {
+    /// A successfully-decrypted encrypted event.
+    Decrypted {
+        /// The decrypted to device event
+        decrypted_event: Raw<AnyToDeviceEvent>,
+    },
+
+    /// An encrypted event which could not be decrypted.
+    UnableToDecrypt {
+        /// The `m.room.encrypted` to device event.
+        event: Raw<AnyToDeviceEvent>,
+    },
+
+    /// An unencrypted event.
+    PlainText(Raw<AnyToDeviceEvent>),
+
+    /// An invalid to device event that was ignored
+    NotProcessed(Raw<AnyToDeviceEvent>),
+}
+
+impl ProcessedToDeviceEvent {
+    /// Converts a ProcessedToDeviceEvent to the Raw<AnyToDeviceEvent> it encapsulates
+    pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
+        match self {
+            ProcessedToDeviceEvent::Decrypted { decrypted_event, .. } => decrypted_event.clone(),
+            ProcessedToDeviceEvent::UnableToDecrypt { event } => event.clone(),
+            ProcessedToDeviceEvent::PlainText(event) => event.clone(),
+            ProcessedToDeviceEvent::NotProcessed(event) => event.clone(),
+        }
     }
 }

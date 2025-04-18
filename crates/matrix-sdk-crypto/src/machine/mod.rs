@@ -22,7 +22,7 @@ use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
-        ProcessedToDeviceEvent, UnableToDecryptInfo, UnableToDecryptReason,
+        UnableToDecryptInfo, UnableToDecryptReason,
         UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
@@ -102,6 +102,7 @@ use crate::{
     CollectStrategy, CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData,
     LocalTrust, RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
+use crate::types::ProcessedToDeviceEvent;
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
