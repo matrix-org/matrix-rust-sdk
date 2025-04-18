@@ -1031,7 +1031,7 @@ mod tests {
     };
 
     use assert_matches2::assert_let;
-    use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, WithheldCode};
+    use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
         api::client::{
@@ -1067,6 +1067,7 @@ mod tests {
         },
         EncryptionSettings, LocalTrust, OlmMachine,
     };
+    use crate::types::ProcessedToDeviceEvent;
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")

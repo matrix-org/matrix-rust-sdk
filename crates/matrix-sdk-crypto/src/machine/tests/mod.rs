@@ -18,7 +18,7 @@ use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, ProcessedToDeviceEvent, UnableToDecryptInfo, UnableToDecryptReason,
+    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason,
     UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
     WithheldCode,
 };
@@ -78,6 +78,7 @@ use crate::{
     Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
     RoomEventDecryptionResult, TrustRequirement,
 };
+use crate::types::ProcessedToDeviceEvent;
 
 mod decryption_verification_state;
 mod interactive_verification;

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use assert_matches2::{assert_let, assert_matches};
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use crate::types::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
 use serde_json::{json, value::to_raw_value};
