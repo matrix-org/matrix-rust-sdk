@@ -21,9 +21,9 @@ use std::{
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
-        UnableToDecryptInfo, UnableToDecryptReason,
-        UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
+        UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
+        VerificationState,
     },
     locks::RwLock as StdRwLock,
     BoxFuture,
@@ -95,14 +95,13 @@ use crate::{
             AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
             UploadSigningKeysRequest,
         },
-        EventEncryptionAlgorithm, Signatures,
+        EventEncryptionAlgorithm, ProcessedToDeviceEvent, Signatures,
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
     CollectStrategy, CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData,
     LocalTrust, RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
-use crate::types::ProcessedToDeviceEvent;
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -1320,7 +1319,7 @@ impl OlmMachine {
                             }
                         }
 
-                        return Some(ProcessedToDeviceEvent::UnableToDecrypt { event: raw_event });
+                        return Some(ProcessedToDeviceEvent::UnableToDecrypt(raw_event));
                     }
                 };
 
@@ -1373,7 +1372,7 @@ impl OlmMachine {
                     }
                 }
 
-                Some(ProcessedToDeviceEvent::Decrypted { decrypted_event: raw_event })
+                Some(ProcessedToDeviceEvent::Decrypted(raw_event))
             }
 
             e => {

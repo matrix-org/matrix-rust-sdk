@@ -18,7 +18,6 @@ use std::{
 };
 
 use assert_matches2::assert_let;
-use crate::types::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
     device_id,
@@ -39,7 +38,7 @@ use crate::{
     },
     olm::utility::SignJson,
     store::Changes,
-    types::{events::ToDeviceEvent, DeviceKeys},
+    types::{events::ToDeviceEvent, DeviceKeys, ProcessedToDeviceEvent},
     DeviceData, OlmMachine,
 };
 
@@ -295,9 +294,7 @@ async fn test_decrypt_to_device_message_with_unsigned_sender_keys() {
 
     let event = to_device_events.first().expect("Bob did not get a to-device event").clone();
 
-    // The to-device event should remain decrypted.
-    let ProcessedToDeviceEvent::UnableToDecrypt { event } = event else {
-        panic!("Should refuse to decrypt")
-    };
+    // The to-device event should remain encrypted.
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt(event) = event);
     assert_eq!(event.get_field("type").unwrap(), Some("m.room.encrypted"));
 }
