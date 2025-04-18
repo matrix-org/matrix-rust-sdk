@@ -1294,7 +1294,7 @@ impl OlmMachine {
             Err(e) => {
                 // Skip invalid events.
                 warn!("Received an invalid to-device event: {e}");
-                return Some(ProcessedToDeviceEvent::NotProcessed(raw_event));
+                return Some(ProcessedToDeviceEvent::Invalid(raw_event));
             }
         };
 

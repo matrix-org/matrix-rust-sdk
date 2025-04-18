@@ -642,8 +642,10 @@ pub enum ProcessedToDeviceEvent {
     /// An unencrypted event.
     PlainText(Raw<AnyToDeviceEvent>),
 
-    /// An invalid to device event that was ignored
-    NotProcessed(Raw<AnyToDeviceEvent>),
+    /// An invalid to device event that was ignored because it is missing some
+    /// required information to be processed (like no event `type` for
+    /// example)
+    Invalid(Raw<AnyToDeviceEvent>),
 }
 
 impl ProcessedToDeviceEvent {
@@ -654,7 +656,7 @@ impl ProcessedToDeviceEvent {
             ProcessedToDeviceEvent::Decrypted(decrypted_event) => decrypted_event.clone(),
             ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
             ProcessedToDeviceEvent::PlainText(event) => event.clone(),
-            ProcessedToDeviceEvent::NotProcessed(event) => event.clone(),
+            ProcessedToDeviceEvent::Invalid(event) => event.clone(),
         }
     }
 }

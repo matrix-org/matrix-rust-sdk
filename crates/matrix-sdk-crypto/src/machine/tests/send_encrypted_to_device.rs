@@ -214,7 +214,7 @@ async fn test_processed_to_device_variants() {
     assert_matches!(processed_event, ProcessedToDeviceEvent::PlainText(_));
 
     let processed_event = &processed[2];
-    assert_matches!(processed_event, ProcessedToDeviceEvent::NotProcessed(_));
+    assert_matches!(processed_event, ProcessedToDeviceEvent::Invalid(_));
 
     let processed_event = &processed[3];
     assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt { .. });
