@@ -2871,6 +2871,7 @@ dependencies = [
  "backoff",
  "bytes",
  "bytesize",
+ "cfg-if",
  "dirs 6.0.0",
  "event-listener",
  "eyeball",

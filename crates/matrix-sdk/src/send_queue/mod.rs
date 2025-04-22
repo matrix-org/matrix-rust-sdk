@@ -1610,6 +1610,15 @@ impl QueueStorage {
                     // Not finished yet, we should retry later => false.
                     return Ok(false);
                 };
+                let depends_on_thumbnail = {
+                    cfg_if::cfg_if! {
+                        if #[cfg(feature = "unstable-msc4274")] {
+                            depends_on_thumbnail
+                        } else {
+                            true
+                        }
+                    }
+                };
                 self.handle_dependent_file_or_thumbnail_upload(
                     client,
                     dependent_request.own_transaction_id.into(),
@@ -1617,10 +1626,7 @@ impl QueueStorage {
                     content_type,
                     cache_key,
                     related_to,
-                    #[cfg(feature = "unstable-msc4274")]
                     depends_on_thumbnail,
-                    #[cfg(not(feature = "unstable-msc4274"))]
-                    true,
                 )
                 .await?;
             }
