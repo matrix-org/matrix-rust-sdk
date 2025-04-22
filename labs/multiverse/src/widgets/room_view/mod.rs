@@ -2,12 +2,13 @@ use std::{ops::Deref, sync::Arc};
 
 use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyModifiers};
+use input::MessageOrCommand;
 use invited_room::InvitedRoomView;
 use matrix_sdk::{
     locks::Mutex,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
-        events::room::message::RoomMessageEventContent, OwnedRoomId,
+        events::room::message::RoomMessageEventContent, OwnedRoomId, OwnedUserId,
     },
     RoomState,
 };
@@ -74,16 +75,18 @@ impl RoomView {
                     match (key.modifiers, key.code) {
                         (KeyModifiers::NONE, Enter) => {
                             if !self.input.is_empty() {
-                                let message = self.input.get_text();
+                                let message_or_command = self.input.get_input();
 
-                                match self.send_message(message).await {
-                                    Ok(_) => {
-                                        self.input.clear();
+                                match message_or_command {
+                                    Ok(MessageOrCommand::Message(message)) => {
+                                        self.send_message(message).await
                                     }
-                                    Err(err) => {
-                                        self.status_handle.set_message(format!(
-                                            "error when sending event: {err}"
-                                        ));
+                                    Ok(MessageOrCommand::Command(command)) => {
+                                        self.handle_command(command).await
+                                    }
+                                    Err(e) => {
+                                        self.status_handle.set_message(e.render().to_string());
+                                        self.input.clear();
                                     }
                                 }
                             }
@@ -261,7 +264,48 @@ impl RoomView {
         };
     }
 
-    pub async fn send_message(&self, message: String) -> Result<()> {
+    async fn invite_member(&mut self, user_id: OwnedUserId) {
+        let Some(room) = self
+            .selected_room
+            .as_deref()
+            .and_then(|room_id| self.ui_rooms.lock().get(room_id).cloned())
+        else {
+            self.status_handle
+                .set_message(format!("Coulnd't find the room object to invite {user_id}"));
+            return;
+        };
+
+        match room.invite_user_by_id(&user_id).await {
+            Ok(_) => {
+                self.status_handle
+                    .set_message(format!("Successfully invited {user_id} to the room"));
+                self.input.clear();
+            }
+            Err(e) => {
+                self.status_handle
+                    .set_message(format!("Failed to invite {user_id} to the room: {e:?}"));
+            }
+        }
+    }
+
+    async fn handle_command(&mut self, command: input::Command) {
+        match command {
+            input::Command::Invite { user_id } => self.invite_member(user_id).await,
+        }
+    }
+
+    async fn send_message(&mut self, message: String) {
+        match self.send_message_impl(message).await {
+            Ok(_) => {
+                self.input.clear();
+            }
+            Err(err) => {
+                self.status_handle.set_message(format!("error when sending event: {err}"));
+            }
+        }
+    }
+
+    async fn send_message_impl(&self, message: String) -> Result<()> {
         if let Some(sdk_timeline) = self.selected_room.as_deref().and_then(|room_id| {
             self.timelines.lock().get(room_id).map(|timeline| timeline.timeline.clone())
         }) {

@@ -17,6 +17,7 @@ use tokio::sync::broadcast::Sender;
 
 use crate::{store::ambiguity_map::AmbiguityCache, RequestedRequiredStates, RoomInfoNotableUpdate};
 
+pub mod display_name;
 pub mod msc4186;
 pub mod sync_v2;
 

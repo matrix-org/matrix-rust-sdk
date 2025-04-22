@@ -1488,8 +1488,20 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         push front [ "!r4:bar.org" ];
         end;
     };
-    // TODO (@hywan): Must be removed once we restore `RoomInfoNotableUpdate`
-    // filtering inside `RoomList`.
+    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
+    // removed.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 1 ] [ "!r1:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 0 ] [ "!r4:bar.org" ];
+        end;
+    };
+    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
+    // removed.
     assert_entries_batch! {
         [dynamic_entries_stream]
         set [ 1 ] [ "!r1:bar.org" ];
@@ -1581,13 +1593,28 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         push front [ "!r7:bar.org" ];
         end;
     };
-    // TODO (@hywan): Must be removed once we restore `RoomInfoNotableUpdate`
-    // filtering inside `RoomList`.
+    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
+    // removed.
     assert_entries_batch! {
         [dynamic_entries_stream]
         set [ 1 ] [ "!r5:bar.org" ];
         end;
     };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 0 ] [ "!r7:bar.org" ];
+        end;
+    };
+
+    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
+    // removed.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 1 ] [ "!r5:bar.org" ];
+        end;
+    };
+    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
+    // removed.
     assert_entries_batch! {
         [dynamic_entries_stream]
         set [ 0 ] [ "!r7:bar.org" ];
@@ -1990,8 +2017,16 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
 
-    // TODO (@hywan): Must be removed once we restore `RoomInfoNotableUpdate`
-    // filtering inside `RoomList`.
+    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
+    // removed.
+    assert_entries_batch! {
+        [stream]
+        set [ 2 ] [ "!r6:bar.org" ];
+        end;
+    };
+
+    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
+    // removed.
     assert_entries_batch! {
         [stream]
         set [ 2 ] [ "!r6:bar.org" ];

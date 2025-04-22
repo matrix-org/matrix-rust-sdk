@@ -1,8 +1,27 @@
+use clap::{Parser, Subcommand};
 use crossterm::event::KeyEvent;
+use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk_ui::room_list_service::Room;
 use ratatui::{prelude::*, widgets::*};
 use style::palette::tailwind;
 use tui_textarea::TextArea;
+
+#[derive(Debug, Parser)]
+#[command(name = "multiverse", disable_help_flag = true, disable_help_subcommand = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    Invite { user_id: OwnedUserId },
+}
+
+pub enum MessageOrCommand {
+    Message(String),
+    Command(Command),
+}
 
 /// A widget representing a text input to send messages to a room.
 #[derive(Default)]
@@ -25,10 +44,21 @@ impl Input {
     }
 
     /// Get the currently input text.
-    pub fn get_text(&self) -> String {
-        // TODO: Parse some commands using clap here and return an enum that might be a
-        // string or a parsed command.
-        self.textarea.lines().join("\n")
+    pub fn get_input(&self) -> Result<MessageOrCommand, clap::Error> {
+        let input = self.textarea.lines().join("\n");
+
+        if let Some(input) = input.strip_prefix("/") {
+            let arguments = input.split_whitespace();
+
+            // Clap expects the first argument to be the binary name, like when a command is
+            // invoked on the command line. Since we aren't a command line, but
+            // still find clap a neat command parser, let's give it what it
+            // expects so we can parse our commands.
+            Cli::try_parse_from(std::iter::once("multiverse").chain(arguments))
+                .map(|cli| MessageOrCommand::Command(cli.command))
+        } else {
+            Ok(MessageOrCommand::Message(input))
+        }
     }
 
     /// Is the input area empty, returns false if the user hasn't input anything

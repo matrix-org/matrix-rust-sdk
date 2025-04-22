@@ -254,6 +254,7 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
+        // Save the changes and apply them.
         processors::changes::save_and_apply(
             context,
             &self.state_store,
@@ -262,12 +263,19 @@ impl BaseClient {
         )
         .await?;
 
+        let mut context = processors::Context::default();
+
         // Now that all the rooms information have been saved, update the display name
-        // cache (which relies on information stored in the database). This will
-        // live in memory, until the next sync which will saves the room info to
-        // disk; we do this to avoid saving that would be redundant with the
-        // above. Oh well.
-        room_updates.update_in_memory_caches(&self.state_store).await;
+        // of the updated rooms (which relies on information stored in the database).
+        processors::room::display_name::update_for_rooms(
+            &mut context,
+            &room_updates,
+            &self.state_store,
+        )
+        .await;
+
+        // Save the new display name updates if any.
+        processors::changes::save_only(context, &self.state_store).await?;
 
         Ok(SyncResponse {
             rooms: room_updates,
@@ -321,8 +329,10 @@ mod tests {
     use super::processors::room::msc4186::cache_latest_events;
     use crate::{
         rooms::normal::{RoomHero, RoomInfoNotableUpdateReasons},
+        store::{RoomLoadSettings, StoreConfig},
         test_utils::logged_in_base_client,
         BaseClient, EncryptionState, RequestedRequiredStates, RoomInfoNotableUpdate, RoomState,
+        SessionMeta,
     };
     #[cfg(feature = "e2e-encryption")]
     use crate::{store::MemoryStore, Room};
@@ -416,7 +426,10 @@ mod tests {
         // No m.room.name event, no heroes, no members => considered an empty room!
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "Empty Room");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "Empty Room"
+        );
         assert_eq!(client_room.state(), RoomState::Joined);
 
         // And it is added to the list of joined rooms only.
@@ -448,7 +461,10 @@ mod tests {
         // The name is known.
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name().as_deref(), Some("The Name"));
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "The Name");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "The Name"
+        );
     }
 
     #[async_test]
@@ -475,7 +491,7 @@ mod tests {
         assert!(client_room.name().is_none());
 
         // No m.room.name event, no heroes => using the invited member.
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "w");
+        assert_eq!(client_room.compute_display_name().await.unwrap().into_inner().to_string(), "w");
 
         assert_eq!(client_room.state(), RoomState::Invited);
 
@@ -512,7 +528,10 @@ mod tests {
         // The name is known.
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.name().as_deref(), Some("The Name"));
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "The Name");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "The Name"
+        );
     }
 
     #[async_test]
@@ -1063,8 +1082,109 @@ mod tests {
 
         // Then the room's name is NOT overridden by the server-computed display name.
         let client_room = client.get_room(room_id).expect("No room found");
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "myroom");
+        assert_eq!(
+            client_room.compute_display_name().await.unwrap().into_inner().to_string(),
+            "myroom"
+        );
         assert!(client_room.name().is_none());
+    }
+
+    #[async_test]
+    async fn test_display_name_is_cached_and_emits_a_notable_update_reason() {
+        let client = logged_in_base_client(None).await;
+        let user_id = user_id!("@u:e.uk");
+        let room_id = room_id!("!r:e.uk");
+
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
+
+        let room = room_with_name("Hello World", user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        let room = client.get_room(room_id).expect("No room found");
+        assert_eq!(room.cached_display_name().unwrap().to_string(), "Hello World");
+
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::NONE));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                // The reason we are looking for :-].
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
+        assert!(room_info_notable_update.is_empty());
+    }
+
+    #[async_test]
+    async fn test_display_name_is_persisted_from_sliding_sync() {
+        let user_id = user_id!("@u:e.uk");
+        let room_id = room_id!("!r:e.uk");
+        let session_meta = SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() };
+        let state_store;
+
+        {
+            let client = {
+                let store = StoreConfig::new("cross-process-foo".to_owned());
+                state_store = store.state_store.clone();
+
+                let client = BaseClient::new(store);
+                client
+                    .activate(
+                        session_meta.clone(),
+                        RoomLoadSettings::default(),
+                        #[cfg(feature = "e2e-encryption")]
+                        None,
+                    )
+                    .await
+                    .expect("`activate` failed!");
+
+                client
+            };
+
+            // When the sliding sync response contains an explicit room name as well as an
+            // alias
+            let room = room_with_name("Hello World", user_id);
+            let response = response_with_room(room_id, room);
+            client
+                .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+                .await
+                .expect("Failed to process sync");
+
+            let room = client.get_room(room_id).expect("No room found");
+            assert_eq!(room.cached_display_name().unwrap().to_string(), "Hello World");
+        }
+
+        {
+            let client = {
+                let mut store = StoreConfig::new("cross-process-foo".to_owned());
+                store.state_store = state_store;
+                let client = BaseClient::new(store);
+                client
+                    .activate(
+                        session_meta,
+                        RoomLoadSettings::default(),
+                        #[cfg(feature = "e2e-encryption")]
+                        None,
+                    )
+                    .await
+                    .expect("`activate` failed!");
+
+                client
+            };
+
+            let room = client.get_room(room_id).expect("No room found");
+            assert_eq!(room.cached_display_name().unwrap().to_string(), "Hello World");
+        }
     }
 
     #[async_test]
@@ -1700,6 +1820,14 @@ mod tests {
                 assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_STAMP));
             }
         );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
 
         // When I send sliding sync response containing a room with a recency stamp.
         let room = assign!(http::response::Room::new(), {
@@ -1719,6 +1847,7 @@ mod tests {
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_STAMP));
             }
         );
+        assert!(room_info_notable_update_stream.is_empty());
     }
 
     #[async_test]
@@ -1736,7 +1865,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Then a room info notable update is NOT received.
+        // Then a room info notable update is received, but not the one we are
+        // interested by.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -1744,6 +1874,14 @@ mod tests {
                 assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
             }
         );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
 
         // When I send sliding sync response containing a couple of events with no read
         // receipt.
@@ -1770,6 +1908,7 @@ mod tests {
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
             }
         );
+        assert!(room_info_notable_update_stream.is_empty());
     }
 
     #[async_test]
@@ -1787,8 +1926,21 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Discard first room info update
-        let _ = room_info_notable_update_stream.recv().await;
+        // Other notable update reason. We don't really care about them here.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE));
+            }
+        );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
+            }
+        );
 
         // Send sliding sync response containing a membership event with 'join' value.
         let room_id = room_id!("!r:e.uk");
@@ -1813,14 +1965,15 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Room was already joined, no MEMBERSHIP update should be triggered here
+        // Room was already joined, no `MEMBERSHIP` update should be triggered here
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
-                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE));
             }
         );
+        assert!(room_info_notable_update_stream.is_empty());
 
         let events = vec![Raw::from_json_string(
             json!({
@@ -1844,14 +1997,14 @@ mod tests {
             .expect("Failed to process sync");
 
         // Then a room info notable update is received.
-        let update = room_info_notable_update_stream.recv().await;
         assert_matches!(
-            update,
+            room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
             }
         );
+        assert!(room_info_notable_update_stream.is_empty());
     }
 
     #[async_test]
@@ -1869,14 +2022,22 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Then a room info notable update is NOT received.
+        // Other notable updates are received, but not the ones we are interested by.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
-                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::UNREAD_MARKER));
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
             }
         );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
 
         // When I receive a sliding sync response containing one update about an unread
         // marker,
@@ -1919,9 +2080,10 @@ mod tests {
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
-                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::UNREAD_MARKER));
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
             }
         );
+        assert!(room_info_notable_update_stream.is_empty());
 
         // …Unless its value changes!
         let room_account_data_events = vec![Raw::from_json_string(
@@ -1948,6 +2110,7 @@ mod tests {
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::UNREAD_MARKER));
             }
         );
+        assert!(room_info_notable_update_stream.is_empty());
     }
 
     #[async_test]
@@ -2380,6 +2543,16 @@ mod tests {
             canonical_alias_event_content,
             None,
         ));
+
+        room
+    }
+
+    fn room_with_name(name: &str, user_id: &UserId) -> http::response::Room {
+        let mut room = http::response::Room::new();
+
+        let name_event_content = RoomNameEventContent::new(name.to_owned());
+
+        room.required_state.push(make_state_event(user_id, "", name_event_content, None));
 
         room
     }

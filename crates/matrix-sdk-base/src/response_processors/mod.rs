@@ -46,10 +46,4 @@ impl Context {
     pub fn new(state_changes: StateChanges) -> Self {
         Self { state_changes, room_info_notable_updates: Default::default() }
     }
-
-    pub fn into_parts(self) -> (StateChanges, RoomInfoNotableUpdates) {
-        let Self { state_changes, room_info_notable_updates } = self;
-
-        (state_changes, room_info_notable_updates)
-    }
 }

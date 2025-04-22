@@ -3,8 +3,8 @@ use std::sync::Arc;
 use imbl::Vector;
 use matrix_sdk::ruma::events::room::message::MessageType;
 use matrix_sdk_ui::timeline::{
-    MsgLikeContent, MsgLikeKind, TimelineItem, TimelineItemContent, TimelineItemKind,
-    VirtualTimelineItem,
+    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineItem, TimelineItemContent,
+    TimelineItemKind, VirtualTimelineItem,
 };
 use ratatui::{prelude::*, widgets::*};
 
@@ -52,11 +52,51 @@ impl Widget for &mut TimelineView<'_> {
                             ..
                         }) => content.push(format!("{}: (UTD)", sender)),
 
+                        TimelineItemContent::MembershipChange(m) => {
+                            if let Some(change) = m.change() {
+                                let display_name =
+                                    m.display_name().unwrap_or_else(|| m.user_id().to_string());
+
+                                let change = match change {
+                                    MembershipChange::Joined => "has joined the room",
+                                    MembershipChange::Left => "has left the room",
+                                    MembershipChange::Banned => "has been banned",
+                                    MembershipChange::Unbanned => "has been unbanned",
+                                    MembershipChange::Kicked => "has been kicked from the room",
+                                    MembershipChange::Invited => "has been invited to the room",
+                                    MembershipChange::KickedAndBanned => {
+                                        "has been kicked and banned from the room"
+                                    }
+                                    MembershipChange::InvitationAccepted => {
+                                        "has accepted the invitation to the room"
+                                    }
+                                    MembershipChange::InvitationRejected => {
+                                        "has rejected the invitation to the room"
+                                    }
+                                    MembershipChange::Knocked => "knocked on the room",
+                                    MembershipChange::KnockAccepted => {
+                                        "has accepted a knock on the room"
+                                    }
+                                    MembershipChange::KnockRetracted => {
+                                        "has retracted a knock on the room"
+                                    }
+                                    MembershipChange::KnockDenied => "has denied a knock",
+                                    MembershipChange::None
+                                    | MembershipChange::Error
+                                    | MembershipChange::InvitationRevoked
+                                    | MembershipChange::NotImplemented => {
+                                        "has changed it's membership status"
+                                    }
+                                };
+
+                                content.push(format!("{display_name} {change}"));
+                            }
+                        }
+
                         TimelineItemContent::MsgLike(MsgLikeContent {
                             kind: MsgLikeKind::Sticker(_),
                             ..
                         })
-                        | TimelineItemContent::MembershipChange(_)
                         | TimelineItemContent::ProfileChange(_)
                         | TimelineItemContent::OtherState(_)
                         | TimelineItemContent::FailedToParseMessageLike { .. }

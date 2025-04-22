@@ -533,7 +533,7 @@ impl BaseClient {
 
         let push_rules = self.get_push_rules(&global_account_data_processor).await?;
 
-        let mut new_rooms = RoomUpdates::default();
+        let mut room_updates = RoomUpdates::default();
         let mut notifications = Default::default();
 
         let mut updated_members_in_room: BTreeMap<OwnedRoomId, BTreeSet<OwnedUserId>> =
@@ -564,7 +564,7 @@ impl BaseClient {
             )
             .await?;
 
-            new_rooms.joined.insert(room_id, joined_room_update);
+            room_updates.joined.insert(room_id, joined_room_update);
         }
 
         for (room_id, left_room) in response.rooms.leave {
@@ -591,7 +591,7 @@ impl BaseClient {
             )
             .await?;
 
-            new_rooms.left.insert(room_id, left_room_update);
+            room_updates.left.insert(room_id, left_room_update);
         }
 
         for (room_id, invited_room) in response.rooms.invite {
@@ -608,7 +608,7 @@ impl BaseClient {
             )
             .await?;
 
-            new_rooms.invited.insert(room_id, invited_room_update);
+            room_updates.invited.insert(room_id, invited_room_update);
         }
 
         for (room_id, knocked_room) in response.rooms.knock {
@@ -625,7 +625,7 @@ impl BaseClient {
             )
             .await?;
 
-            new_rooms.knocked.insert(room_id, knocked_room_update);
+            room_updates.knocked.insert(room_id, knocked_room_update);
         }
 
         global_account_data_processor.apply(&mut context, &self.state_store).await;
@@ -654,12 +654,19 @@ impl BaseClient {
             .await?;
         }
 
+        let mut context = Context::default();
+
         // Now that all the rooms information have been saved, update the display name
-        // cache (which relies on information stored in the database). This will
-        // live in memory, until the next sync which will saves the room info to
-        // disk; we do this to avoid saving that would be redundant with the
-        // above. Oh well.
-        new_rooms.update_in_memory_caches(&self.state_store).await;
+        // of the updated rooms (which relies on information stored in the database).
+        processors::room::display_name::update_for_rooms(
+            &mut context,
+            &room_updates,
+            &self.state_store,
+        )
+        .await;
+
+        // Save the new display name updates if any.
+        processors::changes::save_only(context, &self.state_store).await?;
 
         for (room_id, member_ids) in updated_members_in_room {
             if let Some(room) = self.get_room(&room_id) {
@@ -673,7 +680,7 @@ impl BaseClient {
         }
 
         let response = SyncResponse {
-            rooms: new_rooms,
+            rooms: room_updates,
             presence: response.presence.events,
             account_data: response.account_data.events,
             to_device,
@@ -1325,7 +1332,7 @@ mod tests {
         let room = client.get_room(room_id).expect("Room not found");
         assert_eq!(room.state(), RoomState::Invited);
         assert_eq!(
-            room.compute_display_name().await.expect("fetching display name failed"),
+            room.compute_display_name().await.expect("fetching display name failed").into_inner(),
             RoomDisplayName::Calculated("Kyra".to_owned())
         );
     }
