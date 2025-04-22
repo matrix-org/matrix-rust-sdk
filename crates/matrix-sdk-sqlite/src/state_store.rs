@@ -2237,8 +2237,10 @@ mod migration_tests {
         },
     };
 
+    use as_variant::as_variant;
     use deadpool_sqlite::Runtime;
     use matrix_sdk_base::{
+        media::{MediaFormat, MediaRequestParameters},
         store::{
             ChildTransactionId, DependentQueuedRequestKind, RoomLoadSettings,
             SerializableEventContent,
@@ -2250,13 +2252,14 @@ mod migration_tests {
     use once_cell::sync::Lazy;
     use ruma::{
         events::{
-            room::{create::RoomCreateEventContent, message::RoomMessageEventContent},
+            room::{create::RoomCreateEventContent, message::RoomMessageEventContent, MediaSource},
             StateEventType,
         },
-        room_id, server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId,
-        UserId,
+        room_id, server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        RoomId, TransactionId, UserId,
     };
     use rusqlite::Transaction;
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
     use tempfile::{tempdir, TempDir};
     use tokio::fs;
@@ -2596,5 +2599,42 @@ mod migration_tests {
         .execute((room_id_value, parent_txn_id, own_txn_id, content))?;
 
         Ok(())
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub enum LegacyDependentQueuedRequestKind {
+        UploadFileWithThumbnail {
+            content_type: String,
+            cache_key: MediaRequestParameters,
+            related_to: OwnedTransactionId,
+        },
+    }
+
+    #[async_test]
+    pub async fn test_dependent_queued_request_variant_renaming() {
+        let path = new_path();
+        let db = create_fake_db(&path, 7).await.unwrap();
+
+        let cache_key = MediaRequestParameters {
+            format: MediaFormat::File,
+            source: MediaSource::Plain("https://server.local/foobar".into()),
+        };
+        let related_to = TransactionId::new();
+        let request = LegacyDependentQueuedRequestKind::UploadFileWithThumbnail {
+            content_type: "image/png".to_owned(),
+            cache_key,
+            related_to: related_to.clone(),
+        };
+
+        let data = db
+            .serialize_json(&request)
+            .expect("should be able to serialize legacy dependent request");
+        let deserialized: DependentQueuedRequestKind = db.deserialize_json(&data).expect(
+            "should be able to deserialize dependent request from legacy dependent request",
+        );
+
+        as_variant!(deserialized, DependentQueuedRequestKind::UploadFileOrThumbnail { related_to: de_related_to, .. } => {
+            assert_eq!(de_related_to, related_to);
+        });
     }
 }

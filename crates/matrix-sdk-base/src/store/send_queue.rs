@@ -227,6 +227,7 @@ pub enum DependentQueuedRequestKind {
 
     /// Upload a file or thumbnail depending on another file or thumbnail
     /// upload.
+    #[serde(rename = "UploadFileWithThumbnail")]
     UploadFileOrThumbnail {
         /// Content type for the file or thumbnail.
         content_type: String,

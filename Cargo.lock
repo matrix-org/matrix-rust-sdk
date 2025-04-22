@@ -3204,6 +3204,7 @@ dependencies = [
 name = "matrix-sdk-sqlite"
 version = "0.10.0"
 dependencies = [
+ "as_variant",
  "assert_matches",
  "async-trait",
  "deadpool-sqlite",
