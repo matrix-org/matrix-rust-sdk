@@ -349,7 +349,8 @@ impl QueueStorage {
         Ok(())
     }
 
-    /// Consumes a finished upload of a thumbnail and queues the file upload.
+    /// Consumes a finished file or thumbnail upload and queues the dependent
+    /// file or thumbnail upload.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn handle_dependent_file_or_thumbnail_upload(
         &self,
