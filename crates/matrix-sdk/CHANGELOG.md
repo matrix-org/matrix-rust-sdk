@@ -12,7 +12,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
-- The `Room::push_context()` has been renamed into `Room::push_condition_room_ctx()`.
+- The `Room::push_context()` has been renamed into `Room::push_condition_room_ctx()`. The newer
+  `Room::push_context` now returns a `matrix_sdk::Room::PushContext`, which can be used to compute
+  the push actions for any event.
 
 ## [0.11.0] - 2025-04-11
 

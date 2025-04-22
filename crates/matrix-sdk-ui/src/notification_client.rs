@@ -188,7 +188,7 @@ impl NotificationClient {
             NotificationProcessSetup::MultipleProcesses
         ));
 
-        let push_action_ctx = room.push_action_ctx().await?;
+        let push_action_ctx = room.push_context().await?;
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
                 // We're running on our own process, dedicated for notifications. In that case,
@@ -516,12 +516,12 @@ impl NotificationClient {
                     raw_event = RawNotificationEvent::Timeline(timeline_event.into_raw());
                     push_actions
                 } else {
-                    room.push_action_ctx().await?.for_event(timeline_event)
+                    room.push_context().await?.for_event(timeline_event)
                 }
             }
             RawNotificationEvent::Invite(invite_event) => {
                 // Invite events can't be encrypted, so they should be in clear text.
-                room.push_action_ctx().await?.for_event(invite_event)
+                room.push_context().await?.for_event(invite_event)
             }
         };
 

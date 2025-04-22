@@ -194,7 +194,7 @@ const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Context allowing to compute the push actions for a given event.
 #[derive(Debug)]
-pub struct PushActionCtx {
+pub struct PushContext {
     /// The Ruma context used to compute the push actions.
     ///
     /// May be missing if some state events were missing for the current room
@@ -206,7 +206,7 @@ pub struct PushActionCtx {
     push_rules: Ruleset,
 }
 
-impl PushActionCtx {
+impl PushContext {
     /// Compute the push rules for a given event.
     ///
     /// Will return `None` if and only if the underlying
@@ -358,7 +358,7 @@ impl Room {
         let request = options.into_request(room_id);
         let http_response = self.client.send(request).await?;
 
-        let push_action_ctx = self.push_action_ctx().await?;
+        let push_action_ctx = self.push_context().await?;
         let chunk = join_all(
             http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, &push_action_ctx)),
         )
@@ -471,7 +471,7 @@ impl Room {
     async fn try_decrypt_event(
         &self,
         event: Raw<AnyTimelineEvent>,
-        push_ctx: &PushActionCtx,
+        push_ctx: &PushContext,
     ) -> TimelineEvent {
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
@@ -502,7 +502,7 @@ impl Room {
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
         let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
-        let push_action_ctx = self.push_action_ctx().await?;
+        let push_action_ctx = self.push_context().await?;
         let event = self.try_decrypt_event(raw_event, &push_action_ctx).await;
 
         // Save the event into the event cache, if it's set up.
@@ -559,7 +559,7 @@ impl Room {
 
         let response = self.client.send(request).with_request_config(request_config).await?;
 
-        let push_action_ctx = self.push_action_ctx().await?;
+        let push_action_ctx = self.push_context().await?;
         let target_event = if let Some(event) = response.event {
             Some(self.try_decrypt_event(event, &push_action_ctx).await)
         } else {
@@ -1369,7 +1369,7 @@ impl Room {
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
-        push_ctx: &PushActionCtx,
+        push_ctx: &PushContext,
     ) -> Result<TimelineEvent> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -2950,15 +2950,15 @@ impl Room {
         }))
     }
 
-    /// Retrieves a [`PushActionCtx`] that can be used to compute the push
+    /// Retrieves a [`PushContext`] that can be used to compute the push
     /// actions for events.
-    pub async fn push_action_ctx(&self) -> Result<PushActionCtx> {
+    pub async fn push_context(&self) -> Result<PushContext> {
         let push_condition_room_ctx = self.push_condition_room_ctx().await?;
         if push_condition_room_ctx.is_none() {
             debug!("Could not aggregate push context");
         }
         let push_rules = self.client().account().push_rules().await?;
-        Ok(PushActionCtx { push_condition_room_ctx, push_rules })
+        Ok(PushContext { push_condition_room_ctx, push_rules })
     }
 
     /// Get the push actions for the given event with the current room state.
@@ -2966,7 +2966,7 @@ impl Room {
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
     #[deprecated(
-        note = "Use `Room::push_action_ctx` to retrieve a `PushActionCtx` instead, and call `PushActionCtx::for_event` on your event."
+        note = "Use `Room::push_context` to retrieve a `PushContext` instead, and call `PushContext::for_event` on your event."
     )]
     pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
         let Some(push_context) = self.push_condition_room_ctx().await? else {
