@@ -255,7 +255,7 @@ async fn decrypt_by_index<D: Decryptor>(
     should_retry: impl Fn(&str) -> bool,
     retry_indices: Vec<usize>,
 ) {
-    let push_rules_context = room_data_provider.push_rules_and_context().await;
+    let push_context = room_data_provider.push_context().await;
     let unable_to_decrypt_hook = state.meta.unable_to_decrypt_hook.clone();
 
     let retry_one = |item: Arc<TimelineItem>| {
@@ -324,7 +324,7 @@ async fn decrypt_by_index<D: Decryptor>(
         .retry_event_decryption(
             retry_one,
             retry_indices,
-            push_rules_context,
+            push_context,
             room_data_provider,
             settings,
         )

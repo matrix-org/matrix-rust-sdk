@@ -207,6 +207,11 @@ pub struct PushContext {
 }
 
 impl PushContext {
+    /// Create a new [`PushContext`] from its inner components.
+    pub fn new(push_condition_room_ctx: PushConditionRoomCtx, push_rules: Ruleset) -> Self {
+        Self { push_condition_room_ctx, push_rules }
+    }
+
     /// Compute the push rules for a given event.
     pub fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
         self.push_rules.get_actions(event, &self.push_condition_room_ctx).to_owned()
@@ -2957,7 +2962,7 @@ impl Room {
             return Ok(None);
         };
         let push_rules = self.client().account().push_rules().await?;
-        Ok(Some(PushContext { push_condition_room_ctx, push_rules }))
+        Ok(Some(PushContext::new(push_condition_room_ctx, push_rules)))
     }
 
     /// Get the push actions for the given event with the current room state.

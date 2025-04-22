@@ -15,7 +15,9 @@
 use std::{future::Future, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
+use matrix_sdk::{
+    deserialized_responses::TimelineEvent, room::PushContext, send_queue::SendHandle,
+};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
@@ -178,7 +180,7 @@ impl TimelineState {
         &mut self,
         retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
         retry_indices: Vec<usize>,
-        push_rules_context: Option<(ruma::push::Ruleset, ruma::push::PushConditionRoomCtx)>,
+        push_context: Option<PushContext>,
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) where
@@ -199,9 +201,7 @@ impl TimelineState {
                 continue;
             };
 
-            event.push_actions = push_rules_context.as_ref().map(|(push_rules, push_context)| {
-                push_rules.get_actions(event.raw(), push_context).to_owned()
-            });
+            event.push_actions = push_context.as_ref().map(|ctx| ctx.for_event(event.raw()));
 
             let handle_one_res = txn
                 .handle_remote_event(

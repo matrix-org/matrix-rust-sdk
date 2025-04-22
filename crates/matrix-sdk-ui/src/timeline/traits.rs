@@ -22,6 +22,7 @@ use matrix_sdk::{
     crypto::types::events::CryptoContextInfo,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::PaginableRoom,
+    room::PushContext,
     AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
@@ -31,11 +32,10 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    push::{PushConditionRoomCtx, Ruleset},
     serde::Raw,
     EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId, UserId,
 };
-use tracing::{debug, error};
+use tracing::error;
 
 use super::{Profile, RedactError, TimelineBuilder};
 use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
@@ -104,9 +104,7 @@ pub(super) trait RoomDataProvider:
     /// Load the current fully-read event id, from storage.
     fn load_fully_read_marker(&self) -> impl Future<Output = Option<OwnedEventId>> + '_;
 
-    fn push_rules_and_context(
-        &self,
-    ) -> impl Future<Output = Option<(Ruleset, PushConditionRoomCtx)>> + SendOutsideWasm + '_;
+    fn push_context(&self) -> impl Future<Output = Option<PushContext>> + SendOutsideWasm + '_;
 
     /// Send an event to that room.
     fn send(
@@ -224,24 +222,8 @@ impl RoomDataProvider for Room {
         unthreaded_receipts
     }
 
-    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
-        match self.push_condition_room_ctx().await {
-            Ok(Some(push_context)) => match self.client().account().push_rules().await {
-                Ok(push_rules) => Some((push_rules, push_context)),
-                Err(e) => {
-                    error!("Could not get push rules: {e}");
-                    None
-                }
-            },
-            Ok(None) => {
-                debug!("Could not aggregate push context");
-                None
-            }
-            Err(e) => {
-                error!("Could not get push context: {e}");
-                None
-            }
-        }
+    async fn push_context(&self) -> Option<PushContext> {
+        self.push_context().await.ok().flatten()
     }
 
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {

@@ -31,7 +31,7 @@ use matrix_sdk::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
-    room::{EventWithContextResponse, Messages, MessagesOptions},
+    room::{EventWithContextResponse, Messages, MessagesOptions, PushContext},
     send_queue::RoomSendQueueUpdate,
     BoxFuture,
 };
@@ -387,7 +387,7 @@ impl RoomDataProvider for TestRoomDataProvider {
         map
     }
 
-    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
+    async fn push_context(&self) -> Option<PushContext> {
         let push_rules = Ruleset::server_default(&ALICE);
         let power_levels = PushConditionPowerLevelsCtx {
             users: BTreeMap::new(),
@@ -402,7 +402,7 @@ impl RoomDataProvider for TestRoomDataProvider {
             power_levels: Some(power_levels),
         };
 
-        Some((push_rules, push_context))
+        Some(PushContext::new(push_context, push_rules))
     }
 
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
