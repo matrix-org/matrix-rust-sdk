@@ -199,10 +199,7 @@ const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 #[derive(Debug)]
 pub struct PushContext {
     /// The Ruma context used to compute the push actions.
-    ///
-    /// May be missing if some state events were missing for the current room
-    /// (e.g. the member information for the logged-in user was missing).
-    push_condition_room_ctx: Option<PushConditionRoomCtx>,
+    push_condition_room_ctx: PushConditionRoomCtx,
 
     /// Push rules for this room, based on the push rules state event, or the
     /// global server default as defined by [`Ruleset::server_default`].
@@ -211,11 +208,8 @@ pub struct PushContext {
 
 impl PushContext {
     /// Compute the push rules for a given event.
-    ///
-    /// Will return `None` if and only if the underlying
-    /// [`PushConditionRoomCtx`] is missing.
-    pub fn for_event<T>(&self, event: &Raw<T>) -> Option<Vec<Action>> {
-        Some(self.push_rules.get_actions(event, self.push_condition_room_ctx.as_ref()?).to_owned())
+    pub fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
+        self.push_rules.get_actions(event, &self.push_condition_room_ctx).to_owned()
     }
 }
 
@@ -363,7 +357,10 @@ impl Room {
 
         let push_action_ctx = self.push_context().await?;
         let chunk = join_all(
-            http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, &push_action_ctx)),
+            http_response
+                .chunk
+                .into_iter()
+                .map(|ev| self.try_decrypt_event(ev, push_action_ctx.as_ref())),
         )
         .await;
 
@@ -474,7 +471,7 @@ impl Room {
     async fn try_decrypt_event(
         &self,
         event: Raw<AnyTimelineEvent>,
-        push_ctx: &PushContext,
+        push_ctx: Option<&PushContext>,
     ) -> TimelineEvent {
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
@@ -487,7 +484,7 @@ impl Room {
         }
 
         let mut event = TimelineEvent::new(event.cast());
-        event.push_actions = push_ctx.for_event(event.raw());
+        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
 
         event
     }
@@ -506,7 +503,7 @@ impl Room {
 
         let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
         let push_action_ctx = self.push_context().await?;
-        let event = self.try_decrypt_event(raw_event, &push_action_ctx).await;
+        let event = self.try_decrypt_event(raw_event, push_action_ctx.as_ref()).await;
 
         // Save the event into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
@@ -563,8 +560,9 @@ impl Room {
         let response = self.client.send(request).with_request_config(request_config).await?;
 
         let push_action_ctx = self.push_context().await?;
+        let push_action_ctx = push_action_ctx.as_ref();
         let target_event = if let Some(event) = response.event {
-            Some(self.try_decrypt_event(event, &push_action_ctx).await)
+            Some(self.try_decrypt_event(event, push_action_ctx).await)
         } else {
             None
         };
@@ -577,13 +575,13 @@ impl Room {
                 response
                     .events_before
                     .into_iter()
-                    .map(|ev| self.try_decrypt_event(ev, &push_action_ctx)),
+                    .map(|ev| self.try_decrypt_event(ev, push_action_ctx)),
             ),
             join_all(
                 response
                     .events_after
                     .into_iter()
-                    .map(|ev| self.try_decrypt_event(ev, &push_action_ctx)),
+                    .map(|ev| self.try_decrypt_event(ev, push_action_ctx)),
             ),
         );
 
@@ -1372,7 +1370,7 @@ impl Room {
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
-        push_ctx: &PushContext,
+        push_ctx: Option<&PushContext>,
     ) -> Result<TimelineEvent> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -1394,7 +1392,7 @@ impl Room {
             }
         };
 
-        event.push_actions = push_ctx.for_event(event.raw());
+        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
         Ok(event)
     }
 
@@ -2964,31 +2962,21 @@ impl Room {
 
     /// Retrieves a [`PushContext`] that can be used to compute the push
     /// actions for events.
-    pub async fn push_context(&self) -> Result<PushContext> {
-        let push_condition_room_ctx = self.push_condition_room_ctx().await?;
-        if push_condition_room_ctx.is_none() {
+    pub async fn push_context(&self) -> Result<Option<PushContext>> {
+        let Some(push_condition_room_ctx) = self.push_condition_room_ctx().await? else {
             debug!("Could not aggregate push context");
-        }
+            return Ok(None);
+        };
         let push_rules = self.client().account().push_rules().await?;
-        Ok(PushContext { push_condition_room_ctx, push_rules })
+        Ok(Some(PushContext { push_condition_room_ctx, push_rules }))
     }
 
     /// Get the push actions for the given event with the current room state.
     ///
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
-    #[deprecated(
-        note = "Use `Room::push_context` to retrieve a `PushContext` instead, and call `PushContext::for_event` on your event."
-    )]
     pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
-        let Some(push_context) = self.push_condition_room_ctx().await? else {
-            debug!("Could not aggregate push context");
-            return Ok(None);
-        };
-
-        let push_rules = self.client().account().push_rules().await?;
-
-        Ok(Some(push_rules.get_actions(event, &push_context).to_owned()))
+        Ok(self.push_context().await?.map(|ctx| ctx.for_event(event)))
     }
 
     /// The membership details of the (latest) invite for the logged-in user in
