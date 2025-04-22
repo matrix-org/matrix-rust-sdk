@@ -239,7 +239,7 @@ pub enum DependentQueuedRequestKind {
 
         /// Whether the depended upon request was a thumbnail or a file upload.
         #[cfg(feature = "unstable-msc4274")]
-        #[serde(default)]
+        #[serde(default = "default_depends_on_thumbnail")]
         depends_on_thumbnail: bool,
     },
 
@@ -257,6 +257,12 @@ pub enum DependentQueuedRequestKind {
         /// Information about the thumbnail, if present.
         thumbnail_info: Option<FinishUploadThumbnailInfo>,
     },
+}
+
+/// If depends_on_thumbnail is missing, we assume the request is for a file
+/// upload following a thumbnail upload.
+fn default_depends_on_thumbnail() -> bool {
+    true
 }
 
 /// Detailed record about a thumbnail used when finishing a media upload.
