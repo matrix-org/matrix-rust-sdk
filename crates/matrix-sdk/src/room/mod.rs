@@ -361,23 +361,12 @@ impl Room {
         )
         .await;
 
-        let mut response = Messages {
+        Ok(Messages {
             start: http_response.start,
             end: http_response.end,
             chunk,
             state: http_response.state,
-        };
-
-        if let Some(push_context) = self.push_condition_room_ctx().await? {
-            let push_rules = self.client().account().push_rules().await?;
-
-            for event in &mut response.chunk {
-                event.push_actions =
-                    Some(push_rules.get_actions(event.raw(), &push_context).to_owned());
-            }
-        }
-
-        Ok(response)
+        })
     }
 
     /// Register a handler for events of a specific type, within this room.
