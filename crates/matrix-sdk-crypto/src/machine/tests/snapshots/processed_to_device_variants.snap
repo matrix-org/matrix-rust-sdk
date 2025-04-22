@@ -17,10 +17,7 @@ expression: "serde_json::from_str::<Value>(processed_event.to_raw().json().get()
     "ed25519": "[sender_ed25519_key]"
   },
   "org.matrix.msc4147.device_keys": {
-    "algorithms": [
-      "m.olm.v1.curve25519-aes-sha2",
-      "m.megolm.v1.aes-sha2"
-    ],
+    "algorithms": "++REDACTED++",
     "device_id": "[ABCDEFGH]",
     "keys": "++REDACTED++",
     "signatures": "++REDACTED++",

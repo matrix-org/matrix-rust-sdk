@@ -225,6 +225,8 @@ async fn test_processed_to_device_variants() {
                  r#"["org.matrix.msc4147.device_keys"].device_id"# => "[ABCDEFGH]",
                  r#"["org.matrix.msc4147.device_keys"].keys"# => "++REDACTED++",
                  r#"["org.matrix.msc4147.device_keys"].signatures"# => "++REDACTED++",
+                 // Redacted because depending on feature flags
+                 r#"["org.matrix.msc4147.device_keys"].algorithms"# => "++REDACTED++",
                  ".recipient_keys.ed25519" => "[recipient_sender_key]",
             }
         );
