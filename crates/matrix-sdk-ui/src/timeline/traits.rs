@@ -305,7 +305,8 @@ pub(super) trait Decryptor: AsyncTraitDeps + Clone + 'static {
 
 impl Decryptor for Room {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
-        self.decrypt_event(raw.cast_ref()).await
+        let push_action_ctx = self.push_action_ctx().await?;
+        self.decrypt_event(raw.cast_ref(), &push_action_ctx).await
     }
 }
 
