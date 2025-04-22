@@ -352,6 +352,10 @@ impl App {
                 self.room_view.set_selected_room(room_id);
             }
 
+            Event::Key(KeyEvent { code: Char('m'), modifiers: KeyModifiers::ALT, .. }) => {
+                self.room_view.mark_as_read().await
+            }
+
             Event::Key(KeyEvent { code: Char('q'), modifiers: KeyModifiers::CONTROL, .. }) => {
                 if !matches!(self.state.global_mode, GlobalMode::Default) {
                     self.set_global_mode(GlobalMode::Default);
