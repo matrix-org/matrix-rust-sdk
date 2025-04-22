@@ -219,7 +219,7 @@ async fn test_processed_to_device_variants() {
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {
         assert_json_snapshot!(
-            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+            processed_event.to_raw().deserialize_as::<Value>().unwrap(),
              {
                  ".keys.ed25519" => "[sender_ed25519_key]",
                  r#"["org.matrix.msc4147.device_keys"].device_id"# => "[ABCDEFGH]",
@@ -237,7 +237,7 @@ async fn test_processed_to_device_variants() {
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {
         assert_json_snapshot!(
-            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+            processed_event.to_raw().deserialize_as::<Value>().unwrap(),
         );
     });
 
@@ -246,7 +246,7 @@ async fn test_processed_to_device_variants() {
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {
         assert_json_snapshot!(
-            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+            processed_event.to_raw().deserialize_as::<Value>().unwrap(),
         );
     });
 
@@ -255,7 +255,7 @@ async fn test_processed_to_device_variants() {
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {
         assert_json_snapshot!(
-            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+            processed_event.to_raw().deserialize_as::<Value>().unwrap(),
             {
                 ".content.sender_key" => "[sender_ed25519_key]",
                 ".content.ciphertext" => "[++REDACTED++]",
