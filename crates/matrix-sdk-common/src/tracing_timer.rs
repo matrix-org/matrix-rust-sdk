@@ -77,6 +77,12 @@ impl TracingTimer {
 ///
 /// The tracing level can be specified as a first argument, but it's optional.
 /// If it's missing, this will use the debug level.
+///
+/// Note: usage doesn't require specifying the full qualified path
+/// `matrix_sdk_common::tracing_timer::timer!`, but only
+/// `matrix_sdk_common::timer!`, because macros are by default exported to the
+/// crate root. This note acts as a testimony that it took bnjbvr several
+/// minutes to figure that out.
 #[macro_export]
 macro_rules! timer {
     ($level:expr, $string:expr) => {{
