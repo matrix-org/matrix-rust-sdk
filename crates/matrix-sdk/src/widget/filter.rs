@@ -12,8 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use ruma::{
-    events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
+    events::{
+        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType, ToDeviceEventType,
+    },
     serde::Raw,
 };
 use serde::Deserialize;
@@ -21,9 +25,9 @@ use tracing::debug;
 
 use super::machine::SendEventRequest;
 
-/// A Filter for Matrix events. That is used to decide if a given event can be
-/// sent to the widget and if a widgets is allowed to send an event to to a
-/// Matrix room or not.
+/// A Filter for Matrix events. It is used to decide if a given event can be
+/// sent to the widget and if a widget is allowed to send an event to a
+/// Matrix room.
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum Filter {
@@ -31,6 +35,8 @@ pub enum Filter {
     MessageLike(MessageLikeEventFilter),
     /// Filter for state events.
     State(StateEventFilter),
+    /// Filter for to device events.
+    ToDevice(ToDeviceEventFilter),
 }
 
 impl Filter {
@@ -41,6 +47,7 @@ impl Filter {
         match self {
             Self::MessageLike(filter) => filter.matches(filter_input),
             Self::State(filter) => filter.matches(filter_input),
+            Self::ToDevice(filter) => filter.matches(filter_input),
         }
     }
     /// Returns the event type that this filter is configured to match.
@@ -51,6 +58,7 @@ impl Filter {
         match self {
             Self::MessageLike(filter) => filter.filter_event_type(),
             Self::State(filter) => filter.filter_event_type(),
+            Self::ToDevice(filter) => filter.event_type.to_string(),
         }
     }
 }
@@ -123,6 +131,33 @@ impl<'a> StateEventFilter {
     }
 }
 
+/// Filter for to-device events.
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct ToDeviceEventFilter {
+    /// The event type this to-device-filter filters for.
+    pub event_type: ToDeviceEventType,
+}
+
+impl ToDeviceEventFilter {
+    /// Create a new `ToDeviceEventFilter` with the given event type.
+    pub fn new(event_type: ToDeviceEventType) -> Self {
+        Self { event_type }
+    }
+}
+
+impl ToDeviceEventFilter {
+    fn matches(&self, filter_input: &FilterInput) -> bool {
+        matches!(filter_input,FilterInput::ToDevice(f_in) if f_in.event_type == self.event_type)
+    }
+}
+
+impl fmt::Display for ToDeviceEventFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.event_type)
+    }
+}
+
 // Filter input:
 
 /// The input data for the filter. This can either be constructed from a
@@ -131,8 +166,13 @@ impl<'a> StateEventFilter {
 #[serde(untagged)]
 pub enum FilterInput<'a> {
     #[serde(borrow)]
+    // The order is important.
+    // We first need to check if we can deserialize as a state (state_key exists)
     State(FilterInputState<'a>),
+    // only then we can check if we can deserialize as a message like.
     MessageLike(FilterInputMessageLike<'a>),
+    // ToDevice will need to be done explicitly since it looks the same as a message like.
+    ToDevice(FilterInputToDevice<'a>),
 }
 
 impl<'a> FilterInput<'a> {
@@ -188,7 +228,26 @@ impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
 
     fn try_from(raw_event: &'a Raw<AnyTimelineEvent>) -> Result<Self, Self::Error> {
+        // FilterInput first checks if it can deserialize as a state event (state_key exists)
+        // and then as a message like event.
         raw_event.deserialize_as()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FilterInputToDevice<'a> {
+    #[serde(rename = "type")]
+    pub(super) event_type: &'a str,
+}
+
+/// Create a filter input of type [`FilterInput::ToDevice`]`.
+impl<'a> TryFrom<&'a Raw<AnyToDeviceEvent>> for FilterInput<'a> {
+    type Error = serde_json::Error;
+    fn try_from(raw_event: Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
+        // deserialize_as::<FilterInput> will first try state, message like and then to-device.
+        // The `AnyToDeviceEvent` would match message like first, so we need to explicitly
+        // deserialize as `FilterInputToDevice`.
+        raw_event.deserialize_as::<FilterInputToDevice>().map(FilterInput::ToDevice)
     }
 }
 
@@ -234,7 +293,9 @@ mod tests {
     use super::{
         Filter, FilterInput, FilterInputMessageLike, MessageLikeEventFilter, StateEventFilter,
     };
-    use crate::widget::filter::MessageLikeFilterEventContent;
+    use crate::widget::filter::{
+        FilterInputToDevice, MessageLikeFilterEventContent, ToDeviceEventFilter,
+    };
 
     fn message_event(event_type: &str) -> FilterInput<'_> {
         FilterInput::MessageLike(FilterInputMessageLike { event_type, content: Default::default() })
@@ -442,5 +503,13 @@ mod tests {
             assert_eq!(state.event_type, "m.room.member");
             assert_eq!(state.state_key, "@alice:example.com");
         }
+    }
+
+    #[test]
+    fn test_to_device_filter_does_match() {
+        let f = Filter::ToDevice(ToDeviceEventFilter::new("my.custom.to.device".into()));
+        assert!(f.matches(&FilterInput::ToDevice(FilterInputToDevice {
+            event_type: "my.custom.to.device".into(),
+        })));
     }
 }

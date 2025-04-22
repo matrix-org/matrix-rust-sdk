@@ -164,16 +164,16 @@ impl WidgetMachine {
             IncomingMessage::MatrixDriverResponse { request_id, response } => {
                 self.process_matrix_driver_response(request_id, response)
             }
-            IncomingMessage::MatrixEventReceived(event) => {
+            IncomingMessage::MatrixEventReceived(event_raw) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     error!("Received matrix event before capabilities negotiation");
                     return Vec::new();
                 };
 
                 capabilities
-                    .allow_reading(&event)
+                    .allow_reading(&event_raw)
                     .then(|| {
-                        self.send_to_widget_request(NotifyNewMatrixEvent(event))
+                        self.send_to_widget_request(NotifyNewMatrixEvent(event_raw))
                             .map(|(_request, action)| vec![action])
                             .unwrap_or_default()
                     })

@@ -60,7 +60,7 @@ pub struct Capabilities {
 impl Capabilities {
     /// Checks if a given event is allowed to be forwarded to the widget.
     ///
-    /// - `event_filter_input` is a minimized event respresntation that contains
+    /// - `event_filter_input` is a minimized event representation that contains
     ///   only the information needed to check if the widget is allowed to
     ///   receive the event. (See [`FilterInput`])
     pub(super) fn allow_reading<'a>(
@@ -78,7 +78,7 @@ impl Capabilities {
 
     /// Checks if a given event is allowed to be sent by the widget.
     ///
-    /// - `event_filter_input` is a minimized event respresntation that contains
+    /// - `event_filter_input` is a minimized event representation that contains
     ///   only the information needed to check if the widget is allowed to send
     ///   the event to a matrix room. (See [`FilterInput`])
     pub(super) fn allow_sending<'a>(
@@ -121,6 +121,7 @@ impl Serialize for Capabilities {
                 match self.0 {
                     Filter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
                     Filter::State(filter) => PrintStateEventFilter(filter).fmt(f),
+                    Filter::ToDevice(filter) => filter.fmt(f),
                 }
             }
         }
