@@ -425,8 +425,8 @@ async fn decrypt_event(
     event: &Raw<OriginalSyncMessageLikeEvent<RoomEncryptedEventContent>>,
 ) -> Option<(OwnedEventId, String)> {
     let room = client.get_room(room_id).unwrap();
-    let push_action_ctx = room.push_context().await.unwrap();
-    let Ok(decrypted) = room.decrypt_event(event, push_action_ctx.as_ref()).await else {
+    let push_ctx = room.push_context().await.unwrap();
+    let Ok(decrypted) = room.decrypt_event(event, push_ctx.as_ref()).await else {
         return None;
     };
 

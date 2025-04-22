@@ -282,7 +282,7 @@ pub(super) trait Decryptor: AsyncTraitDeps + Clone + 'static {
     fn decrypt_event_impl(
         &self,
         raw: &Raw<AnySyncTimelineEvent>,
-        push_context: Option<&PushContext>,
+        push_ctx: Option<&PushContext>,
     ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm;
 }
 
@@ -290,9 +290,9 @@ impl Decryptor for Room {
     async fn decrypt_event_impl(
         &self,
         raw: &Raw<AnySyncTimelineEvent>,
-        push_context: Option<&PushContext>,
+        push_ctx: Option<&PushContext>,
     ) -> Result<TimelineEvent> {
-        self.decrypt_event(raw.cast_ref(), push_context).await
+        self.decrypt_event(raw.cast_ref(), push_ctx).await
     }
 }
 
@@ -301,7 +301,7 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
     async fn decrypt_event_impl(
         &self,
         raw: &Raw<AnySyncTimelineEvent>,
-        push_context: Option<&PushContext>,
+        push_ctx: Option<&PushContext>,
     ) -> Result<TimelineEvent> {
         let (olm_machine, room_id) = self;
         let decryption_settings =
@@ -318,7 +318,7 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
         };
 
         // Fill the push actions here, to mimic what `Room::decrypt_event` does.
-        timeline_event.push_actions = push_context.map(|ctx| ctx.for_event(timeline_event.raw()));
+        timeline_event.push_actions = push_ctx.map(|ctx| ctx.for_event(timeline_event.raw()));
 
         Ok(timeline_event)
     }
