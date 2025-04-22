@@ -3,18 +3,43 @@ use matrix_sdk_ui::room_list_service::Room;
 use ratatui::{prelude::*, widgets::*};
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 use style::palette::tailwind;
+use threads::ThreadListLoader;
 
-use self::{events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts};
+use self::{
+    events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts,
+    threads::ThreadsView,
+};
 use crate::widgets::recovery::ShouldExit;
 
 mod events;
 mod linked_chunk;
 mod read_receipts;
+mod threads;
 
-#[derive(Clone, Copy, Default, Display, FromRepr, EnumIter)]
+struct SelectedTabState {
+    /// Which tab is currently selected.
+    selected_tab: SelectedTab,
+
+    kind: SelectedTabStateKind,
+}
+
+impl Default for SelectedTabState {
+    fn default() -> Self {
+        Self { selected_tab: SelectedTab::Events, kind: SelectedTabStateKind::Empty }
+    }
+}
+
+#[derive(Default)]
+enum SelectedTabStateKind {
+    #[default]
+    Empty,
+
+    Threads(ThreadListLoader),
+}
+
+#[derive(Clone, Copy, Display, FromRepr, EnumIter)]
 enum SelectedTab {
     /// Show the raw event sources of the timeline.
-    #[default]
     Events,
 
     /// Show details about read receipts of the room.
@@ -22,6 +47,9 @@ enum SelectedTab {
 
     /// Show the linked chunks that are used to display the timeline.
     LinkedChunks,
+
+    /// Show the list of threads in this room.
+    Threads,
 }
 
 impl SelectedTab {
@@ -45,7 +73,7 @@ impl SelectedTab {
     fn cycle_next(self) -> Self {
         let current_index = self as usize;
         let next_index = current_index.saturating_add(1);
-        Self::from_repr(next_index).unwrap_or_default()
+        Self::from_repr(next_index).unwrap_or(SelectedTab::Events)
     }
 
     /// Cycle to the previous tab, if we're at the first tab we return the last
@@ -71,18 +99,19 @@ impl SelectedTab {
             Self::Events => tailwind::BLUE,
             Self::ReadReceipts => tailwind::EMERALD,
             Self::LinkedChunks => tailwind::INDIGO,
+            Self::Threads => tailwind::PURPLE,
         }
     }
 }
 
-impl<'a> StatefulWidget for &'a SelectedTab {
+impl<'a> StatefulWidget for &'a mut SelectedTabState {
     type State = Option<&'a Room>;
 
     fn render(self, area: Rect, buf: &mut Buffer, room: &mut Self::State)
     where
         Self: Sized,
     {
-        match self {
+        match self.selected_tab {
             SelectedTab::Events => {
                 EventsView::new(room.as_deref()).render(area, buf);
             }
@@ -90,32 +119,66 @@ impl<'a> StatefulWidget for &'a SelectedTab {
                 ReadReceipts::new(room.as_deref()).render(area, buf);
             }
             SelectedTab::LinkedChunks => LinkedChunkView::new(room.as_deref()).render(area, buf),
+            SelectedTab::Threads => {
+                let loader = match &mut self.kind {
+                    SelectedTabStateKind::Empty => panic!("unexpected state for the threads view"),
+                    SelectedTabStateKind::Threads(loader) => loader,
+                };
+                loader.init_if_needed(*room);
+                ThreadsView::new().render(area, buf, loader)
+            }
         }
     }
 }
 
 #[derive(Default)]
 pub struct RoomDetails {
-    selected_tab: SelectedTab,
+    state: SelectedTabState,
 }
 
 impl RoomDetails {
     /// Create a new [`RoomDetails`] struct with the [`SelectedTab::Events`] as
     /// the selected tab.
     pub fn with_events_as_selected() -> Self {
-        Self { selected_tab: SelectedTab::Events }
+        Self {
+            state: SelectedTabState {
+                selected_tab: SelectedTab::Events,
+                kind: SelectedTabStateKind::Empty,
+            },
+        }
     }
 
     /// Create a new [`RoomDetails`] struct with the
     /// [`SelectedTab::ReadReceipts`] as the selected tab.
     pub fn with_receipts_as_selected() -> Self {
-        Self { selected_tab: SelectedTab::ReadReceipts }
+        Self {
+            state: SelectedTabState {
+                selected_tab: SelectedTab::ReadReceipts,
+                kind: SelectedTabStateKind::Empty,
+            },
+        }
     }
 
     /// Create a new [`RoomDetails`] struct with the
     /// [`SelectedTab::LinkedChunks`] as the selected tab.
     pub fn with_chunks_as_selected() -> Self {
-        Self { selected_tab: SelectedTab::LinkedChunks }
+        Self {
+            state: SelectedTabState {
+                selected_tab: SelectedTab::LinkedChunks,
+                kind: SelectedTabStateKind::Empty,
+            },
+        }
+    }
+
+    /// Create a new [`RoomDetails`] struct with the
+    /// [`SelectedTab::Threads`] as the selected tab.
+    pub fn with_threads_as_selected() -> Self {
+        Self {
+            state: SelectedTabState {
+                selected_tab: SelectedTab::Threads,
+                kind: SelectedTabStateKind::Threads(ThreadListLoader::default()),
+            },
+        }
     }
 
     pub fn handle_key_press(&mut self, event: KeyEvent) -> ShouldExit {
@@ -152,27 +215,42 @@ impl RoomDetails {
         }
     }
 
+    fn sync_state(&mut self) {
+        match self.state.selected_tab {
+            SelectedTab::Events | SelectedTab::ReadReceipts | SelectedTab::LinkedChunks => {
+                self.state.kind = SelectedTabStateKind::Empty;
+            }
+            SelectedTab::Threads => {
+                self.state.kind = SelectedTabStateKind::Threads(ThreadListLoader::default());
+            }
+        }
+    }
+
     fn cycle_next_tab(&mut self) {
-        self.selected_tab = self.selected_tab.cycle_next();
+        self.state.selected_tab = self.state.selected_tab.cycle_next();
+        self.sync_state();
     }
 
     fn cycle_prev_tab(&mut self) {
-        self.selected_tab = self.selected_tab.cycle_prev();
+        self.state.selected_tab = self.state.selected_tab.cycle_prev();
+        self.sync_state();
     }
 
     fn next_tab(&mut self) {
-        self.selected_tab = self.selected_tab.next();
+        self.state.selected_tab = self.state.selected_tab.next();
+        self.sync_state();
     }
 
     fn previous_tab(&mut self) {
-        self.selected_tab = self.selected_tab.previous();
+        self.state.selected_tab = self.state.selected_tab.previous();
+        self.sync_state();
     }
 }
 
 impl<'a> StatefulWidget for &'a mut RoomDetails {
     type State = Option<&'a Room>;
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
+    fn render(self, area: Rect, buf: &mut Buffer, room: &mut Self::State)
     where
         Self: Sized,
     {
@@ -192,8 +270,8 @@ impl<'a> StatefulWidget for &'a mut RoomDetails {
             .render(inner_area, buf);
 
         let titles = SelectedTab::iter().map(SelectedTab::title);
-        let highlight_style = (Color::default(), self.selected_tab.palette().c700);
-        let selected_tab_index = self.selected_tab as usize;
+        let highlight_style = (Color::default(), self.state.selected_tab.palette().c700);
+        let selected_tab_index = self.state.selected_tab as usize;
 
         let tabs_area = inner_area.inner(Margin::new(1, 1));
 
@@ -204,7 +282,7 @@ impl<'a> StatefulWidget for &'a mut RoomDetails {
             .divider(" ")
             .render(tab_title_area, buf);
 
-        self.selected_tab.render(tabs_area, buf, state);
+        self.state.render(tabs_area, buf, room);
 
         Line::raw("◄ ► to change tab | Press q to exit the details screen")
             .centered()

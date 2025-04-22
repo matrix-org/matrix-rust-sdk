@@ -125,6 +125,16 @@ impl RoomView {
                             }
                         }
 
+                        // f like fhreads (t was already busy)
+                        (KeyModifiers::ALT, Char('f')) => {
+                            if self.selected_room.is_some() {
+                                self.mode = Mode::Details {
+                                    tiling_direction: DEFAULT_TILING_DIRECTION,
+                                    view: RoomDetails::with_threads_as_selected(),
+                                }
+                            }
+                        }
+
                         _ => self.input.handle_key_press(key),
                     }
                 }
@@ -162,6 +172,14 @@ impl RoomView {
                             self.mode = Mode::Details {
                                 tiling_direction: *tiling_direction,
                                 view: RoomDetails::with_chunks_as_selected(),
+                            }
+                        }
+
+                        // f like fhreads (t was already busy)
+                        (KeyModifiers::ALT, Char('f')) => {
+                            self.mode = Mode::Details {
+                                tiling_direction: *tiling_direction,
+                                view: RoomDetails::with_threads_as_selected(),
                             }
                         }
 
