@@ -17,6 +17,7 @@
 use std::{fmt, time::Duration};
 
 use async_channel::{Receiver, Sender};
+use matrix_sdk_common::executor::spawn;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -139,7 +140,7 @@ impl WidgetDriver {
         let (incoming_msg_tx, mut incoming_msg_rx) = unbounded_channel();
 
         // Forward all of the incoming messages from the widget.
-        matrix_sdk_common::executor::spawn({
+        spawn({
             let incoming_msg_tx = incoming_msg_tx.clone();
             let from_widget_rx = self.from_widget_rx.clone();
             async move {
@@ -259,7 +260,7 @@ impl WidgetDriver {
                 let mut matrix = matrix_driver.events();
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
-                matrix_sdk_common::executor::spawn(async move {
+                spawn(async move {
                     loop {
                         tokio::select! {
                             _ = stop_forwarding.cancelled() => {
