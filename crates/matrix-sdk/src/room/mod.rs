@@ -1911,9 +1911,10 @@ impl Room {
         SendMessageLikeEvent::new(self, content)
     }
 
-    /// Run /keys/query requests for all the non-tracked users.
+    /// Run /keys/query requests for all the non-tracked users, and for users
+    /// with an out-of-date device list.
     #[cfg(feature = "e2e-encryption")]
-    async fn query_keys_for_untracked_users(&self) -> Result<()> {
+    async fn query_keys_for_untracked_or_dirty_users(&self) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
