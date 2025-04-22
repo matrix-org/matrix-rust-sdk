@@ -54,7 +54,7 @@ pub async fn build<'notification, 'e2ee>(
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'e2ee>,
 ) -> Result<Timeline> {
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
-    let mut push_context =
+    let mut push_condition_room_ctx =
         get_push_room_context(context, room, room_info, notification.state_store).await?;
     let room_id = room.room_id();
 
@@ -127,18 +127,23 @@ pub async fn build<'notification, 'e2ee>(
                     AnySyncTimelineEvent::MessageLike(_) => (),
                 }
 
-                if let Some(push_context) = &mut push_context {
-                    update_push_room_context(context, push_context, room.own_user_id(), room_info)
+                if let Some(push_condition_room_ctx) = &mut push_condition_room_ctx {
+                    update_push_room_context(
+                        context,
+                        push_condition_room_ctx,
+                        room.own_user_id(),
+                        room_info,
+                    )
                 } else {
-                    push_context =
+                    push_condition_room_ctx =
                         get_push_room_context(context, room, room_info, notification.state_store)
                             .await?;
                 }
 
-                if let Some(push_context) = &push_context {
+                if let Some(push_condition_room_ctx) = &push_condition_room_ctx {
                     let actions = notification.push_notification_from_event_if(
                         room_id,
-                        push_context,
+                        push_condition_room_ctx,
                         timeline_event.raw(),
                         Action::should_notify,
                     );

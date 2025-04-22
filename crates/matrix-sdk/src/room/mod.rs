@@ -360,12 +360,9 @@ impl Room {
         let request = options.into_request(room_id);
         let http_response = self.client.send(request).await?;
 
-        let push_action_ctx = self.push_context().await?;
+        let push_ctx = self.push_context().await?;
         let chunk = join_all(
-            http_response
-                .chunk
-                .into_iter()
-                .map(|ev| self.try_decrypt_event(ev, push_action_ctx.as_ref())),
+            http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx.as_ref())),
         )
         .await;
 
@@ -496,8 +493,8 @@ impl Room {
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
         let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
-        let push_action_ctx = self.push_context().await?;
-        let event = self.try_decrypt_event(raw_event, push_action_ctx.as_ref()).await;
+        let push_ctx = self.push_context().await?;
+        let event = self.try_decrypt_event(raw_event, push_ctx.as_ref()).await;
 
         // Save the event into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
@@ -553,10 +550,10 @@ impl Room {
 
         let response = self.client.send(request).with_request_config(request_config).await?;
 
-        let push_action_ctx = self.push_context().await?;
-        let push_action_ctx = push_action_ctx.as_ref();
+        let push_ctx = self.push_context().await?;
+        let push_ctx = push_ctx.as_ref();
         let target_event = if let Some(event) = response.event {
-            Some(self.try_decrypt_event(event, push_action_ctx).await)
+            Some(self.try_decrypt_event(event, push_ctx).await)
         } else {
             None
         };
@@ -566,16 +563,10 @@ impl Room {
         // decryption error, so we should prevent against most bad cases here.
         let (events_before, events_after) = join!(
             join_all(
-                response
-                    .events_before
-                    .into_iter()
-                    .map(|ev| self.try_decrypt_event(ev, push_action_ctx)),
+                response.events_before.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx)),
             ),
             join_all(
-                response
-                    .events_after
-                    .into_iter()
-                    .map(|ev| self.try_decrypt_event(ev, push_action_ctx)),
+                response.events_after.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx)),
             ),
         );
 

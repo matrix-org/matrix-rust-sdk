@@ -179,7 +179,7 @@ pub mod stripped {
 
         // We need to check for notifications after we have handled all state
         // events, to make sure we have the full push context.
-        if let Some(push_context) =
+        if let Some(push_condition_room_ctx) =
             timeline::get_push_room_context(context, room, room_info, notification.state_store)
                 .await?
         {
@@ -189,7 +189,7 @@ pub mod stripped {
             for event in state_events.values().flat_map(|map| map.values()) {
                 notification.push_notification_from_event_if(
                     room_id,
-                    &push_context,
+                    &push_condition_room_ctx,
                     event,
                     Action::should_notify,
                 );

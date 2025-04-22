@@ -394,15 +394,14 @@ impl RoomDataProvider for TestRoomDataProvider {
             users_default: int!(0),
             notifications: NotificationPowerLevels::new(),
         };
-        let push_context = PushConditionRoomCtx {
+        let push_condition_room_ctx = PushConditionRoomCtx {
             room_id: room_id!("!my_room:server.name").to_owned(),
             member_count: uint!(2),
             user_id: ALICE.to_owned(),
             user_display_name: "Alice".to_owned(),
             power_levels: Some(power_levels),
         };
-
-        Some(PushContext::new(push_context, push_rules))
+        Some(PushContext::new(push_condition_room_ctx, push_rules))
     }
 
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
