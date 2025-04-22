@@ -10,6 +10,10 @@ Additions:
 
 - Add room topic string to `StateEventContent`
 
+Breaking changes:
+
+- `contacts` has been removed from `OidcConfiguration` (it was unused since the switch to OAuth). 
+
 ## [0.11.0] - 2025-04-11
 
 Breaking changes:
