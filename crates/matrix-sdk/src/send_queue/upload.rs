@@ -386,7 +386,7 @@ impl QueueStorage {
         let accumulated = if depends_on_thumbnail {
             sent_media.accumulated
         } else {
-            let mut accumulated = sent_media.accumulated.clone();
+            let mut accumulated = sent_media.accumulated;
             accumulated.push(AccumulatedSentMediaInfo {
                 file: sent_media.file.clone(),
                 thumbnail: sent_media.thumbnail,
