@@ -218,8 +218,9 @@ impl NotificationClient {
 
                         sleep(Duration::from_millis(wait)).await;
 
-                        let new_event =
-                            room.decrypt_event(raw_event.cast_ref(), &push_action_ctx).await?;
+                        let new_event = room
+                            .decrypt_event(raw_event.cast_ref(), push_action_ctx.as_ref())
+                            .await?;
 
                         match new_event.kind {
                             matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
@@ -260,7 +261,7 @@ impl NotificationClient {
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
-                Ok(()) => match room.decrypt_event(raw_event.cast_ref(), &push_action_ctx).await {
+                Ok(()) => match room.decrypt_event(raw_event.cast_ref(), push_action_ctx.as_ref()).await {
                     Ok(new_event) => match new_event.kind {
                         matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
                             utd_info, ..
@@ -516,12 +517,12 @@ impl NotificationClient {
                     raw_event = RawNotificationEvent::Timeline(timeline_event.into_raw());
                     push_actions
                 } else {
-                    room.push_context().await?.for_event(timeline_event)
+                    room.event_push_actions(timeline_event).await?
                 }
             }
             RawNotificationEvent::Invite(invite_event) => {
                 // Invite events can't be encrypted, so they should be in clear text.
-                room.push_context().await?.for_event(invite_event)
+                room.event_push_actions(invite_event).await?
             }
         };
 
