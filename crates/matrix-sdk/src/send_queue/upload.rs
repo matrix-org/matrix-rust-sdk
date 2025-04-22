@@ -360,7 +360,7 @@ impl QueueStorage {
         content_type: String,
         cache_key: MediaRequestParameters,
         event_txn: OwnedTransactionId,
-        depends_on_thumbnail: bool,
+        parent_is_thumbnail_upload: bool,
     ) -> Result<(), RoomSendQueueError> {
         // The previous file or thumbnail has been sent, now transform the dependent
         // file or thumbnail upload request into a ready one.
@@ -370,7 +370,7 @@ impl QueueStorage {
 
         // If the previous upload was a thumbnail, it shouldn't have
         // a thumbnail itself.
-        if depends_on_thumbnail {
+        if parent_is_thumbnail_upload {
             debug_assert!(sent_media.thumbnail.is_none());
             if sent_media.thumbnail.is_some() {
                 warn!("unexpected thumbnail for a thumbnail!");
@@ -385,7 +385,7 @@ impl QueueStorage {
         // the file and its thumbnail (if any) have finished uploading and we
         // can add them to the accumulated sent media.
         #[cfg(feature = "unstable-msc4274")]
-        let accumulated = if depends_on_thumbnail {
+        let accumulated = if parent_is_thumbnail_upload {
             sent_media.accumulated
         } else {
             let mut accumulated = sent_media.accumulated;
@@ -401,7 +401,7 @@ impl QueueStorage {
             cache_key,
             // If the previous upload was a thumbnail, it becomes the thumbnail source for the next
             // upload.
-            thumbnail_source: if depends_on_thumbnail { Some(sent_media.file) } else { None },
+            thumbnail_source: if parent_is_thumbnail_upload { Some(sent_media.file) } else { None },
             related_to: event_txn,
             #[cfg(feature = "unstable-msc4274")]
             accumulated,

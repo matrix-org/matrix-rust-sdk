@@ -1238,7 +1238,7 @@ impl QueueStorage {
                             cache_key: file_media_request,
                             related_to: send_event_txn.clone(),
                             #[cfg(feature = "unstable-msc4274")]
-                            depends_on_thumbnail: true,
+                            parent_is_thumbnail_upload: true,
                         },
                     )
                     .await?;
@@ -1604,16 +1604,16 @@ impl QueueStorage {
                 cache_key,
                 related_to,
                 #[cfg(feature = "unstable-msc4274")]
-                depends_on_thumbnail,
+                parent_is_thumbnail_upload,
             } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
                     return Ok(false);
                 };
-                let depends_on_thumbnail = {
+                let parent_is_thumbnail_upload = {
                     cfg_if::cfg_if! {
                         if #[cfg(feature = "unstable-msc4274")] {
-                            depends_on_thumbnail
+                            parent_is_thumbnail_upload
                         } else {
                             true
                         }
@@ -1626,7 +1626,7 @@ impl QueueStorage {
                     content_type,
                     cache_key,
                     related_to,
-                    depends_on_thumbnail,
+                    parent_is_thumbnail_upload,
                 )
                 .await?;
             }
