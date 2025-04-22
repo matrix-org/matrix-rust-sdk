@@ -45,7 +45,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use once_cell::sync::OnceCell;
-use room::RoomEventCacheState;
+use room::{thread::EventCacheThreadError, RoomEventCacheState};
 use ruma::{
     events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId, RoomVersionId,
 };
@@ -64,7 +64,7 @@ mod room;
 
 pub mod paginator;
 pub use pagination::{PaginationToken, RoomPagination, RoomPaginationStatus};
-pub use room::{RoomEventCache, RoomEventCacheListener};
+pub use room::{RoomEventCache, RoomEventCacheListener, ThreadSummary};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
@@ -79,6 +79,10 @@ pub enum EventCacheError {
     /// An error has been observed while back-paginating.
     #[error(transparent)]
     BackpaginationError(#[from] PaginatorError),
+
+    /// An error happened while operating on threads.
+    #[error(transparent)]
+    ThreadError(#[from] EventCacheThreadError),
 
     /// Back-pagination was already happening in a given room, where we tried to
     /// back-paginate again.

@@ -37,6 +37,7 @@ use ruma::{
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId,
 };
+use thread::RoomThreadCache;
 use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
@@ -50,6 +51,9 @@ use super::{
 use crate::{client::WeakClient, room::WeakRoom};
 
 pub(super) mod events;
+pub(super) mod thread;
+
+pub use thread::ThreadSummary;
 
 /// A subset of an event cache, for a room.
 ///
@@ -246,6 +250,12 @@ impl RoomEventCache {
     /// events for this room.
     pub async fn debug_string(&self) -> Vec<String> {
         self.inner.state.read().await.events().debug_string()
+    }
+
+    /// Return a list of all the threads roots for the current room.
+    pub async fn list_all_threads(&self) -> Result<Vec<TimelineEvent>> {
+        let mut thready = RoomThreadCache::new(self.inner.weak_room.clone());
+        thready.list_all_threads().await.map_err(super::EventCacheError::ThreadError)
     }
 }
 
