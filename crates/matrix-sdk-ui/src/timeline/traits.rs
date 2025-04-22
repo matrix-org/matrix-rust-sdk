@@ -225,7 +225,7 @@ impl RoomDataProvider for Room {
     }
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
-        match self.push_context().await {
+        match self.push_condition_room_ctx().await {
             Ok(Some(push_context)) => match self.client().account().push_rules().await {
                 Ok(push_rules) => Some((push_rules, push_context)),
                 Err(e) => {

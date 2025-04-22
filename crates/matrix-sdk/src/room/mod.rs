@@ -374,7 +374,7 @@ impl Room {
             state: http_response.state,
         };
 
-        if let Some(push_context) = self.push_context().await? {
+        if let Some(push_context) = self.push_condition_room_ctx().await? {
             let push_rules = self.client().account().push_rules().await?;
 
             for event in &mut response.chunk {
@@ -2935,7 +2935,7 @@ impl Room {
     ///
     /// Returns `None` if some data couldn't be found. This should only happen
     /// in brand new rooms, while we process its state.
-    pub async fn push_context(&self) -> Result<Option<PushConditionRoomCtx>> {
+    pub async fn push_condition_room_ctx(&self) -> Result<Option<PushConditionRoomCtx>> {
         let room_id = self.room_id();
         let user_id = self.own_user_id();
         let room_info = self.clone_info();
@@ -2965,7 +2965,7 @@ impl Room {
     /// Retrieves a [`PushActionCtx`] that can be used to compute the push
     /// actions for events.
     pub async fn push_action_ctx(&self) -> Result<PushActionCtx> {
-        let push_condition_room_ctx = self.push_context().await?;
+        let push_condition_room_ctx = self.push_condition_room_ctx().await?;
         if push_condition_room_ctx.is_none() {
             debug!("Could not aggregate push context");
         }
@@ -2981,7 +2981,7 @@ impl Room {
         note = "Use `Room::push_action_ctx` to retrieve a `PushActionCtx` instead, and call `PushActionCtx::for_event` on your event."
     )]
     pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
-        let Some(push_context) = self.push_context().await? else {
+        let Some(push_context) = self.push_condition_room_ctx().await? else {
             debug!("Could not aggregate push context");
             return Ok(None);
         };

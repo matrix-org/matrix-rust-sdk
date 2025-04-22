@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+### Bug fixes
+
+### Refactor
+
+- The `Room::push_context()` has been renamed into `Room::push_condition_room_ctx()`.
+
 ## [0.11.0] - 2025-04-11
 
 ### Features
