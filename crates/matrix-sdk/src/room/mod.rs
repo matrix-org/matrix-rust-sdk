@@ -26,10 +26,7 @@ use std::{
 use async_stream::stream;
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use futures_util::{
-    future::{try_join, try_join_all},
-    stream::FuturesUnordered,
-};
+use futures_util::{future::join_all, stream::FuturesUnordered};
 use http::StatusCode;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub use identity_status_changes::IdentityStatusChanges;
@@ -119,7 +116,7 @@ use ruma::{
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
         StaticEventContent, StaticStateEventContent, SyncStateEvent,
     },
-    push::{Action, PushConditionRoomCtx},
+    push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
@@ -127,7 +124,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
-use tokio::sync::broadcast;
+use tokio::{join, sync::broadcast};
 use tokio_stream::StreamExt;
 use tracing::{debug, info, instrument, warn};
 
@@ -197,6 +194,30 @@ impl Deref for Room {
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Context allowing to compute the push actions for a given event.
+#[derive(Debug)]
+pub struct PushActionCtx {
+    /// The Ruma context used to compute the push actions.
+    ///
+    /// May be missing if some state events were missing for the current room
+    /// (e.g. the member information for the logged-in user was missing).
+    push_condition_room_ctx: Option<PushConditionRoomCtx>,
+
+    /// Push rules for this room, based on the push rules state event, or the
+    /// global server default as defined by [`Ruleset::server_default`].
+    push_rules: Ruleset,
+}
+
+impl PushActionCtx {
+    /// Compute the push rules for a given event.
+    ///
+    /// Will return `None` if and only if the underlying
+    /// [`PushConditionRoomCtx`] is missing.
+    pub fn for_event<T>(&self, event: &Raw<T>) -> Option<Vec<Action>> {
+        Some(self.push_rules.get_actions(event, self.push_condition_room_ctx.as_ref()?).to_owned())
+    }
+}
 
 impl Room {
     /// Create a new `Room`
@@ -340,9 +361,11 @@ impl Room {
         let request = options.into_request(room_id);
         let http_response = self.client.send(request).await?;
 
-        let chunk =
-            try_join_all(http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev)))
-                .await?;
+        let push_action_ctx = self.push_action_ctx().await?;
+        let chunk = join_all(
+            http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, &push_action_ctx)),
+        )
+        .await;
 
         let mut response = Messages {
             start: http_response.start,
@@ -447,23 +470,26 @@ impl Room {
     /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
     /// decrypted if needs be.
     ///
-    /// Doesn't return an error `Result` when decryption failed; only logs from
-    /// the crypto crate will indicate so.
-    async fn try_decrypt_event(&self, event: Raw<AnyTimelineEvent>) -> Result<TimelineEvent> {
+    /// Only logs from the crypto crate will indicate a failure to decrypt.
+    async fn try_decrypt_event(
+        &self,
+        event: Raw<AnyTimelineEvent>,
+        push_ctx: &PushActionCtx,
+    ) -> TimelineEvent {
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
             SyncMessageLikeEvent::Original(_),
         ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
-            if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                return Ok(event);
+            if let Ok(event) = self.decrypt_event(event.cast_ref(), push_ctx).await {
+                return event;
             }
         }
 
         let mut event = TimelineEvent::new(event.cast());
-        event.push_actions = self.event_push_actions(event.raw()).await?;
+        event.push_actions = push_ctx.for_event(event.raw());
 
-        Ok(event)
+        event
     }
 
     /// Fetch the event with the given `EventId` in this room.
@@ -479,7 +505,8 @@ impl Room {
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
         let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
-        let event = self.try_decrypt_event(raw_event).await?;
+        let push_action_ctx = self.push_action_ctx().await?;
+        let event = self.try_decrypt_event(raw_event, &push_action_ctx).await;
 
         // Save the event into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
@@ -535,8 +562,9 @@ impl Room {
 
         let response = self.client.send(request).with_request_config(request_config).await?;
 
+        let push_action_ctx = self.push_action_ctx().await?;
         let target_event = if let Some(event) = response.event {
-            Some(self.try_decrypt_event(event).await?)
+            Some(self.try_decrypt_event(event, &push_action_ctx).await)
         } else {
             None
         };
@@ -544,11 +572,20 @@ impl Room {
         // Note: the joined future will fail if any future failed, but
         // [`Self::try_decrypt_event`] doesn't hard-fail when there's a
         // decryption error, so we should prevent against most bad cases here.
-        let (events_before, events_after) = try_join(
-            try_join_all(response.events_before.into_iter().map(|ev| self.try_decrypt_event(ev))),
-            try_join_all(response.events_after.into_iter().map(|ev| self.try_decrypt_event(ev))),
-        )
-        .await?;
+        let (events_before, events_after) = join!(
+            join_all(
+                response
+                    .events_before
+                    .into_iter()
+                    .map(|ev| self.try_decrypt_event(ev, &push_action_ctx)),
+            ),
+            join_all(
+                response
+                    .events_after
+                    .into_iter()
+                    .map(|ev| self.try_decrypt_event(ev, &push_action_ctx)),
+            ),
+        );
 
         // Save the loaded events into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
@@ -1335,6 +1372,7 @@ impl Room {
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
+        push_ctx: &PushActionCtx,
     ) -> Result<TimelineEvent> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -1356,7 +1394,7 @@ impl Room {
             }
         };
 
-        event.push_actions = self.event_push_actions(event.raw()).await?;
+        event.push_actions = push_ctx.for_event(event.raw());
         Ok(event)
     }
 
@@ -2924,10 +2962,24 @@ impl Room {
         }))
     }
 
+    /// Retrieves a [`PushActionCtx`] that can be used to compute the push
+    /// actions for events.
+    pub async fn push_action_ctx(&self) -> Result<PushActionCtx> {
+        let push_condition_room_ctx = self.push_context().await?;
+        if push_condition_room_ctx.is_none() {
+            debug!("Could not aggregate push context");
+        }
+        let push_rules = self.client().account().push_rules().await?;
+        Ok(PushActionCtx { push_condition_room_ctx, push_rules })
+    }
+
     /// Get the push actions for the given event with the current room state.
     ///
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
+    #[deprecated(
+        note = "Use `Room::push_action_ctx` to retrieve a `PushActionCtx` instead, and call `PushActionCtx::for_event` on your event."
+    )]
     pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
         let Some(push_context) = self.push_context().await? else {
             debug!("Could not aggregate push context");
