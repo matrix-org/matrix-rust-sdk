@@ -649,7 +649,7 @@ pub enum ProcessedToDeviceEvent {
 }
 
 impl ProcessedToDeviceEvent {
-    /// Converts a ProcessedToDeviceEvent to the Raw<AnyToDeviceEvent> it
+    /// Converts a ProcessedToDeviceEvent to the `Raw<AnyToDeviceEvent>` it
     /// encapsulates
     pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
         match self {
