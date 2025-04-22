@@ -217,38 +217,49 @@ async fn test_processed_to_device_variants() {
     let processed_event = &processed[0];
     assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted(_));
 
-    assert_json_snapshot!(
-        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
-         {
-             ".keys.ed25519" => "[sender_ed25519_key]",
-             r#"["org.matrix.msc4147.device_keys"].device_id"# => "[ABCDEFGH]",
-             r#"["org.matrix.msc4147.device_keys"].keys"# => "++REDACTED++",
-             r#"["org.matrix.msc4147.device_keys"].signatures"# => "++REDACTED++",
-             ".recipient_keys.ed25519" => "[recipient_sender_key]",
-        }
-    );
+    insta::with_settings!({ prepend_module_to_snapshot => false }, {
+        assert_json_snapshot!(
+            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+             {
+                 ".keys.ed25519" => "[sender_ed25519_key]",
+                 r#"["org.matrix.msc4147.device_keys"].device_id"# => "[ABCDEFGH]",
+                 r#"["org.matrix.msc4147.device_keys"].keys"# => "++REDACTED++",
+                 r#"["org.matrix.msc4147.device_keys"].signatures"# => "++REDACTED++",
+                 ".recipient_keys.ed25519" => "[recipient_sender_key]",
+            }
+        );
+    });
 
     let processed_event = &processed[1];
     assert_matches!(processed_event, ProcessedToDeviceEvent::PlainText(_));
-    assert_json_snapshot!(
-        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
-    );
+
+    insta::with_settings!({ prepend_module_to_snapshot => false }, {
+        assert_json_snapshot!(
+            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+        );
+    });
 
     let processed_event = &processed[2];
     assert_matches!(processed_event, ProcessedToDeviceEvent::Invalid(_));
-    assert_json_snapshot!(
-        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
-    );
+
+    insta::with_settings!({ prepend_module_to_snapshot => false }, {
+        assert_json_snapshot!(
+            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+        );
+    });
 
     let processed_event = &processed[3];
     assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt(_));
-    assert_json_snapshot!(
-        serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
-        {
-            ".content.sender_key" => "[sender_ed25519_key]",
-            ".content.ciphertext" => "[++REDACTED++]",
-        }
-    );
+
+    insta::with_settings!({ prepend_module_to_snapshot => false }, {
+        assert_json_snapshot!(
+            serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap(),
+            {
+                ".content.sender_key" => "[sender_ed25519_key]",
+                ".content.ciphertext" => "[++REDACTED++]",
+            }
+        );
+    });
 }
 
 #[async_test]
