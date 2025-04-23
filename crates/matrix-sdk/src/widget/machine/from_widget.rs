@@ -29,7 +29,7 @@ use crate::{widget::StateKeySelector, Error, HttpError, RumaApiError};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]
-pub(super) enum FromWidgetRequest {
+pub(super) enum WidgetToDriverRequest {
     SupportedApiVersions {},
     ContentLoaded {},
     #[serde(rename = "get_openid")]
@@ -41,8 +41,8 @@ pub(super) enum FromWidgetRequest {
     DelayedEventUpdate(UpdateDelayedEventRequest),
 }
 
-/// The full response a client sends to a [`FromWidgetRequest`] in case of an
-/// error.
+/// The full response a client sends to a [`WidgetToDriverRequest`] in case of
+/// an error.
 #[derive(Serialize)]
 pub(super) struct FromWidgetErrorResponse {
     error: FromWidgetError,
@@ -86,7 +86,7 @@ impl FromWidgetErrorResponse {
 }
 
 /// Serializable section of an error response send by the client as a
-/// response to a [`FromWidgetRequest`].
+/// response to a [`WidgetToDriverRequest`].
 #[derive(Serialize)]
 struct FromWidgetError {
     /// Unspecified error message text that caused this widget action to

@@ -3,7 +3,7 @@ use ruma::events::TimelineEventType;
 
 use super::WIDGET_ID;
 use crate::widget::machine::{
-    from_widget::FromWidgetRequest,
+    from_widget::WidgetToDriverRequest,
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
 };
 
@@ -27,7 +27,8 @@ fn parse_delayed_event_widget_action() {
             serde_json::from_str::<IncomingWidgetMessage>(&raw).unwrap().kind
     );
     assert_let!(
-        FromWidgetRequest::SendEvent(send_event_request) = incoming_request.deserialize().unwrap()
+        WidgetToDriverRequest::SendEvent(send_event_request) =
+            incoming_request.deserialize().unwrap()
     );
     assert_let!(delay = send_event_request.delay.unwrap());
 
