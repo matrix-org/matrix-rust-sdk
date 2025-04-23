@@ -34,8 +34,8 @@ use self::{
         ReadMessageLikeEventRequest, RequestOpenId,
     },
     from_widget::{
-        FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
-        SupportedApiVersionsResponse,
+        FromWidgetErrorResponse, ReadEventRequest, ReadEventResponse, SupportedApiVersionsResponse,
+        WidgetToDriverRequest,
     },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     openid::{OpenIdResponse, OpenIdState},
@@ -211,7 +211,7 @@ impl WidgetMachine {
     fn process_from_widget_request(
         &mut self,
         request_id: String,
-        raw_request: Raw<FromWidgetRequest>,
+        raw_request: Raw<WidgetToDriverRequest>,
     ) -> Vec<Action> {
         let request = match raw_request.deserialize() {
             Ok(r) => r,
@@ -224,12 +224,12 @@ impl WidgetMachine {
         };
 
         match request {
-            FromWidgetRequest::SupportedApiVersions {} => {
+            WidgetToDriverRequest::SupportedApiVersions {} => {
                 let response = SupportedApiVersionsResponse::new();
                 vec![Self::send_from_widget_response(raw_request, Ok(response))]
             }
 
-            FromWidgetRequest::ContentLoaded {} => {
+            WidgetToDriverRequest::ContentLoaded {} => {
                 let mut response =
                     vec![Self::send_from_widget_response(raw_request, Ok(JsonObject::new()))];
                 if matches!(self.capabilities, CapabilitiesState::Unset) {
@@ -238,17 +238,17 @@ impl WidgetMachine {
                 response
             }
 
-            FromWidgetRequest::ReadEvent(req) => self
+            WidgetToDriverRequest::ReadEvent(req) => self
                 .process_read_event_request(req, raw_request)
                 .map(|a| vec![a])
                 .unwrap_or_default(),
 
-            FromWidgetRequest::SendEvent(req) => self
+            WidgetToDriverRequest::SendEvent(req) => self
                 .process_send_event_request(req, raw_request)
                 .map(|a| vec![a])
                 .unwrap_or_default(),
 
-            FromWidgetRequest::GetOpenId {} => {
+            WidgetToDriverRequest::GetOpenId {} => {
                 let mut actions =
                     vec![Self::send_from_widget_response(raw_request, Ok(OpenIdResponse::Pending))];
 
@@ -278,7 +278,7 @@ impl WidgetMachine {
                 actions
             }
 
-            FromWidgetRequest::DelayedEventUpdate(req) => {
+            WidgetToDriverRequest::DelayedEventUpdate(req) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     return vec![Self::send_from_widget_error_string_response(
                         raw_request,
@@ -320,7 +320,7 @@ impl WidgetMachine {
     fn process_read_event_request(
         &mut self,
         request: ReadEventRequest,
-        raw_request: Raw<FromWidgetRequest>,
+        raw_request: Raw<WidgetToDriverRequest>,
     ) -> Option<Action> {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
             return Some(Self::send_from_widget_error_string_response(
@@ -405,7 +405,7 @@ impl WidgetMachine {
     fn process_send_event_request(
         &mut self,
         request: SendEventRequest,
-        raw_request: Raw<FromWidgetRequest>,
+        raw_request: Raw<WidgetToDriverRequest>,
     ) -> Option<Action> {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
             error!("Received send event request before capabilities negotiation");
@@ -493,7 +493,7 @@ impl WidgetMachine {
     }
 
     fn send_from_widget_error_string_response(
-        raw_request: Raw<FromWidgetRequest>,
+        raw_request: Raw<WidgetToDriverRequest>,
         error: impl Into<String>,
     ) -> Action {
         Self::send_from_widget_err_response(
@@ -503,7 +503,7 @@ impl WidgetMachine {
     }
 
     fn send_from_widget_err_response(
-        raw_request: Raw<FromWidgetRequest>,
+        raw_request: Raw<WidgetToDriverRequest>,
         error: FromWidgetErrorResponse,
     ) -> Action {
         Self::send_from_widget_response(
@@ -513,14 +513,14 @@ impl WidgetMachine {
     }
 
     fn send_from_widget_response(
-        raw_request: Raw<FromWidgetRequest>,
+        raw_request: Raw<WidgetToDriverRequest>,
         result: Result<impl Serialize, FromWidgetErrorResponse>,
     ) -> Action {
         // we do not want tho expose this to never allow sending arbitrary errors.
         // Errors always need to be `FromWidgetErrorResponse`.
         #[instrument(skip_all)]
         fn send_response_data(
-            raw_request: Raw<FromWidgetRequest>,
+            raw_request: Raw<WidgetToDriverRequest>,
             response_data: impl Serialize,
         ) -> Action {
             let f = || {
