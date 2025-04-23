@@ -2100,9 +2100,49 @@ mod tests {
         let machine = test_machine().await;
         import_known_users_to_test_machine(&machine).await;
 
-        let fake_room_id = room_id!("!roomid:localhost");
         let encryption_settings = all_devices_strategy_settings();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
+        let sender_key = machine.identity_keys().curve25519;
 
+        group_session.mark_shared_with(
+            KeyDistributionTestData::dan_id(),
+            KeyDistributionTestData::dan_signed_device_id(),
+            sender_key).await;
+        group_session.mark_shared_with(
+            KeyDistributionTestData::dan_id(),
+            KeyDistributionTestData::dan_unsigned_device_id(),
+            sender_key).await;
+
+        // Try to share again after dan has removed one of his devices
+        let keys_query = KeyDistributionTestData::dan_keys_query_response_device_loggedout();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+        // share again
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(share_result.should_rotate);
+    }
+
+    /// Test that the session is not rotated if a devices is removed
+    /// but was already withheld from receiving the session.
+    #[async_test]
+    async fn test_should_not_rotate_if_keys_were_withheld() {
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
+
+        let encryption_settings = all_devices_strategy_settings();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
+        let fake_room_id = group_session.room_id();
+
+        // Because we don't have Olm sessions initialized, this will contain
+        // withheld requests for both of Dan's devices
         let requests = machine
             .share_room_key(
                 fake_room_id,
@@ -2120,13 +2160,11 @@ mod tests {
                 .await
                 .unwrap();
         }
+
         // Try to share again after dan has removed one of his devices
         let keys_query = KeyDistributionTestData::dan_keys_query_response_device_loggedout();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-        let group_session =
-            machine.store().get_outbound_group_session(fake_room_id).await.unwrap().unwrap();
         // share again
         let share_result = collect_session_recipients(
             machine.store(),
@@ -2137,7 +2175,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(share_result.should_rotate);
+        assert!(!share_result.should_rotate);
     }
 
     /// Common setup for tests which require a verified user to have unsigned
