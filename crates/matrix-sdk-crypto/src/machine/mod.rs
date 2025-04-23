@@ -939,10 +939,11 @@ impl OlmMachine {
         }
     }
 
+    /// Handle a received, decrypted, `io.element.msc4268.room_key_bundle`
+    /// to-device event.
     #[instrument()]
-    async fn receive_room_key_bundle(
+    async fn receive_room_key_bundle_data(
         &self,
-        sender_key: Curve25519PublicKey,
         event: &DecryptedRoomKeyBundleEvent,
         changes: &mut Changes,
     ) -> OlmResult<()> {
@@ -1206,7 +1207,7 @@ impl OlmMachine {
             }
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => {
                 debug!("Received a room key bundle event {:?}", e);
-                self.receive_room_key_bundle(decrypted.result.sender_key, e, changes).await?;
+                self.receive_room_key_bundle_data(e, changes).await?;
             }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
