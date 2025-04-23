@@ -128,7 +128,7 @@ impl ToWidgetRequest for NotifyNewMatrixEvent {
 #[derive(Deserialize)]
 pub(crate) struct Empty {}
 
-/// Notify the widget that we received a new matrix event.
+/// Notify the widget that we received a new matrix to device event.
 /// This is a "response" to the widget subscribing to the events in the room.
 #[derive(Serialize)]
 #[serde(transparent)]
