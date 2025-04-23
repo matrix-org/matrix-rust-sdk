@@ -288,9 +288,8 @@ impl<'de> Deserialize<'de> for Capabilities {
 mod tests {
     use ruma::events::StateEventType;
 
-    use crate::widget::filter::ToDeviceEventFilter;
-
     use super::*;
+    use crate::widget::filter::ToDeviceEventFilter;
 
     #[test]
     fn deserialization_of_no_capabilities() {
