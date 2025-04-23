@@ -14,7 +14,7 @@
 
 //! No I/O logic of the [`WidgetDriver`].
 
-use std::{iter, time::Duration};
+use std::time::Duration;
 
 use driver_req::UpdateDelayedEventRequest;
 use from_widget::UpdateDelayedEventResponse;
@@ -248,7 +248,10 @@ impl WidgetMachine {
                 .unwrap_or_default(),
 
             FromWidgetRequest::GetOpenId {} => {
-                let request_action = self.send_matrix_driver_request(RequestOpenId).map(
+                let mut actions =
+                    vec![Self::send_from_widget_response(raw_request, Ok(OpenIdResponse::Pending))];
+
+                if let Some(request_action) = self.send_matrix_driver_request(RequestOpenId).map(
                     |(request, request_action)| {
                         request.then(|res, machine| {
                             let response = match res {
@@ -269,11 +272,11 @@ impl WidgetMachine {
 
                         request_action
                     },
-                );
+                ) {
+                    actions.push(request_action);
+                }
 
-                let response =
-                    Self::send_from_widget_response(raw_request, Ok(OpenIdResponse::Pending));
-                iter::once(response).chain(request_action).collect()
+                actions
             }
 
             FromWidgetRequest::DelayedEventUpdate(req) => {
@@ -613,11 +616,15 @@ impl WidgetMachine {
     }
 
     fn negotiate_capabilities(&mut self) -> Vec<Action> {
-        let unsubscribe_required =
-            matches!(&self.capabilities, CapabilitiesState::Negotiated(c) if !c.read.is_empty());
+        let mut actions = Vec::new();
+
+        if matches!(&self.capabilities, CapabilitiesState::Negotiated(c) if !c.read.is_empty()) {
+            actions.push(Action::Unsubscribe);
+        }
+
         self.capabilities = CapabilitiesState::Negotiating;
 
-        let action =
+        if let Some(action) =
             self.send_to_widget_request(RequestCapabilities {}).map(|(request, action)| {
                 request.then(|response, machine| {
                     let requested_capabilities = response.capabilities;
@@ -633,7 +640,11 @@ impl WidgetMachine {
                                 Capabilities::default()
                             });
 
-                            let subscribe_required = !approved_capabilities.read.is_empty();
+                            let mut actions = Vec::new();
+                            if !approved_capabilities.read.is_empty() {
+                                actions.push(Action::Subscribe);
+                            }
+
                             machine.capabilities =
                                 CapabilitiesState::Negotiated(approved_capabilities.clone());
 
@@ -642,15 +653,14 @@ impl WidgetMachine {
                                 requested: requested_capabilities,
                             };
 
-                            let action = machine
+                            if let Some(action) = machine
                                 .send_to_widget_request(notify_caps_changed)
-                                .map(|(_request, action)| action);
+                                .map(|(_request, action)| action)
+                            {
+                                actions.push(action);
+                            }
 
-                            subscribe_required
-                                .then_some(Action::Subscribe)
-                                .into_iter()
-                                .chain(action)
-                                .collect()
+                            actions
                         });
 
                         vec![action]
@@ -660,9 +670,12 @@ impl WidgetMachine {
                 });
 
                 action
-            });
+            })
+        {
+            actions.push(action);
+        }
 
-        unsubscribe_required.then_some(Action::Unsubscribe).into_iter().chain(action).collect()
+        actions
     }
 }
 
