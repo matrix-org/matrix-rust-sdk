@@ -24,7 +24,7 @@ use crate::widget::Capabilities;
 
 /// A handle to a pending `toWidget` request.
 pub(crate) struct ToWidgetRequestHandle<'m, T> {
-    request_meta: Option<&'m mut ToWidgetRequestMeta>,
+    request_meta: &'m mut ToWidgetRequestMeta,
     _phantom: PhantomData<fn() -> T>,
 }
 
@@ -33,28 +33,22 @@ where
     T: DeserializeOwned,
 {
     pub(crate) fn new(request_meta: &'m mut ToWidgetRequestMeta) -> Self {
-        Self { request_meta: Some(request_meta), _phantom: PhantomData }
-    }
-
-    pub(crate) fn null() -> Self {
-        Self { request_meta: None, _phantom: PhantomData }
+        Self { request_meta, _phantom: PhantomData }
     }
 
     pub(crate) fn then(
         self,
         response_handler: impl FnOnce(T, &mut WidgetMachine) -> Vec<Action> + Send + 'static,
     ) {
-        if let Some(request_meta) = self.request_meta {
-            request_meta.response_fn = Some(Box::new(move |raw_response_data, machine| {
-                match serde_json::from_str(raw_response_data.get()) {
-                    Ok(response_data) => response_handler(response_data, machine),
-                    Err(e) => {
-                        error!("Failed to deserialize toWidget response: {e}");
-                        Vec::new()
-                    }
+        self.request_meta.response_fn = Some(Box::new(move |raw_response_data, machine| {
+            match serde_json::from_str(raw_response_data.get()) {
+                Ok(response_data) => response_handler(response_data, machine),
+                Err(e) => {
+                    error!("Failed to deserialize toWidget response: {e}");
+                    Vec::new()
                 }
-            }));
-        }
+            }
+        }));
     }
 }
 
