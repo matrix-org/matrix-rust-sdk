@@ -250,15 +250,13 @@ impl Room {
     /// Only invited and left rooms can be joined via this method.
     #[doc(alias = "accept_invitation")]
     pub async fn join(&self) -> Result<()> {
-        let state = self.state();
-        if state == RoomState::Joined {
+        let prev_room_state = self.inner.state();
+        if prev_room_state == RoomState::Joined {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
                 "Invited or Left",
-                state,
+                prev_room_state,
             ))));
         }
-
-        let prev_room_state = self.inner.state();
 
         let mark_as_direct = prev_room_state == RoomState::Invited
             && self.inner.is_direct().await.unwrap_or_else(|e| {
