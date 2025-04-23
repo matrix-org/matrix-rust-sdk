@@ -213,3 +213,46 @@ where
         })
         .unzip()
 }
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::{
+        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    };
+    use ruma::{event_id, user_id};
+
+    use crate::test_utils::logged_in_base_client;
+
+    #[async_test]
+    async fn test_state_events_after_sync() {
+        // Given a room
+        let user_id = user_id!("@u:u.to");
+
+        let client = logged_in_base_client(Some(user_id)).await;
+        let mut sync_builder = SyncResponseBuilder::new();
+
+        let room_name = EventFactory::new()
+            .sender(user_id)
+            .room_topic("this is the test topic in the timeline")
+            .event_id(event_id!("$2"))
+            .into_raw_sync();
+
+        let response = sync_builder
+            .add_joined_room(
+                JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+                    .add_timeline_event(room_name)
+                    .add_state_event(StateTestEvent::PowerLevels),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Just-created room not found!");
+
+        // ensure that we have the power levels
+        assert!(room.power_levels().await.is_ok());
+
+        // ensure that we have the topic
+        assert_eq!(room.topic().unwrap(), "this is the test topic in the timeline");
+    }
+}
