@@ -58,7 +58,7 @@ pub(crate) enum MatrixDriverRequestData {
 
 /// A handle to a pending `toWidget` request.
 pub(crate) struct MatrixDriverRequestHandle<'m, T> {
-    request_meta: Option<&'m mut MatrixDriverRequestMeta>,
+    request_meta: &'m mut MatrixDriverRequestMeta,
     _phantom: PhantomData<fn() -> T>,
 }
 
@@ -67,7 +67,7 @@ where
     T: FromMatrixDriverResponse,
 {
     pub(crate) fn new(request_meta: &'m mut MatrixDriverRequestMeta) -> Self {
-        Self { request_meta: Some(request_meta), _phantom: PhantomData }
+        Self { request_meta, _phantom: PhantomData }
     }
 
     /// Setup a callback function that will be called once the matrix driver has
@@ -78,15 +78,13 @@ where
             + Send
             + 'static,
     ) {
-        if let Some(request_meta) = self.request_meta {
-            request_meta.response_fn = Some(Box::new(move |response, machine| {
-                if let Some(response_data) = response.map(T::from_response).transpose() {
-                    response_handler(response_data, machine)
-                } else {
-                    Vec::new()
-                }
-            }));
-        }
+        self.request_meta.response_fn = Some(Box::new(move |response, machine| {
+            if let Some(response_data) = response.map(T::from_response).transpose() {
+                response_handler(response_data, machine)
+            } else {
+                Vec::new()
+            }
+        }));
     }
 }
 
