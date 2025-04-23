@@ -57,6 +57,23 @@ cargo insta test
 cargo insta review
 ```
 
+### Intermittent failure policy
+
+While we strive to add test coverage for as many features as we can, it sometimes happens that the
+tests will be intermittently failing in CI (such tests are sometimes called "flaky"). This can be
+caused by race conditions of all sorts, either in the test code itself, but sometimes in the
+underlying feature being tested too, and as such, it requires some investigation, usually from the
+original author of the test.
+
+Whenever such an intermittent failure happens, we try to open an issue to track the failures,
+adding the
+[`intermittent-failure`](https://github.com/matrix-org/matrix-rust-sdk/issues?q=is%3Aissue%20state%3Aopen%20label%3Aintermittent-failure)
+label to it, and commenting with links to CI runs where the failure happened.
+
+If a test has been intermittently failing for **two weeks** or more, and no one is actively working
+on fixing it, then we might decide to mark the test as `ignored` until it is fixed, to not cause
+unrelated failures in other contributors' pull requests and pushes.
+
 ## Pull requests
 
 Ideally, a PR should have a *proper title*, with *atomic logical commits*, and
