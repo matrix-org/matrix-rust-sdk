@@ -620,26 +620,30 @@ impl WidgetMachine {
         let action =
             self.send_to_widget_request(RequestCapabilities {}).map(|(request, action)| {
                 request.then(|response, machine| {
-                    let requested = response.capabilities;
+                    let requested_capabilities = response.capabilities;
 
                     if let Some((request, action)) =
                         machine.send_matrix_driver_request(AcquireCapabilities {
-                            desired_capabilities: requested.clone(),
+                            desired_capabilities: requested_capabilities.clone(),
                         })
                     {
                         request.then(|result, machine| {
-                            let approved = result.unwrap_or_else(|e| {
+                            let approved_capabilities = result.unwrap_or_else(|e| {
                                 error!("Acquiring capabilities failed: {e}");
                                 Capabilities::default()
                             });
 
-                            let subscribe_required = !approved.read.is_empty();
-                            machine.capabilities = CapabilitiesState::Negotiated(approved.clone());
+                            let subscribe_required = !approved_capabilities.read.is_empty();
+                            machine.capabilities =
+                                CapabilitiesState::Negotiated(approved_capabilities.clone());
 
-                            let update = NotifyCapabilitiesChanged { approved, requested };
+                            let notify_caps_changed = NotifyCapabilitiesChanged {
+                                approved: approved_capabilities,
+                                requested: requested_capabilities,
+                            };
 
                             let action = machine
-                                .send_to_widget_request(update)
+                                .send_to_widget_request(notify_caps_changed)
                                 .map(|(_request, action)| action);
 
                             subscribe_required
