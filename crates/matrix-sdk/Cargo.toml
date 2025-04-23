@@ -86,7 +86,7 @@ oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "
 once_cell = { workspace = true }
 percent-encoding = "2.3.1"
 pin-project-lite = { workspace = true }
-rand = { workspace = true , optional = true }
+rand = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
@@ -105,6 +105,7 @@ sha2 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
+tokio-util = "0.7.13"
 tower = { version = "0.5.2", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
@@ -125,7 +126,6 @@ backon = "1.5.0"
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
-tokio-util = "0.7.13"
 wiremock = { workspace = true, optional = true }
 
 [dev-dependencies]
