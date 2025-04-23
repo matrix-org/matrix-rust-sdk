@@ -222,11 +222,11 @@ async fn test_processed_to_device_variants() {
             processed_event.to_raw().deserialize_as::<Value>().unwrap(),
              {
                  ".keys.ed25519" => "[sender_ed25519_key]",
-                 r#"["org.matrix.msc4147.device_keys"].device_id"# => "[ABCDEFGH]",
-                 r#"["org.matrix.msc4147.device_keys"].keys"# => "++REDACTED++",
-                 r#"["org.matrix.msc4147.device_keys"].signatures"# => "++REDACTED++",
+                 r#"["sender_device_keys"].device_id"# => "[ABCDEFGH]",
+                 r#"["sender_device_keys"].keys"# => "++REDACTED++",
+                 r#"["sender_device_keys"].signatures"# => "++REDACTED++",
                  // Redacted because depending on feature flags
-                 r#"["org.matrix.msc4147.device_keys"].algorithms"# => "++REDACTED++",
+                 r#"["sender_device_keys"].algorithms"# => "++REDACTED++",
                  ".recipient_keys.ed25519" => "[recipient_sender_key]",
             }
         );

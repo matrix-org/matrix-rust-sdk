@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Send stable identifier `sender_device_keys` for MSC4147 (Including device
+  keys with Olm-encrypted events).
+  ([#4964](https://github.com/matrix-org/matrix-rust-sdk/pull/4964))
+
 - Add experimental APIs for sharing encrypted room key history with new members, `Store::build_room_key_bundle` and `OlmMachine::share_room_key_bundle_data`.
   ([#4775](https://github.com/matrix-org/matrix-rust-sdk/pull/4775), [#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
 

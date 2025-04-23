@@ -1,6 +1,6 @@
 ---
 source: crates/matrix-sdk-crypto/src/machine/tests/send_encrypted_to_device.rs
-expression: "serde_json::from_str::<Value>(processed_event.to_raw().json().get()).unwrap()"
+expression: "processed_event.to_raw().deserialize_as::<Value>().unwrap()"
 ---
 {
   "content": {
@@ -16,17 +16,17 @@ expression: "serde_json::from_str::<Value>(processed_event.to_raw().json().get()
   "keys": {
     "ed25519": "[sender_ed25519_key]"
   },
-  "org.matrix.msc4147.device_keys": {
+  "recipient": "@bob:example.com",
+  "recipient_keys": {
+    "ed25519": "[recipient_sender_key]"
+  },
+  "sender": "@alice:example.org",
+  "sender_device_keys": {
     "algorithms": "++REDACTED++",
     "device_id": "[ABCDEFGH]",
     "keys": "++REDACTED++",
     "signatures": "++REDACTED++",
     "user_id": "@alice:example.org"
   },
-  "recipient": "@bob:example.com",
-  "recipient_keys": {
-    "ed25519": "[recipient_sender_key]"
-  },
-  "sender": "@alice:example.org",
   "type": "rtc.call.encryption_keys"
 }
