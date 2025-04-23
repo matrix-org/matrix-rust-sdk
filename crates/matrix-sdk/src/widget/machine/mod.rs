@@ -173,8 +173,9 @@ impl WidgetMachine {
                 capabilities
                     .raw_event_matches_read_filter(&event)
                     .then(|| {
-                        let action = self.send_to_widget_request(NotifyNewMatrixEvent(event)).1;
-                        action.map(|a| vec![a]).unwrap_or_default()
+                        self.send_to_widget_request(NotifyNewMatrixEvent(event))
+                            .map(|(_request, action)| vec![action])
+                            .unwrap_or_default()
                     })
                     .unwrap_or_default()
             }
@@ -260,9 +261,10 @@ impl WidgetMachine {
                                 }
                             };
 
-                            let action =
-                                machine.send_to_widget_request(NotifyOpenIdChanged(response)).1;
-                            action.map(|a| vec![a]).unwrap_or_default()
+                            machine
+                                .send_to_widget_request(NotifyOpenIdChanged(response))
+                                .map(|(_request, action)| vec![action])
+                                .unwrap_or_default()
                         });
 
                         request_action
@@ -562,7 +564,7 @@ impl WidgetMachine {
     fn send_to_widget_request<T: ToWidgetRequest>(
         &mut self,
         to_widget_request: T,
-    ) -> (ToWidgetRequestHandle<'_, T::ResponseData>, Option<Action>) {
+    ) -> Option<(ToWidgetRequestHandle<'_, T::ResponseData>, Action)> {
         #[derive(Serialize)]
         #[serde(tag = "api", rename = "toWidget", rename_all = "camelCase")]
         struct ToWidgetRequestSerdeHelper<'a, T> {
@@ -583,11 +585,11 @@ impl WidgetMachine {
         let request_meta = ToWidgetRequestMeta::new(T::ACTION);
         let Some(meta) = self.pending_to_widget_requests.insert(request_id, request_meta) else {
             warn!("Reached limits of pending requests for toWidget requests");
-            return (ToWidgetRequestHandle::null(), None);
+            return None;
         };
 
         let serialized = serde_json::to_string(&full_request).expect("Failed to serialize request");
-        (ToWidgetRequestHandle::new(meta), Some(Action::SendToWidget(serialized)))
+        Some((ToWidgetRequestHandle::new(meta), Action::SendToWidget(serialized)))
     }
 
     #[instrument(skip_all)]
@@ -615,40 +617,46 @@ impl WidgetMachine {
             matches!(&self.capabilities, CapabilitiesState::Negotiated(c) if !c.read.is_empty());
         self.capabilities = CapabilitiesState::Negotiating;
 
-        let (request, action) = self.send_to_widget_request(RequestCapabilities {});
+        let action =
+            self.send_to_widget_request(RequestCapabilities {}).map(|(request, action)| {
+                request.then(|response, machine| {
+                    let requested = response.capabilities;
 
-        request.then(|response, machine| {
-            let requested = response.capabilities;
+                    if let Some((request, action)) =
+                        machine.send_matrix_driver_request(AcquireCapabilities {
+                            desired_capabilities: requested.clone(),
+                        })
+                    {
+                        request.then(|result, machine| {
+                            let approved = result.unwrap_or_else(|e| {
+                                error!("Acquiring capabilities failed: {e}");
+                                Capabilities::default()
+                            });
 
-            if let Some((request, action)) =
-                machine.send_matrix_driver_request(AcquireCapabilities {
-                    desired_capabilities: requested.clone(),
-                })
-            {
-                request.then(|result, machine| {
-                    let approved = result.unwrap_or_else(|e| {
-                        error!("Acquiring capabilities failed: {e}");
-                        Capabilities::default()
-                    });
+                            let subscribe_required = !approved.read.is_empty();
+                            machine.capabilities = CapabilitiesState::Negotiated(approved.clone());
 
-                    let subscribe_required = !approved.read.is_empty();
-                    machine.capabilities = CapabilitiesState::Negotiated(approved.clone());
+                            let update = NotifyCapabilitiesChanged { approved, requested };
 
-                    let update = NotifyCapabilitiesChanged { approved, requested };
-                    let (_request, action) = machine.send_to_widget_request(update);
+                            let action = machine
+                                .send_to_widget_request(update)
+                                .map(|(_request, action)| action);
 
-                    subscribe_required
-                        .then_some(Action::Subscribe)
-                        .into_iter()
-                        .chain(action)
-                        .collect()
+                            subscribe_required
+                                .then_some(Action::Subscribe)
+                                .into_iter()
+                                .chain(action)
+                                .collect()
+                        });
+
+                        vec![action]
+                    } else {
+                        Vec::new()
+                    }
                 });
 
-                vec![action]
-            } else {
-                Vec::new()
-            }
-        });
+                action
+            });
 
         unsubscribe_required.then_some(Action::Unsubscribe).into_iter().chain(action).collect()
     }
