@@ -251,31 +251,29 @@ impl WidgetMachine {
                 let mut actions =
                     vec![Self::send_from_widget_response(raw_request, Ok(OpenIdResponse::Pending))];
 
-                if let Some(request_action) = self.send_matrix_driver_request(RequestOpenId).map(
-                    |(request, request_action)| {
-                        request.then(|res, machine| {
-                            let response = match res {
-                                Ok(res) => {
-                                    OpenIdResponse::Allowed(OpenIdState::new(request_id, res))
-                                }
-                                Err(msg) => {
-                                    info!("OpenID request failed: {msg}");
-                                    OpenIdResponse::Blocked { original_request_id: request_id }
-                                }
-                            };
+                let Some((request, request_action)) =
+                    self.send_matrix_driver_request(RequestOpenId)
+                else {
+                    // We're done, return early.
+                    return actions;
+                };
 
-                            machine
-                                .send_to_widget_request(NotifyOpenIdChanged(response))
-                                .map(|(_request, action)| vec![action])
-                                .unwrap_or_default()
-                        });
+                request.then(|res, machine| {
+                    let response = match res {
+                        Ok(res) => OpenIdResponse::Allowed(OpenIdState::new(request_id, res)),
+                        Err(msg) => {
+                            info!("OpenID request failed: {msg}");
+                            OpenIdResponse::Blocked { original_request_id: request_id }
+                        }
+                    };
 
-                        request_action
-                    },
-                ) {
-                    actions.push(request_action);
-                }
+                    machine
+                        .send_to_widget_request(NotifyOpenIdChanged(response))
+                        .map(|(_request, action)| vec![action])
+                        .unwrap_or_default()
+                });
 
+                actions.push(request_action);
                 actions
             }
 
@@ -347,21 +345,21 @@ impl WidgetMachine {
                 self.send_matrix_driver_request(request).map(|(request, action)| {
                     request.then(|result, machine| {
                         let response = match &machine.capabilities {
-                        CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
-                            "Received read event request before capabilities negotiation",
-                        )),
-                        CapabilitiesState::Negotiating => {
-                            Err(FromWidgetErrorResponse::from_string(
-                                "Received read event request while capabilities were negotiating",
-                            ))
-                        }
-                        CapabilitiesState::Negotiated(capabilities) => result
-                            .map(|mut events| {
-                                events.retain(|e| capabilities.raw_event_matches_read_filter(e));
-                                ReadEventResponse { events }
-                            })
-                            .map_err(FromWidgetErrorResponse::from_error),
-                    };
+                            CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
+                                "Received read event request before capabilities negotiation",
+                            )),
+                            CapabilitiesState::Negotiating => {
+                                Err(FromWidgetErrorResponse::from_string(
+                                    "Received read event request while capabilities were negotiating",
+                                ))
+                            }
+                            CapabilitiesState::Negotiated(capabilities) => result
+                                .map(|mut events| {
+                                    events.retain(|e| capabilities.raw_event_matches_read_filter(e));
+                                    ReadEventResponse { events }
+                                })
+                                .map_err(FromWidgetErrorResponse::from_error),
+                        };
 
                         vec![Self::send_from_widget_response(raw_request, response)]
                     });
@@ -390,16 +388,16 @@ impl WidgetMachine {
                 };
 
                 if allowed {
-                    let request = ReadStateEventRequest { event_type, state_key };
-                    self.send_matrix_driver_request(request).map(|(request, action)| {
-                        request.then(|result, _machine| {
-                            let response = result
-                                .map(|events| ReadEventResponse { events })
-                                .map_err(FromWidgetErrorResponse::from_error);
-                            vec![Self::send_from_widget_response(raw_request, response)]
-                        });
-                        action
-                    })
+                    self.send_matrix_driver_request(ReadStateEventRequest { event_type, state_key })
+                        .map(|(request, action)| {
+                            request.then(|result, _machine| {
+                                let response = result
+                                    .map(|events| ReadEventResponse { events })
+                                    .map_err(FromWidgetErrorResponse::from_error);
+                                vec![Self::send_from_widget_response(raw_request, response)]
+                            });
+                            action
+                        })
                 } else {
                     Some(Self::send_from_widget_error_string_response(
                         raw_request,
@@ -445,19 +443,19 @@ impl WidgetMachine {
             ));
         }
 
-        self.send_matrix_driver_request(request).map(|(request, action)| {
-            request.then(|mut result, machine| {
-                if let Ok(r) = result.as_mut() {
-                    r.set_room_id(machine.room_id.clone());
-                }
-                vec![Self::send_from_widget_response(
-                    raw_request,
-                    result.map_err(FromWidgetErrorResponse::from_error),
-                )]
-            });
+        let (request, action) = self.send_matrix_driver_request(request)?;
 
-            action
-        })
+        request.then(|mut result, machine| {
+            if let Ok(r) = result.as_mut() {
+                r.set_room_id(machine.room_id.clone());
+            }
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result.map_err(FromWidgetErrorResponse::from_error),
+            )]
+        });
+
+        Some(action)
     }
 
     #[instrument(skip_all, fields(?request_id))]
@@ -624,57 +622,53 @@ impl WidgetMachine {
 
         self.capabilities = CapabilitiesState::Negotiating;
 
-        if let Some(action) =
-            self.send_to_widget_request(RequestCapabilities {}).map(|(request, action)| {
-                request.then(|response, machine| {
-                    let requested_capabilities = response.capabilities;
+        let Some((request, action)) = self.send_to_widget_request(RequestCapabilities {}) else {
+            // We're done, return early.
+            return actions;
+        };
 
-                    if let Some((request, action)) =
-                        machine.send_matrix_driver_request(AcquireCapabilities {
-                            desired_capabilities: requested_capabilities.clone(),
-                        })
-                    {
-                        request.then(|result, machine| {
-                            let approved_capabilities = result.unwrap_or_else(|e| {
-                                error!("Acquiring capabilities failed: {e}");
-                                Capabilities::default()
-                            });
+        request.then(|response, machine| {
+            let requested_capabilities = response.capabilities;
 
-                            let mut actions = Vec::new();
-                            if !approved_capabilities.read.is_empty() {
-                                actions.push(Action::Subscribe);
-                            }
+            let Some((request, action)) = machine.send_matrix_driver_request(AcquireCapabilities {
+                desired_capabilities: requested_capabilities.clone(),
+            }) else {
+                // We're done, return early.
+                return Vec::new();
+            };
 
-                            machine.capabilities =
-                                CapabilitiesState::Negotiated(approved_capabilities.clone());
-
-                            let notify_caps_changed = NotifyCapabilitiesChanged {
-                                approved: approved_capabilities,
-                                requested: requested_capabilities,
-                            };
-
-                            if let Some(action) = machine
-                                .send_to_widget_request(notify_caps_changed)
-                                .map(|(_request, action)| action)
-                            {
-                                actions.push(action);
-                            }
-
-                            actions
-                        });
-
-                        vec![action]
-                    } else {
-                        Vec::new()
-                    }
+            request.then(|result, machine| {
+                let approved_capabilities = result.unwrap_or_else(|e| {
+                    error!("Acquiring capabilities failed: {e}");
+                    Capabilities::default()
                 });
 
-                action
-            })
-        {
-            actions.push(action);
-        }
+                let mut actions = Vec::new();
+                if !approved_capabilities.read.is_empty() {
+                    actions.push(Action::Subscribe);
+                }
 
+                machine.capabilities = CapabilitiesState::Negotiated(approved_capabilities.clone());
+
+                let notify_caps_changed = NotifyCapabilitiesChanged {
+                    approved: approved_capabilities,
+                    requested: requested_capabilities,
+                };
+
+                if let Some(action) = machine
+                    .send_to_widget_request(notify_caps_changed)
+                    .map(|(_request, action)| action)
+                {
+                    actions.push(action);
+                }
+
+                actions
+            });
+
+            vec![action]
+        });
+
+        actions.push(action);
         actions
     }
 }
