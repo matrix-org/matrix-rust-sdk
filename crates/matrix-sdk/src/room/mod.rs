@@ -456,6 +456,7 @@ impl Room {
     /// decrypted if needs be.
     ///
     /// Only logs from the crypto crate will indicate a failure to decrypt.
+    #[allow(clippy::unused_async)] // Used only in e2e-encryption.
     async fn try_decrypt_event(
         &self,
         event: Raw<AnyTimelineEvent>,
