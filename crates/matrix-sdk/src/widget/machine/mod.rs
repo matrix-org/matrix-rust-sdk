@@ -230,7 +230,7 @@ impl WidgetMachine {
             FromWidgetRequest::ContentLoaded {} => {
                 let mut response =
                     vec![Self::send_from_widget_response(raw_request, Ok(JsonObject::new()))];
-                if self.capabilities.is_unset() {
+                if matches!(self.capabilities, CapabilitiesState::Unset) {
                     response.append(&mut self.negotiate_capabilities());
                 }
                 response
@@ -664,11 +664,4 @@ enum CapabilitiesState {
     Negotiating,
     /// The capabilities have already been negotiated.
     Negotiated(Capabilities),
-}
-
-impl CapabilitiesState {
-    #[must_use]
-    fn is_unset(&self) -> bool {
-        matches!(self, Self::Unset)
-    }
 }
