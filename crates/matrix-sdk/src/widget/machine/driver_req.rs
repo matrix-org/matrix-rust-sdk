@@ -70,10 +70,6 @@ where
         Self { request_meta: Some(request_meta), _phantom: PhantomData }
     }
 
-    pub(crate) fn null() -> Self {
-        Self { request_meta: None, _phantom: PhantomData }
-    }
-
     /// Setup a callback function that will be called once the matrix driver has
     /// processed the request.
     pub(crate) fn then(
