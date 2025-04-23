@@ -1,0 +1,22 @@
+---
+source: crates/matrix-sdk-crypto/src/types/events/olm_v1.rs
+expression: event
+---
+{
+  "sender": "@alice:example.org",
+  "recipient": "@bob:example.org",
+  "keys": {
+    "ed25519": "aOfOnlaeMb5GW1TxkZ8pXnblkGMgAvps+lAukrdYaZk"
+  },
+  "recipient_keys": {
+    "ed25519": "aOfOnlaeMb5GW1TxkZ8pXnblkGMgAvps+lAukrdYaZk"
+  },
+  "content": {
+    "algorithm": "m.megolm.v1.aes-sha2",
+    "org.matrix.msc3061.shared_history": false,
+    "room_id": "!Cuyf34gef24t:localhost",
+    "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
+    "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjvSQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXijVv80fMPHfGc49hPdu8A+xnwD4SQiYdFmSWJOIqsxeo/fiHtino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaYU5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80gdHUwHSgMk77vCc2a5KHKLDA"
+  },
+  "type": "m.room_key"
+}

@@ -30,7 +30,7 @@ use crate::{
     error::{EventError, OlmResult, SessionUnpickleError},
     types::{
         events::{
-            olm_v1::DecryptedOlmV1Event,
+            olm_v1::{DecryptedOlmV1Event, OlmV1Keys},
             room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
             EventType,
         },
@@ -192,15 +192,13 @@ impl Session {
             let content = DecryptedOlmV1Event {
                 sender: self.our_device_keys.user_id.clone(),
                 recipient: recipient_device.user_id().into(),
-                keys: crate::types::events::olm_v1::OlmV1Keys {
+                keys: OlmV1Keys {
                     ed25519: self
                         .our_device_keys
                         .ed25519_key()
                         .expect("Our own device should have an Ed25519 public key"),
                 },
-                recipient_keys: crate::types::events::olm_v1::OlmV1Keys {
-                    ed25519: recipient_signing_key,
-                },
+                recipient_keys: OlmV1Keys { ed25519: recipient_signing_key },
                 sender_device_keys: Some(self.our_device_keys.clone()),
                 content,
             };
@@ -408,13 +406,10 @@ mod tests {
             )
             .unwrap();
 
-        // Also ensure that the encrypted payload has the device keys under the unstable
+        // Also ensure that the encrypted payload has the device keys under the stable
         // prefix
         let plaintext: Value = serde_json::from_str(&bob_session_result.plaintext).unwrap();
-        assert_eq!(
-            plaintext["org.matrix.msc4147.device_keys"]["user_id"].as_str(),
-            Some("@alice:localhost")
-        );
+        assert_eq!(plaintext["sender_device_keys"]["user_id"].as_str(), Some("@alice:localhost"));
 
         // And the serialized object matches the format as specified in
         // DecryptedOlmV1Event
