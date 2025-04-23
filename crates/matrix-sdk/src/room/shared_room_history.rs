@@ -15,6 +15,7 @@
 use std::iter;
 
 use ruma::OwnedUserId;
+use tracing::{info, instrument, warn};
 
 use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error, Result, Room};
 
@@ -22,9 +23,21 @@ use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error,
 /// as per [MSC4268].
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+#[instrument(skip(room), fields(room_id = ?room.room_id()))]
 pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
-    tracing::info!("Sharing message history in {} with {}", room.room_id(), user_id);
     let client = &room.client;
+
+    // 0. We can only share room history if our user has set up cross signing
+    let own_identity = match client.user_id() {
+        Some(own_user) => client.encryption().get_user_identity(own_user).await?,
+        None => None,
+    };
+    if own_identity.is_none() {
+        warn!("Not sharing message history as cross-signing is not set up");
+        return Ok(());
+    }
+
+    info!("Sharing message history");
 
     // 1. Construct the key bundle
     let bundle = {
@@ -34,7 +47,7 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
     };
 
     if bundle.is_empty() {
-        tracing::info!("No keys to share");
+        info!("No keys to share");
         return Ok(());
     }
 
@@ -43,7 +56,7 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
     let upload =
         client.upload_encrypted_file(&mime::APPLICATION_JSON, &mut (json.as_slice())).await?;
 
-    tracing::info!(
+    info!(
         media_url = ?upload.url,
         shared_keys = bundle.room_keys.len(),
         withheld_keys = bundle.withheld.len(),

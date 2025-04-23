@@ -158,10 +158,7 @@ use crate::{
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
-use crate::{
-    crypto::types::events::CryptoContextInfo, encryption::backups::BackupState,
-    room::shared_room_history::share_room_history,
-};
+use crate::{crypto::types::events::CryptoContextInfo, encryption::backups::BackupState};
 
 pub mod edit;
 pub mod futures;
@@ -1480,6 +1477,11 @@ impl Room {
     /// * `user_id` - The `UserId` of the user to invite to the room.
     #[instrument(skip_all)]
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        {
+            shared_room_history::share_room_history(self, user_id.to_owned()).await?;
+        }
+
         let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request).await?;
@@ -1804,21 +1806,6 @@ impl Room {
         }
 
         Ok(())
-    }
-
-    /// Share any shareable E2EE history in this room with the given recipient,
-    /// as per [MSC4268].
-    ///
-    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    ///
-    /// This is temporarily exposed for integration testing as part of
-    /// experimental work on history sharing. In future, it will be combined
-    /// with sending an invite.
-    #[cfg(feature = "e2e-encryption")]
-    #[doc(hidden)]
-    #[instrument(skip_all, fields(room_id = ?self.room_id(), ?user_id))]
-    pub async fn share_history<'a>(&'a self, user_id: &UserId) -> Result<()> {
-        share_room_history(self, user_id.to_owned()).await
     }
 
     /// Wait for the room to be fully synced.
