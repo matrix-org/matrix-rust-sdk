@@ -24,7 +24,7 @@ use tokio::time::timeout as tokio_timeout;
 
 /// Error type notifying that a timeout has elapsed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ElapsedError(());
+pub struct ElapsedError();
 
 impl fmt::Display for ElapsedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -44,7 +44,7 @@ where
     F: Future<Output = T>,
 {
     #[cfg(not(target_arch = "wasm32"))]
-    return tokio_timeout(duration, future).await.map_err(|_| ElapsedError(()));
+    return tokio_timeout(duration, future).await.map_err(|_| ElapsedError());
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -53,7 +53,7 @@ where
 
         match select(std::pin::pin!(future), timeout_future).await {
             Either::Left((res, _)) => Ok(res),
-            Either::Right((_, _)) => Err(ElapsedError(())),
+            Either::Right((_, _)) => Err(ElapsedError()),
         }
     }
 }

@@ -199,7 +199,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     // Note we do it all the time, because we might have sync'd members before
                     // sending a message (so didn't enter the above branch), but
                     // could have not query their keys ever.
-                    room.query_keys_for_untracked_users().await?;
+                    room.query_keys_for_untracked_or_dirty_users().await?;
 
                     room.preshare_room_key().await?;
 
