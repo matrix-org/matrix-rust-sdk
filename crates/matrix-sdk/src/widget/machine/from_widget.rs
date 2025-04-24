@@ -152,15 +152,15 @@ pub(super) enum ApiVersion {
     #[serde(rename = "0.0.2")]
     V0_0_2,
 
-    /// Supports sending and receiving of events.
+    /// Supports sending and receiving events.
     #[serde(rename = "org.matrix.msc2762")]
     MSC2762,
 
-    /// Supports receiving of room state with the `update_state` action.
+    /// Supports receiving room state with the `update_state` action.
     #[serde(rename = "org.matrix.msc2762_update_state")]
     MSC2762UpdateState,
 
-    /// Supports sending of approved capabilities back to the widget.
+    /// Supports sending approved capabilities back to the widget.
     #[serde(rename = "org.matrix.msc2871")]
     MSC2871,
 
@@ -176,7 +176,7 @@ pub(super) enum ApiVersion {
     #[serde(rename = "org.matrix.msc2876")]
     MSC2876,
 
-    /// Supports sending and receiving of to-device events.
+    /// Supports sending and receiving to-device events.
     #[serde(rename = "org.matrix.msc3819")]
     MSC3819,
 
