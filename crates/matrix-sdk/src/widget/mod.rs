@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Widget API implementation.
+#![allow(rustdoc::private_intra_doc_links)]
+#![doc = include_str!("README.md")]
 
 use std::{fmt, time::Duration};
 
@@ -242,7 +243,7 @@ impl WidgetDriver {
                         .map(MatrixDriverResponse::MatrixDelayedEventUpdate),
                 };
 
-                // Forward the matrix driver response to the incoming message stream.
+                // Forward the Matrix driver response to the incoming message stream.
                 incoming_msg_tx
                     .send(IncomingMessage::MatrixDriverResponse { request_id, response })
                     .map_err(|_| ())?;

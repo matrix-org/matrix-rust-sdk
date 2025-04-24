@@ -111,7 +111,7 @@ impl ToWidgetRequest for NotifyOpenIdChanged {
     type ResponseData = OpenIdResponse;
 }
 
-/// Notify the widget that we received a new matrix event.
+/// Notify the widget that we received a new Matrix event.
 /// This is a "response" to the widget subscribing to the events in the room.
 #[derive(Serialize)]
 #[serde(transparent)]

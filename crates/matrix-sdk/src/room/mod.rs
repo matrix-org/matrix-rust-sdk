@@ -2385,7 +2385,7 @@ impl Room {
     /// Sets the new avatar url for this room.
     ///
     /// # Arguments
-    /// * `avatar_url` - The owned matrix uri that represents the avatar
+    /// * `avatar_url` - The owned Matrix uri that represents the avatar
     /// * `info` - The optional image info that can be provided for the avatar
     pub async fn set_avatar_url(
         &self,
