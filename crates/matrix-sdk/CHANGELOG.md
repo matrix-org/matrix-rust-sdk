@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
 ### Features
 
 - `Room::list_threads()` is a new method to list all the threads in a room.
+  ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
+- `Room::relations()` is a new method to list all the events related to another event
+  ("relations"), with additional filters for relation type or relation type + event type.
+  ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
 
 ### Bug fixes
 

@@ -54,7 +54,6 @@ use matrix_sdk_common::{
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
-use messages::{ListThreadsOptions, ThreadRoots};
 use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "e2e-encryption")]
@@ -132,7 +131,10 @@ use tracing::{debug, info, instrument, warn};
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
     member::{RoomMember, RoomMemberRole},
-    messages::{EventWithContextResponse, Messages, MessagesOptions},
+    messages::{
+        EventWithContextResponse, IncludeRelations, ListThreadsOptions, Messages, MessagesOptions,
+        Relations, RelationsOptions, ThreadRoots,
+    },
 };
 #[cfg(doc)]
 use crate::event_cache::EventCache;
@@ -3568,6 +3570,27 @@ impl Room {
 
         Ok(ThreadRoots { chunk, prev_batch_token: response.next_batch })
     }
+
+    /// Retrieve a list of relations for the given event, according to the given
+    /// options.
+    ///
+    /// Since this client-server API is paginated, the return type may include a
+    /// token used to resuming back-pagination into the list of results, in
+    /// [`Relations::prev_batch_token`]. This token can be fed back into
+    /// [`RelationsOptions::from`] to continue the pagination from the previous
+    /// position.
+    ///
+    /// **Note**: if [`RelationsOptions::from`] is set for a subsequent request,
+    /// then it must be used with the same
+    /// [`RelationsOptions::include_relations`] value as the request that
+    /// returns the `from` token, otherwise the server behavior is undefined.
+    pub async fn relations(
+        &self,
+        event_id: OwnedEventId,
+        opts: RelationsOptions,
+    ) -> Result<Relations> {
+        opts.send(self, event_id).await
+    }
 }
 
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
@@ -3887,7 +3910,11 @@ mod tests {
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder,
     };
-    use ruma::{event_id, events::room::member::MembershipState, int, room_id, user_id};
+    use ruma::{
+        event_id,
+        events::{relation::RelationType, room::member::MembershipState},
+        int, owned_event_id, room_id, user_id,
+    };
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
@@ -3896,8 +3923,12 @@ mod tests {
     use super::ReportedContentScore;
     use crate::{
         config::RequestConfig,
-        room::messages::ListThreadsOptions,
-        test_utils::{client::mock_matrix_session, logged_in_client, mocks::MatrixMockServer},
+        room::messages::{IncludeRelations, ListThreadsOptions, RelationsOptions},
+        test_utils::{
+            client::mock_matrix_session,
+            logged_in_client,
+            mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+        },
         Client,
     };
 
@@ -4283,5 +4314,129 @@ mod tests {
         assert_eq!(result.chunk.len(), 1);
         assert_eq!(result.chunk[0].event_id().unwrap(), eid2);
         assert!(result.prev_batch_token.is_none());
+    }
+
+    #[async_test]
+    async fn test_relations() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+
+        let target_event_id = owned_event_id!("$target");
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let batch1 = vec![f.text_msg("Related event 1").event_id(eid1).into_raw_sync().cast()];
+        let batch2 = vec![f.text_msg("Related event 2").event_id(eid2).into_raw_sync().cast()];
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .ok(RoomRelationsResponseTemplate::default().events(batch1).next_batch("next_batch"))
+            .mock_once()
+            .mount()
+            .await;
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .match_from("next_batch")
+            .ok(RoomRelationsResponseTemplate::default().events(batch2))
+            .mock_once()
+            .mount()
+            .await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        // Main endpoint: no relation type filtered out.
+        let mut opts = RelationsOptions {
+            include_relations: IncludeRelations::AllRelations,
+            ..Default::default()
+        };
+        let result = room
+            .relations(target_event_id.clone(), opts.clone())
+            .await
+            .expect("Failed to list relations the first time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid1);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_some());
+        assert!(result.recursion_depth.is_none());
+
+        opts.from = result.next_batch_token;
+        let result = room
+            .relations(target_event_id, opts)
+            .await
+            .expect("Failed to list relations the second time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid2);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_none());
+        assert!(result.recursion_depth.is_none());
+    }
+
+    #[async_test]
+    async fn test_relations_with_reltype() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+
+        let target_event_id = owned_event_id!("$target");
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let batch1 = vec![f.text_msg("In-thread event 1").event_id(eid1).into_raw_sync().cast()];
+        let batch2 = vec![f.text_msg("In-thread event 2").event_id(eid2).into_raw_sync().cast()];
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .match_subrequest(IncludeRelations::RelationsOfType(RelationType::Thread))
+            .ok(RoomRelationsResponseTemplate::default().events(batch1).next_batch("next_batch"))
+            .mock_once()
+            .mount()
+            .await;
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .match_from("next_batch")
+            .match_subrequest(IncludeRelations::RelationsOfType(RelationType::Thread))
+            .ok(RoomRelationsResponseTemplate::default().events(batch2))
+            .mock_once()
+            .mount()
+            .await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        // Reltype-filtered endpoint, for threads \o/
+        let mut opts = RelationsOptions {
+            include_relations: IncludeRelations::RelationsOfType(RelationType::Thread),
+            ..Default::default()
+        };
+        let result = room
+            .relations(target_event_id.clone(), opts.clone())
+            .await
+            .expect("Failed to list relations the first time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid1);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_some());
+        assert!(result.recursion_depth.is_none());
+
+        opts.from = result.next_batch_token;
+        let result = room
+            .relations(target_event_id, opts)
+            .await
+            .expect("Failed to list relations the second time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid2);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_none());
+        assert!(result.recursion_depth.is_none());
     }
 }

@@ -14,21 +14,26 @@
 
 use std::fmt;
 
+use futures_util::future::join_all;
 use matrix_sdk_common::{debug::DebugStructExt as _, deserialized_responses::TimelineEvent};
 use ruma::{
     api::{
         client::{
             filter::RoomEventFilter,
             message::get_message_events,
+            relations,
             threads::get_threads::{self, v1::IncludeThreads},
         },
         Direction,
     },
     assign,
-    events::AnyStateEvent,
+    events::{relation::RelationType, AnyStateEvent, TimelineEventType},
     serde::Raw,
-    uint, RoomId, UInt,
+    uint, OwnedEventId, RoomId, UInt,
 };
+
+use super::Room;
+use crate::Result;
 
 /// Options for [`messages`][super::Room::messages].
 ///
@@ -223,4 +228,150 @@ pub struct ThreadRoots {
     /// Token to paginate backwards in a subsequent query to
     /// [`super::Room::list_threads`].
     pub prev_batch_token: Option<String>,
+}
+
+/// What kind of relations should be included in a [`super::Room::relations`]
+/// query.
+#[derive(Clone, Debug, Default)]
+pub enum IncludeRelations {
+    /// Include all relations independently of their relation type.
+    #[default]
+    AllRelations,
+    /// Include all relations of a given relation type.
+    RelationsOfType(RelationType),
+    /// Include all relations of a given relation type and event type.
+    RelationsOfTypeAndEventType(RelationType, TimelineEventType),
+}
+
+/// Options for [`messages`][super::Room::relations].
+#[derive(Clone, Debug, Default)]
+pub struct RelationsOptions {
+    /// The token to start returning events from.
+    ///
+    /// This token can be obtained from a [`Relations::prev_batch_token`]
+    /// returned by a previous call to [`super::Room::relations()`].
+    ///
+    /// If `from` isn't provided the homeserver shall return a list of thread
+    /// roots from end of the timeline history.
+    pub from: Option<String>,
+
+    /// The direction to return events in.
+    ///
+    /// Defaults to backwards.
+    pub dir: Direction,
+
+    /// The maximum number of events to return.
+    ///
+    /// Default: 10.
+    pub limit: Option<UInt>,
+
+    /// Optional restrictions on the relations to include based on their type or
+    /// event type.
+    ///
+    /// Defaults to all relations.
+    pub include_relations: IncludeRelations,
+
+    /// Whether to include events which relate indirectly to the given event.
+    ///
+    /// These are events related to the given event via two or more direct
+    /// relationships.
+    pub recurse: bool,
+}
+
+impl RelationsOptions {
+    /// Converts this options object into a request, according to the filled
+    /// parameters, and returns a canonicalized response.
+    pub(super) async fn send(self, room: &Room, event: OwnedEventId) -> Result<Relations> {
+        macro_rules! fill_params {
+            ($request:expr) => {
+                assign! { $request, {
+                    from: self.from,
+                    dir: self.dir,
+                    limit: self.limit,
+                    recurse: self.recurse,
+                }}
+            };
+        }
+
+        // This match to common out the different `Response` types into a single one. It
+        // would've been nice that Ruma used the same response type for all the
+        // responses, but it is likely doing so to guard against possible future
+        // changes.
+        let (chunk, prev_batch, next_batch, recursion_depth) = match self.include_relations {
+            IncludeRelations::AllRelations => {
+                let request = fill_params!(relations::get_relating_events::v1::Request::new(
+                    room.room_id().to_owned(),
+                    event,
+                ));
+                let response = room.client.send(request).await?;
+                (response.chunk, response.prev_batch, response.next_batch, response.recursion_depth)
+            }
+
+            IncludeRelations::RelationsOfType(relation_type) => {
+                let request =
+                    fill_params!(relations::get_relating_events_with_rel_type::v1::Request::new(
+                        room.room_id().to_owned(),
+                        event,
+                        relation_type,
+                    ));
+                let response = room.client.send(request).await?;
+                (response.chunk, response.prev_batch, response.next_batch, response.recursion_depth)
+            }
+
+            IncludeRelations::RelationsOfTypeAndEventType(relation_type, timeline_event_type) => {
+                let request = fill_params!(
+                    relations::get_relating_events_with_rel_type_and_event_type::v1::Request::new(
+                        room.room_id().to_owned(),
+                        event,
+                        relation_type,
+                        timeline_event_type,
+                    )
+                );
+                let response = room.client.send(request).await?;
+                (response.chunk, response.prev_batch, response.next_batch, response.recursion_depth)
+            }
+        };
+
+        let push_ctx = room.push_context().await?;
+        let chunk = join_all(chunk.into_iter().map(|ev| {
+            // Cast safety: an `AnyMessageLikeEvent` is a subset of an `AnyTimelineEvent`.
+            room.try_decrypt_event(ev.cast(), push_ctx.as_ref())
+        }))
+        .await;
+
+        Ok(Relations {
+            chunk,
+            prev_batch_token: prev_batch,
+            next_batch_token: next_batch,
+            recursion_depth,
+        })
+    }
+}
+
+/// The result of a [`super::Room::relations`] query.
+///
+/// This is a wrapper around the Ruma equivalents, with events decrypted if
+/// needs be.
+#[derive(Debug)]
+pub struct Relations {
+    /// The events related to the specified event from the request.
+    ///
+    /// Note: the events will be sorted according to the `dir` parameter:
+    /// - if the direction was backwards, then the events will be ordered in
+    ///   reverse topological order.
+    /// - if the direction was forwards, then the events will be ordered in
+    ///   topological order.
+    pub chunk: Vec<TimelineEvent>,
+
+    /// An opaque string representing a pagination token to retrieve the
+    /// previous batch of events.
+    pub prev_batch_token: Option<String>,
+
+    /// An opaque string representing a pagination token to retrieve the next
+    /// batch of events.
+    pub next_batch_token: Option<String>,
+
+    /// If [`RelationsOptions::recurse`] was set, the depth to which the server
+    /// recursed.
+    pub recursion_depth: Option<UInt>,
 }
