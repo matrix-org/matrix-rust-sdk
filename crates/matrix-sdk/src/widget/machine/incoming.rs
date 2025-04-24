@@ -22,7 +22,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use uuid::Uuid;
 
 use super::{
-    from_widget::{FromWidgetRequest, SendEventResponse},
+    from_widget::{SendEventResponse, WidgetToDriverRequest},
     to_widget::ToWidgetResponse,
 };
 use crate::widget::Capabilities;
@@ -76,7 +76,7 @@ pub(super) struct IncomingWidgetMessage {
 
 #[derive(Debug)]
 pub(super) enum IncomingWidgetMessageKind {
-    Request(Raw<FromWidgetRequest>),
+    Request(Raw<WidgetToDriverRequest>),
     Response(ToWidgetResponse),
 }
 
