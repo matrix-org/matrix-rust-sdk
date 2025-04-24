@@ -332,6 +332,36 @@ pub async fn create_signed_device_of_unverified_user(
     device
 }
 
+/// Sign the given [`DeviceKeys`] with a cross-signing identity, then sign the
+/// identity with our own identity, and wrap both up as a [`Device`].
+pub async fn create_signed_device_of_verified_user(
+    mut device_keys: DeviceKeys,
+    device_owner_identity: &PrivateCrossSigningIdentity,
+    own_identity: &PrivateCrossSigningIdentity,
+) -> Device {
+    // Sign the device keys with the owner's identity.
+    {
+        let self_signing = device_owner_identity.self_signing_key.lock().await;
+        let self_signing = self_signing.as_ref().unwrap();
+        self_signing.sign_device(&mut device_keys).unwrap();
+    }
+
+    let mut public_identity = OtherUserIdentityData::from_private(device_owner_identity).await;
+
+    // Sign the public identity of the owner with our own identity.
+    sign_user_identity_data(own_identity, &mut public_identity).await;
+
+    let device = Device {
+        inner: DeviceData::try_from(&device_keys).unwrap(),
+        verification_machine: dummy_verification_machine(),
+        own_identity: Some(own_identity.to_public_identity().await.unwrap()),
+        device_owner_identity: Some(public_identity.into()),
+    };
+    assert!(device.is_cross_signed_by_owner());
+    assert!(device.is_cross_signing_trusted());
+    device
+}
+
 /// Sign a public user identity with our own user-signing key.
 pub async fn sign_user_identity_data(
     signer_private_identity: &PrivateCrossSigningIdentity,

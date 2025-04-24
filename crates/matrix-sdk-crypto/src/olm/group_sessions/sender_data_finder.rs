@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use ruma::UserId;
-use tracing::error;
 use vodozemac::Curve25519PublicKey;
 
-use super::{InboundGroupSession, KnownSenderData, SenderData};
+use super::{InboundGroupSession, SenderData};
 use crate::{
     error::MismatchedIdentityKeysError, store::Store, types::events::olm_v1::DecryptedRoomKeyEvent,
     CryptoStoreError, Device, DeviceData, MegolmError, OlmError, SignatureError,
@@ -229,57 +228,14 @@ impl<'a> SenderDataFinder<'a> {
         // Is the session owned by the device?
         let device_is_owner = sender_device.is_owner_of_session(self.session)?;
 
-        // Is the device cross-signed?
-        // Does the cross-signing key match that used to sign the device?
-        // And is the signature in the device valid?
-        let cross_signed = sender_device.is_cross_signed_by_owner();
-
-        Ok(match (device_is_owner, cross_signed) {
-            (true, true) => self.device_is_cross_signed_by_sender(sender_device),
-            (true, false) => {
-                // F (we have device keys, but they are not signed by the sender)
-                SenderData::device_info(sender_device.as_device_keys().clone())
-            }
-            (false, _) => {
-                // Step E (the device does not own the session)
-                // Give up: something is wrong with the session.
-                SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true }
-            }
-        })
-    }
-
-    /// Step G (device is cross-signed by the sender)
-    fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> SenderData {
-        // H (cross-signing key matches that used to sign the device!)
-        let user_id = sender_device.user_id().to_owned();
-        let device_id = Some(sender_device.device_id().to_owned());
-
-        let master_key = sender_device
-            .device_owner_identity
-            .as_ref()
-            .and_then(|i| i.master_key().get_first_key());
-
-        if let Some(master_key) = master_key {
-            // We have user_id and master_key for the user sending the to-device message.
-            let master_key = Box::new(master_key);
-            let known_sender_data = KnownSenderData { user_id, device_id, master_key };
-            if sender_device.is_cross_signing_trusted() {
-                SenderData::SenderVerified(known_sender_data)
-            } else if sender_device
-                .device_owner_identity
-                .expect("User with master key must have identity")
-                .was_previously_verified()
-            {
-                SenderData::VerificationViolation(known_sender_data)
-            } else {
-                SenderData::SenderUnverified(known_sender_data)
-            }
+        if !device_is_owner {
+            // Step E (the device does not own the session)
+            // Give up: something is wrong with the session.
+            Ok(SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true })
         } else {
-            // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
-            // treat it as if the device was not signed by this master key.
-            //
-            error!("MasterPubkey for user {user_id} does not contain any keys!",);
-            SenderData::device_info(sender_device.as_device_keys().clone())
+            // Steps F, G, and H: we have a device, which may or may not be signed by the
+            // sender.
+            Ok(SenderData::from_device(&sender_device))
         }
     }
 }
