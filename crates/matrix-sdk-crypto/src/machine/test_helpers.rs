@@ -15,7 +15,7 @@
 //! A set of helper functions for creating [`OlmMachine`]s, and pairs of
 //! interconnected machines.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 use as_variant::as_variant;
 use matrix_sdk_test::{ruma_response_from_json, test_json};
@@ -32,11 +32,14 @@ use ruma::{
     user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
 };
 use serde_json::json;
+use tokio::sync::Mutex;
 
 use crate::{
-    store::{Changes, MemoryStore},
-    types::{events::ToDeviceEvent, requests::AnyOutgoingRequest},
-    CrossSigningBootstrapRequests, DeviceData, OlmMachine,
+    olm::PrivateCrossSigningIdentity,
+    store::{Changes, CryptoStoreWrapper, MemoryStore},
+    types::{events::ToDeviceEvent, requests::AnyOutgoingRequest, DeviceKeys},
+    verification::VerificationMachine,
+    Account, CrossSigningBootstrapRequests, Device, DeviceData, OlmMachine, OtherUserIdentityData,
 };
 
 /// These keys need to be periodically uploaded to the server.
@@ -275,4 +278,70 @@ pub fn bootstrap_requests_to_keys_query_response(
     }
 
     ruma_response_from_json(&kq_response)
+}
+
+/// Create a [`VerificationMachine`] which won't do any useful verification.
+///
+/// Helper for [`create_signed_device_of_unverified_user`] and
+/// [`create_unsigned_device`].
+fn dummy_verification_machine() -> VerificationMachine {
+    let account = Account::new(user_id!("@TEST_USER:example.com"));
+    VerificationMachine::new(
+        account.deref().clone(),
+        Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(account.user_id().to_owned()))),
+        Arc::new(CryptoStoreWrapper::new(
+            account.user_id(),
+            account.device_id(),
+            MemoryStore::new(),
+        )),
+    )
+}
+
+/// Wrap the given [`DeviceKeys`] into a [`Device`], with no known owner
+/// identity.
+pub fn create_unsigned_device(device_keys: DeviceKeys) -> Device {
+    Device {
+        inner: DeviceData::try_from(&device_keys).unwrap(),
+        verification_machine: dummy_verification_machine(),
+        own_identity: None,
+        device_owner_identity: None,
+    }
+}
+
+/// Sign the given [`DeviceKeys`] with a cross-signing identity, and wrap it up
+/// as a [`Device`] with that identity.
+pub async fn create_signed_device_of_unverified_user(
+    mut device_keys: DeviceKeys,
+    device_owner_identity: &PrivateCrossSigningIdentity,
+) -> Device {
+    {
+        let self_signing = device_owner_identity.self_signing_key.lock().await;
+        let self_signing = self_signing.as_ref().unwrap();
+        self_signing.sign_device(&mut device_keys).unwrap();
+    }
+
+    let public_identity = OtherUserIdentityData::from_private(device_owner_identity).await;
+
+    let device = Device {
+        inner: DeviceData::try_from(&device_keys).unwrap(),
+        verification_machine: dummy_verification_machine(),
+        own_identity: None,
+        device_owner_identity: Some(public_identity.into()),
+    };
+    assert!(device.is_cross_signed_by_owner());
+    device
+}
+
+/// Sign a public user identity with our own user-signing key.
+pub async fn sign_user_identity_data(
+    signer_private_identity: &PrivateCrossSigningIdentity,
+    other_user_identity: &mut OtherUserIdentityData,
+) {
+    let user_signing = signer_private_identity.user_signing_key.lock().await;
+
+    let user_signing = user_signing.as_ref().unwrap();
+    let master = user_signing.sign_user(&*other_user_identity).unwrap();
+    other_user_identity.master_key = Arc::new(master.try_into().unwrap());
+
+    user_signing.public_key().verify_master_key(other_user_identity.master_key()).unwrap();
 }

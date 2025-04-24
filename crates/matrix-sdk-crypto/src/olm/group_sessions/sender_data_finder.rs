@@ -381,6 +381,10 @@ mod tests {
     use super::SenderDataFinder;
     use crate::{
         error::MismatchedIdentityKeysError,
+        machine::test_helpers::{
+            create_signed_device_of_unverified_user, create_unsigned_device,
+            sign_user_identity_data,
+        },
         olm::{
             group_sessions::sender_data_finder::SessionDeviceKeysCheckError, InboundGroupSession,
             KnownSenderData, PrivateCrossSigningIdentity, SenderData,
@@ -394,7 +398,7 @@ mod tests {
             EventEncryptionAlgorithm,
         },
         verification::VerificationMachine,
-        Account, Device, DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
+        Account, Device, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
     };
 
     impl<'a> SenderDataFinder<'a> {
@@ -828,9 +832,13 @@ mod tests {
             let sender = TestUser::other(&me, &options).await;
 
             let sender_device = if options.device_is_signed {
-                create_signed_device(&sender.account, &*sender.private_identity.lock().await).await
+                create_signed_device_of_unverified_user(
+                    sender.account.device_keys(),
+                    &*sender.private_identity.lock().await,
+                )
+                .await
             } else {
-                create_unsigned_device(&sender.account)
+                create_unsigned_device(sender.account.device_keys())
             };
 
             let store = create_store(&me);
@@ -1008,14 +1016,7 @@ mod tests {
     ) {
         if let Some(signer) = signer {
             let signer_private_identity = signer.private_identity.lock().await;
-
-            let user_signing = signer_private_identity.user_signing_key.lock().await;
-
-            let user_signing = user_signing.as_ref().unwrap();
-            let master = user_signing.sign_user(&*other_user_identity).unwrap();
-            other_user_identity.master_key = Arc::new(master.try_into().unwrap());
-
-            user_signing.public_key().verify_master_key(other_user_identity.master_key()).unwrap();
+            sign_user_identity_data(signer_private_identity.deref(), other_user_identity).await;
         } else {
             panic!("You must provide a `signer` if you want an Other to be verified!");
         }
@@ -1023,45 +1024,6 @@ mod tests {
 
     async fn create_private_identity(account: &Account) -> PrivateCrossSigningIdentity {
         PrivateCrossSigningIdentity::with_account(account).await.0
-    }
-
-    async fn create_signed_device(
-        account: &Account,
-        private_identity: &PrivateCrossSigningIdentity,
-    ) -> Device {
-        let mut read_only_device = DeviceData::from_account(account);
-
-        let self_signing = private_identity.self_signing_key.lock().await;
-        let self_signing = self_signing.as_ref().unwrap();
-
-        let mut device_keys = read_only_device.as_device_keys().to_owned();
-        self_signing.sign_device(&mut device_keys).unwrap();
-        read_only_device.update_device(&device_keys).unwrap();
-
-        wrap_device(account, read_only_device)
-    }
-
-    fn create_unsigned_device(account: &Account) -> Device {
-        wrap_device(account, DeviceData::from_account(account))
-    }
-
-    fn wrap_device(account: &Account, read_only_device: DeviceData) -> Device {
-        Device {
-            inner: read_only_device,
-            verification_machine: VerificationMachine::new(
-                account.deref().clone(),
-                Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(
-                    account.user_id().to_owned(),
-                ))),
-                Arc::new(CryptoStoreWrapper::new(
-                    account.user_id(),
-                    account.device_id(),
-                    MemoryStore::new(),
-                )),
-            ),
-            own_identity: None,
-            device_owner_identity: None,
-        }
     }
 
     fn create_room_key_event(
