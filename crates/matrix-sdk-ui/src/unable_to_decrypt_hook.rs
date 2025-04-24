@@ -36,7 +36,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId,
 };
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard};
-use tracing::error;
+use tracing::{error, trace};
 
 /// A generic interface which methods get called whenever we observe a
 /// unable-to-decrypt (UTD) event.
@@ -234,6 +234,7 @@ impl UtdHookManager {
         event_timestamp: MilliSecondsSinceUnixEpoch,
         sender_user_id: &UserId,
     ) {
+        trace!("On UTD for event {}", event_id);
         // Hold the lock on `reported_utds` throughout, to avoid races with other
         // threads.
         let mut reported_utds_lock = self.reported_utds.lock().await;
@@ -331,6 +332,7 @@ impl UtdHookManager {
     /// Note: if this is called for an event that was never marked as a UTD
     /// before, it has no effect.
     pub(crate) async fn on_late_decrypt(&self, event_id: &EventId) {
+        trace!("On late decrypt for event {}", event_id);
         // Hold the lock on `reported_utds` throughout, to avoid races with other
         // threads.
         let mut reported_utds_lock = self.reported_utds.lock().await;
@@ -339,6 +341,7 @@ impl UtdHookManager {
         // a pending UTD. If so, remove the event from the pending list —
         // doing so will cause the reporting task to no-op if it runs.
         let Some(pending_utd_report) = self.pending_delayed.lock().unwrap().remove(event_id) else {
+            trace!("Received a late decrypt report for an unknown utd, eventId:{}", event_id);
             return;
         };
 
