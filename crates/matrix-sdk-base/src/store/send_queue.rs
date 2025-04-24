@@ -261,7 +261,8 @@ pub enum DependentQueuedRequestKind {
 }
 
 /// If parent_is_thumbnail_upload is missing, we assume the request is for a
-/// file upload following a thumbnail upload.
+/// file upload following a thumbnail upload. This was the only possible case
+/// before parent_is_thumbnail_upload was introduced.
 #[cfg(feature = "unstable-msc4274")]
 fn default_parent_is_thumbnail_upload() -> bool {
     true
