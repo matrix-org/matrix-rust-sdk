@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Widget API implementation.
+#![doc = include_str!("README.md")]
 
 use std::{fmt, time::Duration};
 
