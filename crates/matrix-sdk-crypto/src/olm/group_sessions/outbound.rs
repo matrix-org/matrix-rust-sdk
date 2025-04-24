@@ -160,7 +160,7 @@ pub struct OutboundGroupSession {
     pub(crate) shared_with_set:
         Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>>>,
     #[allow(clippy::type_complexity)]
-    pub(crate) to_share_with_set:
+    to_share_with_set:
         Arc<StdRwLock<BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>>,
 }
 
