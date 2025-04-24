@@ -20,6 +20,10 @@ All notable changes to this project will be documented in this file.
   (as per [MSC4147](https://github.com/matrix-org/matrix-spec-proposals/pull/4147)).
   ([#4922](https://github.com/matrix-org/matrix-rust-sdk/pull/4922))
 
+- Fix bug which caused room keys to be unnecessarily rotated on every send in the
+  presence of blacklisted/withheld devices in the room.
+  ([#4954](https://github.com/matrix-org/matrix-rust-sdk/pull/4954))
+
 ## [0.11.0] - 2025-04-11
 
 ### Features
