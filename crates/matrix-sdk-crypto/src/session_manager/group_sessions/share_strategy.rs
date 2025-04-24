@@ -762,17 +762,21 @@ mod tests {
         },
     };
     use ruma::{
-        device_id, events::room::history_visibility::HistoryVisibility, room_id, TransactionId,
+        device_id,
+        events::{dummy::ToDeviceDummyEventContent, room::history_visibility::HistoryVisibility},
+        room_id, TransactionId,
     };
     use serde_json::json;
 
     use crate::{
         error::SessionRecipientCollectionError,
-        olm::OutboundGroupSession,
+        olm::{OutboundGroupSession, ShareInfo},
         session_manager::{
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
         },
+        store::caches::SequenceNumber,
         testing::simulate_key_query_response_for_verification,
+        types::requests::ToDeviceRequest,
         CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
 
@@ -2157,6 +2161,61 @@ mod tests {
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
         // share again
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(share_result.should_rotate);
+    }
+
+    /// Test that the session is rotated if a devices has a pending
+    /// to-device request that would share the keys with it.
+    #[async_test]
+    async fn test_should_rotate_based_on_device_with_pending_request_excluded() {
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
+
+        let encryption_settings = all_devices_strategy_settings();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
+        let sender_key = machine.identity_keys().curve25519;
+
+        let dan_user = KeyDistributionTestData::dan_id();
+        let dan_dev1 = KeyDistributionTestData::dan_signed_device_id();
+        let dan_dev2 = KeyDistributionTestData::dan_unsigned_device_id();
+
+        // Share the session with device 1
+        group_session.mark_shared_with(dan_user, dan_dev1, sender_key).await;
+
+        {
+            // Add a pending request to share with device 2
+            let share_infos = BTreeMap::from([(
+                dan_user.to_owned(),
+                BTreeMap::from([(
+                    dan_dev2.to_owned(),
+                    ShareInfo::new_shared(sender_key, 0, SequenceNumber::default()),
+                )]),
+            )]);
+
+            let txid = TransactionId::new();
+            let req = Arc::new(ToDeviceRequest::for_recipients(
+                dan_user,
+                vec![dan_dev2.to_owned()],
+                &ruma::events::AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent),
+                txid.clone(),
+            ));
+            group_session.add_request(txid, req, share_infos);
+        }
+
+        // Remove device 2
+        let keys_query = KeyDistributionTestData::dan_keys_query_response_device_loggedout();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+        // Share again
         let share_result = collect_session_recipients(
             machine.store(),
             vec![KeyDistributionTestData::dan_id()].into_iter(),
