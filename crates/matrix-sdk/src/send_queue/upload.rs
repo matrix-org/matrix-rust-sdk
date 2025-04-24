@@ -401,7 +401,7 @@ impl QueueStorage {
             cache_key,
             // If the previous upload was a thumbnail, it becomes the thumbnail source for the next
             // upload.
-            thumbnail_source: if parent_is_thumbnail_upload { Some(sent_media.file) } else { None },
+            thumbnail_source: parent_is_thumbnail_upload.then_some(sent_media.file),
             related_to: event_txn,
             #[cfg(feature = "unstable-msc4274")]
             accumulated,
