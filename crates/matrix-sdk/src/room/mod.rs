@@ -4240,4 +4240,46 @@ mod tests {
         assert!(ret.sender_info.is_some());
         assert_eq!(ret.sender_info.unwrap().event().user_id(), sender_id);
     }
+
+    #[async_test]
+    async fn test_list_threads() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let batch1 = vec![f.text_msg("Thread root 1").event_id(eid1).into_raw_sync().cast()];
+        let batch2 = vec![f.text_msg("Thread root 2").event_id(eid2).into_raw_sync().cast()];
+
+        server
+            .mock_room_threads()
+            .ok(batch1.clone(), Some("prev_batch".to_owned()))
+            .mock_once()
+            .mount()
+            .await;
+        server
+            .mock_room_threads()
+            .match_from("prev_batch")
+            .ok(batch2, None)
+            .mock_once()
+            .mount()
+            .await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let result =
+            room.list_threads(ListThreadsOptions::default()).await.expect("Failed to list threads");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid1);
+        assert!(result.prev_batch_token.is_some());
+
+        let opts = ListThreadsOptions { from: result.prev_batch_token, ..Default::default() };
+        let result = room.list_threads(opts).await.expect("Failed to list threads");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid2);
+        assert!(result.prev_batch_token.is_none());
+    }
 }
