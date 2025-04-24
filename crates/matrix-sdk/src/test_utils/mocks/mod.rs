@@ -50,7 +50,7 @@ use wiremock::{
 pub mod oauth;
 
 use super::client::MockClientBuilder;
-use crate::{Client, OwnedServerName, Room};
+use crate::{room::IncludeRelations, Client, OwnedServerName, Room};
 
 /// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
 /// Matrix client-server API endpoints easily.
@@ -1008,6 +1008,13 @@ impl MatrixMockServer {
         let mock =
             Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/v1/rooms/.*/threads$"));
         self.mock_endpoint(mock, RoomThreadsEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get the related events.
+    pub fn mock_room_relations(&self) -> MockEndpoint<'_, RoomRelationsEndpoint> {
+        // Routing happens in the final method ok(), since it can get complicated.
+        let mock = Mock::given(method("GET"));
+        self.mock_endpoint(mock, RoomRelationsEndpoint::default()).expect_default_access_token()
     }
 }
 
@@ -2599,5 +2606,124 @@ impl<'a> MockEndpoint<'a, RoomThreadsEndpoint> {
             "chunk": chunk,
             "next_batch": next_batch
         })))
+    }
+}
+
+/// A prebuilt mock for a `GET /rooms/{roomId}/relations/{eventId}` family of
+/// requests.
+#[derive(Default)]
+pub struct RoomRelationsEndpoint {
+    event_id: Option<OwnedEventId>,
+    spec: Option<IncludeRelations>,
+}
+
+impl<'a> MockEndpoint<'a, RoomRelationsEndpoint> {
+    /// Expects an optional `from` to be set on the request.
+    pub fn match_from(self, from: &str) -> Self {
+        Self { mock: self.mock.and(query_param("from", from)), ..self }
+    }
+
+    /// Expects an optional `limit` to be set on the request.
+    pub fn match_limit(self, limit: u32) -> Self {
+        Self { mock: self.mock.and(query_param("limit", limit.to_string())), ..self }
+    }
+
+    /// Match the given subrequest, according to the given specification.
+    pub fn match_subrequest(mut self, spec: IncludeRelations) -> Self {
+        self.endpoint.spec = Some(spec);
+        self
+    }
+
+    /// Expects the request to match a specific event id.
+    pub fn match_target_event(mut self, event_id: OwnedEventId) -> Self {
+        self.endpoint.event_id = Some(event_id);
+        self
+    }
+
+    /// Returns a successful response with some optional events and pagination
+    /// tokens.
+    pub fn ok(mut self, response: RoomRelationsResponseTemplate) -> MatrixMock<'a> {
+        // Escape the leading $ to not confuse the regular expression engine.
+        let event_spec = self
+            .endpoint
+            .event_id
+            .take()
+            .map(|event_id| event_id.as_str().replace("$", "\\$"))
+            .unwrap_or_else(|| ".*".to_owned());
+
+        match self.endpoint.spec.take() {
+            Some(IncludeRelations::RelationsOfType(rel_type)) => {
+                self.mock = self.mock.and(path_regex(format!(
+                    r"^/_matrix/client/v1/rooms/.*/relations/{}/{}$",
+                    event_spec, rel_type
+                )));
+            }
+            Some(IncludeRelations::RelationsOfTypeAndEventType(rel_type, event_type)) => {
+                self.mock = self.mock.and(path_regex(format!(
+                    r"^/_matrix/client/v1/rooms/.*/relations/{}/{}/{}$",
+                    event_spec, rel_type, event_type
+                )));
+            }
+            _ => {
+                self.mock = self.mock.and(path_regex(format!(
+                    r"^/_matrix/client/v1/rooms/.*/relations/{}",
+                    event_spec,
+                )));
+            }
+        }
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": response.chunk,
+            "next_batch": response.next_batch,
+            "prev_batch": response.prev_batch,
+            "recursion_depth": response.recursion_depth,
+        })))
+    }
+}
+
+/// A response to a [`RoomRelationsEndpoint`] query.
+#[derive(Default)]
+pub struct RoomRelationsResponseTemplate {
+    /// The set of timeline events returned by this query.
+    pub chunk: Vec<Raw<AnyTimelineEvent>>,
+
+    /// An opaque string representing a pagination token, which semantics depend
+    /// on the direction used in the request.
+    pub next_batch: Option<String>,
+
+    /// An opaque string representing a pagination token, which semantics depend
+    /// on the direction used in the request.
+    pub prev_batch: Option<String>,
+
+    /// If `recurse` was set on the request, the depth to which the server
+    /// recursed.
+    ///
+    /// If `recurse` was not set, this field must be absent.
+    pub recursion_depth: Option<u32>,
+}
+
+impl RoomRelationsResponseTemplate {
+    /// Fill the events returned as part of this response.
+    pub fn events(mut self, chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>) -> Self {
+        self.chunk = chunk.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Fill the `next_batch` token returned as part of this response.
+    pub fn next_batch(mut self, token: impl Into<String>) -> Self {
+        self.next_batch = Some(token.into());
+        self
+    }
+
+    /// Fill the `prev_batch` token returned as part of this response.
+    pub fn prev_batch(mut self, token: impl Into<String>) -> Self {
+        self.prev_batch = Some(token.into());
+        self
+    }
+
+    /// Fill the recursion depth returned in this response.
+    pub fn recursion_depth(mut self, depth: u32) -> Self {
+        self.recursion_depth = Some(depth);
+        self
     }
 }
