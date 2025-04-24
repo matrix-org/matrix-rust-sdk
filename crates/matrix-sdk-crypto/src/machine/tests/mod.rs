@@ -33,7 +33,7 @@ use ruma::{
             AddMentions, MessageType, Relation, ReplyWithinThread, RoomMessageEventContent,
         },
         AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, MessageLikeEvent,
-        OriginalMessageLikeEvent,
+        OriginalMessageLikeEvent, ToDeviceEventType,
     },
     room_id,
     serde::Raw,
@@ -115,6 +115,7 @@ pub fn to_device_requests_to_content(
     requests: Vec<Arc<ToDeviceRequest>>,
 ) -> ToDeviceEncryptedEventContent {
     let to_device_request = &requests[0];
+    assert_eq!(to_device_request.event_type, ToDeviceEventType::RoomEncrypted);
 
     to_device_request
         .messages

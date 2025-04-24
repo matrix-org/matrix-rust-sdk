@@ -52,7 +52,7 @@ macro_rules! cryptostore_integration_tests {
                 },
                 store::{
                     BackupDecryptionKey, Changes, CryptoStore, DehydratedDeviceKey, DeviceChanges, GossipRequest,
-                    IdentityChanges, PendingChanges, RoomSettings,
+                    IdentityChanges, PendingChanges, RoomSettings, StoredRoomKeyBundleData,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{
@@ -64,6 +64,7 @@ macro_rules! cryptostore_integration_tests {
                             CommonWithheldCodeContent, MegolmV1AesSha2WithheldContent,
                             RoomKeyWithheldContent,
                         },
+                        room_key_bundle::RoomKeyBundleContent,
                         secret_send::SecretSendContent,
                         ToDeviceEvent,
                     },
@@ -1274,6 +1275,57 @@ macro_rules! cryptostore_integration_tests {
 
                 let loaded_2 = store.get_custom_value("B").await.unwrap();
                 assert_eq!(None, loaded_2);
+            }
+
+            #[async_test]
+            #[ignore] // not yet implemented for all stores
+            async fn test_received_room_key_bundle() {
+                let store = get_store("received_room_key_bundle", None, true).await;
+                let test_room = room_id!("!room:example.org");
+
+                fn make_bundle_data(sender_user: &UserId, bundle_uri: &str) -> StoredRoomKeyBundleData {
+                    let jwk = ruma::events::room::JsonWebKeyInit {
+                        kty: "oct".to_owned(),
+                        key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
+                        alg: "A256CTR".to_owned(),
+                        k: ruma::serde::Base64::new(vec![0u8; 0]),
+                        ext: true,
+                    }.into();
+
+                    let file = ruma::events::room::EncryptedFileInit {
+                        url: ruma::OwnedMxcUri::from(bundle_uri),
+                        key: jwk,
+                        iv: ruma::serde::Base64::new(vec![0u8; 0]),
+                        hashes: Default::default(),
+                        v: "".to_owned(),
+                    }.into();
+
+                    StoredRoomKeyBundleData {
+                        sender_user: sender_user.to_owned(),
+                        sender_data: SenderData::unknown(),
+                        bundle_data: RoomKeyBundleContent {
+                            room_id: room_id!("!room:example.org").to_owned(),
+                            file,
+                        },
+                    }
+                }
+
+                // Add three entries
+                let changes = Changes {
+                    received_room_key_bundles: vec![
+                        make_bundle_data(user_id!("@alice:example.com"), "alice1"),
+                        make_bundle_data(user_id!("@bob:example.com"), "bob1"),
+                        make_bundle_data(user_id!("@alice:example.com"), "alice2"),
+                    ],
+                    ..Default::default()
+                };
+                store.save_changes(changes).await.unwrap();
+
+                // Check we get the right one
+                let bundle = store.get_received_room_key_bundle_data(
+                    test_room, user_id!("@alice:example.com")
+                ).await.unwrap().expect("Did not get any bundle data");
+                assert_eq!(bundle.bundle_data.file.url.to_string(), "alice2");
             }
 
             fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {

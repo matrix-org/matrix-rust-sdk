@@ -33,6 +33,7 @@ use vodozemac::Curve25519PublicKey;
 use super::{
     caches::DeviceStore, Account, BackupKeys, Changes, CryptoStore, DehydratedDeviceKey,
     InboundGroupSession, PendingChanges, RoomKeyCounts, RoomSettings, Session,
+    StoredRoomKeyBundleData,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
@@ -71,7 +72,7 @@ impl BackupVersion {
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct MemoryStore {
     static_account: Arc<StdRwLock<Option<StaticAccountData>>>,
 
@@ -102,36 +103,10 @@ pub struct MemoryStore {
     dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
     next_batch_token: RwLock<Option<String>>,
     room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
-    save_changes_lock: Arc<Mutex<()>>,
-}
+    room_key_bundles:
+        StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, StoredRoomKeyBundleData>>>,
 
-impl Default for MemoryStore {
-    fn default() -> Self {
-        MemoryStore {
-            static_account: Default::default(),
-            account: Default::default(),
-            sessions: Default::default(),
-            inbound_group_sessions: Default::default(),
-            inbound_group_sessions_backed_up_to: Default::default(),
-            outbound_group_sessions: Default::default(),
-            private_identity: Default::default(),
-            tracked_users: Default::default(),
-            olm_hashes: Default::default(),
-            devices: DeviceStore::new(),
-            identities: Default::default(),
-            outgoing_key_requests: Default::default(),
-            key_requests_by_info: Default::default(),
-            direct_withheld_info: Default::default(),
-            custom_values: Default::default(),
-            leases: Default::default(),
-            backup_keys: Default::default(),
-            dehydrated_device_pickle_key: Default::default(),
-            secret_inbox: Default::default(),
-            next_batch_token: Default::default(),
-            room_settings: Default::default(),
-            save_changes_lock: Default::default(),
-        }
-    }
+    save_changes_lock: Arc<Mutex<()>>,
 }
 
 impl MemoryStore {
@@ -346,6 +321,16 @@ impl CryptoStore for MemoryStore {
         if !changes.room_settings.is_empty() {
             let mut settings = self.room_settings.write();
             settings.extend(changes.room_settings);
+        }
+
+        if !changes.received_room_key_bundles.is_empty() {
+            let mut room_key_bundles = self.room_key_bundles.write();
+            for bundle in changes.received_room_key_bundles {
+                room_key_bundles
+                    .entry(bundle.bundle_data.room_id.clone())
+                    .or_default()
+                    .insert(bundle.sender_user.clone(), bundle);
+            }
         }
 
         Ok(())
@@ -717,6 +702,18 @@ impl CryptoStore for MemoryStore {
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         Ok(self.room_settings.read().get(room_id).cloned())
+    }
+
+    async fn get_received_room_key_bundle_data(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<StoredRoomKeyBundleData>> {
+        let guard = self.room_key_bundles.read();
+
+        let result = guard.get(room_id).and_then(|bundles| bundles.get(user_id).cloned());
+
+        Ok(result)
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
@@ -1249,7 +1246,7 @@ mod integration_tests {
         },
         store::{
             BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-            RoomSettings,
+            RoomSettings, StoredRoomKeyBundleData,
         },
         types::events::room_key_withheld::RoomKeyWithheldEvent,
         Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, TrackedUser,
@@ -1509,6 +1506,14 @@ mod integration_tests {
             room_id: &RoomId,
         ) -> Result<Option<RoomSettings>, Self::Error> {
             self.0.get_room_settings(room_id).await
+        }
+
+        async fn get_received_room_key_bundle_data(
+            &self,
+            room_id: &RoomId,
+            user_id: &UserId,
+        ) -> crate::store::Result<Option<StoredRoomKeyBundleData>, Self::Error> {
+            self.0.get_received_room_key_bundle_data(room_id, user_id).await
         }
 
         async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {

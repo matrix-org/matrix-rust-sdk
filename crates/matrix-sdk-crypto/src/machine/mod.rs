@@ -75,11 +75,11 @@ use crate::{
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
         PendingChanges, Result as StoreResult, RoomKeyInfo, RoomSettings, SecretImportError, Store,
-        StoreCache, StoreTransaction,
+        StoreCache, StoreTransaction, StoredRoomKeyBundleData,
     },
     types::{
         events::{
-            olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyEvent},
+            olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyBundleEvent, DecryptedRoomKeyEvent},
             room::encrypted::{
                 EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
@@ -939,6 +939,26 @@ impl OlmMachine {
         }
     }
 
+    #[instrument()]
+    async fn receive_room_key_bundle(
+        &self,
+        sender_key: Curve25519PublicKey,
+        event: &DecryptedRoomKeyBundleEvent,
+        changes: &mut Changes,
+    ) -> OlmResult<()> {
+        let Some(sender_device_keys) = &event.sender_device_keys else {
+            warn!("Received a room key bundle with no sender device keys: ignoring");
+            return Ok(());
+        };
+
+        changes.received_room_key_bundles.push(StoredRoomKeyBundleData {
+            sender_user: event.sender.clone(),
+            sender_data: SenderData::device_info(sender_device_keys.clone()),
+            bundle_data: event.content.clone(),
+        });
+        Ok(())
+    }
+
     fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
         debug!(?event.content, "Processing `m.room_key.withheld` event");
 
@@ -1183,6 +1203,10 @@ impl OlmMachine {
             }
             AnyDecryptedOlmEvent::Dummy(_) => {
                 debug!("Received an `m.dummy` event");
+            }
+            AnyDecryptedOlmEvent::RoomKeyBundle(e) => {
+                debug!("Received a room key bundle event {:?}", e);
+                self.receive_room_key_bundle(decrypted.result.sender_key, e, changes).await?;
             }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
