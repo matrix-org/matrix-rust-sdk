@@ -1001,6 +1001,14 @@ impl MatrixMockServer {
         let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/logout"));
         self.mock_endpoint(mock, LogoutEndpoint).expect_default_access_token()
     }
+
+    /// Create a prebuilt mock for the endpoint used to get the list of thread
+    /// roots.
+    pub fn mock_room_threads(&self) -> MockEndpoint<'_, RoomThreadsEndpoint> {
+        let mock =
+            Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/v1/rooms/.*/threads$"));
+        self.mock_endpoint(mock, RoomThreadsEndpoint).expect_default_access_token()
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -2568,5 +2576,28 @@ impl<'a> MockEndpoint<'a, LogoutEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for a `GET /rooms/{roomId}/threads` request.
+pub struct RoomThreadsEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomThreadsEndpoint> {
+    /// Expects an optional `from` to be set on the request.
+    pub fn match_from(self, from: &str) -> Self {
+        Self { mock: self.mock.and(query_param("from", from)), ..self }
+    }
+
+    /// Returns a successful response with some optional events and previous
+    /// batch token.
+    pub fn ok(
+        self,
+        chunk: Vec<Raw<AnyTimelineEvent>>,
+        next_batch: Option<String>,
+    ) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": chunk,
+            "next_batch": next_batch
+        })))
     }
 }
