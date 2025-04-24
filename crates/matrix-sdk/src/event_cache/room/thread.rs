@@ -205,6 +205,7 @@ impl RoomThreadCache {
         Ok(())
     }
 
+    /// Returns all the thread roots found while listing the threads.
     pub async fn list_all_threads(&mut self) -> Result<Vec<Event>, EventCacheThreadError> {
         let Some(room) = self.room.get() else {
             // Client is shutting down; abort.
@@ -227,7 +228,7 @@ impl RoomThreadCache {
         // the list of returned threads is somewhat deterministic. Don't think too hard
         // about threads in gaps.
 
-        let _timer_guard = matrix_sdk_common::timer!(tracing::Level::TRACE, "list_all_threads");
+        let _timer_guard = matrix_sdk_common::timer!(tracing::Level::TRACE, "fetching threads");
 
         let mut num_iter = 0;
         loop {
@@ -260,6 +261,11 @@ impl RoomThreadCache {
         Ok(roots)
     }
 
+    /// Backfill a single thread, based on its root event id.
+    ///
+    /// Returns the root event id along the thread events that were
+    /// back-paginated, in the "normal" topological ordering (most recent =
+    /// higher indices).
     async fn backfill_thread(
         room: Room,
         root: OwnedEventId,
@@ -289,9 +295,12 @@ impl RoomThreadCache {
                 .await
                 .map_err(EventCacheThreadError::BackfillThread)?;
 
-            // Note: the results should be ordered in the reverse ordering.
-            events.extend(response.chunk);
+            // Note: results from the network request should be ordered in the reverse
+            // topological ordering here, so revert them here.
+            events.extend(response.chunk.into_iter().rev());
 
+            // TODO not sure if we should use the prev_batch_token or the next_batch_token
+            // here?
             if response.prev_batch_token.is_none() {
                 break;
             }
