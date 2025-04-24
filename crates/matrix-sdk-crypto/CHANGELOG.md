@@ -24,6 +24,10 @@ All notable changes to this project will be documented in this file.
   presence of blacklisted/withheld devices in the room.
   ([#4954](https://github.com/matrix-org/matrix-rust-sdk/pull/4954))
 
+- Fix [#2729](https://github.com/matrix-org/matrix-rust-sdk/issues/2729) which in rare
+  cases can cause room key oversharing.
+  ([#4975](https://github.com/matrix-org/matrix-rust-sdk/pull/4975))
+
 ## [0.11.0] - 2025-04-11
 
 ### Features
