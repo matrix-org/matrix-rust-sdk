@@ -255,7 +255,8 @@ async fn decrypt_by_index<D: Decryptor>(
     should_retry: impl Fn(&str) -> bool,
     retry_indices: Vec<usize>,
 ) {
-    let push_rules_context = room_data_provider.push_rules_and_context().await;
+    let push_ctx = room_data_provider.push_context().await;
+    let push_ctx = push_ctx.as_ref();
     let unable_to_decrypt_hook = state.meta.unable_to_decrypt_hook.clone();
 
     let retry_one = |item: Arc<TimelineItem>| {
@@ -290,7 +291,7 @@ async fn decrypt_by_index<D: Decryptor>(
                 return None;
             };
 
-            match decryptor.decrypt_event_impl(original_json).await {
+            match decryptor.decrypt_event_impl(original_json, push_ctx).await {
                 Ok(event) => {
                     if let SdkTimelineEventKind::UnableToDecrypt { utd_info, .. } = event.kind {
                         info!(
@@ -320,15 +321,7 @@ async fn decrypt_by_index<D: Decryptor>(
         ))
     };
 
-    state
-        .retry_event_decryption(
-            retry_one,
-            retry_indices,
-            push_rules_context,
-            room_data_provider,
-            settings,
-        )
-        .await;
+    state.retry_event_decryption(retry_one, retry_indices, room_data_provider, settings).await;
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@ event-cache = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base"]
 
 [dependencies]
+as_variant = { workspace = true }
 async-trait = { workspace = true }
 deadpool-sqlite = "0.10.0"
 itertools = { workspace = true }

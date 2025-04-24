@@ -99,6 +99,15 @@ async fn process(
         let (events, room_key_updates) =
             olm_machine.receive_sync_changes(encryption_sync_changes).await?;
 
+        let events = events
+            .iter()
+            // TODO: There is loss of information here, after calling `to_raw` it is not
+            // possible to make the difference between a successfully decrypted event and a plain
+            // text event. This information needs to be propagated to top layer at some point if
+            // clients relies on custom encrypted to device events.
+            .map(|p| p.to_raw())
+            .collect();
+
         Output { decrypted_to_device_events: events, room_key_updates: Some(room_key_updates) }
     } else {
         // If we have no `OlmMachine`, just return the events that were passed in.

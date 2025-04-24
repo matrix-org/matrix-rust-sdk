@@ -26,10 +26,7 @@ use std::{
 use async_stream::stream;
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use futures_util::{
-    future::{try_join, try_join_all},
-    stream::FuturesUnordered,
-};
+use futures_util::{future::join_all, stream::FuturesUnordered};
 use http::StatusCode;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub use identity_status_changes::IdentityStatusChanges;
@@ -119,7 +116,7 @@ use ruma::{
         RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
         StaticEventContent, StaticStateEventContent, SyncStateEvent,
     },
-    push::{Action, PushConditionRoomCtx},
+    push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
@@ -127,7 +124,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
-use tokio::sync::broadcast;
+use tokio::{join, sync::broadcast};
 use tokio_stream::StreamExt;
 use tracing::{debug, info, instrument, warn};
 
@@ -158,10 +155,7 @@ use crate::{
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
-use crate::{
-    crypto::types::events::CryptoContextInfo, encryption::backups::BackupState,
-    room::shared_room_history::share_room_history,
-};
+use crate::{crypto::types::events::CryptoContextInfo, encryption::backups::BackupState};
 
 pub mod edit;
 pub mod futures;
@@ -197,6 +191,29 @@ impl Deref for Room {
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Context allowing to compute the push actions for a given event.
+#[derive(Debug)]
+pub struct PushContext {
+    /// The Ruma context used to compute the push actions.
+    push_condition_room_ctx: PushConditionRoomCtx,
+
+    /// Push rules for this room, based on the push rules state event, or the
+    /// global server default as defined by [`Ruleset::server_default`].
+    push_rules: Ruleset,
+}
+
+impl PushContext {
+    /// Create a new [`PushContext`] from its inner components.
+    pub fn new(push_condition_room_ctx: PushConditionRoomCtx, push_rules: Ruleset) -> Self {
+        Self { push_condition_room_ctx, push_rules }
+    }
+
+    /// Compute the push rules for a given event.
+    pub fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
+        self.push_rules.get_actions(event, &self.push_condition_room_ctx).to_owned()
+    }
+}
 
 impl Room {
     /// Create a new `Room`
@@ -340,48 +357,18 @@ impl Room {
         let request = options.into_request(room_id);
         let http_response = self.client.send(request).await?;
 
-        #[allow(unused_mut)]
-        let mut response = Messages {
+        let push_ctx = self.push_context().await?;
+        let chunk = join_all(
+            http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx.as_ref())),
+        )
+        .await;
+
+        Ok(Messages {
             start: http_response.start,
             end: http_response.end,
-            #[cfg(not(feature = "e2e-encryption"))]
-            chunk: http_response
-                .chunk
-                .into_iter()
-                .map(|raw| TimelineEvent::new(raw.cast()))
-                .collect(),
-            #[cfg(feature = "e2e-encryption")]
-            chunk: Vec::with_capacity(http_response.chunk.len()),
+            chunk,
             state: http_response.state,
-        };
-
-        #[cfg(feature = "e2e-encryption")]
-        for event in http_response.chunk {
-            let decrypted_event = if let Ok(AnySyncTimelineEvent::MessageLike(
-                AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
-            )) = event.deserialize_as::<AnySyncTimelineEvent>()
-            {
-                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                    event
-                } else {
-                    TimelineEvent::new(event.cast())
-                }
-            } else {
-                TimelineEvent::new(event.cast())
-            };
-            response.chunk.push(decrypted_event);
-        }
-
-        if let Some(push_context) = self.push_context().await? {
-            let push_rules = self.client().account().push_rules().await?;
-
-            for event in &mut response.chunk {
-                event.push_actions =
-                    Some(push_rules.get_actions(event.raw(), &push_context).to_owned());
-            }
-        }
-
-        Ok(response)
+        })
     }
 
     /// Register a handler for events of a specific type, within this room.
@@ -468,23 +455,27 @@ impl Room {
     /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
     /// decrypted if needs be.
     ///
-    /// Doesn't return an error `Result` when decryption failed; only logs from
-    /// the crypto crate will indicate so.
-    async fn try_decrypt_event(&self, event: Raw<AnyTimelineEvent>) -> Result<TimelineEvent> {
+    /// Only logs from the crypto crate will indicate a failure to decrypt.
+    #[allow(clippy::unused_async)] // Used only in e2e-encryption.
+    async fn try_decrypt_event(
+        &self,
+        event: Raw<AnyTimelineEvent>,
+        push_ctx: Option<&PushContext>,
+    ) -> TimelineEvent {
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
             SyncMessageLikeEvent::Original(_),
         ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
-            if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
-                return Ok(event);
+            if let Ok(event) = self.decrypt_event(event.cast_ref(), push_ctx).await {
+                return event;
             }
         }
 
         let mut event = TimelineEvent::new(event.cast());
-        event.push_actions = self.event_push_actions(event.raw()).await?;
+        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
 
-        Ok(event)
+        event
     }
 
     /// Fetch the event with the given `EventId` in this room.
@@ -500,7 +491,8 @@ impl Room {
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
 
         let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
-        let event = self.try_decrypt_event(raw_event).await?;
+        let push_ctx = self.push_context().await?;
+        let event = self.try_decrypt_event(raw_event, push_ctx.as_ref()).await;
 
         // Save the event into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
@@ -556,8 +548,10 @@ impl Room {
 
         let response = self.client.send(request).with_request_config(request_config).await?;
 
+        let push_ctx = self.push_context().await?;
+        let push_ctx = push_ctx.as_ref();
         let target_event = if let Some(event) = response.event {
-            Some(self.try_decrypt_event(event).await?)
+            Some(self.try_decrypt_event(event, push_ctx).await)
         } else {
             None
         };
@@ -565,11 +559,14 @@ impl Room {
         // Note: the joined future will fail if any future failed, but
         // [`Self::try_decrypt_event`] doesn't hard-fail when there's a
         // decryption error, so we should prevent against most bad cases here.
-        let (events_before, events_after) = try_join(
-            try_join_all(response.events_before.into_iter().map(|ev| self.try_decrypt_event(ev))),
-            try_join_all(response.events_after.into_iter().map(|ev| self.try_decrypt_event(ev))),
-        )
-        .await?;
+        let (events_before, events_after) = join!(
+            join_all(
+                response.events_before.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx)),
+            ),
+            join_all(
+                response.events_after.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx)),
+            ),
+        );
 
         // Save the loaded events into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
@@ -1356,6 +1353,7 @@ impl Room {
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
+        push_ctx: Option<&PushContext>,
     ) -> Result<TimelineEvent> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -1377,7 +1375,7 @@ impl Room {
             }
         };
 
-        event.push_actions = self.event_push_actions(event.raw()).await?;
+        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
         Ok(event)
     }
 
@@ -1480,6 +1478,11 @@ impl Room {
     /// * `user_id` - The `UserId` of the user to invite to the room.
     #[instrument(skip_all)]
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        {
+            shared_room_history::share_room_history(self, user_id.to_owned()).await?;
+        }
+
         let recipient = InvitationRecipient::UserId { user_id: user_id.to_owned() };
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request).await?;
@@ -1806,21 +1809,6 @@ impl Room {
         Ok(())
     }
 
-    /// Share any shareable E2EE history in this room with the given recipient,
-    /// as per [MSC4268].
-    ///
-    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    ///
-    /// This is temporarily exposed for integration testing as part of
-    /// experimental work on history sharing. In future, it will be combined
-    /// with sending an invite.
-    #[cfg(feature = "e2e-encryption")]
-    #[doc(hidden)]
-    #[instrument(skip_all, fields(room_id = ?self.room_id(), ?user_id))]
-    pub async fn share_history<'a>(&'a self, user_id: &UserId) -> Result<()> {
-        share_room_history(self, user_id.to_owned()).await
-    }
-
     /// Wait for the room to be fully synced.
     ///
     /// This method makes sure the room that was returned when joining a room
@@ -1911,9 +1899,10 @@ impl Room {
         SendMessageLikeEvent::new(self, content)
     }
 
-    /// Run /keys/query requests for all the non-tracked users.
+    /// Run /keys/query requests for all the non-tracked users, and for users
+    /// with an out-of-date device list.
     #[cfg(feature = "e2e-encryption")]
-    async fn query_keys_for_untracked_users(&self) -> Result<()> {
+    async fn query_keys_for_untracked_or_dirty_users(&self) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
@@ -2918,7 +2907,7 @@ impl Room {
     ///
     /// Returns `None` if some data couldn't be found. This should only happen
     /// in brand new rooms, while we process its state.
-    pub async fn push_context(&self) -> Result<Option<PushConditionRoomCtx>> {
+    pub async fn push_condition_room_ctx(&self) -> Result<Option<PushConditionRoomCtx>> {
         let room_id = self.room_id();
         let user_id = self.own_user_id();
         let room_info = self.clone_info();
@@ -2945,19 +2934,23 @@ impl Room {
         }))
     }
 
+    /// Retrieves a [`PushContext`] that can be used to compute the push
+    /// actions for events.
+    pub async fn push_context(&self) -> Result<Option<PushContext>> {
+        let Some(push_condition_room_ctx) = self.push_condition_room_ctx().await? else {
+            debug!("Could not aggregate push context");
+            return Ok(None);
+        };
+        let push_rules = self.client().account().push_rules().await?;
+        Ok(Some(PushContext::new(push_condition_room_ctx, push_rules)))
+    }
+
     /// Get the push actions for the given event with the current room state.
     ///
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
     pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
-        let Some(push_context) = self.push_context().await? else {
-            debug!("Could not aggregate push context");
-            return Ok(None);
-        };
-
-        let push_rules = self.client().account().push_rules().await?;
-
-        Ok(Some(push_rules.get_actions(event, &push_context).to_owned()))
+        Ok(self.push_context().await?.map(|ctx| ctx.for_event(event)))
     }
 
     /// The membership details of the (latest) invite for the logged-in user in

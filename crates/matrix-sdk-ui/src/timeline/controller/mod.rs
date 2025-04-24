@@ -1500,7 +1500,7 @@ impl TimelineController {
 
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
-        self.retry_event_decryption_inner(self.room().to_owned(), session_ids).await
+        self.retry_event_decryption_inner(self.room().clone(), session_ids).await
     }
 }
 

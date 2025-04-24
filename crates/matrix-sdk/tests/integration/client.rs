@@ -770,8 +770,10 @@ async fn test_encrypt_room_event() {
     .expect("We should be able to construct a full event from the encrypted event content")
     .cast();
 
+    let push_ctx =
+        room.push_context().await.expect("We should be able to get the push action context");
     let timeline_event = room
-        .decrypt_event(&event)
+        .decrypt_event(&event, push_ctx.as_ref())
         .await
         .expect("We should be able to decrypt an event that we ourselves have encrypted");
 

@@ -1,5 +1,4 @@
 use std::{
-    future::IntoFuture,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -20,10 +19,7 @@ use matrix_sdk::{
         BackupDownloadStrategy, EncryptionSettings, LocalTrust,
     },
     ruma::{
-        api::client::{
-            message::send_message_event,
-            room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
-        },
+        api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
             key::verification::{request::ToDeviceKeyVerificationRequestEvent, VerificationMethod},
             room::message::{
@@ -31,10 +27,9 @@ use matrix_sdk::{
                 SyncRoomMessageEvent,
             },
             secret_storage::secret::SecretEventContent,
-            GlobalAccountDataEventType, MessageLikeEventType, OriginalSyncMessageLikeEvent,
+            GlobalAccountDataEventType, OriginalSyncMessageLikeEvent,
         },
-        serde::Raw,
-        OwnedEventId, TransactionId, UserId,
+        OwnedEventId, UserId,
     },
     timeout::timeout,
     Client,
@@ -46,7 +41,7 @@ use matrix_sdk_ui::{
 use similar_asserts::assert_eq;
 use tracing::{debug, info, warn, Instrument};
 
-use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
+use crate::helpers::{wait_until_some, SyncTokenAwareClient, TestClientBuilder};
 
 // This test reproduces a bug seen on clients that use the same `Client`
 // instance for both the usual sliding sync loop and for getting the event for a
@@ -1227,19 +1222,25 @@ async fn test_history_share_on_invite() -> Result<()> {
             .await
             .expect("Bob should have joined the room");
 
-        // Bob sends a message to trigger another sync from Alice, which causes her to
-        // send out the outgoing requests
+        // Alice should now have a pending `/keys/query` request for Bob, but we need
+        // her to actually send it, which we do by having her wait for Bob to join, and
+        // then send an encrypted message.
         //
-        // FIXME: this appears to be needed due to a bug in the sliding sync client,
-        //   which means it does not send out outgoing requests caused by a
-        //   /sync response
-        let request = send_message_event::v3::Request::new_raw(
-            shared_room_id.to_owned(),
-            TransactionId::new(),
-            MessageLikeEventType::Message,
-            Raw::new(&RoomMessageEventContent::text_plain("")).unwrap().cast(),
-        );
-        bob.send(request).into_future().instrument(bob_span.clone()).await?;
+        // (The `room-list` sync loop will register Bob's keys as out of date, but that
+        // loop doesn't handle pending outgoing crypto requests. So an alternative would
+        // be to get the `encryption` sync loop to cycle, but this is more direct.)
+
+        wait_until_some(
+            async |_| alice_shared_room.get_member(bob.user_id().unwrap()).await.unwrap(),
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("Alice did not see bob in room");
+
+        alice_shared_room
+            .send(RoomMessageEventContent::text_plain(""))
+            .await
+            .expect("Alice could not send message in room");
 
         // Sanity check: Both users see the others' device
         async fn devices_seen(client: &Client, other: &UserId) -> UserDevices {
@@ -1289,8 +1290,7 @@ async fn test_history_share_on_invite() -> Result<()> {
         .expect("We should be able to send a message to the room");
 
     // Alice invites Bob to the room
-    // TODO: invite Bob rather than just call `share_history`
-    alice_room.share_history(bob.user_id().unwrap()).await?;
+    alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
 

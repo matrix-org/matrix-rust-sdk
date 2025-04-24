@@ -55,14 +55,14 @@ impl<'a> Notification<'a> {
 
     /// Push a new [`sync::Notification`] in [`Self::notifications`] from
     /// `event` if and only if `predicate` returns `true` for at least one of
-    /// the [`Action`]s associated to this event and this `push_context`
-    /// (based on `Self::push_rules`).
+    /// the [`Action`]s associated to this event and this
+    /// `push_condition_room_ctx`. (based on `Self::push_rules`).
     ///
     /// This method returns the fetched [`Action`]s.
     pub fn push_notification_from_event_if<E, P>(
         &mut self,
         room_id: &RoomId,
-        push_context: &PushConditionRoomCtx,
+        push_condition_room_ctx: &PushConditionRoomCtx,
         event: &Raw<E>,
         predicate: P,
     ) -> &[Action]
@@ -70,7 +70,7 @@ impl<'a> Notification<'a> {
         Raw<E>: Into<RawAnySyncOrStrippedTimelineEvent>,
         P: Fn(&Action) -> bool,
     {
-        let actions = self.push_rules.get_actions(event, push_context);
+        let actions = self.push_rules.get_actions(event, push_condition_room_ctx);
 
         if actions.iter().any(predicate) {
             self.push_notification(room_id, actions.to_owned(), event.clone().into());

@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Send stable identifier `sender_device_keys` for MSC4147 (Including device
+  keys with Olm-encrypted events).
+  ([#4964](https://github.com/matrix-org/matrix-rust-sdk/pull/4964))
+
 - Add experimental APIs for sharing encrypted room key history with new members, `Store::build_room_key_bundle` and `OlmMachine::share_room_key_bundle_data`.
   ([#4775](https://github.com/matrix-org/matrix-rust-sdk/pull/4775), [#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
 
@@ -19,6 +23,11 @@ All notable changes to this project will be documented in this file.
 ## [0.11.0] - 2025-04-11
 
 ### Features
+
+- [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of `ProcessedToDeviceEvent` 
+  instead of a list of `Raw<AnyToDeviceEvent>`. With variants like `Decrypted`|`UnableToDecrypt`|`PlainText`|`NotProcessed`.
+  This allows for example to make the difference between an event sent in clear and an event successfully decrypted.
+  For quick compatibility a helper `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
 
 - [**breaking**] Add support for the shared history flag defined in
   [MSC3061](https://github.com/matrix-org/matrix-spec-proposals/pull/3061).

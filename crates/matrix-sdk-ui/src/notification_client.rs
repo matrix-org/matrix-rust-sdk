@@ -188,6 +188,7 @@ impl NotificationClient {
             NotificationProcessSetup::MultipleProcesses
         ));
 
+        let push_ctx = room.push_context().await?;
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
                 // We're running on our own process, dedicated for notifications. In that case,
@@ -217,7 +218,8 @@ impl NotificationClient {
 
                         sleep(Duration::from_millis(wait)).await;
 
-                        let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
+                        let new_event =
+                            room.decrypt_event(raw_event.cast_ref(), push_ctx.as_ref()).await?;
 
                         match new_event.kind {
                             matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
@@ -258,7 +260,7 @@ impl NotificationClient {
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
-                Ok(()) => match room.decrypt_event(raw_event.cast_ref()).await {
+                Ok(()) => match room.decrypt_event(raw_event.cast_ref(), push_ctx.as_ref()).await {
                     Ok(new_event) => match new_event.kind {
                         matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
                             utd_info, ..

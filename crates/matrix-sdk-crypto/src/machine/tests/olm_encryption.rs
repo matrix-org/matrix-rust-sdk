@@ -38,7 +38,7 @@ use crate::{
     },
     olm::utility::SignJson,
     store::Changes,
-    types::{events::ToDeviceEvent, DeviceKeys},
+    types::{events::ToDeviceEvent, DeviceKeys, ProcessedToDeviceEvent},
     DeviceData, OlmMachine,
 };
 
@@ -292,7 +292,9 @@ async fn test_decrypt_to_device_message_with_unsigned_sender_keys() {
     // Bob receives the to-device message
     let (to_device_events, _) = receive_to_device_event(&bob, &event).await;
 
-    // The to-device event should remain decrypted.
-    let event = to_device_events.first().expect("Bob did not get a to-device event");
+    let event = to_device_events.first().expect("Bob did not get a to-device event").clone();
+
+    // The to-device event should remain encrypted.
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt(event) = event);
     assert_eq!(event.get_field("type").unwrap(), Some("m.room.encrypted"));
 }

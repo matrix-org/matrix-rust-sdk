@@ -62,7 +62,7 @@ use tracing::{debug, field::debug, info, instrument, trace, warn};
 
 use super::{
     members::MemberRoomInfo, BaseRoomInfo, RoomCreateWithCreatorEventContent, RoomDisplayName,
-    RoomMember, RoomNotableTags,
+    RoomMember, RoomNotableTags, UpdatedRoomDisplayName,
 };
 use crate::{
     deserialized_responses::{
@@ -113,6 +113,27 @@ bitflags! {
 
         /// A membership change happened for the current user.
         const MEMBERSHIP = 0b0001_0000;
+
+        /// The display name has changed.
+        const DISPLAY_NAME = 0b0010_0000;
+
+        /// This is a temporary hack.
+        ///
+        /// So here is the thing. Ideally, we DO NOT want to emit this reason. It does not
+        /// makes sense. However, all notable update reasons are not clearly identified
+        /// so far. Why is it a problem? The `matrix_sdk_ui::room_list_service::RoomList`
+        /// is listening this stream of [`RoomInfoNotableUpdate`], and emits an update on a
+        /// room item if it receives a notable reason. Because all reasons are not
+        /// identified, we are likely to miss particular updates, and it can feel broken.
+        /// Ultimately, we want to clearly identify all the notable update reasons, and
+        /// remove this one.
+        const NONE = 0b1000_0000;
+    }
+}
+
+impl Default for RoomInfoNotableUpdateReasons {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -131,12 +152,6 @@ struct ComputedSummary {
     /// The number of joined and invited members, not including any service
     /// members.
     num_joined_invited_guess: u64,
-}
-
-impl Default for RoomInfoNotableUpdateReasons {
-    fn default() -> Self {
-        Self::empty()
-    }
 }
 
 /// The underlying room data structure collecting state for joined, left and
@@ -636,7 +651,7 @@ impl Room {
         if let Some(name) = self.cached_display_name() {
             Ok(name)
         } else {
-            self.compute_display_name().await
+            Ok(self.compute_display_name().await?.into_inner())
         }
     }
 
@@ -651,7 +666,7 @@ impl Room {
     /// be preferred in general.
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub(crate) async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
+    pub(crate) async fn compute_display_name(&self) -> StoreResult<UpdatedRoomDisplayName> {
         enum DisplayNameOrSummary {
             Summary(RoomSummary),
             DisplayName(RoomDisplayName),
@@ -685,16 +700,24 @@ impl Room {
         };
 
         // Update the cached display name before we return the newly computed value.
+        let mut updated = false;
+
         self.inner.update_if(|info| {
             if info.cached_display_name.as_ref() != Some(&display_name) {
                 info.cached_display_name = Some(display_name.clone());
+                updated = true;
+
                 true
             } else {
                 false
             }
         });
 
-        Ok(display_name)
+        Ok(if updated {
+            UpdatedRoomDisplayName::New(display_name)
+        } else {
+            UpdatedRoomDisplayName::Same(display_name)
+        })
     }
 
     /// Compute a [`RoomDisplayName`] from the given [`RoomSummary`].
@@ -1057,11 +1080,21 @@ impl Room {
     ) {
         self.inner.set(room_info);
 
-        // Ignore error if no receiver exists.
-        let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
-            room_id: self.room_id.clone(),
-            reasons: room_info_notable_update_reasons,
-        });
+        if !room_info_notable_update_reasons.is_empty() {
+            // Ignore error if no receiver exists.
+            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+                room_id: self.room_id.clone(),
+                reasons: room_info_notable_update_reasons,
+            });
+        } else {
+            // TODO: remove this block!
+            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
+            // removed.
+            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+                room_id: self.room_id.clone(),
+                reasons: RoomInfoNotableUpdateReasons::NONE,
+            });
+        }
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -2751,7 +2784,7 @@ mod tests {
     #[async_test]
     async fn test_display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Joined);
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2760,7 +2793,7 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
     }
@@ -2771,13 +2804,13 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Named("Test Room".to_owned())
         );
     }
@@ -2785,7 +2818,7 @@ mod tests {
     #[async_test]
     async fn test_display_name_for_invited_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Invited);
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2798,7 +2831,7 @@ mod tests {
         });
         room.inner.update(|info| info.base_info.name = Some(room_name));
 
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2807,7 +2840,7 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
     }
@@ -2818,13 +2851,13 @@ mod tests {
         room.inner
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Named("Test Room".to_owned())
         );
     }
@@ -2866,7 +2899,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2888,7 +2921,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2921,7 +2954,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -2968,7 +3001,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         // Bot should not contribute to the display name.
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -3012,7 +3045,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         // Bot should not contribute to the display name.
-        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap().into_inner(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -3037,7 +3070,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -3078,7 +3111,7 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
@@ -3135,7 +3168,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Bob, Carol, Denis, Erica, and 3 others".to_owned())
         );
     }
@@ -3187,7 +3220,7 @@ mod tests {
         }
 
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Calculated("Alice, Bob, Carol, Denis, Erica, and 2 others".to_owned())
         );
     }
@@ -3219,7 +3252,7 @@ mod tests {
 
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
-            room.compute_display_name().await.unwrap(),
+            room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::EmptyWas("Matthew".to_owned())
         );
     }
@@ -3272,7 +3305,7 @@ mod tests {
         assert!(context.room_info_notable_updates.contains_key(room_id));
 
         // The subscriber isn't notified at this point.
-        assert!(room_info_notable_update.try_recv().is_err());
+        assert!(room_info_notable_update.is_empty());
 
         // Then updating the room info will store the event,
         processors::changes::save_and_apply(

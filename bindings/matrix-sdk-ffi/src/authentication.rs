@@ -119,8 +119,6 @@ pub struct OidcConfiguration {
     pub tos_uri: Option<String>,
     /// A URI that contains the client's privacy policy.
     pub policy_uri: Option<String>,
-    /// An array of e-mail addresses of people responsible for this client.
-    pub contacts: Option<Vec<String>>,
 
     /// Pre-configured registrations for use with homeservers that don't support
     /// dynamic client registration.

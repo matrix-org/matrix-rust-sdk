@@ -178,7 +178,6 @@ impl TimelineState {
         &mut self,
         retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
         retry_indices: Vec<usize>,
-        push_rules_context: Option<(ruma::push::Ruleset, ruma::push::PushConditionRoomCtx)>,
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) where
@@ -195,13 +194,9 @@ impl TimelineState {
         let mut offset = 0;
         for idx in retry_indices {
             let idx = idx - offset;
-            let Some(mut event) = retry_one(txn.items[idx].clone()).await else {
+            let Some(event) = retry_one(txn.items[idx].clone()).await else {
                 continue;
             };
-
-            event.push_actions = push_rules_context.as_ref().map(|(push_rules, push_context)| {
-                push_rules.get_actions(event.raw(), push_context).to_owned()
-            });
 
             let handle_one_res = txn
                 .handle_remote_event(

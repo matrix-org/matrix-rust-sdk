@@ -219,10 +219,7 @@ impl<C: EventType + Debug + Sized + Serialize> Serialize for DecryptedOlmV1Event
             recipient: &'a UserId,
             keys: &'a OlmV1Keys,
             recipient_keys: &'a OlmV1Keys,
-            #[serde(
-                rename = "org.matrix.msc4147.device_keys",
-                skip_serializing_if = "Option::is_none"
-            )]
+            #[serde(skip_serializing_if = "Option::is_none")]
             sender_device_keys: Option<&'a DeviceKeys>,
             content: &'a C,
             #[serde(rename = "type")]
@@ -344,6 +341,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
+    use insta::{assert_json_snapshot, with_settings};
     use ruma::{device_id, owned_user_id, KeyId};
     use serde_json::{json, Value};
     use similar_asserts::assert_eq;
@@ -523,6 +521,17 @@ mod tests {
     }
 
     #[test]
+    fn decrypted_to_device_event_snapshot() {
+        let event_json = room_key_event();
+        let event: DecryptedRoomKeyEvent = serde_json::from_value(event_json)
+            .expect("JSON should deserialize to the right event type");
+
+        with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
+            assert_json_snapshot!(event);
+        })
+    }
+
+    #[test]
     fn deserialization() -> Result<(), serde_json::Error> {
         macro_rules! assert_deserialization_result {
             ( $( $json:path => $to_device_events:ident ),* $(,)? ) => {
@@ -589,6 +598,10 @@ mod tests {
 
         // Then it contains the sender_device_keys
         assert_eq!(event.sender_device_keys, Some(sender_device_keys));
+
+        with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
+            assert_json_snapshot!(event);
+        });
     }
 
     #[test]

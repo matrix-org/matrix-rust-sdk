@@ -1063,7 +1063,7 @@ mod tests {
                 room_key_withheld::RoomKeyWithheldContent::{self, MegolmV1AesSha2},
             },
             requests::ToDeviceRequest,
-            DeviceKeys, EventEncryptionAlgorithm,
+            DeviceKeys, EventEncryptionAlgorithm, ProcessedToDeviceEvent,
         },
         EncryptionSettings, LocalTrust, OlmMachine,
     };
@@ -1822,8 +1822,11 @@ mod tests {
         let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
         assert_eq!(1, decrypted.len());
         use crate::types::events::EventType;
+        assert_let!(
+            ProcessedToDeviceEvent::Decrypted(decrypted_event) = decrypted.first().unwrap().clone()
+        );
         assert_eq!(
-            decrypted[0].get_field::<String>("type").unwrap().unwrap(),
+            decrypted_event.get_field::<String>("type").unwrap().unwrap(),
             RoomKeyBundleContent::EVENT_TYPE,
         );
     }

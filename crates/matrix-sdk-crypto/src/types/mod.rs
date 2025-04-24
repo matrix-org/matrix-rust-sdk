@@ -36,7 +36,9 @@ use std::{
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
 use ruma::{
-    serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
+    events::AnyToDeviceEvent,
+    serde::{Raw, StringEnum},
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
@@ -624,5 +626,37 @@ mod test {
         };
 
         assert_json_snapshot!(secret_bundle);
+    }
+}
+
+/// Represents a to-device event after it has been processed by the olm machine.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ProcessedToDeviceEvent {
+    /// A successfully-decrypted encrypted event.
+    /// Contains the raw decrypted event .
+    Decrypted(Raw<AnyToDeviceEvent>),
+
+    /// An encrypted event which could not be decrypted.
+    UnableToDecrypt(Raw<AnyToDeviceEvent>),
+
+    /// An unencrypted event.
+    PlainText(Raw<AnyToDeviceEvent>),
+
+    /// An invalid to device event that was ignored because it is missing some
+    /// required information to be processed (like no event `type` for
+    /// example)
+    Invalid(Raw<AnyToDeviceEvent>),
+}
+
+impl ProcessedToDeviceEvent {
+    /// Converts a ProcessedToDeviceEvent to the `Raw<AnyToDeviceEvent>` it
+    /// encapsulates
+    pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
+        match self {
+            ProcessedToDeviceEvent::Decrypted(decrypted_event) => decrypted_event.clone(),
+            ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
+            ProcessedToDeviceEvent::PlainText(event) => event.clone(),
+            ProcessedToDeviceEvent::Invalid(event) => event.clone(),
+        }
     }
 }
