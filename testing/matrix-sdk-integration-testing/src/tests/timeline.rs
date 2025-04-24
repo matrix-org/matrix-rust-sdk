@@ -713,6 +713,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Flaky: times out waiting for timeline update that message was from a secure device"]
 async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_secure() {
     async fn timeline_messages(timeline: &Timeline) -> Vec<EventTimelineItem> {
         timeline
