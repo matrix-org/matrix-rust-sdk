@@ -93,12 +93,13 @@ pub(crate) enum Action {
         data: MatrixDriverRequestData,
     },
 
-    /// Subscribe to the events in the *current* room, i.e. a room which this
-    /// widget is instantiated with. The client is aware of the room.
+    /// Subscribe to the events that the widget capabilities allow,
+    /// in the _current_ room, i.e. a room which this widget is instantiated
+    /// with. The client is aware of the room.
     Subscribe,
 
-    /// Unsuscribe from the events in the *current* room. Symmetrical to
-    /// `Subscribe`.
+    /// Unsubscribe from the events that the widget capabilities allow,
+    /// in the _current_ room. Symmetrical to `Subscribe`.
     Unsubscribe,
 }
 
@@ -118,7 +119,7 @@ pub(crate) struct WidgetMachine {
     /// Outstanding requests sent to the widget (mapped by uuid).
     pending_to_widget_requests: PendingRequests<ToWidgetRequestMeta>,
 
-    /// Outstanding requests sent to the matrix driver (mapped by uuid).
+    /// Outstanding requests sent to the Matrix driver (mapped by uuid).
     pending_matrix_driver_requests: PendingRequests<MatrixDriverRequestMeta>,
 
     /// Current negotiation state for capabilities.
@@ -166,7 +167,7 @@ impl WidgetMachine {
             }
             IncomingMessage::MatrixEventReceived(event) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
-                    error!("Received matrix event before capabilities negotiation");
+                    error!("Received Matrix event before capabilities negotiation");
                     return Vec::new();
                 };
 
@@ -585,7 +586,7 @@ impl WidgetMachine {
 
         let Some(meta) = self.pending_matrix_driver_requests.insert(request_id, request_meta)
         else {
-            warn!("Reached limits of pending requests for matrix driver requests");
+            warn!("Reached limits of pending requests for Matrix driver requests");
             return None;
         };
 
