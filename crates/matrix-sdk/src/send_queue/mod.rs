@@ -1615,6 +1615,9 @@ impl QueueStorage {
                         if #[cfg(feature = "unstable-msc4274")] {
                             parent_is_thumbnail_upload
                         } else {
+                            // Before parent_is_thumbnail_upload was introduced, the only
+                            // possible usage for this request was a file upload following
+                            // a thumbnail upload.
                             true
                         }
                     }
