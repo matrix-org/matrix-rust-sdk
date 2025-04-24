@@ -109,8 +109,8 @@
 //! - the thumbnail is sent first as an [`QueuedRequestKind::MediaUpload`]
 //!   request,
 //! - the file upload is pushed as a dependent request of kind
-//!   [`DependentQueuedRequestKind::UploadFileWithThumbnail`] (this variant
-//!   keeps the file's key used to look it up in the cache store).
+//!   [`DependentQueuedRequestKind::UploadFileOrThumbnail`] (this variant keeps
+//!   the file's key used to look it up in the cache store).
 //! - the media event is then sent as a dependent request as described in the
 //!   previous section.
 //!
@@ -699,6 +699,8 @@ impl RoomSendQueue {
                 cache_key,
                 thumbnail_source,
                 related_to: relates_to,
+                #[cfg(feature = "unstable-msc4274")]
+                accumulated,
             } => {
                 trace!(%relates_to, "uploading media related to event");
 
@@ -757,6 +759,8 @@ impl RoomSendQueue {
                     Ok(SentRequestKey::Media(SentMediaInfo {
                         file: media_source,
                         thumbnail: thumbnail_source,
+                        #[cfg(feature = "unstable-msc4274")]
+                        accumulated,
                     }))
                 };
 
@@ -1215,6 +1219,8 @@ impl QueueStorage {
                             cache_key: thumbnail_media_request,
                             thumbnail_source: None, // the thumbnail has no thumbnails :)
                             related_to: send_event_txn.clone(),
+                            #[cfg(feature = "unstable-msc4274")]
+                            accumulated: vec![],
                         },
                         Self::LOW_PRIORITY,
                     )
@@ -1227,10 +1233,12 @@ impl QueueStorage {
                         &upload_thumbnail_txn,
                         upload_file_txn.clone().into(),
                         created_at,
-                        DependentQueuedRequestKind::UploadFileWithThumbnail {
+                        DependentQueuedRequestKind::UploadFileOrThumbnail {
                             content_type: content_type.to_string(),
                             cache_key: file_media_request,
                             related_to: send_event_txn.clone(),
+                            #[cfg(feature = "unstable-msc4274")]
+                            parent_is_thumbnail_upload: true,
                         },
                     )
                     .await?;
@@ -1248,6 +1256,8 @@ impl QueueStorage {
                             cache_key: file_media_request,
                             thumbnail_source: None,
                             related_to: send_event_txn.clone(),
+                            #[cfg(feature = "unstable-msc4274")]
+                            accumulated: vec![],
                         },
                         Self::LOW_PRIORITY,
                     )
@@ -1376,7 +1386,7 @@ impl QueueStorage {
                     },
                 }),
 
-                DependentQueuedRequestKind::UploadFileWithThumbnail { .. } => {
+                DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
                     // Don't reflect these: only the associated event is interesting to observers.
                     None
                 }
@@ -1589,22 +1599,37 @@ impl QueueStorage {
                 }
             }
 
-            DependentQueuedRequestKind::UploadFileWithThumbnail {
+            DependentQueuedRequestKind::UploadFileOrThumbnail {
                 content_type,
                 cache_key,
                 related_to,
+                #[cfg(feature = "unstable-msc4274")]
+                parent_is_thumbnail_upload,
             } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
                     return Ok(false);
                 };
-                self.handle_dependent_file_upload_with_thumbnail(
+                let parent_is_thumbnail_upload = {
+                    cfg_if::cfg_if! {
+                        if #[cfg(feature = "unstable-msc4274")] {
+                            parent_is_thumbnail_upload
+                        } else {
+                            // Before parent_is_thumbnail_upload was introduced, the only
+                            // possible usage for this request was a file upload following
+                            // a thumbnail upload.
+                            true
+                        }
+                    }
+                };
+                self.handle_dependent_file_or_thumbnail_upload(
                     client,
                     dependent_request.own_transaction_id.into(),
                     parent_key,
                     content_type,
                     cache_key,
                     related_to,
+                    parent_is_thumbnail_upload,
                 )
                 .await?;
             }
@@ -2209,7 +2234,7 @@ fn canonicalize_dependent_requests(
                 }
             }
 
-            DependentQueuedRequestKind::UploadFileWithThumbnail { .. }
+            DependentQueuedRequestKind::UploadFileOrThumbnail { .. }
             | DependentQueuedRequestKind::FinishUpload { .. }
             | DependentQueuedRequestKind::ReactEvent { .. } => {
                 // These requests can't be canonicalized, push them as is.
