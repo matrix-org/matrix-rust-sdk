@@ -17,7 +17,11 @@ use std::fmt;
 use matrix_sdk_common::{debug::DebugStructExt as _, deserialized_responses::TimelineEvent};
 use ruma::{
     api::{
-        client::{filter::RoomEventFilter, message::get_message_events},
+        client::{
+            filter::RoomEventFilter,
+            message::get_message_events,
+            threads::get_threads::{self, v1::IncludeThreads},
+        },
         Direction,
     },
     assign,
@@ -173,4 +177,50 @@ pub struct EventWithContextResponse {
     /// If lazy-loading of members was requested, this may contain room
     /// membership events.
     pub state: Vec<Raw<AnyStateEvent>>,
+}
+
+/// Options for [super::Room::list_threads].
+#[derive(Debug, Default)]
+pub struct ListThreadsOptions {
+    /// An extra filter to select which threads should be returned.
+    pub include_threads: IncludeThreads,
+
+    /// The token to start returning events from.
+    ///
+    /// This token can be obtained from a [`ThreadRoots::prev_batch_token`]
+    /// returned by a previous call to [`super::Room::list_threads()`].
+    ///
+    /// If `from` isn't provided the homeserver shall return a list of thread
+    /// roots from end of the timeline history.
+    pub from: Option<String>,
+
+    /// The maximum number of events to return.
+    ///
+    /// Default: 10.
+    pub limit: Option<UInt>,
+}
+
+impl ListThreadsOptions {
+    /// Converts the thread options into a Ruma request.
+    pub(super) fn into_request(self, room_id: &RoomId) -> get_threads::v1::Request {
+        assign!(get_threads::v1::Request::new(room_id.to_owned()), {
+            from: self.from,
+            include: self.include_threads,
+            limit: self.limit,
+        })
+    }
+}
+
+/// The result of a [`super::Room::list_threads`] query.
+///
+/// This is a wrapper around the Ruma equivalent, with events decrypted if needs
+/// be.
+#[derive(Debug)]
+pub struct ThreadRoots {
+    /// The events that are thread roots in the current batch.
+    pub chunk: Vec<TimelineEvent>,
+
+    /// Token to paginate backwards in a subsequent query to
+    /// [`super::Room::list_threads`].
+    pub prev_batch_token: Option<String>,
 }

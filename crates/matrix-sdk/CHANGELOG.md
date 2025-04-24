@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- `Room::list_threads()` is a new method to list all the threads in a room.
+
 ### Bug fixes
 
 ### Refactor

@@ -54,6 +54,7 @@ use matrix_sdk_common::{
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
+use messages::{ListThreadsOptions, ThreadRoots};
 use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "e2e-encryption")]
@@ -3544,6 +3545,27 @@ impl Room {
     pub fn privacy_settings(&self) -> RoomPrivacySettings<'_> {
         RoomPrivacySettings::new(&self.inner, &self.client)
     }
+
+    /// Retrieve a list of all the threads for the current room.
+    ///
+    /// Since this client-server API is paginated, the return type may include a
+    /// token used to resuming back-pagination into the list of results, in
+    /// [`ThreadRoots::prev_batch_token`]. This token can be fed back into
+    /// [`ListThreadsOptions::from`] to continue the pagination
+    /// from the previous position.
+    pub async fn list_threads(&self, opts: ListThreadsOptions) -> Result<ThreadRoots> {
+        let request = opts.into_request(self.room_id());
+
+        let response = self.client.send(request).await?;
+
+        let push_ctx = self.push_context().await?;
+        let chunk = join_all(
+            response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx.as_ref())),
+        )
+        .await;
+
+        Ok(ThreadRoots { chunk, prev_batch_token: response.next_batch })
+    }
 }
 
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
@@ -3872,6 +3894,7 @@ mod tests {
     use super::ReportedContentScore;
     use crate::{
         config::RequestConfig,
+        room::messages::ListThreadsOptions,
         test_utils::{client::mock_matrix_session, logged_in_client, mocks::MatrixMockServer},
         Client,
     };
