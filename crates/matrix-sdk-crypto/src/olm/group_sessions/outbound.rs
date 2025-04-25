@@ -16,9 +16,10 @@ use std::{
     cmp::max,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    ops::Bound,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, RwLockReadGuard,
     },
     time::Duration,
 };
@@ -70,7 +71,7 @@ const ONE_WEEK: Duration = Duration::from_secs(60 * 60 * 24 * 7);
 const ROTATION_PERIOD: Duration = ONE_WEEK;
 const ROTATION_MESSAGES: u64 = 100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// Information about whether a session was shared with a device.
 pub(crate) enum ShareState {
     /// The session was not shared with the device.
@@ -157,11 +158,8 @@ pub struct OutboundGroupSession {
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    pub(crate) shared_with_set:
-        Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>>>,
-    #[allow(clippy::type_complexity)]
-    pub(crate) to_share_with_set:
-        Arc<StdRwLock<BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>>,
+    shared_with_set: Arc<StdRwLock<ShareInfoSet>>,
+    to_share_with_set: Arc<StdRwLock<ToShareMap>>,
 }
 
 /// A a map of userid/device it to a `ShareInfo`.
@@ -169,6 +167,8 @@ pub struct OutboundGroupSession {
 /// Holds the `ShareInfo` for all the user/device pairs that will receive the
 /// room key.
 pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>;
+
+type ToShareMap = BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>;
 
 /// Struct holding info about the share state of a outbound group session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -204,6 +204,88 @@ pub struct SharedWith {
     /// The Olm wedging index of the device at the time the session was shared.
     #[serde(default)]
     pub olm_wedging_index: SequenceNumber,
+}
+
+/// A read-only view into the device sharing state of an
+/// [`OutboundGroupSession`].
+pub(crate) struct SharingView<'a> {
+    shared_with_set: RwLockReadGuard<'a, ShareInfoSet>,
+    to_share_with_set: RwLockReadGuard<'a, ToShareMap>,
+}
+
+impl SharingView<'_> {
+    /// Has the session been shared with the given user/device pair (or if not,
+    /// is there such a request pending).
+    pub(crate) fn get_share_state(&self, device: &DeviceData) -> ShareState {
+        self.iter_shares(Some(device.user_id()), Some(device.device_id()))
+            .map(|(_, _, info)| match info {
+                ShareInfo::Shared(info) => {
+                    if device.curve25519_key() == Some(info.sender_key) {
+                        ShareState::Shared {
+                            message_index: info.message_index,
+                            olm_wedging_index: info.olm_wedging_index,
+                        }
+                    } else {
+                        ShareState::SharedButChangedSenderKey
+                    }
+                }
+                ShareInfo::Withheld(_) => ShareState::NotShared,
+            })
+            .max()
+            .unwrap_or(ShareState::NotShared)
+    }
+
+    /// Has the session been withheld for the given user/device pair (or if not,
+    /// is there such a request pending).
+    pub(crate) fn is_withheld_to(&self, device: &DeviceData, code: &WithheldCode) -> bool {
+        self.iter_shares(Some(device.user_id()), Some(device.device_id()))
+            .any(|(_, _, info)| matches!(info, ShareInfo::Withheld(c) if c == code))
+    }
+
+    /// Enumerate all sent or pending sharing requests for the given device (or
+    /// for all devices if not specified).  This can yield the same device
+    /// multiple times.
+    pub(crate) fn iter_shares<'b, 'c>(
+        &self,
+        user_id: Option<&'b UserId>,
+        device_id: Option<&'c DeviceId>,
+    ) -> impl Iterator<Item = (&UserId, &DeviceId, &ShareInfo)> + use<'_, 'b, 'c> {
+        fn iter_share_info_set<'a, 'b, 'c>(
+            set: &'a ShareInfoSet,
+            user_ids: (Bound<&'b UserId>, Bound<&'b UserId>),
+            device_ids: (Bound<&'c DeviceId>, Bound<&'c DeviceId>),
+        ) -> impl Iterator<Item = (&'a UserId, &'a DeviceId, &'a ShareInfo)> + use<'a, 'b, 'c>
+        {
+            set.range::<UserId, _>(user_ids).flat_map(move |(uid, d)| {
+                d.range::<DeviceId, _>(device_ids)
+                    .map(|(id, info)| (uid.as_ref(), id.as_ref(), info))
+            })
+        }
+
+        let user_ids = user_id
+            .map(|u| (Bound::Included(u), Bound::Included(u)))
+            .unwrap_or((Bound::Unbounded, Bound::Unbounded));
+        let device_ids = device_id
+            .map(|d| (Bound::Included(d), Bound::Included(d)))
+            .unwrap_or((Bound::Unbounded, Bound::Unbounded));
+
+        let already_shared = iter_share_info_set(&self.shared_with_set, user_ids, device_ids);
+        let pending = self
+            .to_share_with_set
+            .values()
+            .flat_map(move |(_, set)| iter_share_info_set(set, user_ids, device_ids));
+        already_shared.chain(pending)
+    }
+
+    /// Enumerate all users that have received the session, or have pending
+    /// requests to receive it.  This can yield the same user multiple times,
+    /// so you may want to `collect()` the result into a `BTreeSet`.
+    pub(crate) fn shared_with_users(&self) -> impl Iterator<Item = &UserId> {
+        self.iter_shares(None, None).filter_map(|(u, _, info)| match info {
+            ShareInfo::Shared(_) => Some(u),
+            ShareInfo::Withheld(_) => None,
+        })
+    }
 }
 
 impl OutboundGroupSession {
@@ -541,76 +623,14 @@ impl OutboundGroupSession {
         )
     }
 
-    /// Has or will the session be shared with the given user/device pair.
-    pub(crate) fn is_shared_with(&self, device: &DeviceData) -> ShareState {
-        // Check if we shared the session.
-        let shared_state = self.shared_with_set.read().get(device.user_id()).and_then(|d| {
-            d.get(device.device_id()).map(|s| match s {
-                ShareInfo::Shared(s) => {
-                    if device.curve25519_key() == Some(s.sender_key) {
-                        ShareState::Shared {
-                            message_index: s.message_index,
-                            olm_wedging_index: s.olm_wedging_index,
-                        }
-                    } else {
-                        ShareState::SharedButChangedSenderKey
-                    }
-                }
-                ShareInfo::Withheld(_) => ShareState::NotShared,
-            })
-        });
-
-        if let Some(state) = shared_state {
-            state
-        } else {
-            // If we haven't shared the session, check if we're going to share
-            // the session.
-
-            // Find the first request that contains the given user id and
-            // device ID.
-            let shared = self.to_share_with_set.read().values().find_map(|(_, share_info)| {
-                let d = share_info.get(device.user_id())?;
-                let info = d.get(device.device_id())?;
-                Some(match info {
-                    ShareInfo::Shared(info) => {
-                        if device.curve25519_key() == Some(info.sender_key) {
-                            ShareState::Shared {
-                                message_index: info.message_index,
-                                olm_wedging_index: info.olm_wedging_index,
-                            }
-                        } else {
-                            ShareState::SharedButChangedSenderKey
-                        }
-                    }
-                    ShareInfo::Withheld(_) => ShareState::NotShared,
-                })
-            });
-
-            shared.unwrap_or(ShareState::NotShared)
+    /// Create a read-only view into the device sharing state of this session.
+    /// This view includes pending requests, so it is not guaranteed that the
+    /// represented state has been fully propagated yet.
+    pub(crate) fn sharing_view(&self) -> SharingView<'_> {
+        SharingView {
+            shared_with_set: self.shared_with_set.read(),
+            to_share_with_set: self.to_share_with_set.read(),
         }
-    }
-
-    pub(crate) fn is_withheld_to(&self, device: &DeviceData, code: &WithheldCode) -> bool {
-        self.shared_with_set
-            .read()
-            .get(device.user_id())
-            .and_then(|d| {
-                let info = d.get(device.device_id())?;
-                Some(matches!(info, ShareInfo::Withheld(c) if c == code))
-            })
-            .unwrap_or_else(|| {
-                // If we haven't yet withheld, check if we're going to withheld
-                // the session.
-
-                // Find the first request that contains the given user id and
-                // device ID.
-                self.to_share_with_set.read().values().any(|(_, share_info)| {
-                    share_info
-                        .get(device.user_id())
-                        .and_then(|d| d.get(device.device_id()))
-                        .is_some_and(|info| matches!(info, ShareInfo::Withheld(c) if c == code))
-                })
-            })
     }
 
     /// Mark the session as shared with the given user/device pair, starting

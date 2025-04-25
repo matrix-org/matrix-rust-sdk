@@ -15,7 +15,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     default::Default,
-    ops::Deref,
 };
 
 use itertools::{Either, Itertools};
@@ -216,10 +215,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
     // users that should get the session but is in the set of users that
     // received the session.
     if let Some(outbound) = outbound {
-        let users_shared_with: BTreeSet<OwnedUserId> =
-            outbound.shared_with_set.read().keys().cloned().collect();
-        let users_shared_with: BTreeSet<&UserId> =
-            users_shared_with.iter().map(Deref::deref).collect();
+        let view = outbound.sharing_view();
+        let users_shared_with = view.shared_with_users().collect::<BTreeSet<_>>();
         let left_users = users_shared_with.difference(&users).collect::<BTreeSet<_>>();
         if !left_users.is_empty() {
             trace!(?left_users, "Some users have left the chat: session must be rotated");
@@ -427,61 +424,20 @@ fn is_session_overshared_for_user(
     let recipient_device_ids: BTreeSet<&DeviceId> =
         recipient_devices.iter().map(|d| d.device_id()).collect();
 
-    let mut shared: Vec<&DeviceId> = Vec::new();
-
-    // This duplicates a conservative subset of the logic in
-    // `OutboundGroupSession::is_shared_with`, because we
-    // don't have corresponding DeviceData at hand
-    fn is_actually_shared(info: &ShareInfo) -> bool {
-        match info {
-            ShareInfo::Shared(_) => true,
-            ShareInfo::Withheld(_) => false,
-        }
-    }
-
-    // Collect the devices that have definitely received the session already
-    let guard = outbound_session.shared_with_set.read();
-    if let Some(for_user) = guard.get(user_id) {
-        shared.extend(for_user.iter().filter_map(|(d, info)| {
-            if is_actually_shared(info) {
-                Some(AsRef::<DeviceId>::as_ref(d))
+    let view = outbound_session.sharing_view();
+    let newly_deleted_or_blacklisted: BTreeSet<&DeviceId> = view
+        .iter_shares(Some(user_id), None)
+        .filter_map(|(_user_id, device_id, info)| {
+            // If a devices who we've shared the session with before is not in the
+            // list of devices that should receive the session, we need to rotate.
+            // We also collect all of those device IDs to log them out.
+            if matches!(info, ShareInfo::Shared(_)) && !recipient_device_ids.contains(device_id) {
+                Some(device_id)
             } else {
                 None
             }
-        }));
-    }
-
-    // To be conservative, also collect the devices that would still receive the
-    // session from a pending to-device request if we don't rotate beforehand
-    let guard = outbound_session.to_share_with_set.read();
-    for (_txid, share_infos) in guard.values() {
-        if let Some(for_user) = share_infos.get(user_id) {
-            shared.extend(for_user.iter().filter_map(|(d, info)| {
-                if is_actually_shared(info) {
-                    Some(AsRef::<DeviceId>::as_ref(d))
-                } else {
-                    None
-                }
-            }));
-        }
-    }
-
-    if shared.is_empty() {
-        return false;
-    }
-
-    let shared: BTreeSet<&DeviceId> = shared.into_iter().collect();
-
-    // The set difference between
-    //
-    // 1. Devices that had previously received (or are queued to receive) the
-    //    session, and
-    // 2. Devices that would now receive the session
-    //
-    // Represents newly deleted or blacklisted devices. If this
-    // set is non-empty, we must rotate.
-    let newly_deleted_or_blacklisted =
-        shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
+        })
+        .collect();
 
     let should_rotate = !newly_deleted_or_blacklisted.is_empty();
     if should_rotate {
