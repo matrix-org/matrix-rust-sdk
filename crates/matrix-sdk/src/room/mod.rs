@@ -56,6 +56,8 @@ use matrix_sdk_common::{
 };
 use mime::Mime;
 use reply::Reply;
+#[cfg(feature = "unstable-msc4274")]
+use ruma::events::room::message::GalleryItemType;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -2160,7 +2162,7 @@ impl Room {
         }
 
         let content = self
-            .make_attachment_event(
+            .make_message_event(
                 self.make_attachment_type(
                     content_type,
                     filename,
@@ -2276,7 +2278,7 @@ impl Room {
 
     /// Creates the [`RoomMessageEventContent`] based on the message type,
     /// mentions and reply information.
-    pub(crate) async fn make_attachment_event(
+    pub(crate) async fn make_message_event(
         &self,
         msg_type: MessageType,
         mentions: Option<Mentions>,
@@ -2292,6 +2294,99 @@ impl Room {
             content = self.make_reply_event(content.into(), reply).await?;
         }
         Ok(content)
+    }
+
+    /// Creates the inner [`GalleryItemType`] for an already-uploaded media file
+    /// provided by its source.
+    #[cfg(feature = "unstable-msc4274")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn make_gallery_item_type(
+        &self,
+        content_type: &Mime,
+        filename: String,
+        source: MediaSource,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+        info: Option<AttachmentInfo>,
+        thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
+    ) -> GalleryItemType {
+        // If caption is set, use it as body, and filename as the file name; otherwise,
+        // body is the filename, and the filename is not set.
+        // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
+        let (body, filename) = match caption {
+            Some(caption) => (caption, Some(filename)),
+            None => (filename, None),
+        };
+
+        let (thumbnail_source, thumbnail_info) = thumbnail.unzip();
+
+        match content_type.type_() {
+            mime::IMAGE => {
+                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(ImageMessageEventContent::new(body, source), {
+                    info: Some(Box::new(info)),
+                    formatted: formatted_caption,
+                    filename
+                });
+                GalleryItemType::Image(content)
+            }
+
+            mime::AUDIO => {
+                let mut content = assign!(AudioMessageEventContent::new(body, source), {
+                    formatted: formatted_caption,
+                    filename
+                });
+
+                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
+                    &info
+                {
+                    if let Some(duration) = audio_info.duration {
+                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+                        content.audio =
+                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+                    }
+                    content.voice = Some(UnstableVoiceContentBlock::new());
+                }
+
+                let mut audio_info = info.map(AudioInfo::from).unwrap_or_default();
+                audio_info.mimetype = Some(content_type.as_ref().to_owned());
+                let content = content.info(Box::new(audio_info));
+
+                GalleryItemType::Audio(content)
+            }
+
+            mime::VIDEO => {
+                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(VideoMessageEventContent::new(body, source), {
+                    info: Some(Box::new(info)),
+                    formatted: formatted_caption,
+                    filename
+                });
+                GalleryItemType::Video(content)
+            }
+
+            _ => {
+                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(FileMessageEventContent::new(body, source), {
+                    info: Some(Box::new(info)),
+                    formatted: formatted_caption,
+                    filename,
+                });
+                GalleryItemType::File(content)
+            }
+        }
     }
 
     /// Update the power levels of a select set of users of this room.
