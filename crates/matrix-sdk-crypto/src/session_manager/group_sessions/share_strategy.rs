@@ -427,22 +427,55 @@ fn is_session_overshared_for_user(
     let recipient_device_ids: BTreeSet<&DeviceId> =
         recipient_devices.iter().map(|d| d.device_id()).collect();
 
+    let mut shared: Vec<&DeviceId> = Vec::new();
+
+    // This duplicates a conservative subset of the logic in
+    // `OutboundGroupSession::is_shared_with`, because we
+    // don't have corresponding DeviceData at hand
+    fn is_actually_shared(info: &ShareInfo) -> bool {
+        match info {
+            ShareInfo::Shared(_) => true,
+            ShareInfo::Withheld(_) => false,
+        }
+    }
+
+    // Collect the devices that have definitely received the session already
     let guard = outbound_session.shared_with_set.read();
+    if let Some(for_user) = guard.get(user_id) {
+        shared.extend(for_user.iter().filter_map(|(d, info)| {
+            if is_actually_shared(info) {
+                Some(AsRef::<DeviceId>::as_ref(d))
+            } else {
+                None
+            }
+        }));
+    }
 
-    let Some(shared) = guard.get(user_id) else {
+    // To be conservative, also collect the devices that would still receive the
+    // session from a pending to-device request if we don't rotate beforehand
+    let guard = outbound_session.to_share_with_set.read();
+    for (_txid, share_infos) in guard.values() {
+        if let Some(for_user) = share_infos.get(user_id) {
+            shared.extend(for_user.iter().filter_map(|(d, info)| {
+                if is_actually_shared(info) {
+                    Some(AsRef::<DeviceId>::as_ref(d))
+                } else {
+                    None
+                }
+            }));
+        }
+    }
+
+    if shared.is_empty() {
         return false;
-    };
+    }
 
-    // Devices that received this session
-    let shared: BTreeSet<&DeviceId> = shared
-        .iter()
-        .filter(|(_, info)| matches!(info, ShareInfo::Shared(_)))
-        .map(|(d, _)| d.as_ref())
-        .collect();
+    let shared: BTreeSet<&DeviceId> = shared.into_iter().collect();
 
     // The set difference between
     //
-    // 1. Devices that had previously received the session, and
+    // 1. Devices that had previously received (or are queued to receive) the
+    //    session, and
     // 2. Devices that would now receive the session
     //
     // Represents newly deleted or blacklisted devices. If this
@@ -729,17 +762,21 @@ mod tests {
         },
     };
     use ruma::{
-        device_id, events::room::history_visibility::HistoryVisibility, room_id, TransactionId,
+        device_id,
+        events::{dummy::ToDeviceDummyEventContent, room::history_visibility::HistoryVisibility},
+        room_id, TransactionId,
     };
     use serde_json::json;
 
     use crate::{
         error::SessionRecipientCollectionError,
-        olm::OutboundGroupSession,
+        olm::{OutboundGroupSession, ShareInfo},
         session_manager::{
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
         },
+        store::caches::SequenceNumber,
         testing::simulate_key_query_response_for_verification,
+        types::requests::ToDeviceRequest,
         CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
 
@@ -2124,6 +2161,61 @@ mod tests {
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
         // share again
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(share_result.should_rotate);
+    }
+
+    /// Test that the session is rotated if a devices has a pending
+    /// to-device request that would share the keys with it.
+    #[async_test]
+    async fn test_should_rotate_based_on_device_with_pending_request_excluded() {
+        let machine = test_machine().await;
+        import_known_users_to_test_machine(&machine).await;
+
+        let encryption_settings = all_devices_strategy_settings();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
+        let sender_key = machine.identity_keys().curve25519;
+
+        let dan_user = KeyDistributionTestData::dan_id();
+        let dan_dev1 = KeyDistributionTestData::dan_signed_device_id();
+        let dan_dev2 = KeyDistributionTestData::dan_unsigned_device_id();
+
+        // Share the session with device 1
+        group_session.mark_shared_with(dan_user, dan_dev1, sender_key).await;
+
+        {
+            // Add a pending request to share with device 2
+            let share_infos = BTreeMap::from([(
+                dan_user.to_owned(),
+                BTreeMap::from([(
+                    dan_dev2.to_owned(),
+                    ShareInfo::new_shared(sender_key, 0, SequenceNumber::default()),
+                )]),
+            )]);
+
+            let txid = TransactionId::new();
+            let req = Arc::new(ToDeviceRequest::for_recipients(
+                dan_user,
+                vec![dan_dev2.to_owned()],
+                &ruma::events::AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent),
+                txid.clone(),
+            ));
+            group_session.add_request(txid, req, share_infos);
+        }
+
+        // Remove device 2
+        let keys_query = KeyDistributionTestData::dan_keys_query_response_device_loggedout();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+        // Share again
         let share_result = collect_session_recipients(
             machine.store(),
             vec![KeyDistributionTestData::dan_id()].into_iter(),
