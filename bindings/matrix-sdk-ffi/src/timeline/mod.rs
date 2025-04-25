@@ -223,6 +223,23 @@ pub struct UploadParameters {
     use_send_queue: bool,
 }
 
+/// A source for uploading a file
+#[derive(uniffi::Enum)]
+pub enum UploadSource {
+    /// Upload source is a file on disk
+    File {
+        /// Path to file
+        filename: String,
+    },
+    /// Upload source is data in memory
+    Data {
+        /// Data being uploaded
+        data: Vec<u8>,
+        /// Filename to associate with data
+        filename: String,
+    },
+}
+
 #[derive(uniffi::Record)]
 pub struct ReplyParameters {
     /// The ID of the event to reply to.
