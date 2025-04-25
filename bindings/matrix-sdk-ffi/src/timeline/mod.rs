@@ -130,10 +130,11 @@ impl Timeline {
             .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
-            let source = if let Some(bytes) = params.file_data {
-                AttachmentSource::Data { bytes, filename: params.filename }
-            } else {
-                AttachmentSource::File(params.filename.into())
+            let source = match params.source {
+                UploadSource::Data { data, filename } => {
+                    AttachmentSource::Data { bytes: data, filename }
+                }
+                UploadSource::File { filename } => AttachmentSource::File(filename.into()),
             };
             let mut request = self.inner.send_attachment(source, mime_type, attachment_config);
 
@@ -205,10 +206,8 @@ fn build_thumbnail_info(
 
 #[derive(uniffi::Record)]
 pub struct UploadParameters {
-    /// Filename (previously called "url") for the media to be sent.
-    filename: String,
-    /// Optional file data - if not present, then data is read from `filename`
-    file_data: Option<Vec<u8>>,
+    /// Source from which to upload data
+    source: UploadSource,
     /// Optional non-formatted caption, for clients that support it.
     caption: Option<String>,
     /// Optional HTML-formatted caption, for clients that support it.
