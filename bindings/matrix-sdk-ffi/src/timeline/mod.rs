@@ -227,9 +227,9 @@ pub enum UploadSource {
     },
     /// Upload source is data in memory
     Data {
-        /// Data being uploaded
-        data: Vec<u8>,
-        /// Filename to associate with data
+        /// Bytes being uploaded
+        bytes: Vec<u8>,
+        /// Filename to associate with bytes
         filename: String,
     },
 }
@@ -238,7 +238,7 @@ impl From<UploadSource> for AttachmentSource {
     fn from(value: UploadSource) -> Self {
         match value {
             UploadSource::File { filename } => Self::File(filename.into()),
-            UploadSource::Data { data, filename } => Self::Data { bytes: data, filename },
+            UploadSource::Data { bytes, filename } => Self::Data { bytes, filename },
         }
     }
 }
