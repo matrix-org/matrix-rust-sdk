@@ -130,13 +130,8 @@ impl Timeline {
             .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
-            let source = match params.source {
-                UploadSource::Data { data, filename } => {
-                    AttachmentSource::Data { bytes: data, filename }
-                }
-                UploadSource::File { filename } => AttachmentSource::File(filename.into()),
-            };
-            let mut request = self.inner.send_attachment(source, mime_type, attachment_config);
+            let mut request =
+                self.inner.send_attachment(params.source, mime_type, attachment_config);
 
             if params.use_send_queue {
                 request = request.use_send_queue();
@@ -237,6 +232,15 @@ pub enum UploadSource {
         /// Filename to associate with data
         filename: String,
     },
+}
+
+impl From<UploadSource> for AttachmentSource {
+    fn from(value: UploadSource) -> Self {
+        match value {
+            UploadSource::File { filename } => Self::File(filename.into()),
+            UploadSource::Data { data, filename } => Self::Data { bytes: data, filename },
+        }
+    }
 }
 
 #[derive(uniffi::Record)]
