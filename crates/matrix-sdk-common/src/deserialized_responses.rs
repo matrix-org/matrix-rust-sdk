@@ -322,42 +322,37 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
     where
         D: serde::Deserializer<'de>,
     {
-        // Deserialize as a generic JSON value
-        let value = serde_json::Value::deserialize(deserializer)?;
-
-        // Backwards compatibility:  Capture session_id at root if exists, in legacy
+        // Backwards compatibility: Capture session_id at root if exists. In legacy
         // EncryptionInfo the session_id was not in AlgorithmInfo
-        let binding = value.clone();
-        let s_id =
-            binding.as_object().and_then(|obj| obj.get("session_id")).and_then(|s| s.as_str());
-
-        // Now deserialize normally without legacy fields
         #[derive(Deserialize)]
         struct Helper {
             pub sender: OwnedUserId,
             pub sender_device: Option<OwnedDeviceId>,
             pub algorithm_info: AlgorithmInfo,
             pub verification_state: VerificationState,
+            #[serde(rename = "session_id")]
+            pub old_session_id: Option<String>,
         }
 
-        let mut info: Helper = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-
-        // Inject legacy session_id into algorithm_info if needed
-        if s_id.is_some() {
-            let AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, .. } =
-                info.algorithm_info;
-            info.algorithm_info = AlgorithmInfo::MegolmV1AesSha2 {
-                session_id: s_id.map(|s| s.to_owned()),
-                curve25519_key,
-                sender_claimed_keys,
-            };
-        }
+        let Helper {
+            sender,
+            sender_device,
+            algorithm_info:
+                AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id },
+            verification_state,
+            old_session_id,
+        } = Helper::deserialize(deserializer)?;
 
         Ok(EncryptionInfo {
-            sender: info.sender,
-            sender_device: info.sender_device,
-            algorithm_info: info.algorithm_info,
-            verification_state: info.verification_state,
+            sender,
+            sender_device,
+            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                // Migration, merge the old_session_id in algorithm_info
+                session_id: session_id.or(old_session_id),
+                curve25519_key,
+                sender_claimed_keys,
+            },
+            verification_state,
         })
     }
 }
