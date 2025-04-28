@@ -599,14 +599,11 @@ impl TimelineEventKind {
     pub fn session_id(&self) -> Option<&str> {
         match self {
             TimelineEventKind::Decrypted(decrypted_room_event) => {
-                let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } =
-                    &decrypted_room_event.encryption_info.algorithm_info;
-                session_id.as_ref()
+                decrypted_room_event.encryption_info.session_id()
             }
-            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.as_ref(),
+            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.as_deref(),
             TimelineEventKind::PlainText { .. } => None,
         }
-        .map(String::as_str)
     }
 }
 
