@@ -1202,6 +1202,11 @@ impl Client {
 
         Ok(closure().await?)
     }
+
+    /// Checks if the server supports the report room API.
+    pub async fn is_report_room_api_supported(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
+    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
