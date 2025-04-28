@@ -173,9 +173,9 @@ async fn test_edit_updates_encryption_info() {
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: "123".to_owned(),
             sender_claimed_keys: BTreeMap::new(),
+            session_id: Some("mysessionid6333".to_owned()),
         },
         verification_state: VerificationState::Verified,
-        session_id: Some("mysessionid6333".to_owned()),
     };
 
     let original_event: TimelineEvent = DecryptedRoomEvent {

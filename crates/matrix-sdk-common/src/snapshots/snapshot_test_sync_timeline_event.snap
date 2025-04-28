@@ -12,12 +12,12 @@ expression: "serde_json::to_value(&room_event).unwrap()"
             "sender_claimed_keys": {
               "curve25519": "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY",
               "ed25519": "I3YsPwqMZQXHkSQbjFNEs7b529uac2xBpI83eN3LUXo"
-            }
+            },
+            "session_id": "mysessionid112"
           }
         },
         "sender": "@sender:example.com",
         "sender_device": "ABCDEFGHIJ",
-        "session_id": "mysessionid112",
         "verification_state": "Verified"
       },
       "event": {

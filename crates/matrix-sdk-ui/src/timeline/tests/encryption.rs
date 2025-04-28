@@ -697,9 +697,9 @@ fn make_encryption_info(session_id: &str, verification_state: VerificationState)
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: Default::default(),
             sender_claimed_keys: Default::default(),
+            session_id: Some(session_id.to_owned()),
         },
         verification_state,
-        session_id: Some(session_id.to_owned()),
     }
 }
 

@@ -1719,9 +1719,9 @@ impl OlmMachine {
                     .iter()
                     .map(|(k, v)| (k.to_owned(), v.to_base64()))
                     .collect(),
+                session_id: Some(session.session_id().to_owned()),
             },
             verification_state,
-            session_id: Some(session.session_id().to_owned()),
         })
     }
 
