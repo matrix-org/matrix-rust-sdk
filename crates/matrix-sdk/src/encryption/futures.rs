@@ -31,21 +31,14 @@ use crate::{config::RequestConfig, Client, Media, Result, TransmissionProgress};
 #[allow(missing_debug_implementations)]
 pub struct UploadEncryptedFile<'a, R: ?Sized> {
     client: &'a Client,
-    content_type: &'a mime::Mime,
     reader: &'a mut R,
     send_progress: SharedObservable<TransmissionProgress>,
     request_config: Option<RequestConfig>,
 }
 
 impl<'a, R: ?Sized> UploadEncryptedFile<'a, R> {
-    pub(crate) fn new(client: &'a Client, content_type: &'a mime::Mime, reader: &'a mut R) -> Self {
-        Self {
-            client,
-            content_type,
-            reader,
-            send_progress: Default::default(),
-            request_config: None,
-        }
+    pub(crate) fn new(client: &'a Client, reader: &'a mut R) -> Self {
+        Self { client, reader, send_progress: Default::default(), request_config: None }
     }
 
     /// Replace the default `SharedObservable` used for tracking upload
@@ -87,7 +80,7 @@ where
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { client, content_type, reader, send_progress, request_config } = self;
+        let Self { client, reader, send_progress, request_config } = self;
         Box::pin(async move {
             let mut encryptor = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
 
@@ -101,7 +94,7 @@ where
 
             let response = client
                 .media()
-                .upload(content_type, buf, request_config)
+                .upload(&mime::APPLICATION_OCTET_STREAM, buf, request_config)
                 .with_send_progress_observable(send_progress)
                 .await?;
 
