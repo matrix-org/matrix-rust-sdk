@@ -40,7 +40,7 @@ mod settings;
 
 pub use self::{
     capabilities::{Capabilities, CapabilitiesProvider},
-    filter::{EventFilter, MessageLikeEventFilter, StateEventFilter},
+    filter::{Filter, MessageLikeEventFilter, StateEventFilter},
     settings::{
         ClientProperties, EncryptionSystem, Intent, VirtualElementCallWidgetOptions, WidgetSettings,
     },

@@ -18,18 +18,18 @@ use serde::Deserialize;
 /// Different kinds of filters for timeline events.
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq))]
-pub enum EventFilter {
+pub enum Filter {
     /// Filter for message-like events.
     MessageLike(MessageLikeEventFilter),
     /// Filter for state events.
     State(StateEventFilter),
 }
 
-impl EventFilter {
-    pub(super) fn matches(&self, matrix_event: &MatrixEventFilterInput) -> bool {
+impl Filter {
+    pub(super) fn matches(&self, matrix_event: &FilterInput) -> bool {
         match self {
-            EventFilter::MessageLike(message_filter) => message_filter.matches(matrix_event),
-            EventFilter::State(state_filter) => state_filter.matches(matrix_event),
+            Filter::MessageLike(message_filter) => message_filter.matches(matrix_event),
+            Filter::State(state_filter) => state_filter.matches(matrix_event),
         }
     }
 
@@ -65,7 +65,7 @@ pub enum MessageLikeEventFilter {
 }
 
 impl MessageLikeEventFilter {
-    fn matches(&self, matrix_event: &MatrixEventFilterInput) -> bool {
+    fn matches(&self, matrix_event: &FilterInput) -> bool {
         if matrix_event.state_key.is_some() {
             // State event doesn't match a message-like event filter.
             return false;
@@ -103,7 +103,7 @@ pub enum StateEventFilter {
 }
 
 impl StateEventFilter {
-    fn matches(&self, matrix_event: &MatrixEventFilterInput) -> bool {
+    fn matches(&self, matrix_event: &FilterInput) -> bool {
         let Some(state_key) = &matrix_event.state_key else {
             // Message-like event doesn't match a state event filter.
             return false;
@@ -126,7 +126,7 @@ impl StateEventFilter {
 }
 
 #[derive(Debug, Deserialize)]
-pub(super) struct MatrixEventFilterInput {
+pub(super) struct FilterInput {
     #[serde(rename = "type")]
     pub(super) event_type: TimelineEventType,
     pub(super) state_key: Option<String>,
@@ -143,38 +143,28 @@ mod tests {
     use ruma::events::{MessageLikeEventType, StateEventType, TimelineEventType};
 
     use super::{
-        EventFilter, MatrixEventContent, MatrixEventFilterInput, MessageLikeEventFilter,
-        StateEventFilter,
+        Filter, FilterInput, MatrixEventContent, MessageLikeEventFilter, StateEventFilter,
     };
 
-    fn message_event(event_type: TimelineEventType) -> MatrixEventFilterInput {
-        MatrixEventFilterInput { event_type, state_key: None, content: Default::default() }
+    fn message_event(event_type: TimelineEventType) -> FilterInput {
+        FilterInput { event_type, state_key: None, content: Default::default() }
     }
 
-    fn message_event_with_msgtype(
-        event_type: TimelineEventType,
-        msgtype: String,
-    ) -> MatrixEventFilterInput {
-        MatrixEventFilterInput {
+    fn message_event_with_msgtype(event_type: TimelineEventType, msgtype: String) -> FilterInput {
+        FilterInput {
             event_type,
             state_key: None,
             content: MatrixEventContent { msgtype: Some(msgtype) },
         }
     }
 
-    fn state_event(event_type: TimelineEventType, state_key: String) -> MatrixEventFilterInput {
-        MatrixEventFilterInput {
-            event_type,
-            state_key: Some(state_key),
-            content: Default::default(),
-        }
+    fn state_event(event_type: TimelineEventType, state_key: String) -> FilterInput {
+        FilterInput { event_type, state_key: Some(state_key), content: Default::default() }
     }
 
     // Tests against an `m.room.message` filter with `msgtype = m.text`
-    fn room_message_text_event_filter() -> EventFilter {
-        EventFilter::MessageLike(MessageLikeEventFilter::RoomMessageWithMsgtype(
-            "m.text".to_owned(),
-        ))
+    fn room_message_text_event_filter() -> Filter {
+        Filter::MessageLike(MessageLikeEventFilter::RoomMessageWithMsgtype("m.text".to_owned()))
     }
 
     #[test]
@@ -202,8 +192,8 @@ mod tests {
     }
 
     // Tests against an `m.reaction` filter
-    fn reaction_event_filter() -> EventFilter {
-        EventFilter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::Reaction))
+    fn reaction_event_filter() -> Filter {
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::Reaction))
     }
 
     #[test]
@@ -238,8 +228,8 @@ mod tests {
     }
 
     // Tests against an `m.room.member` filter with `state_key = "@self:example.me"`
-    fn self_member_event_filter() -> EventFilter {
-        EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+    fn self_member_event_filter() -> Filter {
+        Filter::State(StateEventFilter::WithTypeAndStateKey(
             StateEventType::RoomMember,
             "@self:example.me".to_owned(),
         ))
@@ -279,8 +269,8 @@ mod tests {
     }
 
     // Tests against an `m.room.member` filter with any `state_key`.
-    fn member_event_filter() -> EventFilter {
-        EventFilter::State(StateEventFilter::WithType(StateEventType::RoomMember))
+    fn member_event_filter() -> Filter {
+        Filter::State(StateEventFilter::WithType(StateEventType::RoomMember))
     }
 
     #[test]
@@ -307,8 +297,8 @@ mod tests {
     }
 
     // Tests against an `m.room.topic` filter with `state_key = ""`
-    fn topic_event_filter() -> EventFilter {
-        EventFilter::State(StateEventFilter::WithTypeAndStateKey(
+    fn topic_event_filter() -> Filter {
+        Filter::State(StateEventFilter::WithTypeAndStateKey(
             StateEventType::RoomTopic,
             "".to_owned(),
         ))
@@ -321,17 +311,13 @@ mod tests {
     }
 
     // Tests against an `m.room.message` filter with `msgtype = m.custom`
-    fn room_message_custom_event_filter() -> EventFilter {
-        EventFilter::MessageLike(MessageLikeEventFilter::RoomMessageWithMsgtype(
-            "m.custom".to_owned(),
-        ))
+    fn room_message_custom_event_filter() -> Filter {
+        Filter::MessageLike(MessageLikeEventFilter::RoomMessageWithMsgtype("m.custom".to_owned()))
     }
 
     // Tests against an `m.room.message` filter without a `msgtype`
-    fn room_message_filter() -> EventFilter {
-        EventFilter::MessageLike(MessageLikeEventFilter::WithType(
-            MessageLikeEventType::RoomMessage,
-        ))
+    fn room_message_filter() -> Filter {
+        Filter::MessageLike(MessageLikeEventFilter::WithType(MessageLikeEventType::RoomMessage))
     }
 
     #[test]
