@@ -18,7 +18,7 @@ use std::marker::PhantomData;
 
 use ruma::{
     api::client::{account::request_openid_token, delayed_events::update_delayed_event},
-    events::{AnyTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType},
+    events::AnyTimelineEvent,
     serde::Raw,
 };
 use serde::Deserialize;
@@ -157,7 +157,9 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
 #[derive(Clone, Debug)]
 pub(crate) struct ReadMessageLikeEventRequest {
     /// The event type to read.
-    pub(crate) event_type: MessageLikeEventType,
+    // TODO: This wants to be `MessageLikeEventType`` but we need a type which supports `as_str()`
+    // as soon as ruma supports `as_str()` on `MessageLikeEventType` we can use it here.
+    pub(crate) event_type: String,
 
     /// The maximum number of events to return.
     pub(crate) limit: u32,
@@ -190,7 +192,9 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
 #[derive(Clone, Debug)]
 pub(crate) struct ReadStateEventRequest {
     /// The event type to read.
-    pub(crate) event_type: StateEventType,
+    // TODO: This wants to be `TimelineEventType` but we need a type which supports `as_str()`
+    // as soon as ruma supports `as_str()` on `TimelineEventType` we can use it here.
+    pub(crate) event_type: String,
 
     /// The `state_key` to read, or `Any` to receive any/all events of the given
     /// type, regardless of their `state_key`.
@@ -213,8 +217,10 @@ impl MatrixDriverRequest for ReadStateEventRequest {
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SendEventRequest {
     /// The type of the event.
+    // TODO: This wants to be `TimelineEventType` but we need a type which supports `as_str()`
+    // as soon as ruma supports `as_str()` on `TimelineEventType` we can use it here.
     #[serde(rename = "type")]
-    pub(crate) event_type: TimelineEventType,
+    pub(crate) event_type: String,
     /// State key of an event (if it's a state event).
     pub(crate) state_key: Option<String>,
     /// Raw content of an event.

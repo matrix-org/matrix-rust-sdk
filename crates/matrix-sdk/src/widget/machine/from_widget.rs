@@ -18,7 +18,7 @@ use ruma::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
         error::{ErrorBody, StandardErrorBody},
     },
-    events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
+    events::AnyTimelineEvent,
     serde::Raw,
     OwnedEventId, OwnedRoomId,
 };
@@ -178,12 +178,12 @@ pub(super) enum ApiVersion {
 pub(super) enum ReadEventRequest {
     ReadStateEvent {
         #[serde(rename = "type")]
-        event_type: StateEventType,
+        event_type: String,
         state_key: StateKeySelector,
     },
     ReadMessageLikeEvent {
         #[serde(rename = "type")]
-        event_type: MessageLikeEventType,
+        event_type: String,
         limit: Option<u32>,
     },
 }
