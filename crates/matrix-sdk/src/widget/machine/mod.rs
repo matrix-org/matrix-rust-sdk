@@ -49,7 +49,7 @@ use self::{
 use super::WidgetDriver;
 use super::{
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
-    filter::{MatrixEventContent, MatrixEventFilterInput},
+    filter::{MatrixEventContent, FilterInput},
     Capabilities, StateKeySelector,
 };
 use crate::Result;
@@ -376,7 +376,7 @@ impl WidgetMachine {
                         .any(|filter| filter.matches_state_event_with_any_state_key(&event_type)),
 
                     StateKeySelector::Key(state_key) => {
-                        let filter_in = MatrixEventFilterInput {
+                        let filter_in = FilterInput {
                             event_type: event_type.to_string().into(),
                             state_key: Some(state_key.clone()),
                             // content doesn't matter for state events
@@ -418,7 +418,7 @@ impl WidgetMachine {
             return None;
         };
 
-        let filter_in = MatrixEventFilterInput {
+        let filter_in = FilterInput {
             event_type: request.event_type.clone(),
             state_key: request.state_key.clone(),
             content: serde_json::from_str(request.content.get()).unwrap_or_else(|e| {
