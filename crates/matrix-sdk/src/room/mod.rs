@@ -381,7 +381,21 @@ impl Room {
                 prev_room_state,
             ))));
         }
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        let inviter = if prev_room_state == RoomState::Invited {
+            self.invite_details().await?.inviter
+        } else {
+            None
+        };
+
         self.client.join_room_by_id(self.room_id()).await?;
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        if let Some(inviter) = inviter {
+            shared_room_history::accept_key_bundle(&self, inviter.user_id()).await?;
+        }
+
         Ok(())
     }
 
