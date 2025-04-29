@@ -231,6 +231,8 @@ impl SharingView<'_> {
                 }
                 ShareInfo::Withheld(_) => ShareState::NotShared,
             })
+            // Return the most "definitive" ShareState found (in case there
+            // are multiple entries for the same device).
             .max()
             .unwrap_or(ShareState::NotShared)
     }
@@ -802,7 +804,7 @@ mod tests {
         uint, EventEncryptionAlgorithm,
     };
 
-    use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
+    use super::{EncryptionSettings, ShareState, ROTATION_MESSAGES, ROTATION_PERIOD};
     use crate::CollectStrategy;
 
     #[test]
@@ -829,6 +831,26 @@ mod tests {
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);
+    }
+
+    /// Ensure that the `ShareState` PartialOrd instance orders according to
+    /// specificity of the value.
+    #[test]
+    fn test_share_state_ordering() {
+        let mut values = [
+            ShareState::NotShared,
+            ShareState::SharedButChangedSenderKey,
+            ShareState::Shared { message_index: 1, olm_wedging_index: Default::default() },
+        ];
+        // Make sure our test case of possible variants is exhaustive
+        match values[0] {
+            ShareState::NotShared
+            | ShareState::SharedButChangedSenderKey
+            | ShareState::Shared { .. } => {}
+        }
+        let orig = values.clone();
+        values.sort();
+        assert_eq!(orig, values);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
