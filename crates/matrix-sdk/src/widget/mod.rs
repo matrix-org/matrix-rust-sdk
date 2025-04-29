@@ -208,12 +208,12 @@ impl WidgetDriver {
                     }
 
                     MatrixDriverRequestData::ReadMessageLikeEvent(cmd) => matrix_driver
-                        .read_message_like_events(cmd.event_type.clone(), cmd.limit)
+                        .read_message_like_events(cmd.event_type.into(), cmd.limit)
                         .await
                         .map(MatrixDriverResponse::MatrixEventRead),
 
                     MatrixDriverRequestData::ReadStateEvent(cmd) => matrix_driver
-                        .read_state_events(cmd.event_type.clone(), &cmd.state_key)
+                        .read_state_events(cmd.event_type.into(), &cmd.state_key)
                         .await
                         .map(MatrixDriverResponse::MatrixEventRead),
 
@@ -227,7 +227,7 @@ impl WidgetDriver {
                             timeout: Duration::from_millis(d),
                         });
                         matrix_driver
-                            .send(event_type, state_key, content, delay_event_parameter)
+                            .send(event_type.into(), state_key, content, delay_event_parameter)
                             .await
                             .map(MatrixDriverResponse::MatrixEventSent)
                     }
