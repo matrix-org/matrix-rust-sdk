@@ -281,11 +281,16 @@ pub enum AlgorithmInfo {
         /// decrypt this session. This map will usually contain a single ed25519
         /// key.
         sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+
+        /// The Megolm session ID that was used to encrypt this event, or None
+        /// if this info was stored before we collected this data.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
 }
 
 /// Struct containing information on how an event was decrypted.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
     /// `verification_state` is `Verified` as well.
@@ -302,9 +307,54 @@ pub struct EncryptionInfo {
     /// Callers that persist this should mark the state as dirty when a device
     /// change is received down the sync.
     pub verification_state: VerificationState,
-    /// The Megolm session ID that was used to encrypt this event, or None if
-    /// this info was stored before we collected this data.
-    pub session_id: Option<String>,
+}
+
+impl EncryptionInfo {
+    /// Helper to get the megolm session id used to encrypt.
+    pub fn session_id(&self) -> Option<&str> {
+        let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = &self.algorithm_info;
+        session_id.as_deref()
+    }
+}
+
+impl<'de> Deserialize<'de> for EncryptionInfo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Backwards compatibility: Capture session_id at root if exists. In legacy
+        // EncryptionInfo the session_id was not in AlgorithmInfo
+        #[derive(Deserialize)]
+        struct Helper {
+            pub sender: OwnedUserId,
+            pub sender_device: Option<OwnedDeviceId>,
+            pub algorithm_info: AlgorithmInfo,
+            pub verification_state: VerificationState,
+            #[serde(rename = "session_id")]
+            pub old_session_id: Option<String>,
+        }
+
+        let Helper {
+            sender,
+            sender_device,
+            algorithm_info:
+                AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id },
+            verification_state,
+            old_session_id,
+        } = Helper::deserialize(deserializer)?;
+
+        Ok(EncryptionInfo {
+            sender,
+            sender_device,
+            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                // Migration, merge the old_session_id in algorithm_info
+                session_id: session_id.or(old_session_id),
+                curve25519_key,
+                sender_claimed_keys,
+            },
+            verification_state,
+        })
+    }
 }
 
 /// Represents a matrix room event that has been returned from `/sync`,
@@ -549,12 +599,11 @@ impl TimelineEventKind {
     pub fn session_id(&self) -> Option<&str> {
         match self {
             TimelineEventKind::Decrypted(decrypted_room_event) => {
-                decrypted_room_event.encryption_info.session_id.as_ref()
+                decrypted_room_event.encryption_info.session_id()
             }
-            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.as_ref(),
+            TimelineEventKind::UnableToDecrypt { utd_info, .. } => utd_info.session_id.as_deref(),
             TimelineEventKind::PlainText { .. } => None,
         }
-        .map(String::as_str)
     }
 }
 
@@ -1056,9 +1105,9 @@ mod tests {
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                         curve25519_key: "xxx".to_owned(),
                         sender_claimed_keys: Default::default(),
+                        session_id: Some("xyz".to_owned()),
                     },
                     verification_state: VerificationState::Verified,
-                    session_id: Some("xyz".to_owned()),
                 },
                 unsigned_encryption_info: Some(BTreeMap::from([(
                     UnsignedEventLocation::RelationsReplace,
@@ -1093,11 +1142,11 @@ mod tests {
                             "algorithm_info": {
                                 "MegolmV1AesSha2": {
                                     "curve25519_key": "xxx",
-                                    "sender_claimed_keys": {}
+                                    "sender_claimed_keys": {},
+                                    "session_id": "xyz",
                                 }
                             },
                             "verification_state": "Verified",
-                            "session_id": "xyz",
                         },
                         "unsigned_encryption_info": {
                             "RelationsReplace": {"UnableToDecrypt": {
@@ -1144,9 +1193,8 @@ mod tests {
         assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
-            AlgorithmInfo::MegolmV1AesSha2 { .. }
+            AlgorithmInfo::MegolmV1AesSha2 { session_id: None, .. }
         );
-        assert_eq!(event.encryption_info().unwrap().session_id, None);
 
         // Test that the previous format, with an undecryptable unsigned event, can also
         // be deserialized.
@@ -1366,11 +1414,38 @@ mod tests {
                 (DeviceKeyAlgorithm::Curve25519, "claimedclaimedcurve25519".to_owned()),
                 (DeviceKeyAlgorithm::Ed25519, "claimedclaimeded25519".to_owned()),
             ]),
+            session_id: None,
         };
 
         with_settings!({ prepend_module_to_snapshot => false }, {
             assert_json_snapshot!(info)
         });
+    }
+
+    #[test]
+    fn test_encryption_info_migration() {
+        // In the old format the session_id was in the EncryptionInfo, now
+        // it is moved to the `algorithm_info` struct.
+        let old_format = json!({
+          "sender": "@alice:localhost",
+          "sender_device": "ABCDEFGH",
+          "algorithm_info": {
+            "MegolmV1AesSha2": {
+              "curve25519_key": "curvecurvecurve",
+              "sender_claimed_keys": {}
+            }
+          },
+          "verification_state": "Verified",
+          "session_id": "mysessionid76"
+        });
+
+        let deserialized = serde_json::from_value::<EncryptionInfo>(old_format).unwrap();
+        let expected_session_id = Some("mysessionid76".to_owned());
+
+        let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = deserialized.algorithm_info.clone();
+        assert_eq!(session_id, expected_session_id);
+
+        assert_json_snapshot!(deserialized);
     }
 
     #[test]
@@ -1381,9 +1456,9 @@ mod tests {
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: "curvecurvecurve".into(),
                 sender_claimed_keys: Default::default(),
+                session_id: Some("mysessionid76".to_owned()),
             },
             verification_state: VerificationState::Verified,
-            session_id: Some("mysessionid76".to_owned()),
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
@@ -1411,9 +1486,9 @@ mod tests {
                                 "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY".to_owned(),
                             ),
                         ]),
+                        session_id: Some("mysessionid112".to_owned()),
                     },
                     verification_state: VerificationState::Verified,
-                    session_id: Some("mysessionid112".to_owned()),
                 },
                 unsigned_encryption_info: Some(BTreeMap::from([(
                     UnsignedEventLocation::RelationsThreadLatestEvent,

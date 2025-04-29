@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Move `session_id` from `EncryptionInfo` to `AlgorithmInfo` as it is megolm specific. 
+  Use `EncryptionInfo::session_id()` helper for quick access.
+
 - Send stable identifier `sender_device_keys` for MSC4147 (Including device
   keys with Olm-encrypted events).
   ([#4964](https://github.com/matrix-org/matrix-rust-sdk/pull/4964))

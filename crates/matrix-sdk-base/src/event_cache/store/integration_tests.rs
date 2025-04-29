@@ -62,9 +62,9 @@ pub fn make_test_event_with_event_id(
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: "1337".to_owned(),
             sender_claimed_keys: Default::default(),
+            session_id: Some("mysessionid9".to_owned()),
         },
         verification_state: VerificationState::Verified,
-        session_id: Some("mysessionid9".to_owned()),
     };
 
     let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
