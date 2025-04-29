@@ -18,11 +18,13 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use ruma::{events::AnyTimelineEvent, serde::Raw};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
-use super::{filter::FilterInput, Filter, MessageLikeEventFilter, StateEventFilter};
+use super::{
+    filter::{Filter, FilterInput},
+    MessageLikeEventFilter, StateEventFilter,
+};
 
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
@@ -56,17 +58,47 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// Tells if a given raw event matches the read filter.
-    pub fn raw_event_matches_read_filter(&self, raw: &Raw<AnyTimelineEvent>) -> bool {
-        let filter_in = match raw.deserialize_as::<FilterInput>() {
-            Ok(filter) => filter,
-            Err(err) => {
-                error!("Failed to deserialize raw event as MatrixEventFilterInput: {err}");
-                return false;
+    /// Checks if a given event is allowed to be forwarded to the widget.
+    ///
+    /// - `event_filter_input` is a minimized event respresntation that contains
+    ///   only the information needed to check if the widget is allowed to
+    ///   receive the event. (See [`FilterInput`])
+    pub(super) fn allow_reading<'a>(
+        &self,
+        event_filter_input: impl TryInto<FilterInput<'a>>,
+    ) -> bool {
+        match &event_filter_input.try_into() {
+            Err(_) => {
+                warn!("Failed to convert event into filter input for `allow_reading`.");
+                false
             }
-        };
+            Ok(filter_input) => self.read.iter().any(|f| f.matches(filter_input)),
+        }
+    }
 
-        self.read.iter().any(|f| f.matches(&filter_in))
+    /// Checks if a given event is allowed to be sent by the widget.
+    ///
+    /// - `event_filter_input` is a minimized event respresntation that contains
+    ///   only the information needed to check if the widget is allowed to send
+    ///   the event to a matrix room. (See [`FilterInput`])
+    pub(super) fn allow_sending<'a>(
+        &self,
+        event_filter_input: impl TryInto<FilterInput<'a>>,
+    ) -> bool {
+        match &event_filter_input.try_into() {
+            Err(_) => {
+                warn!("Failed to convert event into filter input for `allow_sending`.");
+                false
+            }
+            Ok(filter_input) => self.send.iter().any(|f| f.matches(filter_input)),
+        }
+    }
+
+    /// Checks if a filter exists for the given event type, useful for
+    /// optimization. Avoids unnecessary read event requests when no matching
+    /// filter is present.
+    pub(super) fn has_read_filter_for_type(&self, event_type: &str) -> bool {
+        self.read.iter().any(|f| f.filter_event_type() == event_type)
     }
 }
 
