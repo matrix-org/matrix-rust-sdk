@@ -122,7 +122,7 @@ impl GroupSessionCache {
 
     /// Returns whether any session is withheld with the given device and code.
     fn has_session_withheld_to(&self, device: &DeviceData, code: &WithheldCode) -> bool {
-        self.sessions.read().values().any(|s| s.is_withheld_to(device, code))
+        self.sessions.read().values().any(|s| s.sharing_view().is_withheld_to(device, code))
     }
 
     fn remove_from_being_shared(&self, id: &TransactionId) -> Option<OutboundGroupSession> {
@@ -500,7 +500,7 @@ impl GroupSessionManager {
         if code == &WithheldCode::NoOlm {
             device.was_withheld_code_sent() || self.sessions.has_session_withheld_to(device, code)
         } else {
-            group_session.is_withheld_to(device, code)
+            group_session.sharing_view().is_withheld_to(device, code)
         }
     }
 
@@ -696,7 +696,7 @@ impl GroupSessionManager {
         let devices: Vec<_> = devices
             .into_iter()
             .flat_map(|(_, d)| {
-                d.into_iter().filter(|d| match outbound.is_shared_with(d) {
+                d.into_iter().filter(|d| match outbound.sharing_view().get_share_state(d) {
                     ShareState::NotShared => true,
                     ShareState::Shared { message_index: _, olm_wedging_index } => {
                         // If the recipient device's Olm wedging index is higher

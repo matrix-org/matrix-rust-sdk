@@ -645,7 +645,7 @@ impl GossipMachine {
         // at. For this, we need an outbound session because this
         // information is recorded there.
         } else if let Some(outbound) = outbound_session {
-            match outbound.is_shared_with(&device.inner) {
+            match outbound.sharing_view().get_share_state(&device.inner) {
                 ShareState::Shared { message_index, olm_wedging_index: _ } => {
                     Ok(Some(message_index))
                 }
