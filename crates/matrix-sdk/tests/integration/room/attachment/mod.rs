@@ -58,6 +58,42 @@ async fn test_room_attachment_send() {
     assert_eq!(expected_event_id, response.event_id);
 }
 
+#[cfg(feature = "e2e-encryption")]
+#[async_test]
+async fn test_room_attachment_send_in_encrypted_room_has_binary_mime_type() {
+    let mock = MatrixMockServer::new().await;
+
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+
+    mock.mock_room_send().ok(expected_event_id).mock_once().mount().await;
+
+    mock.mock_upload()
+        .expect_mime_type("application/octet-stream")
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .up_to_n_times(2)
+        .mount()
+        .await;
+
+    // Needed for the message to be sent in an encrypted room
+    mock.mock_get_members().ok(Vec::new()).mock_once().mount().await;
+
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().encrypted().mount().await;
+
+    let response = room
+        .send_attachment(
+            "image",
+            &mime::IMAGE_JPEG,
+            b"Hello world".to_vec(),
+            AttachmentConfig::new(),
+        )
+        .await
+        .expect("Failed to send attachment");
+
+    assert_eq!(expected_event_id, response.event_id);
+}
+
 #[async_test]
 async fn test_room_attachment_send_info() {
     let mock = MatrixMockServer::new().await;

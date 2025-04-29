@@ -435,24 +435,22 @@ impl Client {
     /// # let client = Client::new(homeserver).await?;
     /// # let room = client.get_room(&room_id!("!test:example.com")).unwrap();
     /// let mut reader = std::io::Cursor::new(b"Hello, world!");
-    /// let encrypted_file = client.upload_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
+    /// let encrypted_file = client.upload_encrypted_file(&mut reader).await?;
     ///
     /// room.send(CustomEventContent { encrypted_file }).await?;
     /// # anyhow::Ok(()) };
     /// ```
     pub fn upload_encrypted_file<'a, R: Read + ?Sized + 'a>(
         &'a self,
-        content_type: &'a mime::Mime,
         reader: &'a mut R,
     ) -> UploadEncryptedFile<'a, R> {
-        UploadEncryptedFile::new(self, content_type, reader)
+        UploadEncryptedFile::new(self, reader)
     }
 
     /// Encrypt and upload the file and thumbnails, and return the source
     /// information.
     pub(crate) async fn upload_encrypted_media_and_thumbnail(
         &self,
-        content_type: &mime::Mime,
         data: &[u8],
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
@@ -461,7 +459,7 @@ impl Client {
 
         let upload_attachment = async {
             let mut cursor = Cursor::new(data);
-            self.upload_encrypted_file(content_type, &mut cursor)
+            self.upload_encrypted_file(&mut cursor)
                 .with_send_progress_observable(send_progress)
                 .await
         };
@@ -482,11 +480,11 @@ impl Client {
             return Ok(None);
         };
 
-        let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+        let (data, _, thumbnail_info) = thumbnail.into_parts();
         let mut cursor = Cursor::new(data);
 
         let file = self
-            .upload_encrypted_file(&content_type, &mut cursor)
+            .upload_encrypted_file(&mut cursor)
             .with_send_progress_observable(send_progress)
             .await?;
 
