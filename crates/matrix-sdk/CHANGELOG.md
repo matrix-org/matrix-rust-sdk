@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- `RoomSendQueue::send_gallery` has been added to allow sending MSC4274-style media galleries
+  via the send queue under the `unstable-msc4274` feature.
+  ([#4977](https://github.com/matrix-org/matrix-rust-sdk/pull/4977))
+
 ### Bug fixes
 
 ### Refactor
