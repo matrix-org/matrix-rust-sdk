@@ -25,7 +25,7 @@ use ruma::{
 };
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
 use self::{
@@ -49,7 +49,7 @@ use self::{
 use super::WidgetDriver;
 use super::{
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
-    filter::{MatrixEventContent, FilterInput},
+    filter::FilterInput,
     Capabilities, StateKeySelector,
 };
 use crate::Result;
@@ -158,12 +158,12 @@ impl WidgetMachine {
         self.pending_matrix_driver_requests.remove_expired();
 
         match event {
-            IncomingMessage::WidgetMessage(raw) => self.process_widget_message(&raw),
-
+            IncomingMessage::WidgetMessage(widget_message_raw) => {
+                self.process_widget_message(&widget_message_raw)
+            }
             IncomingMessage::MatrixDriverResponse { request_id, response } => {
                 self.process_matrix_driver_response(request_id, response)
             }
-
             IncomingMessage::MatrixEventReceived(event) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     error!("Received matrix event before capabilities negotiation");
@@ -171,7 +171,7 @@ impl WidgetMachine {
                 };
 
                 capabilities
-                    .raw_event_matches_read_filter(&event)
+                    .allow_reading(&event)
                     .then(|| {
                         self.send_to_widget_request(NotifyNewMatrixEvent(event))
                             .map(|(_request, action)| vec![action])
@@ -330,8 +330,7 @@ impl WidgetMachine {
 
         match request {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
-                if !capabilities.read.iter().any(|f| f.matches_message_like_event_type(&event_type))
-                {
+                if !capabilities.has_read_filter_for_type(&event_type) {
                     return Some(Self::send_from_widget_error_string_response(
                         raw_request,
                         "Not allowed to read message like event",
@@ -354,11 +353,11 @@ impl WidgetMachine {
                                 ))
                             }
                             CapabilitiesState::Negotiated(capabilities) => result
-                                .map(|mut events| {
-                                    events.retain(|e| capabilities.raw_event_matches_read_filter(e));
-                                    ReadEventResponse { events }
-                                })
-                                .map_err(FromWidgetErrorResponse::from_error),
+                            .map(|mut events| {
+                                events.retain(|e| capabilities.allow_reading(e));
+                                ReadEventResponse { events }
+                            })
+                            .map_err(FromWidgetErrorResponse::from_error),
                         };
 
                         vec![Self::send_from_widget_response(raw_request, response)]
@@ -369,24 +368,18 @@ impl WidgetMachine {
             }
 
             ReadEventRequest::ReadStateEvent { event_type, state_key } => {
-                let allowed = match &state_key {
-                    StateKeySelector::Any => capabilities
-                        .read
-                        .iter()
-                        .any(|filter| filter.matches_state_event_with_any_state_key(&event_type)),
-
+                let allowed = match state_key.clone() {
+                    // If the widget tries to read any state event we can only skip sending the
+                    // request, if the widget does not have any capability for
+                    // the requested event type.
+                    StateKeySelector::Any => capabilities.has_read_filter_for_type(&event_type),
+                    // If we have a specific state key we will check if the widget has
+                    // the capability to read this specific state key and otherwise
+                    // skip sending the request.
                     StateKeySelector::Key(state_key) => {
-                        let filter_in = FilterInput {
-                            event_type: event_type.to_string().into(),
-                            state_key: Some(state_key.clone()),
-                            // content doesn't matter for state events
-                            content: MatrixEventContent::default(),
-                        };
-
-                        capabilities.read.iter().any(|filter| filter.matches(&filter_in))
+                        capabilities.allow_reading(FilterInput::state(&event_type, &state_key))
                     }
                 };
-
                 if allowed {
                     self.send_matrix_driver_request(ReadStateEventRequest { event_type, state_key })
                         .map(|(request, action)| {
@@ -418,17 +411,6 @@ impl WidgetMachine {
             return None;
         };
 
-        let filter_in = FilterInput {
-            event_type: request.event_type.clone(),
-            state_key: request.state_key.clone(),
-            content: serde_json::from_str(request.content.get()).unwrap_or_else(|e| {
-                debug!("Failed to deserialize event content for filter: {e}");
-                // Fallback to empty content is safe because there is no filter
-                // that matches with it when it otherwise wouldn't.
-                Default::default()
-            }),
-        };
-
         if !capabilities.send_delayed_event && request.delay.is_some() {
             return Some(Self::send_from_widget_error_string_response(
                 raw_request,
@@ -436,7 +418,7 @@ impl WidgetMachine {
             ));
         }
 
-        if !capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
+        if !capabilities.allow_sending(&request) {
             return Some(Self::send_from_widget_error_string_response(
                 raw_request,
                 "Not allowed to send event",
