@@ -837,7 +837,7 @@ mod tests {
     /// specificity of the value.
     #[test]
     fn test_share_state_ordering() {
-        let mut values = [
+        let values = [
             ShareState::NotShared,
             ShareState::SharedButChangedSenderKey,
             ShareState::Shared { message_index: 1, olm_wedging_index: Default::default() },
@@ -848,9 +848,7 @@ mod tests {
             | ShareState::SharedButChangedSenderKey
             | ShareState::Shared { .. } => {}
         }
-        let orig = values.clone();
-        values.sort();
-        assert_eq!(orig, values);
+        assert!(values.is_sorted());
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
