@@ -411,6 +411,7 @@ impl NotificationClient {
             (StateEventType::RoomCanonicalAlias, "".to_owned()),
             (StateEventType::RoomName, "".to_owned()),
             (StateEventType::RoomPowerLevels, "".to_owned()),
+            (StateEventType::CallMember, "*".to_owned()),
         ];
 
         let invites = SlidingSyncList::builder("invites")

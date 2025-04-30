@@ -264,6 +264,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.canonical_alias", ""],
                         ["m.room.name", ""],
                         ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
                     ],
                     "filters": {
                         "is_invite": true,
@@ -281,6 +282,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.canonical_alias", ""],
                         ["m.room.name", ""],
                         ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
                     ],
                     "timeline_limit": 16,
                 },
