@@ -17,6 +17,7 @@
 
 use std::collections::BTreeMap;
 
+use futures_util::future::join_all;
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use ruma::{
     api::client::{
@@ -273,9 +274,36 @@ impl MatrixDriver {
         let client = self.room.client();
 
         let request = if encrypted {
-            return Err(Error::UnknownError(
-                "Sending encrypted to_device events is not supported by the widget driver.".into(),
-            ));
+            // We first want to get all missing session before we start any to device
+            // sending!
+            client.claim_one_time_keys(messages.keys().map(|u| u.as_ref())).await?;
+            let encrypted_content: BTreeMap<
+                OwnedUserId,
+                BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
+            > = join_all(messages.into_iter().map(|(user_id, device_content_map)| {
+                let event_type = event_type.clone();
+                async move {
+                    (
+                        user_id.clone(),
+                        to_device_crypto::encrypted_device_content_map(
+                            &self.room.client(),
+                            &user_id,
+                            &event_type,
+                            device_content_map,
+                        )
+                        .await,
+                    )
+                }
+            }))
+            .await
+            .into_iter()
+            .collect();
+
+            RumaToDeviceRequest::new_raw(
+                ToDeviceEventType::RoomEncrypted,
+                TransactionId::new(),
+                encrypted_content,
+            )
         } else {
             RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages)
         };
@@ -338,6 +366,116 @@ fn add_props_to_raw<T>(
         Err(e) => Err(Error::from(e)),
     }
 }
+
+/// Move this into the `matrix_crypto` crate!
+/// This module contains helper functions to encrypt to device events.
+mod to_device_crypto {
+    use std::collections::BTreeMap;
+
+    use futures_util::future::join_all;
+    use ruma::{
+        events::{AnyToDeviceEventContent, ToDeviceEventType},
+        serde::Raw,
+        to_device::DeviceIdOrAllDevices,
+        UserId,
+    };
+    use serde_json::Value;
+    use tracing::{info, warn};
+
+    use crate::{encryption::identities::Device, executor::spawn, Client, Error, Result};
+
+    /// This encrypts to device content for a collection of devices.
+    /// It will ignore all devices where errors occurred or where the device
+    /// is not verified or where th user has a has_verification_violation.
+    async fn encrypted_content_for_devices(
+        unencrypted_content: &Raw<AnyToDeviceEventContent>,
+        devices: Vec<Device>,
+        event_type: &ToDeviceEventType,
+    ) -> Result<impl Iterator<Item = (DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>)>> {
+        let content: Value = unencrypted_content.deserialize_as().map_err(Into::<Error>::into)?;
+        let event_type = event_type.clone();
+        let device_content_tasks = devices.into_iter().map(|device| spawn({
+                let event_type = event_type.clone();
+                let content = content.clone();
+
+                async move {
+                    if !device.is_cross_signed_by_owner() {
+                        info!("Device {} is not verified, skipping encryption", device.device_id());
+                        return None;
+                    }
+                    match device
+                        .inner
+                        .encrypt_event_raw(&event_type.to_string(), &content)
+                        .await {
+                            Ok(encrypted) => Some((device.device_id().to_owned().into(), encrypted.cast())),
+                            Err(e) =>{ info!("Failed to encrypt to_device event from widget for device: {} because, {}", device.device_id(), e); None},
+                        }
+                }
+            }));
+        let device_encrypted_content_map =
+            join_all(device_content_tasks).await.into_iter().flatten().flatten();
+        Ok(device_encrypted_content_map)
+    }
+
+    /// Convert the device content map for one user into the same content
+    /// map with encrypted content This needs to flatten the vectors
+    /// we get from `encrypted_content_for_devices`
+    /// since one `DeviceIdOrAllDevices` id can be multiple devices.
+    pub(super) async fn encrypted_device_content_map(
+        client: &Client,
+        user_id: &UserId,
+        event_type: &ToDeviceEventType,
+        device_content_map: BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
+    ) -> BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>> {
+        let device_map_futures =
+                device_content_map.into_iter().map(|(device_or_all_id, content)| spawn({
+                    let client = client.clone();
+                    let user_id = user_id.to_owned();
+                    let event_type = event_type.clone();
+                    async move {
+                        let Ok(user_devices) = client.encryption().get_user_devices(&user_id).await else {
+                            warn!("Failed to get user devices for user: {}", user_id);
+                            return None;
+                        };
+                        let Ok(user_identity) = client.encryption().get_user_identity(&user_id).await else{
+                            warn!("Failed to get user identity for user: {}", user_id);
+                            return None;
+                        };
+                        if user_identity.map(|i|i.has_verification_violation()).unwrap_or(false) {
+                            info!("User {} has a verification violation, skipping encryption", user_id);
+                            return None;
+                        }
+                        let devices: Vec<Device> = match device_or_all_id {
+                            DeviceIdOrAllDevices::DeviceId(device_id) => {
+                                vec![user_devices.get(&device_id)].into_iter().flatten().collect()
+                            }
+                            DeviceIdOrAllDevices::AllDevices => user_devices.devices().collect(),
+                        };
+                        encrypted_content_for_devices(
+                            &content,
+                            devices,
+                            &event_type,
+                        )
+                        .await
+                        .map_err(|e| info!("WidgetDriver: could not encrypt content for to device widget event content: {}. because, {}", content.json(), e))
+                        .ok()
+                }}));
+        let content_map_iterator = join_all(device_map_futures).await.into_iter();
+
+        // The first flatten takes the iterator over Result<Option<impl Iterator<Item =
+        // (DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>)>>, JoinError>>
+        // and flattens the Result (drops Err() items)
+        // The second takes the iterator over: Option<impl Iterator<Item =
+        // (DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>)>>
+        // and flattens the Option (drops None items)
+        // The third takes the iterator over iterators: impl Iterator<Item =
+        // (DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>)>
+        // and flattens it to just an iterator over (DeviceIdOrAllDevices,
+        // Raw<AnyToDeviceEventContent>)
+        content_map_iterator.flatten().flatten().flatten().collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ruma::{room_id, serde::Raw};
