@@ -38,7 +38,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tracing::error;
+use tracing::{error, info};
 
 use super::{machine::SendEventResponse, StateKeySelector};
 use crate::{event_handler::EventHandlerDropGuard, room::MessagesOptions, Error, Result, Room};
@@ -305,13 +305,13 @@ impl<T> EventReceiver<T> {
 // value through the widget driver and only serialize here to allow potimizing
 // with `serde(borrow)`.
 #[derive(Deserialize, Serialize)]
-struct RoomIdEncryptionSerializer<'a> {
+struct RoomIdEncryptionSerializer {
     #[serde(skip_serializing_if = "Option::is_none")]
     room_id: Option<OwnedRoomId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     encrypted: Option<bool>,
-    #[serde(flatten, borrow)]
-    rest: &'a RawJsonValue,
+    #[serde(flatten)]
+    rest: Value,
 }
 
 /// Attach additional properties to the event.
@@ -328,12 +328,45 @@ fn add_props_to_raw<T>(
     room_id: Option<OwnedRoomId>,
     encryption_info: Option<&EncryptionInfo>,
 ) -> Result<Raw<T>> {
-    match raw.deserialize_as::<RoomIdEncryptionSerializer<'_>>() {
+    match raw.deserialize_as::<RoomIdEncryptionSerializer>() {
         Ok(mut event) => {
             event.room_id = room_id.or(event.room_id);
             event.encrypted = encryption_info.map(|_| true).or(event.encrypted);
+            info!("rest is: {:?}", event.rest);
             Ok(Raw::new(&event)?.cast())
         }
         Err(e) => Err(Error::from(e)),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use ruma::{room_id, serde::Raw};
+    use serde_json::json;
+
+    use super::add_props_to_raw;
+
+    #[test]
+    fn test_app_props_to_raw() {
+        let raw = Raw::new(&json!({
+            "encrypted": true,
+            "type": "m.room.message",
+            "content": {
+                "body": "Hello world"
+            }
+        }))
+        .unwrap();
+        let room_id = room_id!("!my_id:example.org");
+        let new = add_props_to_raw(&raw, Some(room_id.to_owned()), None).unwrap();
+        assert_eq!(
+            serde_json::to_value(new).unwrap(),
+            json!({
+                "encrypted": true,
+                "room_id": "!my_id:example.org",
+                "type": "m.room.message",
+                "content": {
+                    "body": "Hello world"
+                }
+            })
+        );
     }
 }
