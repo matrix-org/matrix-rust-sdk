@@ -28,14 +28,14 @@ use ruma::{
     assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
-        AnyToDeviceEventContent, MessageLikeEventType, StateEventType, TimelineEventType,
-        ToDeviceEventType,
+        AnySyncStateEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        MessageLikeEventType, StateEventType, TimelineEventType, ToDeviceEventType,
     },
     serde::{from_raw_json_value, Raw},
     to_device::DeviceIdOrAllDevices,
-    EventId, OwnedUserId, RoomId, TransactionId,
+    EventId, OwnedRoomId, OwnedUserId, TransactionId,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tracing::error;
@@ -89,11 +89,14 @@ impl MatrixDriver {
     ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
         let room_id = self.room.room_id();
         let convert = |sync_or_stripped_state| match sync_or_stripped_state {
-            RawAnySyncOrStrippedState::Sync(ev) => with_attached_room_id(ev.cast_ref(), room_id)
-                .map_err(|e| {
-                    error!("failed to convert event from `get_state_event` response:{}", e)
-                })
-                .ok(),
+            RawAnySyncOrStrippedState::Sync(ev) => {
+                add_props_to_raw(&ev, Some(room_id.to_owned()), None)
+                    .map(Raw::cast)
+                    .map_err(|e| {
+                        error!("failed to convert event from `get_state_event` response:{}", e)
+                    })
+                    .ok()
+            }
             RawAnySyncOrStrippedState::Stripped(_) => {
                 error!("MatrixDriver can't operate in invited rooms");
                 None
@@ -197,9 +200,9 @@ impl MatrixDriver {
         let _room_id = room_id.clone();
         let handle_msg_like =
             self.room.add_event_handler(move |raw: Raw<AnySyncMessageLikeEvent>| {
-                match with_attached_room_id(raw.cast_ref(), &_room_id) {
+                match add_props_to_raw(&raw, Some(_room_id), None) {
                     Ok(event_with_room_id) => {
-                        let _ = _tx.send(event_with_room_id);
+                        let _ = _tx.send(event_with_room_id.cast());
                     }
                     Err(e) => {
                         error!("Failed to attach room id to message like event: {}", e);
@@ -212,9 +215,9 @@ impl MatrixDriver {
         let _tx = tx;
         // Get only all state events from the state section of the sync.
         let handle_state = self.room.add_event_handler(move |raw: Raw<AnySyncStateEvent>| {
-            match with_attached_room_id(raw.cast_ref(), &_room_id) {
+            match add_props_to_raw(&raw, Some(_room_id.to_owned()), None) {
                 Ok(event_with_room_id) => {
-                    let _ = _tx.send(event_with_room_id);
+                    let _ = _tx.send(event_with_room_id.cast());
                 }
                 Err(e) => {
                     error!("Failed to attach room id to state event: {}", e);
@@ -240,7 +243,7 @@ impl MatrixDriver {
 
         let to_device_handle = self.room.client().add_event_handler(
             move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>| {
-                match with_attached_encryption_flag(raw, &encryption_info) {
+                match add_props_to_raw(&raw, None, encryption_info.as_ref()) {
                     Ok(ev) => {
                         let _ = tx.send(ev);
                     }
@@ -296,35 +299,40 @@ impl<T> EventReceiver<T> {
     }
 }
 
-/// Attach a room id to the event. This is needed because the widget API
-/// requires the room id to be present in the event.
-
-fn with_attached_room_id(
-    raw: &Raw<AnySyncTimelineEvent>,
-    room_id: &RoomId,
-) -> Result<Raw<AnyTimelineEvent>> {
-    // This is the only modification we need to do to the events otherwise they are
-    // just forwarded raw to the widget.
-    // This is why we do the serialization dance here to allow the optimization of
-    // using `BTreeMap<String, Box<RawJsonValue>` instead of serializing the full event.
-    match raw.deserialize_as::<BTreeMap<String, Box<RawJsonValue>>>() {
-        Ok(mut ev_mut) => {
-            ev_mut.insert("room_id".to_owned(), serde_json::value::to_raw_value(room_id)?);
-            Ok(Raw::new(&ev_mut)?.cast())
-        }
-        Err(e) => Err(Error::from(e)),
-    }
+// `room_id` and `encryption` is the only modification we need to do to the
+// events otherwise they are just forwarded raw to the widget.
+// This is why we do not serialization the whole event but pass it as a raw
+// value through the widget driver and only serialize here to allow potimizing
+// with `serde(borrow)`.
+#[derive(Deserialize, Serialize)]
+struct RoomIdEncryptionSerializer<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_id: Option<OwnedRoomId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encrypted: Option<bool>,
+    #[serde(flatten, borrow)]
+    rest: &'a RawJsonValue,
 }
 
-fn with_attached_encryption_flag(
-    raw: Raw<AnyToDeviceEvent>,
-    encryption_info: &Option<EncryptionInfo>,
-) -> Result<Raw<AnyToDeviceEvent>> {
-    match raw.deserialize_as::<BTreeMap<String, Box<RawJsonValue>>>() {
-        Ok(mut ev_mut) => {
-            let encrypted = encryption_info.is_some();
-            ev_mut.insert("encrypted".to_owned(), serde_json::value::to_raw_value(&encrypted)?);
-            Ok(Raw::new(&ev_mut)?.cast())
+/// Attach additional properties to the event.
+///
+/// Attach a room id to the event. This is needed because the widget API
+/// requires the room id to be present in the event.
+///
+/// Attach the `ecryption` flag to the event. This is needed so the widget gets
+/// informed if an event is encrypted or not. Since the client is responsible
+/// for decrypting the event, there otherwise is no way for the widget to know
+/// if its an encrypted (signed/trusted) event or not.
+fn add_props_to_raw<T>(
+    raw: &Raw<T>,
+    room_id: Option<OwnedRoomId>,
+    encryption_info: Option<&EncryptionInfo>,
+) -> Result<Raw<T>> {
+    match raw.deserialize_as::<RoomIdEncryptionSerializer<'_>>() {
+        Ok(mut event) => {
+            event.room_id = room_id.or(event.room_id);
+            event.encrypted = encryption_info.map(|_| true).or(event.encrypted);
+            Ok(Raw::new(&event)?.cast())
         }
         Err(e) => Err(Error::from(e)),
     }

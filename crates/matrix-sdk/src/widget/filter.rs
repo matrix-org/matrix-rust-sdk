@@ -228,8 +228,8 @@ impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
 
     fn try_from(raw_event: &'a Raw<AnyTimelineEvent>) -> Result<Self, Self::Error> {
-        // FilterInput first checks if it can deserialize as a state event (state_key exists)
-        // and then as a message like event.
+        // FilterInput first checks if it can deserialize as a state event (state_key
+        // exists) and then as a message like event.
         raw_event.deserialize_as()
     }
 }
@@ -244,9 +244,9 @@ pub struct FilterInputToDevice<'a> {
 impl<'a> TryFrom<&'a Raw<AnyToDeviceEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
     fn try_from(raw_event: &'a Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
-        // deserialize_as::<FilterInput> will first try state, message like and then to-device.
-        // The `AnyToDeviceEvent` would match message like first, so we need to explicitly
-        // deserialize as `FilterInputToDevice`.
+        // deserialize_as::<FilterInput> will first try state, message like and then
+        // to-device. The `AnyToDeviceEvent` would match message like first, so
+        // we need to explicitly deserialize as `FilterInputToDevice`.
         raw_event.deserialize_as::<FilterInputToDevice<'a>>().map(FilterInput::ToDevice)
     }
 }
@@ -515,7 +515,7 @@ mod tests {
     fn test_to_device_filter_does_match() {
         let f = Filter::ToDevice(ToDeviceEventFilter::new("my.custom.to.device".into()));
         assert!(f.matches(&FilterInput::ToDevice(FilterInputToDevice {
-            event_type: "my.custom.to.device".into(),
+            event_type: "my.custom.to.device",
         })));
     }
 }
