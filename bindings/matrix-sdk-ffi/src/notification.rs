@@ -9,6 +9,7 @@ use crate::{
     client::{Client, JoinRule},
     error::ClientError,
     event::TimelineEvent,
+    room::Room,
 };
 
 #[derive(uniffi::Enum)]
@@ -99,6 +100,17 @@ pub struct NotificationClient {
 
 #[matrix_sdk_ffi_macros::export]
 impl NotificationClient {
+    /// Fetches a room by its ID using the in-memory state store backed client.
+    ///
+    /// Useful to retrieve room information after running the limited
+    /// notification client sliding sync loop.
+    pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        let sdk_room = self.inner.get_room(&room_id);
+        let room = sdk_room.map(|room| Arc::new(Room::new(room)));
+        Ok(room)
+    }
+
     /// See also documentation of
     /// `MatrixNotificationClient::get_notification`.
     pub async fn get_notification(
