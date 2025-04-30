@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+    time::Duration,
+};
 
 use extension_trait::extension_trait;
 use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
@@ -20,8 +24,14 @@ use ruma::{
     assign,
     events::{
         call::notify::NotifyType as RumaNotifyType,
+        direct::DirectEventContent,
+        fully_read::FullyReadEventContent,
+        identity_server::IdentityServerEventContent,
+        ignored_user_list::{IgnoredUser as RumaIgnoredUser, IgnoredUserListEventContent},
         location::AssetType as RumaAssetType,
+        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         poll::start::PollKind as RumaPollKind,
+        push_rules::PushRulesEventContent,
         room::{
             message::{
                 AudioInfo as RumaAudioInfo,
@@ -43,16 +53,39 @@ use ruma::{
             ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
             ThumbnailInfo as RumaThumbnailInfo,
         },
+        secret_storage::{
+            default_key::SecretStorageDefaultKeyEventContent,
+            key::{
+                PassPhrase as RumaPassPhrase,
+                SecretStorageEncryptionAlgorithm as RumaSecretStorageEncryptionAlgorithm,
+                SecretStorageKeyEventContent,
+                SecretStorageV1AesHmacSha2Properties as RumaSecretStorageV1AesHmacSha2Properties,
+            },
+        },
+        tag::{
+            TagEventContent, TagInfo as RumaTagInfo, TagName as RumaTagName,
+            UserTagName as RumaUserTagName,
+        },
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
+        RoomAccountDataEventType as RumaRoomAccountDataEventType,
     },
     matrix_uri::MatrixId as RumaMatrixId,
+    push::{
+        ConditionalPushRule as RumaConditionalPushRule, PatternedPushRule as RumaPatternedPushRule,
+        Ruleset as RumaRuleset, SimplePushRule as RumaSimplePushRule,
+    },
     serde::JsonObject,
-    MatrixToUri, MatrixUri as RumaMatrixUri, OwnedUserId, UInt, UserId,
+    KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
+    OwnedRoomId, OwnedUserId, UInt, UserId,
 };
 use tracing::info;
 
 use crate::{
     error::{ClientError, MediaInfoError},
     helpers::unwrap_or_clone_arc,
+    notification_settings::{Action, PushCondition},
     timeline::MessageContent,
     utils::u64_to_uint,
 };
@@ -984,4 +1017,592 @@ pub fn content_without_relation_from_message(
 ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
     let msg_type = message.msg_type.try_into()?;
     Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msg_type)))
+}
+
+/// Types of global account data events.
+#[derive(Clone, uniffi::Enum)]
+pub enum AccountDataEventType {
+    /// m.direct
+    Direct,
+    /// m.identity_server
+    IdentityServer,
+    /// m.ignored_user_list
+    IgnoredUserList,
+    /// m.push_rules
+    PushRules,
+    /// m.secret_storage.default_key
+    SecretStorageDefaultKey,
+    /// m.secret_storage.key.*
+    SecretStorageKey(String),
+}
+
+impl TryFrom<RumaGlobalAccountDataEventType> for AccountDataEventType {
+    type Error = String;
+
+    fn try_from(value: RumaGlobalAccountDataEventType) -> Result<Self, Self::Error> {
+        match value {
+            RumaGlobalAccountDataEventType::Direct => Ok(Self::Direct),
+            RumaGlobalAccountDataEventType::IdentityServer => Ok(Self::IdentityServer),
+            RumaGlobalAccountDataEventType::IgnoredUserList => Ok(Self::IgnoredUserList),
+            RumaGlobalAccountDataEventType::PushRules => Ok(Self::PushRules),
+            RumaGlobalAccountDataEventType::SecretStorageDefaultKey => {
+                Ok(Self::SecretStorageDefaultKey)
+            }
+            RumaGlobalAccountDataEventType::SecretStorageKey(key_id) => {
+                Ok(Self::SecretStorageKey(key_id))
+            }
+            _ => Err("Unsupported account data event type".to_owned()),
+        }
+    }
+}
+
+/// Global account data events.
+#[derive(Clone, uniffi::Enum)]
+pub enum AccountDataEvent {
+    /// m.direct
+    Direct {
+        /// The mapping of user ID to a list of room IDs of the ‘direct’ rooms
+        /// for that user ID.
+        map: HashMap<String, Vec<String>>,
+    },
+    /// m.identity_server
+    IdentityServer {
+        /// The base URL for the identity server for client-server connections.
+        base_url: Option<String>,
+    },
+    /// m.ignored_user_list
+    IgnoredUserList {
+        /// The map of users to ignore. This is a mapping of user ID to empty
+        /// object.
+        ignored_users: HashMap<String, IgnoredUser>,
+    },
+    /// m.push_rules
+    PushRules {
+        /// The global ruleset.
+        global: Ruleset,
+    },
+    /// m.secret_storage.default_key
+    SecretStorageDefaultKey {
+        /// The ID of the default key.
+        key_id: String,
+    },
+    /// m.secret_storage.key.*
+    SecretStorageKey {
+        /// The ID of the key.
+        key_id: String,
+
+        /// The name of the key.
+        name: Option<String>,
+
+        /// The encryption algorithm used for this key.
+        ///
+        /// Currently, only `m.secret_storage.v1.aes-hmac-sha2` is supported.
+        algorithm: SecretStorageEncryptionAlgorithm,
+
+        /// The passphrase from which to generate the key.
+        passphrase: Option<PassPhrase>,
+    },
+}
+
+/// Details about an ignored user.
+///
+/// This is currently empty.
+#[derive(Clone, uniffi::Record)]
+pub struct IgnoredUser {}
+
+impl From<RumaIgnoredUser> for IgnoredUser {
+    fn from(_value: RumaIgnoredUser) -> Self {
+        IgnoredUser {}
+    }
+}
+
+/// A push ruleset scopes a set of rules according to some criteria.
+#[derive(Clone, uniffi::Record)]
+pub struct Ruleset {
+    /// These rules configure behavior for (unencrypted) messages that match
+    /// certain patterns.
+    pub content: Vec<PatternedPushRule>,
+
+    /// These user-configured rules are given the highest priority.
+    ///
+    /// This field is named `override_` instead of `override` because the latter
+    /// is a reserved keyword in Rust.
+    pub override_: Vec<ConditionalPushRule>,
+
+    /// These rules change the behavior of all messages for a given room.
+    pub room: Vec<SimplePushRule>,
+
+    /// These rules configure notification behavior for messages from a specific
+    /// Matrix user ID.
+    pub sender: Vec<SimplePushRule>,
+
+    /// These rules are identical to override rules, but have a lower priority
+    /// than `content`, `room` and `sender` rules.
+    pub underride: Vec<ConditionalPushRule>,
+}
+
+impl TryFrom<RumaRuleset> for Ruleset {
+    type Error = String;
+
+    fn try_from(value: RumaRuleset) -> Result<Self, Self::Error> {
+        Ok(Self {
+            content: value
+                .content
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            override_: value
+                .override_
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            room: value.room.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?,
+            sender: value
+                .sender
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            underride: value
+                .underride
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+/// Like [`SimplePushRule`], but with an additional `pattern`` field.
+#[derive(Clone, uniffi::Record)]
+pub struct PatternedPushRule {
+    /// Actions to determine if and how a notification is delivered for events
+    /// matching this rule.
+    pub actions: Vec<Action>,
+
+    /// Whether this is a default rule, or has been set explicitly.
+    pub default: bool,
+
+    /// Whether the push rule is enabled or not.
+    pub enabled: bool,
+
+    /// The ID of this rule.
+    pub rule_id: String,
+
+    /// The glob-style pattern to match against.
+    pub pattern: String,
+}
+
+impl TryFrom<RumaPatternedPushRule> for PatternedPushRule {
+    type Error = String;
+
+    fn try_from(value: RumaPatternedPushRule) -> Result<Self, Self::Error> {
+        Ok(Self {
+            actions: value
+                .actions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            default: value.default,
+            enabled: value.enabled,
+            rule_id: value.rule_id,
+            pattern: value.pattern,
+        })
+    }
+}
+
+/// Like [`SimplePushRule`], but with an additional `conditions` field.
+#[derive(Clone, uniffi::Record)]
+pub struct ConditionalPushRule {
+    /// Actions to determine if and how a notification is delivered for events
+    /// matching this rule.
+    pub actions: Vec<Action>,
+
+    /// Whether this is a default rule, or has been set explicitly.
+    pub default: bool,
+
+    /// Whether the push rule is enabled or not.
+    pub enabled: bool,
+
+    /// The ID of this rule.
+    pub rule_id: String,
+
+    /// The conditions that must hold true for an event in order for a rule to
+    /// be applied to an event.
+    ///
+    /// A rule with no conditions always matches.
+    pub conditions: Vec<PushCondition>,
+}
+
+impl TryFrom<RumaConditionalPushRule> for ConditionalPushRule {
+    type Error = String;
+
+    fn try_from(value: RumaConditionalPushRule) -> Result<Self, Self::Error> {
+        Ok(Self {
+            actions: value
+                .actions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            default: value.default,
+            enabled: value.enabled,
+            rule_id: value.rule_id,
+            conditions: value
+                .conditions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+/// A push rule is a single rule that states under what conditions an event
+/// should be passed onto a push gateway and how the notification should be
+/// presented.
+#[derive(Clone, uniffi::Record)]
+pub struct SimplePushRule {
+    /// Actions to determine if and how a notification is delivered for events
+    /// matching this rule.
+    pub actions: Vec<Action>,
+
+    /// Whether this is a default rule, or has been set explicitly.
+    pub default: bool,
+
+    /// Whether the push rule is enabled or not.
+    pub enabled: bool,
+
+    /// The ID of this rule.
+    ///
+    /// This is generally the Matrix ID of the entity that it applies to.
+    pub rule_id: String,
+}
+
+impl TryFrom<RumaSimplePushRule<OwnedRoomId>> for SimplePushRule {
+    type Error = String;
+
+    fn try_from(value: RumaSimplePushRule<OwnedRoomId>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            actions: value
+                .actions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            default: value.default,
+            enabled: value.enabled,
+            rule_id: value.rule_id.into(),
+        })
+    }
+}
+
+impl TryFrom<RumaSimplePushRule<OwnedUserId>> for SimplePushRule {
+    type Error = String;
+
+    fn try_from(value: RumaSimplePushRule<OwnedUserId>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            actions: value
+                .actions
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            default: value.default,
+            enabled: value.enabled,
+            rule_id: value.rule_id.into(),
+        })
+    }
+}
+
+/// An algorithm and its properties, used to encrypt a secret.
+#[derive(Clone, uniffi::Enum)]
+pub enum SecretStorageEncryptionAlgorithm {
+    /// Encrypted using the `m.secret_storage.v1.aes-hmac-sha2` algorithm.
+    ///
+    /// Secrets using this method are encrypted using AES-CTR-256 and
+    /// authenticated using HMAC-SHA-256.
+    V1AesHmacSha2(SecretStorageV1AesHmacSha2Properties),
+}
+
+impl TryFrom<RumaSecretStorageEncryptionAlgorithm> for SecretStorageEncryptionAlgorithm {
+    type Error = String;
+
+    fn try_from(value: RumaSecretStorageEncryptionAlgorithm) -> Result<Self, Self::Error> {
+        match value {
+            RumaSecretStorageEncryptionAlgorithm::V1AesHmacSha2(properties) => {
+                Ok(Self::V1AesHmacSha2(properties.into()))
+            }
+            _ => Err("Unsupported encryption algorithm".to_owned()),
+        }
+    }
+}
+
+/// The key properties for the `m.secret_storage.v1.aes-hmac-sha2`` algorithm.
+#[derive(Clone, uniffi::Record)]
+pub struct SecretStorageV1AesHmacSha2Properties {
+    /// The 16-byte initialization vector, encoded as base64.
+    pub iv: Option<String>,
+
+    /// The MAC, encoded as base64.
+    pub mac: Option<String>,
+}
+
+impl From<RumaSecretStorageV1AesHmacSha2Properties> for SecretStorageV1AesHmacSha2Properties {
+    fn from(value: RumaSecretStorageV1AesHmacSha2Properties) -> Self {
+        Self {
+            iv: value.iv.map(|base64| base64.encode()),
+            mac: value.mac.map(|base64| base64.encode()),
+        }
+    }
+}
+
+/// A passphrase from which a key is to be derived.
+#[derive(Clone, uniffi::Record)]
+pub struct PassPhrase {
+    /// The algorithm to use to generate the key from the passphrase.
+    ///
+    /// Must be `m.pbkdf2`.
+    pub algorithm: KeyDerivationAlgorithm,
+
+    /// The salt used in PBKDF2.
+    pub salt: String,
+
+    /// The number of iterations to use in PBKDF2.
+    pub iterations: u64,
+
+    /// The number of bits to generate for the key.
+    ///
+    /// Defaults to 256
+    pub bits: u64,
+}
+
+impl TryFrom<RumaPassPhrase> for PassPhrase {
+    type Error = String;
+
+    fn try_from(value: RumaPassPhrase) -> Result<Self, Self::Error> {
+        Ok(PassPhrase {
+            algorithm: value.algorithm.try_into()?,
+            salt: value.salt,
+            iterations: value.iterations.into(),
+            bits: value.bits.into(),
+        })
+    }
+}
+
+/// A key algorithm to be used to generate a key from a passphrase.
+#[derive(Clone, uniffi::Enum)]
+pub enum KeyDerivationAlgorithm {
+    /// PBKDF2
+    Pbkfd2,
+}
+
+impl TryFrom<RumaKeyDerivationAlgorithm> for KeyDerivationAlgorithm {
+    type Error = String;
+
+    fn try_from(value: RumaKeyDerivationAlgorithm) -> Result<Self, Self::Error> {
+        match value {
+            RumaKeyDerivationAlgorithm::Pbkfd2 => Ok(Self::Pbkfd2),
+            _ => Err("Unsupported key derivation algorithm".to_owned()),
+        }
+    }
+}
+
+impl From<RumaGlobalAccountDataEvent<DirectEventContent>> for AccountDataEvent {
+    fn from(value: RumaGlobalAccountDataEvent<DirectEventContent>) -> Self {
+        Self::Direct {
+            map: value
+                .content
+                .0
+                .into_iter()
+                .map(|(user_id, room_ids)| {
+                    (user_id.to_string(), room_ids.iter().map(ToString::to_string).collect())
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<RumaGlobalAccountDataEvent<IdentityServerEventContent>> for AccountDataEvent {
+    fn from(value: RumaGlobalAccountDataEvent<IdentityServerEventContent>) -> Self {
+        Self::IdentityServer { base_url: value.content.base_url.into_option() }
+    }
+}
+
+impl From<RumaGlobalAccountDataEvent<IgnoredUserListEventContent>> for AccountDataEvent {
+    fn from(value: RumaGlobalAccountDataEvent<IgnoredUserListEventContent>) -> Self {
+        Self::IgnoredUserList {
+            ignored_users: value
+                .content
+                .ignored_users
+                .into_iter()
+                .map(|(user_id, ignored_user)| {
+                    (user_id.to_string(), IgnoredUser::from(ignored_user))
+                })
+                .collect(),
+        }
+    }
+}
+
+impl TryFrom<RumaGlobalAccountDataEvent<PushRulesEventContent>> for AccountDataEvent {
+    type Error = String;
+
+    fn try_from(
+        value: RumaGlobalAccountDataEvent<PushRulesEventContent>,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self::PushRules { global: value.content.global.try_into()? })
+    }
+}
+
+impl From<RumaGlobalAccountDataEvent<SecretStorageDefaultKeyEventContent>> for AccountDataEvent {
+    fn from(value: RumaGlobalAccountDataEvent<SecretStorageDefaultKeyEventContent>) -> Self {
+        Self::SecretStorageDefaultKey { key_id: value.content.key_id }
+    }
+}
+
+impl TryFrom<RumaGlobalAccountDataEvent<SecretStorageKeyEventContent>> for AccountDataEvent {
+    type Error = String;
+
+    fn try_from(
+        value: RumaGlobalAccountDataEvent<SecretStorageKeyEventContent>,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self::SecretStorageKey {
+            key_id: value.content.key_id,
+            name: value.content.name,
+            algorithm: value.content.algorithm.try_into()?,
+            passphrase: value.content.passphrase.map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
+/// Types of room account data events.
+#[derive(Clone, uniffi::Enum)]
+pub enum RoomAccountDataEventType {
+    /// m.fully_read
+    FullyRead,
+    /// m.marked_unread
+    MarkedUnread,
+    /// m.tag
+    Tag,
+    /// com.famedly.marked_unread
+    UnstableMarkedUnread,
+}
+
+impl TryFrom<RumaRoomAccountDataEventType> for RoomAccountDataEventType {
+    type Error = String;
+
+    fn try_from(value: RumaRoomAccountDataEventType) -> Result<Self, Self::Error> {
+        match value {
+            RumaRoomAccountDataEventType::FullyRead => Ok(Self::FullyRead),
+            RumaRoomAccountDataEventType::MarkedUnread => Ok(Self::MarkedUnread),
+            RumaRoomAccountDataEventType::Tag => Ok(Self::Tag),
+            RumaRoomAccountDataEventType::UnstableMarkedUnread => Ok(Self::UnstableMarkedUnread),
+            _ => Err("Unsupported account data event type".to_owned()),
+        }
+    }
+}
+
+/// Room account data events.
+#[derive(Clone, uniffi::Enum)]
+pub enum RoomAccountDataEvent {
+    /// m.fully_read
+    FullyReadEvent {
+        /// The event the user's read marker is located at in the room.
+        event_id: String,
+    },
+    /// m.marked_unread
+    MarkedUnread {
+        /// The current unread state.
+        unread: bool,
+    },
+    /// m.tag
+    Tag { tags: HashMap<TagName, TagInfo> },
+    /// com.famedly.marked_unread
+    UnstableMarkedUnread {
+        /// The current unread state.
+        unread: bool,
+    },
+}
+
+/// The name of a tag.
+#[derive(Clone, PartialEq, Eq, Hash, uniffi::Enum)]
+pub enum TagName {
+    /// `m.favourite`: The user's favorite rooms.
+    Favorite,
+
+    /// `m.lowpriority`: These should be shown with lower precedence than
+    /// others.
+    LowPriority,
+
+    /// `m.server_notice`: Used to identify
+    ServerNotice,
+
+    /// `u.*`: User-defined tag
+    User(UserTagName),
+}
+
+impl TryFrom<RumaTagName> for TagName {
+    type Error = String;
+
+    fn try_from(value: RumaTagName) -> Result<Self, Self::Error> {
+        match value {
+            RumaTagName::Favorite => Ok(Self::Favorite),
+            RumaTagName::LowPriority => Ok(Self::LowPriority),
+            RumaTagName::ServerNotice => Ok(Self::ServerNotice),
+            RumaTagName::User(name) => Ok(Self::User(name.into())),
+            _ => Err("Unsupported tag name".to_owned()),
+        }
+    }
+}
+
+/// A user-defined tag name.
+#[derive(Clone, PartialEq, Eq, Hash, uniffi::Record)]
+pub struct UserTagName {
+    name: String,
+}
+
+impl From<RumaUserTagName> for UserTagName {
+    fn from(value: RumaUserTagName) -> Self {
+        Self { name: value.as_ref().to_owned() }
+    }
+}
+
+/// Information about a tag.
+#[derive(Clone, uniffi::Record)]
+pub struct TagInfo {
+    /// Value to use for lexicographically ordering rooms with this tag.
+    pub order: Option<f64>,
+}
+
+impl From<RumaTagInfo> for TagInfo {
+    fn from(value: RumaTagInfo) -> Self {
+        Self { order: value.order }
+    }
+}
+
+impl From<RumaRoomAccountDataEvent<FullyReadEventContent>> for RoomAccountDataEvent {
+    fn from(value: RumaRoomAccountDataEvent<FullyReadEventContent>) -> Self {
+        Self::FullyReadEvent { event_id: value.content.event_id.into() }
+    }
+}
+
+impl From<RumaRoomAccountDataEvent<MarkedUnreadEventContent>> for RoomAccountDataEvent {
+    fn from(value: RumaRoomAccountDataEvent<MarkedUnreadEventContent>) -> Self {
+        Self::MarkedUnread { unread: value.content.unread }
+    }
+}
+
+impl TryFrom<RumaRoomAccountDataEvent<TagEventContent>> for RoomAccountDataEvent {
+    type Error = String;
+
+    fn try_from(value: RumaRoomAccountDataEvent<TagEventContent>) -> Result<Self, Self::Error> {
+        Ok(Self::Tag {
+            tags: value
+                .content
+                .tags
+                .into_iter()
+                .map(|(name, info)| name.try_into().map(|name| (name, info.into())))
+                .collect::<Result<HashMap<TagName, _>, _>>()?,
+        })
+    }
+}
+
+impl From<RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>> for RoomAccountDataEvent {
+    fn from(value: RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>) -> Self {
+        Self::UnstableMarkedUnread { unread: value.content.unread }
+    }
 }
