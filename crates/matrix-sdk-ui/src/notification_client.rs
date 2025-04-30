@@ -125,6 +125,13 @@ impl NotificationClient {
         })
     }
 
+    /// Fetches a room by its ID using the in-memory state store backed client.
+    /// Useful to retrieve room information after running the limited
+    /// notification client sliding sync loop.
+    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+        self.client.get_room(room_id)
+    }
+
     /// Fetches the content of a notification.
     ///
     /// This will first try to get the notification using a short-lived sliding
