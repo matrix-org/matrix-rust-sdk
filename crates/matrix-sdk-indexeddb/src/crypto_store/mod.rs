@@ -1156,7 +1156,7 @@ impl_crypto_store! {
             .object_store(keys::DEVICES)?
             .get(&key)?
             .await?
-            .map(|i| self.serializer.deserialize_value(i))
+            .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
             .transpose()
     }
 
@@ -1193,7 +1193,7 @@ impl_crypto_store! {
             .object_store(keys::IDENTITIES)?
             .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))?
             .await?
-            .map(|i| self.serializer.deserialize_value(i))
+            .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
             .transpose()
     }
 
@@ -1370,7 +1370,7 @@ impl_crypto_store! {
             .object_store(keys::ROOM_SETTINGS)?
             .get(&key)?
             .await?
-            .map(|v| self.serializer.deserialize_value(v))
+            .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
             .transpose()
     }
 
@@ -1387,7 +1387,7 @@ impl_crypto_store! {
             .object_store(keys::CORE)?
             .get(&JsValue::from_str(key))?
             .await?
-            .map(|v| self.serializer.deserialize_value(v))
+            .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
             .transpose()
     }
 
