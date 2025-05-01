@@ -56,6 +56,18 @@ pub enum IndexeddbSerializerError {
     CryptoStoreError(#[from] CryptoStoreError),
 }
 
+impl From<web_sys::DomException> for IndexeddbSerializerError {
+    fn from(frm: web_sys::DomException) -> Self {
+        Self::DomException { name: frm.name(), message: frm.message(), code: frm.code() }
+    }
+}
+
+impl From<serde_wasm_bindgen::Error> for IndexeddbSerializerError {
+    fn from(e: serde_wasm_bindgen::Error) -> Self {
+        Self::Serialization(serde::de::Error::custom(e.to_string()))
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum MaybeEncrypted {
@@ -107,7 +119,7 @@ impl IndexeddbSerializer {
         &self,
         table_name: &str,
         key: T,
-    ) -> Result<IdbKeyRange, IndexeddbCryptoStoreError>
+    ) -> Result<IdbKeyRange, IndexeddbSerializerError>
     where
         T: SafeEncode,
     {
@@ -115,7 +127,7 @@ impl IndexeddbSerializer {
             Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| IndexeddbCryptoStoreError::DomException {
+        .map_err(|e| IndexeddbSerializerError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
             message: e,
@@ -130,7 +142,7 @@ impl IndexeddbSerializer {
     pub fn serialize_value(
         &self,
         value: &impl Serialize,
-    ) -> Result<JsValue, IndexeddbCryptoStoreError> {
+    ) -> Result<JsValue, IndexeddbSerializerError> {
         let serialized = self.maybe_encrypt_value(value)?;
         Ok(serde_wasm_bindgen::to_value(&serialized)?)
     }
@@ -184,7 +196,7 @@ impl IndexeddbSerializer {
     pub fn deserialize_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbCryptoStoreError> {
+    ) -> Result<T, IndexeddbSerializerError> {
         // Objects which are serialized nowadays should be represented as a
         // `MaybeEncrypted`. However, `serialize_value` previously used a
         // different format, so we need to handle that in case we have old data.
@@ -238,11 +250,11 @@ impl IndexeddbSerializer {
     pub fn deserialize_legacy_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbCryptoStoreError> {
+    ) -> Result<T, IndexeddbSerializerError> {
         match &self.store_cipher {
             Some(cipher) => {
                 if !value.is_array() {
-                    return Err(IndexeddbCryptoStoreError::CryptoStoreError(
+                    return Err(IndexeddbSerializerError::CryptoStoreError(
                         CryptoStoreError::UnpicklingError,
                     ));
                 }
