@@ -1316,7 +1316,7 @@ pub enum SecretStorageEncryptionAlgorithm {
     ///
     /// Secrets using this method are encrypted using AES-CTR-256 and
     /// authenticated using HMAC-SHA-256.
-    V1AesHmacSha2(SecretStorageV1AesHmacSha2Properties),
+    V1AesHmacSha2 { properties: SecretStorageV1AesHmacSha2Properties },
 }
 
 impl TryFrom<RumaSecretStorageEncryptionAlgorithm> for SecretStorageEncryptionAlgorithm {
@@ -1325,7 +1325,7 @@ impl TryFrom<RumaSecretStorageEncryptionAlgorithm> for SecretStorageEncryptionAl
     fn try_from(value: RumaSecretStorageEncryptionAlgorithm) -> Result<Self, Self::Error> {
         match value {
             RumaSecretStorageEncryptionAlgorithm::V1AesHmacSha2(properties) => {
-                Ok(Self::V1AesHmacSha2(properties.into()))
+                Ok(Self::V1AesHmacSha2 { properties: properties.into() })
             }
             _ => Err("Unsupported encryption algorithm".to_owned()),
         }
@@ -1532,7 +1532,7 @@ pub enum TagName {
     ServerNotice,
 
     /// `u.*`: User-defined tag
-    User(UserTagName),
+    User { name: UserTagName },
 }
 
 impl TryFrom<RumaTagName> for TagName {
@@ -1543,7 +1543,7 @@ impl TryFrom<RumaTagName> for TagName {
             RumaTagName::Favorite => Ok(Self::Favorite),
             RumaTagName::LowPriority => Ok(Self::LowPriority),
             RumaTagName::ServerNotice => Ok(Self::ServerNotice),
-            RumaTagName::User(name) => Ok(Self::User(name.into())),
+            RumaTagName::User(name) => Ok(Self::User { name: name.into() }),
             _ => Err("Unsupported tag name".to_owned()),
         }
     }
