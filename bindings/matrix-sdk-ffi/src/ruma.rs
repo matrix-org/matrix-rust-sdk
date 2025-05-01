@@ -1033,7 +1033,7 @@ pub enum AccountDataEventType {
     /// m.secret_storage.default_key
     SecretStorageDefaultKey,
     /// m.secret_storage.key.*
-    SecretStorageKey(String),
+    SecretStorageKey { key_id: String },
 }
 
 impl TryFrom<RumaGlobalAccountDataEventType> for AccountDataEventType {
@@ -1049,7 +1049,7 @@ impl TryFrom<RumaGlobalAccountDataEventType> for AccountDataEventType {
                 Ok(Self::SecretStorageDefaultKey)
             }
             RumaGlobalAccountDataEventType::SecretStorageKey(key_id) => {
-                Ok(Self::SecretStorageKey(key_id))
+                Ok(Self::SecretStorageKey { key_id })
             }
             _ => Err("Unsupported account data event type".to_owned()),
         }
