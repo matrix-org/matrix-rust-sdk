@@ -21,7 +21,6 @@ use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use hkdf::Hkdf;
 use indexed_db_futures::prelude::*;
-use indexeddb_serializer::IndexeddbSerializerError;
 use js_sys::Array;
 use matrix_sdk_crypto::{
     olm::{
@@ -48,12 +47,9 @@ use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use self::indexeddb_serializer::MaybeEncrypted;
-use crate::crypto_store::{
-    indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
-};
+use crate::crypto_store::migrations::open_and_upgrade_db;
+use crate::indexeddb_serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted};
 
-mod indexeddb_serializer;
 mod migrations;
 
 mod keys {

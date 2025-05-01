@@ -22,10 +22,10 @@ use web_sys::{DomException, IdbTransactionMode};
 
 use crate::{
     crypto_store::{
-        indexeddb_serializer::IndexeddbSerializer,
         migrations::{do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
     },
+    indexeddb_serializer::IndexeddbSerializer,
     IndexeddbCryptoStoreError,
 };
 

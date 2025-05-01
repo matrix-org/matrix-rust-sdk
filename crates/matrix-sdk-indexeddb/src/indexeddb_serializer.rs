@@ -27,9 +27,9 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;
 
-use crate::{safe_encode::SafeEncode, IndexeddbCryptoStoreError};
+use crate::safe_encode::SafeEncode;
 
-type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
+type Result<A, E = IndexeddbSerializerError> = std::result::Result<A, E>;
 
 const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
 
