@@ -19,8 +19,7 @@ use tracing::info;
 use wasm_bindgen::JsValue;
 
 use crate::{
-    crypto_store::{indexeddb_serializer::IndexeddbSerializer, Result},
-    IndexeddbCryptoStoreError,
+    crypto_store::Result, indexeddb_serializer::IndexeddbSerializer, IndexeddbCryptoStoreError,
 };
 
 mod old_keys;
