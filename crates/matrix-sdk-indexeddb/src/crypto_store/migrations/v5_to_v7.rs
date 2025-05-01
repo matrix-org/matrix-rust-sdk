@@ -30,7 +30,7 @@ use crate::{
         migrations::{add_nonunique_index, do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
     },
-    indexeddb_serializer::IndexeddbSerializer,
+    serializer::IndexeddbSerializer,
     IndexeddbCryptoStoreError,
 };
 

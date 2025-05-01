@@ -23,7 +23,7 @@ use crate::crypto_store::{
     keys,
     migrations::{do_schema_upgrade, old_keys, MigrationDb},
 };
-use crate::indexeddb_serializer::IndexeddbSerializer;
+use crate::serializer::IndexeddbSerializer;
 
 /// Migrate data from `backup_keys.backup_key_v1` to
 /// `backup_keys.backup_version_v1`.

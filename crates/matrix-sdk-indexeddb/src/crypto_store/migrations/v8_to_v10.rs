@@ -29,7 +29,7 @@ use crate::{
         },
         InboundGroupSessionIndexedDbObject, Result,
     },
-    indexeddb_serializer::IndexeddbSerializer,
+    serializer::IndexeddbSerializer,
     IndexeddbCryptoStoreError,
 };
 
