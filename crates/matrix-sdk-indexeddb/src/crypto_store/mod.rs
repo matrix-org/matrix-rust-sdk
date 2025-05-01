@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use hkdf::Hkdf;
 use indexed_db_futures::prelude::*;
+use indexeddb_serializer::IndexeddbSerializerError;
 use js_sys::Array;
 use matrix_sdk_crypto::{
     olm::{
@@ -146,6 +147,20 @@ pub enum IndexeddbCryptoStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
     #[error("The schema version of the crypto store is too new. Existing version: {current_version}; max supported version: {max_supported_version}")]
     SchemaTooNewError { max_supported_version: u32, current_version: u32 },
+}
+
+impl From<IndexeddbSerializerError> for IndexeddbCryptoStoreError {
+    fn from(value: IndexeddbSerializerError) -> Self {
+        match value {
+            IndexeddbSerializerError::Serialization(error) => Self::Serialization(error),
+            IndexeddbSerializerError::DomException { code, name, message } => {
+                Self::DomException { code, name, message }
+            }
+            IndexeddbSerializerError::CryptoStoreError(crypto_store_error) => {
+                Self::CryptoStoreError(crypto_store_error)
+            }
+        }
+    }
 }
 
 impl From<web_sys::DomException> for IndexeddbCryptoStoreError {
