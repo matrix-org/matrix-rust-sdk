@@ -39,7 +39,6 @@ pub struct IndexeddbSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub enum IndexeddbSerializerError {
     #[error(transparent)]
