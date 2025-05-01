@@ -39,6 +39,24 @@ pub struct IndexeddbSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, thiserror::Error)]
+pub enum IndexeddbSerializerError {
+    #[error(transparent)]
+    Serialization(#[from] serde_json::Error),
+    #[error("DomException {name} ({code}): {message}")]
+    DomException {
+        /// DomException code
+        code: u16,
+        /// Specific name of the DomException
+        name: String,
+        /// Message given to the DomException
+        message: String,
+    },
+    #[error(transparent)]
+    CryptoStoreError(#[from] CryptoStoreError),
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum MaybeEncrypted {
