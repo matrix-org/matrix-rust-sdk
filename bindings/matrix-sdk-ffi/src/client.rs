@@ -647,7 +647,7 @@ impl Client {
                     }
                 })))
             }
-            AccountDataEventType::SecretStorageKey(key_id) => {
+            AccountDataEventType::SecretStorageKey { key_id } => {
                 // Using an Arc here is mandatory or else the subscriber will never trigger
                 let observer = Arc::new(self.inner.observe_events::<RumaGlobalAccountDataEvent<SecretStorageKeyEventContent>, ()>());
 
