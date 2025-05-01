@@ -25,7 +25,7 @@ use crate::{
         migrations::{do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
     },
-    indexeddb_serializer::IndexeddbSerializer,
+    serializer::IndexeddbSerializer,
     IndexeddbCryptoStoreError,
 };
 

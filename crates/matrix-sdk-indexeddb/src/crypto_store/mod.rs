@@ -48,7 +48,7 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
 use crate::crypto_store::migrations::open_and_upgrade_db;
-use crate::indexeddb_serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted};
+use crate::serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted};
 
 mod migrations;
 
@@ -1780,7 +1780,7 @@ mod unit_tests {
     use ruma::{device_id, room_id, user_id};
 
     use super::InboundGroupSessionIndexedDbObject;
-    use crate::crypto_store::indexeddb_serializer::{IndexeddbSerializer, MaybeEncrypted};
+    use crate::serializer::{IndexeddbSerializer, MaybeEncrypted};
 
     #[test]
     fn needs_backup_is_serialized_as_a_u8_in_json() {
