@@ -321,9 +321,7 @@ pub fn get_element_call_required_permissions(
             event_type: "org.matrix.rageshake_request".to_owned(),
         },
         // To read and send encryption keys
-        WidgetEventFilter::ToDeviceWithType {
-            event_type: "io.element.call.encryption_keys".to_owned(),
-        },
+        WidgetEventFilter::ToDevice { event_type: "io.element.call.encryption_keys".to_owned() },
         // TODO change this to the appropriate to-device version once ready
         // remove this once all calling supports to-device encryption
         WidgetEventFilter::MessageLikeWithType {
