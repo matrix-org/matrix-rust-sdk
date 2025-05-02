@@ -53,8 +53,8 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::{StickerEventContent, SyncStickerEvent},
-        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
-        MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        FullStateEventContent, MessageLikeEventType, StateEventType,
     },
     html::RemoveReplyFallback,
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
@@ -332,6 +332,36 @@ impl TimelineItemContent {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
         }
+    }
+
+    pub(crate) fn from_latest_thread_event_content(
+        content: &AnyMessageLikeEventContent,
+    ) -> Option<TimelineItemContent> {
+        let msg_like_kind = match content {
+            AnyMessageLikeEventContent::RoomMessage(message) => MsgLikeKind::Message(
+                Message::from_event(message.clone(), None, RemoveReplyFallback::Yes),
+            ),
+            AnyMessageLikeEventContent::Sticker(content) => {
+                MsgLikeKind::Sticker(Sticker { content: content.clone() })
+            }
+            AnyMessageLikeEventContent::UnstablePollStart(content) => {
+                MsgLikeKind::Poll(PollState::new(
+                    NewUnstablePollStartEventContent::new(content.poll_start().clone()),
+                    None,
+                ))
+            }
+            _ => return None,
+        };
+
+        let msg_like_content = MsgLikeContent {
+            kind: msg_like_kind,
+            reactions: Default::default(),
+            thread_root: None,
+            in_reply_to: None,
+            thread_summary: None,
+        };
+
+        Some(TimelineItemContent::MsgLike(msg_like_content))
     }
 
     pub fn as_msglike(&self) -> Option<&MsgLikeContent> {

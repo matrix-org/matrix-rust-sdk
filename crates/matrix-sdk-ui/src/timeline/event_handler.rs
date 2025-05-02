@@ -34,12 +34,13 @@ use ruma::{
         },
         reaction::ReactionEventContent,
         receipt::Receipt,
-        relation::Replacement,
+        relation::{BundledThread, Replacement},
         room::{
             encrypted::RoomEncryptedEventContent,
             member::RoomMemberEventContent,
             message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
+        sticker::StickerEventContent,
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
         MessageLikeEventType, StateEventType, SyncStateEvent,
@@ -62,13 +63,13 @@ use super::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
         AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
         LocalEventTimelineItem, PollState, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
-        TimelineEventItemId,
+        ThreadSummary, TimelineEventItemId,
     },
     traits::RoomDataProvider,
     EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
     ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::ThreadSummaryLatestEvent};
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -412,16 +413,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
-                        self.add_item(
-                            TimelineItemContent::MsgLike(MsgLikeContent {
-                                kind: MsgLikeKind::Sticker(Sticker { content }),
-                                reactions: Default::default(),
-                                thread_root: None,
-                                in_reply_to: None,
-                                thread_summary: None,
-                            }),
-                            None,
-                        );
+                        self.handle_sticker(content, relations);
                     }
                 }
 
@@ -576,7 +568,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 _ => None,
             });
 
-        let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
+        let (edit_json, edit_content) = extract_room_msg_edit_content(relations.clone())
             .map(|content| {
                 let edit_json = self.ctx.flow.raw_event().and_then(extract_bundled_edit_event_json);
                 (edit_json, content)
@@ -616,6 +608,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
+        let thread_summary = self.build_thread_summary(relations.thread);
+
         self.add_item(
             TimelineItemContent::message(
                 msg,
@@ -623,7 +617,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 Default::default(),
                 thread_root,
                 in_reply_to_details,
-                None,
+                thread_summary,
             ),
             edit_json,
         );
@@ -772,6 +766,26 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         Some(new_item)
     }
 
+    /// Adds a new sticker to the timeline.
+    fn handle_sticker(
+        &mut self,
+        content: StickerEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) {
+        let thread_summary = self.build_thread_summary(relations.thread);
+
+        self.add_item(
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Sticker(Sticker { content }),
+                reactions: Default::default(),
+                thread_root: None,
+                in_reply_to: None,
+                thread_summary,
+            }),
+            None,
+        );
+    }
+
     /// Apply a reaction to a *remote* event.
     ///
     /// Reactions to local events are applied in
@@ -898,7 +912,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 _ => None,
             });
 
-        let (edit_json, edit_content) = extract_poll_edit_content(relations)
+        let (edit_json, edit_content) = extract_poll_edit_content(relations.clone())
             .map(|content| {
                 let edit_json = self.ctx.flow.raw_event().and_then(extract_bundled_edit_event_json);
                 (edit_json, content)
@@ -910,13 +924,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let edit_json = edit_json.flatten();
 
+        let thread_summary = self.build_thread_summary(relations.thread);
+
         self.add_item(
             TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::Poll(poll_state),
                 reactions: Default::default(),
                 thread_root: None,
                 in_reply_to: None,
-                thread_summary: None,
+                thread_summary,
             }),
             edit_json,
         );
@@ -1402,6 +1418,55 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);
         }
+    }
+
+    fn build_thread_summary(
+        &self,
+        bundled_thread: Option<Box<BundledThread>>,
+    ) -> Option<ThreadSummary> {
+        let Some(thread) = bundled_thread else { return None };
+
+        error!("Stefan: got bundled_thread {:?}", thread);
+
+        let message_like_event =
+            match thread.latest_event.deserialize_as::<AnySyncMessageLikeEvent>() {
+                Ok(event) => event,
+                Err(error) => {
+                    error!("Stefan: Failed deserializing latest thread event: {}", error);
+                    return None;
+                }
+            };
+
+        let Some(content) = message_like_event.original_content() else {
+            error!("Stefan: Failed retrieving original content from latest thread event");
+            return None;
+        };
+
+        let Some(timeline_item_content) =
+            TimelineItemContent::from_latest_thread_event_content(&content)
+        else {
+            error!(
+                "Stefan: Failed building timeline item content from latest thread event content"
+            );
+            return None;
+        };
+
+        let sender_profile = if let Some(profile) = self.ctx.sender_profile.clone() {
+            TimelineDetails::Ready(profile)
+        } else {
+            TimelineDetails::Unavailable
+        };
+
+        let thread_lastest_event = ThreadSummaryLatestEvent {
+            content: timeline_item_content,
+            sender: message_like_event.sender().to_owned(),
+            sender_profile,
+        };
+
+        let thread_summary =
+            ThreadSummary { latest_event: TimelineDetails::Ready(Box::new(thread_lastest_event)) };
+
+        Some(thread_summary)
     }
 }
 
