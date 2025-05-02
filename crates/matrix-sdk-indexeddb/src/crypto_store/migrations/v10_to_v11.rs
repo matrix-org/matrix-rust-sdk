@@ -19,11 +19,13 @@ use indexed_db_futures::IdbQuerySource;
 use wasm_bindgen::JsValue;
 use web_sys::{DomException, IdbTransactionMode};
 
-use crate::crypto_store::{
-    keys,
-    migrations::{do_schema_upgrade, old_keys, MigrationDb},
+use crate::{
+    crypto_store::{
+        keys,
+        migrations::{do_schema_upgrade, old_keys, MigrationDb},
+    },
+    serializer::IndexeddbSerializer,
 };
-use crate::serializer::IndexeddbSerializer;
 
 /// Migrate data from `backup_keys.backup_key_v1` to
 /// `backup_keys.backup_version_v1`.
