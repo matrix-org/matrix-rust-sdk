@@ -967,8 +967,8 @@ async fn test_send_encrypted_to_device_event() {
                 },
             }
         }),
-        json! {{"error":{"message":"Sending encrypted to_device events is not supported by the widget driver."}}},
-        0,
+        json! {{}},
+        1,
     )
     .await;
 }
