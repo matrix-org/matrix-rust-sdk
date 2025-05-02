@@ -399,10 +399,11 @@ mod to_device_crypto {
                 let content = content.clone();
 
                 async move {
-                    if !device.is_cross_signed_by_owner() {
-                        info!("Device {} is not verified, skipping encryption", device.device_id());
-                        return None;
-                    }
+                    // This is not yet used. It is incompatible with the spa guest mode (the spa will not verify its crypto identity)
+                    // if !device.is_cross_signed_by_owner() {
+                    //     info!("Device {} is not verified, skipping encryption", device.device_id());
+                    //     return None;
+                    // }
                     match device
                         .inner
                         .encrypt_event_raw(&event_type.to_string(), &content)
@@ -437,14 +438,15 @@ mod to_device_crypto {
                             warn!("Failed to get user devices for user: {}", user_id);
                             return None;
                         };
-                        let Ok(user_identity) = client.encryption().get_user_identity(&user_id).await else{
-                            warn!("Failed to get user identity for user: {}", user_id);
-                            return None;
-                        };
-                        if user_identity.map(|i|i.has_verification_violation()).unwrap_or(false) {
-                            info!("User {} has a verification violation, skipping encryption", user_id);
-                            return None;
-                        }
+                        // This is not yet used. It is incompatible with the spa guest mode (the spa will not verify its crypto identity)
+                        // let Ok(user_identity) = client.encryption().get_user_identity(&user_id).await else{
+                        //     warn!("Failed to get user identity for user: {}", user_id);
+                        //     return None;
+                        // };
+                        // if user_identity.map(|i|i.has_verification_violation()).unwrap_or(false) {
+                        //     info!("User {} has a verification violation, skipping encryption", user_id);
+                        //     return None;
+                        // }
                         let devices: Vec<Device> = match device_or_all_id {
                             DeviceIdOrAllDevices::DeviceId(device_id) => {
                                 vec![user_devices.get(&device_id)].into_iter().flatten().collect()
