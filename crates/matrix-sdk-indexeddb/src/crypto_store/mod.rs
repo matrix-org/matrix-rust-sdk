@@ -47,8 +47,10 @@ use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use crate::crypto_store::migrations::open_and_upgrade_db;
-use crate::serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted};
+use crate::{
+    crypto_store::migrations::open_and_upgrade_db,
+    serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted},
+};
 
 mod migrations;
 
