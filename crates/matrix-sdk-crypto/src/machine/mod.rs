@@ -23,7 +23,7 @@ use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
-        VerificationState,
+        VerificationState, WithheldCode,
     },
     locks::RwLock as StdRwLock,
     BoxFuture,
@@ -53,7 +53,7 @@ use tokio::sync::Mutex;
 use tracing::{
     debug, error,
     field::{debug, display},
-    info, instrument, warn, Span,
+    info, instrument, trace, warn, Span,
 };
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
@@ -1111,6 +1111,49 @@ impl OlmMachine {
         self.inner.group_session_manager.share_room_key(room_id, users, encryption_settings).await
     }
 
+    /// Encrypts the given content using Olm for each of the given devices.
+    ///
+    /// The 1-to-1 session must be established prior to this
+    /// call by using the [`OlmMachine::get_missing_sessions`] method or the
+    /// encryption will fail.
+    ///
+    /// The caller is responsible for sending the encrypted
+    /// event to the target device, and should do it ASAP to avoid out-of-order
+    /// messages.
+    ///
+    /// # Returns
+    /// A list of `ToDeviceRequest` to send out the event, and the list of
+    /// devices where encryption did not succeed (device excluded or no olm)
+    pub async fn encrypt_content_for_devices(
+        &self,
+        devices: Vec<DeviceData>,
+        event_type: &str,
+        content: &Value,
+    ) -> OlmResult<(Vec<ToDeviceRequest>, Vec<(DeviceData, WithheldCode)>)> {
+        // TODO: Use a `CollectStrategy` arguments to filter our devices depending on
+        // safety settings (like not sending to insecure devices).
+        let mut changes = Changes::default();
+
+        let result = self
+            .inner
+            .group_session_manager
+            .encrypt_content_for_devices(devices, event_type, content.clone(), &mut changes)
+            .await;
+
+        // Persist any changes we might have collected.
+        if !changes.is_empty() {
+            let session_count = changes.sessions.len();
+
+            self.inner.store.save_changes(changes).await?;
+
+            trace!(
+                session_count = session_count,
+                "Stored the changed sessions after encrypting a custom to device event"
+            );
+        }
+
+        result
+    }
     /// Collect the devices belonging to the given user, and send the details of
     /// a room key bundle to those devices.
     ///
