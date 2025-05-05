@@ -50,7 +50,7 @@ pub(crate) enum MatrixDriverRequestData {
     ReadStateEvent(ReadStateEventRequest),
 
     /// Send matrix event that corresponds to the given description.
-    SendMatrixEvent(SendEventRequest),
+    SendEvent(SendEventRequest),
 
     /// Data for sending a UpdateDelayedEvent client server api request.
     UpdateDelayedEvent(UpdateDelayedEventRequest),
@@ -178,7 +178,7 @@ impl MatrixDriverRequest for ReadMessageLikeEventRequest {
 impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixEventRead(response) => Some(response),
+            MatrixDriverResponse::EventsRead(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
@@ -233,7 +233,7 @@ pub(crate) struct SendEventRequest {
 
 impl From<SendEventRequest> for MatrixDriverRequestData {
     fn from(value: SendEventRequest) -> Self {
-        MatrixDriverRequestData::SendMatrixEvent(value)
+        MatrixDriverRequestData::SendEvent(value)
     }
 }
 
@@ -244,7 +244,7 @@ impl MatrixDriverRequest for SendEventRequest {
 impl FromMatrixDriverResponse for SendEventResponse {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixEventSent(response) => Some(response),
+            MatrixDriverResponse::EventSent(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
@@ -274,7 +274,7 @@ impl MatrixDriverRequest for UpdateDelayedEventRequest {
 impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixDelayedEventUpdate(response) => Some(response),
+            MatrixDriverResponse::DelayedEventUpdated(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None

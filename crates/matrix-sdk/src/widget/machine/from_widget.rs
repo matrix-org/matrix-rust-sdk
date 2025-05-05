@@ -175,7 +175,7 @@ pub(super) enum ApiVersion {
 
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
-pub(super) enum ReadEventRequest {
+pub(super) enum ReadEventsRequest {
     ReadStateEvent {
         #[serde(rename = "type")]
         event_type: String,
