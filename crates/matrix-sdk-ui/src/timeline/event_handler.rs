@@ -1212,7 +1212,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 );
 
                 // Local events are always at the bottom. Let's find the latest remote event
-                // and insert after it, otherwise, if there is no remote event, insert at 0.
+                // and insert after it, otherwise, if there is no remote event, insert at 0 or 1
+                // depending of the presence of the `TimelineStart` virtual item.
                 let timeline_item_index = self
                     .items
                     .iter()
@@ -1222,7 +1223,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         (!timeline_item.as_event()?.is_local_echo())
                             .then_some(timeline_item_index + 1)
                     })
-                    .unwrap_or(0);
+                    .unwrap_or_else(|| {
+                        // We don't have any local echo, so we could insert at 0. However, in
+                        // the case of an insertion caused by a pagination, we
+                        // may have already pushed the start of the timeline item, so we need
+                        // to check if the first item is that, and insert after it otherwise.
+                        if self.items.get(0).is_some_and(|item| item.is_timeline_start()) {
+                            1
+                        } else {
+                            0
+                        }
+                    });
 
                 let event_index = self
                     .items
