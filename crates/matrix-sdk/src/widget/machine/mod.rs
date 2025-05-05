@@ -16,35 +16,34 @@
 
 use std::time::Duration;
 
-use driver_req::UpdateDelayedEventRequest;
+use driver_req::{ReadStateRequest, UpdateDelayedEventRequest};
 use from_widget::{SendToDeviceEventResponse, UpdateDelayedEventResponse};
 use indexmap::IndexMap;
 use ruma::{
-    events::AnyTimelineEvent,
+    events::{AnyStateEvent, AnyTimelineEvent},
     serde::{JsonObject, Raw},
     OwnedRoomId,
 };
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
+use to_widget::NotifyNewToDeviceMessage;
 use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
 use self::{
     driver_req::{
-        AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle,
-        ReadMessageLikeEventRequest, RequestOpenId,
+        AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle, RequestOpenId,
     },
     from_widget::{
-        FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
+        FromWidgetErrorResponse, FromWidgetRequest, ReadEventsResponse,
         SupportedApiVersionsResponse,
     },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     openid::{OpenIdResponse, OpenIdState},
     pending::{PendingRequests, RequestLimits},
     to_widget::{
-        NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyNewToDeviceMessage,
-        NotifyOpenIdChanged, RequestCapabilities, ToWidgetRequest, ToWidgetRequestHandle,
-        ToWidgetResponse,
+        NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyOpenIdChanged, NotifyStateUpdate,
+        RequestCapabilities, ToWidgetRequest, ToWidgetRequestHandle, ToWidgetResponse,
     },
 };
 #[cfg(doc)]
@@ -52,9 +51,9 @@ use super::WidgetDriver;
 use super::{
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
     filter::FilterInput,
-    Capabilities, StateKeySelector,
+    Capabilities, StateEventFilter, StateKeySelector,
 };
-use crate::{Error, Result};
+use crate::{widget::Filter, Error, Result};
 
 mod driver_req;
 mod from_widget;
@@ -66,9 +65,7 @@ mod tests;
 mod to_widget;
 
 pub(crate) use self::{
-    driver_req::{
-        MatrixDriverRequestData, ReadStateEventRequest, SendEventRequest, SendToDeviceRequest,
-    },
+    driver_req::{MatrixDriverRequestData, SendEventRequest, SendToDeviceRequest},
     from_widget::SendEventResponse,
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
@@ -107,6 +104,22 @@ pub(crate) enum Action {
     Unsubscribe,
 }
 
+/// An initial state update which is in the process of being computed.
+#[derive(Debug)]
+struct InitialStateUpdate {
+    /// The results of the read state requests which establish the initial state
+    /// to be pushed to the widget.
+    initial_state: Vec<Vec<Raw<AnyStateEvent>>>,
+    /// The total number of read state requests that `initial_state` must hold
+    /// for this update to be considered complete.
+    request_count: usize,
+    /// The data carried by any state updates which raced with the requests to
+    /// read the initial state. These should be pushed to the widget
+    /// immediately after pushing the initial state to ensure no data is
+    /// lost.
+    postponed_updates: Vec<Vec<Raw<AnyStateEvent>>>,
+}
+
 /// No I/O state machine.
 ///
 /// Handles interactions with the widget as well as the
@@ -125,6 +138,18 @@ pub(crate) struct WidgetMachine {
 
     /// Outstanding requests sent to the Matrix driver (mapped by uuid).
     pending_matrix_driver_requests: PendingRequests<MatrixDriverRequestMeta>,
+
+    /// Outstanding state updates waiting to be sent to the widget.
+    ///
+    /// Whenever the widget is approved to read a set of room state entries, we
+    /// want to push an initial state to the widget in a single
+    /// [`NotifyStateUpdate`] action. However, multiple asynchronous
+    /// requests must be sent to the driver to gather this data. Therefore
+    /// we use this field to hold the responses to the driver requests while
+    /// some of them are still in flight. It is set to `Some` whenever the
+    /// widget is approved to read some room state, and reset to `None` as
+    /// soon as the [`NotifyStateUpdate`] action is emitted.
+    pending_state_updates: Option<InitialStateUpdate>,
 
     /// Current negotiation state for capabilities.
     capabilities: CapabilitiesState,
@@ -147,6 +172,7 @@ impl WidgetMachine {
             room_id,
             pending_to_widget_requests: PendingRequests::new(limits.clone()),
             pending_matrix_driver_requests: PendingRequests::new(limits),
+            pending_state_updates: None,
             capabilities: CapabilitiesState::Unset,
         };
 
@@ -195,6 +221,24 @@ impl WidgetMachine {
                         .unwrap_or_default()
                 } else {
                     vec![]
+                }
+            }
+            IncomingMessage::StateUpdateReceived(mut state) => {
+                let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+                    error!("Received state update before capabilities negotiation");
+                    return Vec::new();
+                };
+
+                state.retain(|event| capabilities.allow_reading(event));
+
+                match &mut self.pending_state_updates {
+                    Some(InitialStateUpdate { postponed_updates, .. }) => {
+                        // This state update is racing with the read requests used to calculate the
+                        // initial state; postpone it
+                        postponed_updates.push(state);
+                        Vec::new()
+                    }
+                    None => self.send_state_update(state).into_iter().collect(),
                 }
             }
         }
@@ -339,26 +383,26 @@ impl WidgetMachine {
         }
     }
 
-    /// Send a response to a request to read message-like events.
+    /// Send a response to a request to read events.
     ///
     /// `events` represents the message-like events provided by the
     /// [`crate::widget::MatrixDriver`].
-    fn send_read_message_like_event_response(
+    fn send_read_events_response(
         &self,
         request: Raw<FromWidgetRequest>,
         events: Result<Vec<Raw<AnyTimelineEvent>>, Error>,
     ) -> Vec<Action> {
         let response = match &self.capabilities {
             CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
-                "Received read event request before capabilities negotiation",
+                "Received read events request before capabilities negotiation",
             )),
             CapabilitiesState::Negotiating => Err(FromWidgetErrorResponse::from_string(
-                "Received read event request while capabilities were negotiating",
+                "Received read events request while capabilities were negotiating",
             )),
             CapabilitiesState::Negotiated(capabilities) => events
                 .map(|mut events| {
                     events.retain(|e| capabilities.allow_reading(e));
-                    ReadEventResponse { events }
+                    ReadEventsResponse { events }
                 })
                 .map_err(FromWidgetErrorResponse::from_error),
         };
@@ -368,7 +412,7 @@ impl WidgetMachine {
 
     fn process_read_event_request(
         &mut self,
-        request: ReadEventRequest,
+        request: from_widget::ReadEventsRequest,
         raw_request: Raw<FromWidgetRequest>,
     ) -> Option<Action> {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
@@ -378,59 +422,54 @@ impl WidgetMachine {
             ));
         };
 
-        match request {
-            ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
-                if !capabilities.has_read_filter_for_type(&event_type) {
+        // Check the event type and state key filter against the capabilities
+        match &request.state_key {
+            None => {
+                if !capabilities.has_read_filter_for_type(&request.event_type) {
                     return Some(Self::send_from_widget_error_string_response(
                         raw_request,
-                        "Not allowed to read message like event",
+                        "Not allowed to read message-like event",
                     ));
                 }
-
-                const DEFAULT_EVENT_LIMIT: u32 = 50;
-                let limit = limit.unwrap_or(DEFAULT_EVENT_LIMIT);
-                let request = ReadMessageLikeEventRequest { event_type, limit };
-
-                self.send_matrix_driver_request(request).map(|(request, action)| {
-                    request.add_response_handler(|result, machine| {
-                        machine.send_read_message_like_event_response(raw_request, result)
-                    });
-                    action
-                })
             }
-
-            ReadEventRequest::ReadStateEvent { event_type, state_key } => {
+            Some(state_key) => {
                 let allowed = match state_key.clone() {
                     // If the widget tries to read any state event we can only skip sending the
                     // request, if the widget does not have any capability for
                     // the requested event type.
-                    StateKeySelector::Any => capabilities.has_read_filter_for_type(&event_type),
+                    StateKeySelector::Any => {
+                        capabilities.has_read_filter_for_type(&request.event_type)
+                    }
                     // If we have a specific state key we will check if the widget has
                     // the capability to read this specific state key and otherwise
                     // skip sending the request.
-                    StateKeySelector::Key(state_key) => {
-                        capabilities.allow_reading(FilterInput::state(&event_type, &state_key))
-                    }
+                    StateKeySelector::Key(state_key) => capabilities
+                        .allow_reading(FilterInput::state(&request.event_type, &state_key)),
                 };
-                if allowed {
-                    self.send_matrix_driver_request(ReadStateEventRequest { event_type, state_key })
-                        .map(|(request, action)| {
-                            request.add_response_handler(|result, _machine| {
-                                let response = result
-                                    .map(|events| ReadEventResponse { events })
-                                    .map_err(FromWidgetErrorResponse::from_error);
-                                vec![Self::send_from_widget_response(raw_request, response)]
-                            });
-                            action
-                        })
-                } else {
-                    Some(Self::send_from_widget_error_string_response(
+
+                if !allowed {
+                    return Some(Self::send_from_widget_error_string_response(
                         raw_request,
                         "Not allowed to read state event",
-                    ))
+                    ));
                 }
             }
         }
+
+        const DEFAULT_EVENT_LIMIT: u32 = 50;
+        let limit = request.limit.unwrap_or(DEFAULT_EVENT_LIMIT);
+        let request = driver_req::ReadEventsRequest {
+            event_type: request.event_type,
+            state_key: request.state_key,
+            limit,
+        };
+
+        self.send_matrix_driver_request(request).map(|(request, action)| {
+            request.add_response_handler(|result, machine| {
+                machine.send_read_events_response(raw_request, result)
+            });
+            action
+        })
     }
 
     fn process_send_event_request(
@@ -655,10 +694,67 @@ impl WidgetMachine {
         ))
     }
 
+    /// Sends a [`NotifyStateUpdate`] action to the widget. The `events`
+    /// indicate which room state entries (may) have changed.
+    fn send_state_update(&mut self, events: Vec<Raw<AnyStateEvent>>) -> Option<Action> {
+        self.send_to_widget_request(NotifyStateUpdate { state: events })
+            .map(|(_request, action)| action)
+    }
+
+    /// Processes a response to one of the read state requests sent to the
+    /// [`crate::widget::MatrixDriver`] to compute an initial state update. If
+    /// the update is complete, this will send it off to the widget in a
+    /// [`NotifyStateUpdate`] action.
+    fn process_read_initial_state_response(
+        &mut self,
+        events: Vec<Raw<AnyStateEvent>>,
+    ) -> Option<Vec<Action>> {
+        // Pull the updates struct out of the machine temporarily so that we can match
+        // on it in one place, mutate it, and still be able to call
+        // `send_to_widget_request` later in this block (which borrows the machine
+        // mutably)
+        match self.pending_state_updates.take() {
+            None => {
+                error!("Initial state updates must only be set to `None` once all requests are complete; dropping state response");
+                None
+            }
+
+            Some(mut updates) => {
+                updates.initial_state.push(events);
+
+                if updates.initial_state.len() != updates.request_count {
+                    // Not all of the initial state requests have completed yet; put the updates
+                    // struct back so we can continue accumulating the initial state.
+                    self.pending_state_updates = Some(updates);
+                    return None;
+                }
+
+                // The initial state is complete; combine the data and push it to the widget in
+                // a single action.
+                let initial =
+                    self.send_state_update(updates.initial_state.into_iter().flatten().collect());
+                // Also flush any state updates that had been postponed until after the initial
+                // state push. We deliberately do not bundle these updates into a single action,
+                // since they might contain some repeated updates to the same room state entry
+                // which could confuse the widget if included in the same `events` array. It's
+                // easiest to let the widget process each update sequentially rather than put
+                // effort into coalescing them - this is for an edge case after all.
+                let postponed = updates
+                    .postponed_updates
+                    .into_iter()
+                    .map(|state| self.send_state_update(state));
+
+                // The postponed updates should come after the initial update
+                Some(initial.into_iter().chain(postponed.flatten()).collect())
+            }
+        }
+    }
+
     /// Processes a response from the [`crate::widget::MatrixDriver`] saying
     /// that the widget is approved to acquire some capabilities. This will
-    /// store those capabilities in the state machine and then notify the
-    /// widget.
+    /// store those capabilities in the state machine, notify the widget,
+    /// and then begin computing an initial state update if the widget
+    /// was approved to read room state.
     fn process_acquired_capabilities(
         &mut self,
         approved: Result<Capabilities, Error>,
@@ -676,10 +772,66 @@ impl WidgetMachine {
 
         self.capabilities = CapabilitiesState::Negotiated(approved.clone());
 
-        if let Some(action) = self
-            .send_to_widget_request(NotifyCapabilitiesChanged { approved, requested })
-            .map(|(_request, action)| action)
-        {
+        let state_filters: Vec<_> = approved
+            .read
+            .iter()
+            .filter_map(|f| match f {
+                Filter::State(f) => Some(f),
+                _ => None,
+            })
+            .cloned()
+            .collect();
+
+        if !state_filters.is_empty() {
+            // Begin accumulating the initial state to be pushed to the widget. Since this
+            // widget driver currently doesn't implement capability
+            // renegotiation, we can be sure that we aren't overwriting another
+            // in-progress update.
+            if self.pending_state_updates.is_some() {
+                // Or so we should be. Let's at least log something if we ever break that
+                // invariant.
+                error!("Another initial state update is in progress; overwriting it");
+            }
+            self.pending_state_updates = Some(InitialStateUpdate {
+                initial_state: Vec::with_capacity(state_filters.len()),
+                request_count: state_filters.len(),
+                postponed_updates: Vec::new(),
+            })
+        }
+
+        // For each room state filter that the widget has been approved to read, fire
+        // off a request to the driver to determine the initial values of the
+        // matching room state entries
+        let initial_state_actions = state_filters.iter().flat_map(|filter| {
+            self.send_matrix_driver_request(match filter {
+                StateEventFilter::WithType(event_type) => ReadStateRequest {
+                    event_type: event_type.to_string(),
+                    state_key: StateKeySelector::Any,
+                },
+                StateEventFilter::WithTypeAndStateKey(event_type, state_key) => ReadStateRequest {
+                    event_type: event_type.to_string(),
+                    state_key: StateKeySelector::Key(state_key.clone()),
+                },
+            })
+            .map(|(request, action)| {
+                request.add_response_handler(move |result, machine| {
+                    machine
+                        .process_read_initial_state_response(result.unwrap_or_else(|e| {
+                            error!("Reading initial room state failed: {e}");
+                            // Pretend that we just got an empty response so the initial state
+                            // update won't be completely blocked on this one bit of missing data
+                            Vec::new()
+                        }))
+                        .unwrap_or_default()
+                });
+                action
+            })
+        });
+
+        actions.extend(initial_state_actions);
+
+        let notify_caps_changed = NotifyCapabilitiesChanged { approved, requested };
+        if let Some((_request, action)) = self.send_to_widget_request(notify_caps_changed) {
             actions.push(action);
         }
 
