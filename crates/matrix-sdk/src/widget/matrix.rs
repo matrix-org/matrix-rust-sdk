@@ -27,21 +27,26 @@ use ruma::{
     },
     assign,
     events::{
-        AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
-        AnyToDeviceEventContent, MessageLikeEventType, StateEventType, TimelineEventType,
-        ToDeviceEventType,
+        AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContent, AnySyncStateEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        MessageLikeEventType, StateEventType, TimelineEventType, ToDeviceEventType,
     },
     serde::{from_raw_json_value, Raw},
     to_device::DeviceIdOrAllDevices,
     EventId, OwnedUserId, RoomId, TransactionId,
 };
 use serde_json::{value::RawValue as RawJsonValue, Value};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::sync::{
+    broadcast::{error::RecvError, Receiver},
+    mpsc::{unbounded_channel, UnboundedReceiver},
+};
 use tracing::error;
 
 use super::{machine::SendEventResponse, StateKeySelector};
-use crate::{event_handler::EventHandlerDropGuard, room::MessagesOptions, Error, Result, Room};
+use crate::{
+    event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate, Error, Result,
+    Room,
+};
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
 /// widgets.
@@ -65,10 +70,12 @@ impl MatrixDriver {
             .map_err(|error| Error::Http(Box::new(error)))
     }
 
-    /// Reads the latest `limit` events of a given `event_type` from the room.
-    pub(crate) async fn read_message_like_events(
+    /// Reads the latest `limit` events of a given `event_type` from the room's
+    /// timeline.
+    pub(crate) async fn read_events(
         &self,
-        event_type: MessageLikeEventType,
+        event_type: TimelineEventType,
+        state_key: Option<StateKeySelector>,
         limit: u32,
     ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
         let options = assign!(MessagesOptions::backward(), {
@@ -79,17 +86,35 @@ impl MatrixDriver {
         });
 
         let messages = self.room.messages(options).await?;
-        Ok(messages.chunk.into_iter().map(|ev| ev.into_raw().cast()).collect())
+
+        Ok(messages
+            .chunk
+            .into_iter()
+            .map(|ev| ev.into_raw().cast())
+            .filter(|ev| match &state_key {
+                Some(state_key) => {
+                    ev.get_field::<String>("state_key").is_ok_and(|key| match state_key {
+                        StateKeySelector::Key(state_key) => {
+                            key.is_some_and(|key| &key == state_key)
+                        }
+                        StateKeySelector::Any => key.is_some(),
+                    })
+                }
+                None => true,
+            })
+            .collect())
     }
 
-    pub(crate) async fn read_state_events(
+    /// Reads the current values of the room state entries matching the given
+    /// `event_type` and `state_key` selections.
+    pub(crate) async fn read_state(
         &self,
         event_type: StateEventType,
         state_key: &StateKeySelector,
-    ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
+    ) -> Result<Vec<Raw<AnyStateEvent>>> {
         let room_id = self.room.room_id();
         let convert = |sync_or_stripped_state| match sync_or_stripped_state {
-            RawAnySyncOrStrippedState::Sync(ev) => Some(attach_room_id(ev.cast_ref(), room_id)),
+            RawAnySyncOrStrippedState::Sync(ev) => Some(attach_room_id_state(&ev, room_id)),
             RawAnySyncOrStrippedState::Stripped(_) => {
                 error!("MatrixDriver can't operate in invited rooms");
                 None
@@ -188,30 +213,21 @@ impl MatrixDriver {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
 
-        // Get only message like events from the timeline section of the sync.
-        let _tx = tx.clone();
-        let _room_id = room_id.clone();
-        let handle_msg_like =
-            self.room.add_event_handler(move |raw: Raw<AnySyncMessageLikeEvent>| {
-                let _ = _tx.send(attach_room_id(raw.cast_ref(), &_room_id));
-                async {}
-            });
-        let drop_guard_msg_like = self.room.client().event_handler_drop_guard(handle_msg_like);
-
-        // Get only all state events from the state section of the sync.
-        let handle_state = self.room.add_event_handler(move |raw: Raw<AnySyncStateEvent>| {
+        let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
             let _ = tx.send(attach_room_id(raw.cast_ref(), &room_id));
             async {}
         });
-        let drop_guard_state = self.room.client().event_handler_drop_guard(handle_state);
+        let drop_guard = self.room.client().event_handler_drop_guard(handle);
 
         // The receiver will get a combination of state and message like events.
-        // The state events will come from the state section of the sync (to always
-        // represent current resolved state). All state events in the timeline
-        // section of the sync will not be forwarded to the widget.
-        // TODO annotate the events and send both timeline and state section state
-        // events.
-        EventReceiver { rx, _drop_guards: vec![drop_guard_msg_like, drop_guard_state] }
+        // These always come from the timeline (rather than the state section of the
+        // sync).
+        EventReceiver { rx, _drop_guard: drop_guard }
+    }
+
+    /// Starts forwarding new updates to room state.
+    pub(crate) fn state_updates(&self) -> StateUpdateReceiver {
+        StateUpdateReceiver { room_updates: self.room.subscribe_to_updates() }
     }
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`
@@ -231,7 +247,7 @@ impl MatrixDriver {
         );
 
         let drop_guard = self.room.client().event_handler_drop_guard(to_device_handle);
-        EventReceiver { rx, _drop_guards: vec![drop_guard] }
+        EventReceiver { rx, _drop_guard: drop_guard }
     }
 
     /// It will ignore all devices where errors occurred or where the device is
@@ -265,7 +281,7 @@ impl MatrixDriver {
 /// along with the drop guard for the room event handler.
 pub(crate) struct EventReceiver<E> {
     rx: UnboundedReceiver<E>,
-    _drop_guards: Vec<EventHandlerDropGuard>,
+    _drop_guard: EventHandlerDropGuard,
 }
 
 impl<T> EventReceiver<T> {
@@ -274,10 +290,42 @@ impl<T> EventReceiver<T> {
     }
 }
 
+/// A simple entity that wraps an `UnboundedReceiver` for the room state update
+/// handler.
+pub(crate) struct StateUpdateReceiver {
+    room_updates: Receiver<RoomUpdate>,
+}
+
+impl StateUpdateReceiver {
+    pub(crate) async fn recv(&mut self) -> Result<Vec<Raw<AnyStateEvent>>, RecvError> {
+        loop {
+            match self.room_updates.recv().await? {
+                RoomUpdate::Joined { room, updates } => {
+                    if !updates.state.is_empty() {
+                        return Ok(updates
+                            .state
+                            .into_iter()
+                            .map(|ev| attach_room_id_state(&ev, room.room_id()))
+                            .collect());
+                    }
+                }
+                _ => {
+                    error!("MatrixDriver can only operate in joined rooms");
+                    return Err(RecvError::Closed);
+                }
+            }
+        }
+    }
+}
+
 fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<AnyTimelineEvent> {
     let mut ev_obj = raw_ev.deserialize_as::<BTreeMap<String, Box<RawJsonValue>>>().unwrap();
     ev_obj.insert("room_id".to_owned(), serde_json::value::to_raw_value(room_id).unwrap());
     Raw::new(&ev_obj).unwrap().cast()
+}
+
+fn attach_room_id_state(raw_ev: &Raw<AnySyncStateEvent>, room_id: &RoomId) -> Raw<AnyStateEvent> {
+    attach_room_id(raw_ev.cast_ref(), room_id).cast()
 }
 
 #[cfg(test)]
