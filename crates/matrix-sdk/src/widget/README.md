@@ -4,8 +4,8 @@ This module implements a widget driver. The widget driver allows a client to giv
 a specified `postMessage` API.
 Details about the features implemented by this driver can be found in the following MSC's:
 
-- [MSC2762: Allowing widgets to send/receive events](https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/widgets-send-receive-events/proposals/2762-widget-event-receiving.md)
 - [MSC3803: Matrix Widget API v2](https://github.com/matrix-org/matrix-spec-proposals/issues/3803)
+- [MSC2762: Allowing widgets to send/receive events](https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/widgets-send-receive-events/proposals/2762-widget-event-receiving.md)
 - [MSC4157: Delayed Events (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 - [MSC3819: Allowing widgets to send/receive to-device messages](https://github.com/matrix-org/matrix-spec-proposals/pull/3819)
 
@@ -16,7 +16,7 @@ There are some additional actions:
 - Ask for supported API versions.
 - Inform the client that the widget has loaded its content and is ready.
 
-## The WidgetApi
+## The Widget Api
 
 _from [MSC3803: Matrix Widget API v2](https://github.com/matrix-org/matrix-spec-proposals/issues/3803)_
 
@@ -39,7 +39,7 @@ Both APIs conform to the same basic structure:
 
 An example request / response:
 
-```json
+```javascript
 {
     api: $API_NAME,
     requestId: $REQUEST_ID,
@@ -49,7 +49,7 @@ An example request / response:
 }
 ```
 
-The complete request object is returned to the caller with an additional "response" key like so:
+The complete request object is returned to the caller with an additional `response` key like so:
 
 ```json
 {
@@ -62,7 +62,7 @@ The complete request object is returned to the caller with an additional "respon
 }
 ```
 
-The "api" field is required on all requests and must be either "fromWidget" or "toWidget" depending upon the direction
+The `api` field is required on all requests and must be either `"fromWidget"` or `"toWidget"` depending upon the direction
 of messaging.
 
 The "requestId" field should be unique and included in all requests. This field has been omitted from all of the
@@ -103,7 +103,7 @@ Internally the driver consists of two main message types:
     For example if the `WidgetMachine` requests the `MatrixDriver` to get approved capabilities,
     the response would contain what capabilities actually were approved.
   - `MatrixEventReceived`: The `MatrixDriver` notified the `WidgetMachine` of a new matrix event.
-- [`machine::Action`]:
+- [`machine::Action`] describes an operation that the `WidgetDriver` wants to perform:
   - `SendToWidget`: Send a raw message to the widget.
   - `MatrixDriverRequest`: A command sent from the client widget API state machine to the
     client (driver). Once the command is executed,
@@ -156,15 +156,15 @@ Internally the driver consists of two main message types:
 
 The `WidgetDriver` itself is responsible for:
 
-- processing the `Action`s (capbility checks) and feeding new `IncomingMessage` to the `WidgetMachine`
+- processing the `Action`s (capability checks) and feeding new `IncomingMessage` to the `WidgetMachine`
 - doing the serialization,
-- spawning the different loops (`matrixDriver`, `WidgetMachine`),
+- spawning the different loops (`MatrixDriver`, `WidgetMachine`),
 - Exposing the channels `WidgetDriverHandle` for the client to hook up the widget,
 
-The `WidgetMachine` does the actual stateful logic.
+The `WidgetMachine` is a no IO machine responsible for the stateful logic.
 
 - Initialization procedure
-  - capability negotataion
+  - capability negotiation
   - wait for the widget to be ready
   - send initial state in case the capabilities contain state events.
   - request matrix event subscriptions
