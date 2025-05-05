@@ -215,14 +215,14 @@ impl WidgetDriver {
                     MatrixDriverRequestData::ReadMessageLikeEvent(cmd) => matrix_driver
                         .read_message_like_events(cmd.event_type.into(), cmd.limit)
                         .await
-                        .map(MatrixDriverResponse::MatrixEventRead),
+                        .map(MatrixDriverResponse::EventsRead),
 
                     MatrixDriverRequestData::ReadStateEvent(cmd) => matrix_driver
                         .read_state_events(cmd.event_type.into(), &cmd.state_key)
                         .await
-                        .map(MatrixDriverResponse::MatrixEventRead),
+                        .map(MatrixDriverResponse::EventsRead),
 
-                    MatrixDriverRequestData::SendMatrixEvent(req) => {
+                    MatrixDriverRequestData::SendEvent(req) => {
                         let SendEventRequest { event_type, state_key, content, delay } = req;
                         // The widget api action does not use the unstable prefix:
                         // `org.matrix.msc4140.delay` so we
@@ -234,13 +234,13 @@ impl WidgetDriver {
                         matrix_driver
                             .send(event_type.into(), state_key, content, delay_event_parameter)
                             .await
-                            .map(MatrixDriverResponse::MatrixEventSent)
+                            .map(MatrixDriverResponse::EventSent)
                     }
 
                     MatrixDriverRequestData::UpdateDelayedEvent(req) => matrix_driver
                         .update_delayed_event(req.delay_id, req.action)
                         .await
-                        .map(MatrixDriverResponse::MatrixDelayedEventUpdate),
+                        .map(MatrixDriverResponse::DelayedEventUpdated),
 
                     MatrixDriverRequestData::SendToDeviceEvent(send_to_device_request) => {
                         matrix_driver
@@ -250,7 +250,7 @@ impl WidgetDriver {
                                 send_to_device_request.messages,
                             )
                             .await
-                            .map(MatrixDriverResponse::MatrixToDeviceSent)
+                            .map(MatrixDriverResponse::ToDeviceSent)
                     }
                 };
 
