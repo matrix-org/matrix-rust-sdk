@@ -181,6 +181,35 @@ async fn test_negotiate_capabilities_immediately() {
     assert_matches!(driver_handle.recv().now_or_never(), None);
 }
 
+static HELLO_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "body": "hello",
+            "msgtype": "m.text",
+        },
+        "event_id": "$msda7m0df9E9op3",
+        "origin_server_ts": 152037280,
+        "sender": "@example:localhost",
+        "type": "m.room.message",
+        "room_id": &*ROOM_ID,
+    })
+});
+
+static TOMBSTONE_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "body": "This room has been replaced",
+            "replacement_room": "!newroom:localhost",
+        },
+        "event_id": "$foun39djjod0f",
+        "origin_server_ts": 152039280,
+        "sender": "@bob:localhost",
+        "state_key": "",
+        "type": "m.room.tombstone",
+        "room_id": &*ROOM_ID,
+    })
+});
+
 #[async_test]
 async fn test_read_messages() {
     let (_, mock_server, driver_handle) = run_test_driver(true).await;
@@ -205,66 +234,40 @@ async fn test_read_messages() {
     // No messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    {
-        let response_json = json!({
-            "chunk": [
-                {
-                    "content": {
-                        "body": "hello",
-                        "msgtype": "m.text",
-                    },
-                    "event_id": "$msda7m0df9E9op3",
-                    "origin_server_ts": 152037280,
-                    "sender": "@example:localhost",
-                    "type": "m.room.message",
-                    "room_id": &*ROOM_ID,
-                },
-                {
-                    "content": {
-                        "body": "This room has been replaced",
-                        "replacement_room": "!newroom:localhost",
-                    },
-                    "event_id": "$foun39djjod0f",
-                    "origin_server_ts": 152039280,
-                    "sender": "@bob:localhost",
-                    "state_key": "",
-                    "type": "m.room.tombstone",
-                    "room_id": &*ROOM_ID,
-                },
-            ],
-            "end": "t47409-4357353_219380_26003_2269",
-            "start": "t392-516_47314_0_7_1_1_1_11444_1"
-        });
-        mock_server
-            .mock_room_messages()
-            .match_limit(2)
-            .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-            .mock_once()
-            .mount()
-            .await;
-
-        // Ask the driver to read messages
-        send_request(
-            &driver_handle,
-            "2-read-messages",
-            "org.matrix.msc2876.read_events",
-            json!({
-                "type": "m.room.message",
-                "limit": 2,
-            }),
-        )
+    let response_json = json!({
+        "chunk": [*HELLO_EVENT, *TOMBSTONE_EVENT],
+        "end": "t47409-4357353_219380_26003_2269",
+        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+    });
+    mock_server
+        .mock_room_messages()
+        .match_limit(2)
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .mock_once()
+        .mount()
         .await;
 
-        // Receive the response
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "fromWidget");
-        assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-        let events = msg["response"]["events"].as_array().unwrap();
+    // Ask the driver to read messages
+    send_request(
+        &driver_handle,
+        "2-read-messages",
+        "org.matrix.msc2876.read_events",
+        json!({
+            "type": "m.room.message",
+            "limit": 2,
+        }),
+    )
+    .await;
 
-        assert_eq!(events.len(), 1);
-        let first_event = &events[0];
-        assert_eq!(first_event["content"]["body"], "hello");
-    }
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    let events = msg["response"]["events"].as_array().unwrap();
+
+    assert_eq!(events.len(), 1);
+    let first_event = &events[0];
+    assert_eq!(first_event["content"]["body"], "hello");
 }
 
 #[async_test]
@@ -293,43 +296,41 @@ async fn test_read_messages_with_msgtype_capabilities() {
 
     let f = EventFactory::new().room(&ROOM_ID).sender(user_id!("@example:localhost"));
 
-    {
-        let end = "t47409-4357353_219380_26003_2269";
-        let chunk2 = vec![
-            f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
-            f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
-            f.reaction(event_id!("$event_id"), "annotation").into_raw_timeline(),
-        ];
-        mock_server
-            .mock_room_messages()
-            .match_limit(3)
-            .ok(RoomMessagesResponseTemplate::default().end_token(end).events(chunk2))
-            .mock_once()
-            .mount()
-            .await;
-
-        // Ask the driver to read messages
-        send_request(
-            &driver_handle,
-            "2-read-messages",
-            "org.matrix.msc2876.read_events",
-            json!({
-                "type": "m.room.message",
-                "limit": 3,
-            }),
-        )
+    let end = "t47409-4357353_219380_26003_2269";
+    let chunk2 = vec![
+        f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
+        f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
+        f.reaction(event_id!("$event_id"), "annotation").into_raw_timeline(),
+    ];
+    mock_server
+        .mock_room_messages()
+        .match_limit(3)
+        .ok(RoomMessagesResponseTemplate::default().end_token(end).events(chunk2))
+        .mock_once()
+        .mount()
         .await;
 
-        // Receive the response
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "fromWidget");
-        assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-        let events = msg["response"]["events"].as_array().unwrap();
+    // Ask the driver to read messages
+    send_request(
+        &driver_handle,
+        "2-read-messages",
+        "org.matrix.msc2876.read_events",
+        json!({
+            "type": "m.room.message",
+            "limit": 3,
+        }),
+    )
+    .await;
 
-        assert_eq!(events.len(), 1);
-        let first_event = &events[0];
-        assert_eq!(first_event["content"]["body"], "hello");
-    }
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    let events = msg["response"]["events"].as_array().unwrap();
+
+    assert_eq!(events.len(), 1);
+    let first_event = &events[0];
+    assert_eq!(first_event["content"]["body"], "hello");
 }
 
 #[async_test]
