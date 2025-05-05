@@ -14,7 +14,8 @@
 
 use ruma::{
     events::{
-        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType, ToDeviceEventType,
+        AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
+        ToDeviceEventType,
     },
     serde::Raw,
 };
@@ -220,6 +221,16 @@ impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
     fn try_from(raw_event: &'a Raw<AnyTimelineEvent>) -> Result<Self, Self::Error> {
         // FilterInput first checks if it can deserialize as a state event (state_key
         // exists) and then as a message-like event.
+        raw_event.deserialize_as()
+    }
+}
+
+/// Create a filter input based on [`AnyStateEvent`].
+/// This will create a [`FilterInput::State`].
+impl<'a> TryFrom<&'a Raw<AnyStateEvent>> for FilterInput<'a> {
+    type Error = serde_json::Error;
+
+    fn try_from(raw_event: &'a Raw<AnyStateEvent>) -> Result<Self, Self::Error> {
         raw_event.deserialize_as()
     }
 }
