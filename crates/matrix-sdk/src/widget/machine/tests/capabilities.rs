@@ -200,6 +200,19 @@ pub(super) fn assert_capabilities_dance(
         assert_matches!(action, Action::Subscribe);
     }
 
+    // We get the `ReadState` command if we requested some state reading
+    // capabilities.
+    if capability.starts_with("org.matrix.msc2762.receive.state_event") {
+        let action = actions.remove(0);
+        assert_matches!(
+            action,
+            Action::MatrixDriverRequest {
+                request_id: _,
+                data: MatrixDriverRequestData::ReadState(_)
+            }
+        );
+    }
+
     // Inform the widget about the acquired capabilities.
     {
         let [action]: [Action; 1] = actions.try_into().unwrap();
