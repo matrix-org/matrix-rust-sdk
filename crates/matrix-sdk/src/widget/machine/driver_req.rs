@@ -55,7 +55,7 @@ pub(crate) enum MatrixDriverRequestData {
     ReadStateEvent(ReadStateEventRequest),
 
     /// Send Matrix event that corresponds to the given description.
-    SendMatrixEvent(SendEventRequest),
+    SendEvent(SendEventRequest),
 
     /// Send a to-device message over the Matrix homeserver.
     SendToDeviceEvent(SendToDeviceRequest),
@@ -196,7 +196,7 @@ impl MatrixDriverRequest for ReadMessageLikeEventRequest {
 impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixEventRead(response) => Some(response),
+            MatrixDriverResponse::EventsRead(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
@@ -251,7 +251,7 @@ pub(crate) struct SendEventRequest {
 
 impl From<SendEventRequest> for MatrixDriverRequestData {
     fn from(value: SendEventRequest) -> Self {
-        MatrixDriverRequestData::SendMatrixEvent(value)
+        MatrixDriverRequestData::SendEvent(value)
     }
 }
 
@@ -262,7 +262,7 @@ impl MatrixDriverRequest for SendEventRequest {
 impl FromMatrixDriverResponse for SendEventResponse {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixEventSent(response) => Some(response),
+            MatrixDriverResponse::EventSent(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
@@ -303,7 +303,7 @@ impl TryInto<send_event_to_device::v3::Response> for MatrixDriverResponse {
 
     fn try_into(self) -> Result<send_event_to_device::v3::Response, Self::Error> {
         match self {
-            MatrixDriverResponse::MatrixToDeviceSent(response) => Ok(response),
+            MatrixDriverResponse::ToDeviceSent(response) => Ok(response),
             _ => Err(de::Error::custom("bug in MatrixDriver, received wrong event response")),
         }
     }
@@ -330,7 +330,7 @@ impl MatrixDriverRequest for UpdateDelayedEventRequest {
 impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixDelayedEventUpdate(response) => Some(response),
+            MatrixDriverResponse::DelayedEventUpdated(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
