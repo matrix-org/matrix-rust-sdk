@@ -64,13 +64,16 @@ pub(crate) enum MatrixDriverResponse {
     /// A response to an `Action::GetOpenId` command.
     OpenIdReceived(request_openid_token::v3::Response),
     /// Client read some Matrix event(s).
-    /// A response to an `Action::ReadMatrixEvent` commands.
-    MatrixEventRead(Vec<Raw<AnyTimelineEvent>>),
+    /// A response to a `Action::ReadEvent` command.
+    EventsRead(Vec<Raw<AnyTimelineEvent>>),
     /// Client sent some Matrix event. The response contains the event ID.
-    /// A response to an `Action::SendMatrixEvent` command.
-    MatrixEventSent(SendEventResponse),
-    MatrixToDeviceSent(send_event_to_device::v3::Response),
-    MatrixDelayedEventUpdate(delayed_events::update_delayed_event::unstable::Response),
+    /// A response to a `Action::SendEvent` command.
+    EventSent(SendEventResponse),
+    /// A response to a `Action::SendToDevice` command.
+    ToDeviceSent(send_event_to_device::v3::Response),
+    /// Client updated a delayed event.
+    /// A response to a `Action::UpdateDelayedEvent` command.
+    DelayedEventUpdated(delayed_events::update_delayed_event::unstable::Response),
 }
 
 pub(super) struct IncomingWidgetMessage {
