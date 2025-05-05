@@ -14,13 +14,15 @@
 
 use ruma::{
     api::client::{account::request_openid_token, delayed_events},
-    events::AnyTimelineEvent,
+    events::{AnyStateEvent, AnyTimelineEvent},
     serde::Raw,
 };
 use serde::{de, Deserialize, Deserializer};
 use serde_json::value::RawValue as RawJsonValue;
 use uuid::Uuid;
 
+#[cfg(doc)]
+use super::MatrixDriverRequestData;
 use super::{
     from_widget::{FromWidgetRequest, SendEventResponse},
     to_widget::ToWidgetResponse,
@@ -49,24 +51,34 @@ pub(crate) enum IncomingMessage {
     /// This means that the machine previously subscribed to some events
     /// ([`crate::widget::Action::Subscribe`] request).
     MatrixEventReceived(Raw<AnyTimelineEvent>),
+
+    /// The `MatrixDriver` notified the `WidgetMachine` of a change in room
+    /// state.
+    ///
+    /// This means that the machine previously subscribed to some events
+    /// ([`crate::widget::Action::Subscribe`] request).
+    StateUpdateReceived(Vec<Raw<AnyStateEvent>>),
 }
 
 pub(crate) enum MatrixDriverResponse {
     /// Client acquired capabilities from the user.
-    ///
-    /// A response to an `Action::AcquireCapabilities` command.
+    /// A response to a [`MatrixDriverRequestData::AcquireCapabilities`]
+    /// command.
     CapabilitiesAcquired(Capabilities),
     /// Client got OpenId token for a given request ID.
-    /// A response to an `Action::GetOpenId` command.
+    /// A response to a [`MatrixDriverRequestData::GetOpenId`] command.
     OpenIdReceived(request_openid_token::v3::Response),
     /// Client read some matrix event(s).
-    /// A response to a `Action::ReadEvent` command.
+    /// A response to a [`MatrixDriverRequestData::ReadEvents`] command.
     EventsRead(Vec<Raw<AnyTimelineEvent>>),
+    /// Client read some matrix room state entries.
+    /// A response to a [`MatrixDriverRequestData::ReadState`] command.
+    StateRead(Vec<Raw<AnyStateEvent>>),
     /// Client sent some matrix event. The response contains the event ID.
-    /// A response to a `Action::SendEvent` command.
+    /// A response to a [`MatrixDriverRequestData::SendEvent`] command.
     EventSent(SendEventResponse),
     /// Client updated a delayed event.
-    /// A response to a `Action::UpdateDelayedEvent` command.
+    /// A response to a [`MatrixDriverRequestData::UpdateDelayedEvent`] command.
     DelayedEventUpdated(delayed_events::update_delayed_event::unstable::Response),
 }
 

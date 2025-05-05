@@ -96,7 +96,7 @@ fn test_read_request_for_non_allowed_message_like_events() {
     assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
     assert_eq!(
         msg["response"]["error"]["message"].as_str().unwrap(),
-        "Not allowed to read message like event"
+        "Not allowed to read message-like event"
     );
 }
 
@@ -222,6 +222,6 @@ fn test_read_request_for_message_like_with_disallowed_msg_type_fails() {
     assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
     assert_eq!(
         msg["response"]["error"]["message"].as_str().unwrap(),
-        "Not allowed to read message like event"
+        "Not allowed to read message-like event"
     );
 }
