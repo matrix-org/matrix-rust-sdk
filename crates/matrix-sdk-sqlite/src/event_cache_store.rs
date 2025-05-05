@@ -630,16 +630,120 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // Remove the entry in the chunk table.
                         txn.execute("DELETE FROM event_chunks WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
 
-                        // Decrement the index of each item after the one we're going to remove.
+                        // Decrement the index of each item after the one we are
+                        // going to remove.
+                        //
+                        // Imagine we have the following events:
+                        //
+                        // | event_id | room_id | chunk_id | position |
+                        // |----------|---------|----------|----------|
+                        // | $ev0     | !r0     | 42       | 0        |
+                        // | $ev1     | !r0     | 42       | 1        |
+                        // | $ev2     | !r0     | 42       | 2        |
+                        // | $ev3     | !r0     | 42       | 3        |
+                        // | $ev4     | !r0     | 42       | 4        |
+                        // 
+                        // `$ev2` has been removed, then we end up in this
+                        // state:
+                        //
+                        // | event_id | room_id | chunk_id | position |
+                        // |----------|---------|----------|----------|
+                        // | $ev0     | !r0     | 42       | 0        |
+                        // | $ev1     | !r0     | 42       | 1        |
+                        // |          |         |          |          | <- no more `$ev2`
+                        // | $ev3     | !r0     | 42       | 3        |
+                        // | $ev4     | !r0     | 42       | 4        |
+                        //
+                        // We need to shift the `position` of `$ev3` and `$ev4`
+                        // to `position - 1`, like so:
+                        // 
+                        // | event_id | room_id | chunk_id | position |
+                        // |----------|---------|----------|----------|
+                        // | $ev0     | !r0     | 42       | 0        |
+                        // | $ev1     | !r0     | 42       | 1        |
+                        // | $ev3     | !r0     | 42       | 2        |
+                        // | $ev4     | !r0     | 42       | 3        |
+                        //
+                        // Usually, it boils down to run the following query:
+                        //
+                        // ```sql
+                        // UPDATE event_chunks
+                        // SET position = position - 1
+                        // WHERE position > 2 AND …
+                        // ```
+                        //
+                        // Okay. But `UPDATE` runs on rows in no particular
+                        // order. It means that it can update `$ev4` before
+                        // `$ev3` for example. What happens in this particular
+                        // case? The `position` of `$ev4` becomes `3`, however
+                        // `$ev3` already has `position = 3`. Because there
+                        // is a `UNIQUE` constraint on `(room_id, chunk_id,
+                        // position)`, it will result in a constraint violation.
+                        //
+                        // There is **no way** to control the execution order of
+                        // `UPDATE` in SQLite. To persuade yourself, try:
+                        //
+                        // ```sql
+                        // UPDATE event_chunks
+                        // SET position = position - 1
+                        // FROM (
+                        //     SELECT event_id
+                        //     FROM event_chunks
+                        //     WHERE position > 2 AND …
+                        //     ORDER BY position ASC
+                        // ) as ordered
+                        // WHERE event_chunks.event_id = ordered.event_id
+                        // ```
+                        //
+                        // It will fail the same way.
+                        //
+                        // Thus, we have 2 solutions:
+                        //
+                        // 1. Remove the `UNIQUE` constraint,
+                        // 2. Be creative.
+                        //
+                        // The `UNIQUE` constraint is a safe belt. Normally, we
+                        // have `event_cache::Deduplicator` that is responsible
+                        // to ensure there is no duplicated event. However,
+                        // relying on this is “fragile” in the sense it can
+                        // contain bugs. Relying on the `UNIQUE` constraint from
+                        // SQLite is more robust. It's “braces and belt” as we
+                        // say here.
+                        //
+                        // So. We need to be creative.
+                        //
+                        // Many solutions exist. Amongst the most popular, we
+                        // see _dropping and re-creating the index_, which is
+                        // no-go for us, it's too expensive. I (@hywan) have
+                        // adopted the following one:
+                        // 
+                        // - Do `position = position - 1` but in the negative
+                        //   space, so `position = -(position - 1)`. A position
+                        //   cannot be negative; we are sure it is unique!
+                        // - Once all candidate rows are updated, do `position =
+                        //   -position` to move back to the positive space.
+                        //
+                        // 'told you it's gonna be creative.
+                        //
+                        // This solution is a hack, **but** it is a small
+                        // number of operations, and we can keep the `UNIQUE`
+                        // constraint in place.
                         txn.execute(
                             r#"
                                 UPDATE event_chunks
-                                SET position = position - 1
+                                SET position = -(position - 1)
                                 WHERE room_id = ? AND chunk_id = ? AND position > ?
                             "#,
                             (&hashed_room_id, chunk_id, index)
                         )?;
-
+                        txn.execute(
+                            r#"
+                                UPDATE event_chunks
+                                SET position = -position
+                                WHERE position < 0 AND room_id = ? AND chunk_id = ?
+                            "#,
+                            (&hashed_room_id, chunk_id)
+                        )?;
                     }
 
                     Update::DetachLastItems { at } => {
@@ -1905,11 +2009,17 @@ mod tests {
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
                         items: vec![
-                            make_test_event(room_id, "hello"),
-                            make_test_event(room_id, "world"),
+                            make_test_event(room_id, "one"),
+                            make_test_event(room_id, "two"),
+                            make_test_event(room_id, "three"),
+                            make_test_event(room_id, "four"),
+                            make_test_event(room_id, "five"),
+                            make_test_event(room_id, "six"),
                         ],
                     },
-                    Update::RemoveItem { at: Position::new(ChunkIdentifier::new(42), 0) },
+                    Update::RemoveItem {
+                        at: Position::new(ChunkIdentifier::new(42), 2), /* "three" */
+                    },
                 ],
             )
             .await
@@ -1924,25 +2034,29 @@ mod tests {
         assert_eq!(c.previous, None);
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 1);
-            check_test_event(&events[0], "world");
+            assert_eq!(events.len(), 5);
+            check_test_event(&events[0], "one");
+            check_test_event(&events[1], "two");
+            check_test_event(&events[2], "four");
+            check_test_event(&events[3], "five");
+            check_test_event(&events[4], "six");
         });
 
-        // Make sure the position has been updated for the remaining event.
+        // Make sure the position have been updated for the remaining events.
         let num_rows: u64 = store
             .acquire()
             .await
             .unwrap()
             .with_transaction(move |txn| {
                 txn.query_row(
-                    "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND room_id = ? AND position = 0",
+                    "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND room_id = ? AND position IN (2, 3, 4)",
                     (room_id.as_bytes(),),
                     |row| row.get(0),
                 )
             })
             .await
             .unwrap();
-        assert_eq!(num_rows, 1);
+        assert_eq!(num_rows, 3);
     }
 
     #[async_test]
