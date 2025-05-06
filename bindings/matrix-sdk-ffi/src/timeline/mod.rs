@@ -35,8 +35,8 @@ use matrix_sdk_common::{
     stream::StreamExt,
 };
 use matrix_sdk_ui::timeline::{
-    self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
-    TimelineUniqueId as SdkTimelineUniqueId,
+    self, AttachmentSource, EventItemOrigin, EventSendProgress as SdkEventSendProgress, Profile,
+    TimelineDetails, TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
@@ -67,7 +67,7 @@ use uuid::Uuid;
 use self::content::TimelineItemContent;
 pub use self::msg_like::MessageContent;
 use crate::{
-    client::ProgressWatcher,
+    client::{ProgressWatcher, TransmissionProgress},
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
@@ -268,6 +268,46 @@ impl TryInto<Reply> for ReplyParameters {
         };
 
         Ok(Reply { event_id, enforce_thread })
+    }
+}
+
+/// This type represents the "send progress" of a local event timeline item.
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum EventSendProgress {
+    /// A media is being uploaded.
+    MediaUploadProgress {
+        /// The index of the media within the transaction. A file and its
+        /// thumbnail share the same index.
+        index: u64,
+
+        /// Is the media a thumbnail?
+        is_thumbnail: bool,
+
+        /// The current upload progress.
+        progress: TransmissionProgress,
+    },
+
+    /// A media has finished uploading.
+    UploadedMedia {
+        /// The index of the media within the transaction. A file and its
+        /// thumbnail share the same index.
+        index: u64,
+
+        /// Is the media a thumbnail?
+        is_thumbnail: bool,
+    },
+}
+
+impl From<SdkEventSendProgress> for EventSendProgress {
+    fn from(value: SdkEventSendProgress) -> Self {
+        match value {
+            SdkEventSendProgress::MediaUploadProgress { index, is_thumbnail, progress } => {
+                Self::MediaUploadProgress { index, is_thumbnail, progress: progress.into() }
+            }
+            SdkEventSendProgress::UploadedMedia { index, is_thumbnail } => {
+                Self::UploadedMedia { index, is_thumbnail }
+            }
+        }
     }
 }
 
@@ -1016,7 +1056,10 @@ impl TimelineItem {
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
-    NotSentYet,
+    NotSentYet {
+        /// The progress of the sending operation, if any is available.
+        progress: Option<EventSendProgress>,
+    },
 
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
@@ -1041,7 +1084,9 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         use matrix_sdk_ui::timeline::EventSendState::*;
 
         match value {
-            NotSentYet => Self::NotSentYet,
+            NotSentYet { progress } => {
+                Self::NotSentYet { progress: progress.clone().map(|p| p.into()) }
+            }
             SendingFailed { error, is_recoverable } => {
                 let as_queue_wedge_error: matrix_sdk::QueueWedgeError = (&**error).into();
                 Self::SendingFailed {
