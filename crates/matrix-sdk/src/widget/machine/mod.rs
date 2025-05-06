@@ -98,7 +98,7 @@ pub(crate) enum Action {
     /// with. The client is aware of the room.
     Subscribe,
 
-    /// Unsuscribe from the events that the widget capabilities allow,
+    /// Unsubscribe from the events that the widget capabilities allow,
     /// in the _current_ room. Symmetrical to `Subscribe`.
     Unsubscribe,
 }
