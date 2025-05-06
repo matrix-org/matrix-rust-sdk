@@ -102,8 +102,8 @@ impl SqliteCryptoStore {
         Ok(this)
     }
 
-    /// Create an SQLite-based crypto store using the given SQLite database pool.
-    /// The given passphrase will be used to encrypt private data.
+    /// Create an SQLite-based crypto store using the given SQLite database
+    /// pool. The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
