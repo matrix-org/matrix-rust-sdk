@@ -1109,3 +1109,88 @@ async fn test_lazy_back_pagination() {
         drop(network_pagination);
     }
 }
+
+/// This is a regression test ensuring [this bug][4976] cannot happen anymore.
+///
+/// [4976]: https://github.com/matrix-org/matrix-rust-sdk/issues/4976
+#[async_test]
+async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_events() {
+    let room_id = room_id!("!foo:bar.baz");
+    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let room = mock_server.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await.unwrap();
+    let (timeline_initial_items, mut timeline_stream) = timeline.subscribe().await;
+
+    assert!(timeline_initial_items.is_empty());
+    assert_pending!(timeline_stream);
+
+    // Paginate to reach the timeline start.
+    {
+        let _network_pagination = mock_server
+            .mock_room_messages()
+            .ok(
+                // No previous batch token, the beginning of the timeline is reached.
+                // It returns zero event, we want an empty timeline.
+                RoomMessagesResponseTemplate::default(),
+            )
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        let hit_end_of_timeline = timeline.paginate_backwards(5).await.unwrap();
+
+        assert!(hit_end_of_timeline);
+
+        // The start of the timeline is inserted.
+        assert_timeline_stream! {
+            [timeline_stream]
+            prepend --- timeline start ---;
+        };
+        assert_pending!(timeline_stream);
+    }
+
+    // Receive 3 events.
+    mock_server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room({
+                let mut room = JoinedRoomBuilder::new(room_id);
+
+                for nth in 0..3 {
+                    room = room.add_timeline_event(
+                        event_factory
+                            .text_msg("foo")
+                            .event_id(&EventId::parse(format!("$ev{nth}")).unwrap()),
+                    );
+                }
+
+                room
+            });
+        })
+        .await;
+
+    // The 3 events are pushed back, and the date divider is added after the
+    // timeline start..
+    assert_timeline_stream! {
+        [timeline_stream]
+        append "$ev0";
+
+        // `$ev1` and the update of `$ev0` (because of read receipt)
+        update[1] "$ev0";
+        append "$ev1";
+
+        // and so on…
+        update[2] "$ev1";
+        append "$ev2";
+
+        // the date divider is inserted after the timeline start.
+        insert [1] --- date divider ---;
+    };
+
+    // Nothing more!
+    assert_pending!(timeline_stream);
+}
