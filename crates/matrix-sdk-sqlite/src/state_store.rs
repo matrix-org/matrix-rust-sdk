@@ -68,12 +68,12 @@ const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 
 /// Identifier of the latest database version.
 ///
-/// This is used to figure whether the sqlite database requires a migration.
+/// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
-/// the [`SqliteStateStore::run_migrations`] function..
+/// the [`SqliteStateStore::run_migrations`] function.
 const DATABASE_VERSION: u8 = 12;
 
-/// A sqlite based cryptostore.
+/// An SQLite-based state store.
 #[derive(Clone)]
 pub struct SqliteStateStore {
     store_cipher: Option<Arc<StoreCipher>>,
@@ -88,7 +88,7 @@ impl fmt::Debug for SqliteStateStore {
 }
 
 impl SqliteStateStore {
-    /// Open the sqlite-based state store at the given path using the given
+    /// Open the SQLite-based state store at the given path using the given
     /// passphrase to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
@@ -97,7 +97,7 @@ impl SqliteStateStore {
         Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
-    /// Open the sqlite-based state store with the config open config.
+    /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
 
@@ -114,7 +114,7 @@ impl SqliteStateStore {
         Ok(this)
     }
 
-    /// Create a sqlite-based state store using the given sqlite database pool.
+    /// Create an SQLite-based state store using the given SQLite database pool.
     /// The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
@@ -2200,9 +2200,9 @@ mod encrypted_tests {
         let cache_size =
             conn.query_row("PRAGMA cache_size", (), |row| row.get::<_, i32>(0)).await.unwrap();
 
-        // The value passed to  `SqliteStoreConfig` is in bytes. Check it is converted
-        // to kibibytes. Also, it must be a negative value because it _is_ the size in
-        // kibibytes, not in page size.
+        // The value passed to `SqliteStoreConfig` is in bytes. Check it is
+        // converted to kibibytes. Also, it must be a negative value because it
+        // _is_ the size in kibibytes, not in page size.
         assert_eq!(cache_size, -(1500 / 1024));
     }
 
@@ -2219,8 +2219,8 @@ mod encrypted_tests {
             .await
             .unwrap();
 
-        // The value passed to  `SqliteStoreConfig` is in bytes. It stays in bytes in
-        // SQLite.
+        // The value passed to `SqliteStoreConfig` is in bytes. It stays in
+        // bytes in SQLite.
         assert_eq!(journal_size_limit, 1500);
     }
 

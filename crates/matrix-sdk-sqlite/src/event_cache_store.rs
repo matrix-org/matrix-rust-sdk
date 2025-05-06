@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! A sqlite-based backend for the [`EventCacheStore`].
+//! An SQLite-based backend for the [`EventCacheStore`].
 
 use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
 
@@ -81,7 +81,7 @@ const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
 /// database.
 const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 
-/// A SQLite-based event cache store.
+/// An SQLite-based event cache store.
 #[derive(Clone)]
 pub struct SqliteEventCacheStore {
     store_cipher: Option<Arc<StoreCipher>>,
@@ -106,7 +106,7 @@ impl SqliteEventCacheStore {
         Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
-    /// Open the sqlite-based event cache store with the config open config.
+    /// Open the SQLite-based event cache store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
 
@@ -178,10 +178,10 @@ impl SqliteEventCacheStore {
     async fn acquire(&self) -> Result<SqliteAsyncConn> {
         let connection = self.pool.get().await?;
 
-        // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key support must be
-        // enabled on a per-connection basis. Execute it every time we try to get a
-        // connection, since we can't guarantee a previous connection did enable
-        // it before.
+        // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
+        // support must be enabled on a per-connection basis. Execute it every
+        // time we try to get a connection, since we can't guarantee a previous
+        // connection did enable it before.
         connection.execute_batch("PRAGMA foreign_keys = ON;").await?;
 
         Ok(connection)
@@ -1922,7 +1922,7 @@ mod tests {
             assert_eq!(gap.prev_token, "tartiflette");
         });
 
-        // Check that cascading worked. Yes, sqlite, I doubt you.
+        // Check that cascading worked. Yes, SQLite, I doubt you.
         let gaps = store
             .acquire()
             .await
@@ -2188,7 +2188,7 @@ mod tests {
         let chunks = store.load_all_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
 
-        // Check that cascading worked. Yes, sqlite, I doubt you.
+        // Check that cascading worked. Yes, SQLite, I doubt you.
         store
             .acquire()
             .await

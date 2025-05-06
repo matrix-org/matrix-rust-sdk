@@ -57,7 +57,7 @@ use crate::{
 /// The database name.
 const DATABASE_NAME: &str = "matrix-sdk-crypto.sqlite3";
 
-/// A sqlite based cryptostore.
+/// An SQLite-based crypto store.
 #[derive(Clone)]
 pub struct SqliteCryptoStore {
     store_cipher: Option<Arc<StoreCipher>>,
@@ -76,7 +76,7 @@ impl fmt::Debug for SqliteCryptoStore {
 }
 
 impl SqliteCryptoStore {
-    /// Open the sqlite-based crypto store at the given path using the given
+    /// Open the SQLite-based crypto store at the given path using the given
     /// passphrase to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
@@ -85,7 +85,7 @@ impl SqliteCryptoStore {
         Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
-    /// Open the sqlite-based crypto store with the config open config.
+    /// Open the SQLite-based crypto store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
 
@@ -102,7 +102,7 @@ impl SqliteCryptoStore {
         Ok(this)
     }
 
-    /// Create a sqlite-based crypto store using the given sqlite database pool.
+    /// Create an SQLite-based crypto store using the given SQLite database pool.
     /// The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
