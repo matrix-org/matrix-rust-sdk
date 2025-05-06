@@ -476,14 +476,12 @@ impl<'a> TimelineStateTransaction<'a> {
     }
 
     pub(super) fn clear(&mut self) {
-        let has_local_echoes = self.items.iter().any(|item| item.is_local_echo());
-
         // By first checking if there are any local echoes first, we do a bit
         // more work in case some are found, but it should be worth it because
         // there will often not be any, and only emitting a single
         // `VectorDiff::Clear` should be much more efficient to process for
         // subscribers.
-        if has_local_echoes {
+        if self.items.has_local() {
             // Remove all remote events and virtual items that aren't date dividers.
             self.items.for_each(|entry| {
                 if entry.is_remote_event()
