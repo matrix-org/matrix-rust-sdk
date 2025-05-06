@@ -88,6 +88,8 @@ struct Keys {
 ///     .await
 ///     .unwrap()
 ///     .expect("alice sees bob's device");
+/// 
+/// # anyhow::Ok(()) });
 /// ```
 pub struct MatrixKeysMockServer {
     /// The underlying [`wiremock`] [`MockServer`]
