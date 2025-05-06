@@ -152,7 +152,6 @@ macro_rules! assert_timeline_stream {
         )
     };
 
-
     // `prepend --- timeline start ---`
     ( @_ [ $iterator:ident ] [ prepend --- timeline start --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
         assert_timeline_stream!(
@@ -201,6 +200,32 @@ macro_rules! assert_timeline_stream {
                                     );
                                 },
                                 concat!("`prepend ", $event_id, "` has failed: timeline item kind does not match"),
+                            );
+                        }
+                    );
+                }
+            ]
+        )
+    };
+
+    // `insert [$nth] --- date divider ---`
+    ( @_ [ $iterator:ident ] [ insert [$index:literal] --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_timeline_stream!(
+            @_
+            [ $iterator ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $iterator .next(),
+                        Some(eyeball_im::VectorDiff::Insert { index: $index, value }) => {
+                            assert_matches!(
+                                &**value,
+                                matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
+                                    matrix_sdk_ui::timeline::VirtualTimelineItem::DateDivider(_)
+                                ),
+                                concat!("`insert [", $index, "] --- date divider ---` has failed"),
                             );
                         }
                     );
