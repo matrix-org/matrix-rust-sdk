@@ -320,11 +320,18 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.push_back(timeline_item, None);
     }
 
+    /// Check whether there is at least one [`Local`] timeline item.
+    ///
+    /// [`Local`]: super::EventTimelineItemKind::Local
+    pub fn has_local(&self) -> bool {
+        matches!(self.items.last(), Some(timeline_item) if timeline_item.is_local_echo())
+    }
+
     /// Push a new [`TimelineStart`] virtual timeline item.
     ///
     /// # Invariant
     ///
-    /// A [`TimelineStart`] is always the first item if present..
+    /// A [`TimelineStart`] is always the first item if present.
     ///
     /// # Panics
     ///
