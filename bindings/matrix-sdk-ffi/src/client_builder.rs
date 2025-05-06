@@ -57,6 +57,18 @@ impl QrCodeData {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Arc<Self>, QrCodeDecodeError> {
         Ok(Self { inner: qrcode::QrCodeData::from_bytes(&bytes)? }.into())
     }
+
+    /// The server name contained within the scanned QR code data.
+    ///
+    /// Note: This value is only present when scanning a QR code the belongs to
+    /// a logged in client. The mode where the new client shows the QR code
+    /// will return `None`.
+    pub fn server_name(&self) -> Option<String> {
+        match &self.inner.mode_data {
+            QrCodeModeData::Reciprocate { server_name } => Some(server_name.to_owned()),
+            QrCodeModeData::Login => None,
+        }
+    }
 }
 
 /// Error type for the decoding of the [`QrCodeData`].
