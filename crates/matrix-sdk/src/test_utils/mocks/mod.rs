@@ -47,6 +47,7 @@ use wiremock::{
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
+pub mod encryption;
 pub mod oauth;
 
 use super::client::MockClientBuilder;
