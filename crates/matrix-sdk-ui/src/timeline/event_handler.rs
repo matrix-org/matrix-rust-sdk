@@ -1115,7 +1115,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 let item = self.meta.new_timeline_item(item);
 
-                self.items.push_back(item, None);
+                self.items.push_local(item);
             }
 
             Flow::Remote {
