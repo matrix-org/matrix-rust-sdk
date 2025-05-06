@@ -163,6 +163,7 @@ macro_rules! assert_update {
             Ok(Ok(RoomSendQueueUpdate::UploadedMedia {
                 related_to,
                 file,
+                ..
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 

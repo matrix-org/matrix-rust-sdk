@@ -138,6 +138,7 @@ use std::{
 };
 
 use as_variant::as_variant;
+use eyeball::SharedObservable;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError,
     media::MediaRequestParameters,
@@ -174,7 +175,7 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    Client, Media, Room,
+    Client, Media, Room, TransmissionProgress,
 };
 
 mod upload;
@@ -578,7 +579,54 @@ impl RoomSendQueue {
                 continue;
             };
 
-            match Self::handle_request(&room, queued_request, cancel_upload_rx).await {
+            let is_thumbnail = match queued_request.kind {
+                QueuedRequestKind::MediaUpload { is_thumbnail, .. } => is_thumbnail,
+                _ => false,
+            };
+
+            let index = {
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "unstable-msc4274")] {
+                        match &queued_request.kind {
+                            QueuedRequestKind::MediaUpload { accumulated, .. } => accumulated.len() as u64,
+                            _ => 0,
+                        };
+                    } else {
+                        0 // Before MSC4274 there were only a single file (and thumbnail) could be sent per event.
+                    }
+                }
+            };
+
+            let progress_watcher = {
+                if let Some((progress, related_to)) = match &queued_request.kind {
+                    QueuedRequestKind::MediaUpload { related_to, .. } => {
+                        let progress: SharedObservable<TransmissionProgress> = Default::default();
+                        Some((progress, related_to.clone()))
+                    }
+                    _ => None,
+                } {
+                    let mut subscriber = progress.subscribe();
+                    let our_updates = updates.clone();
+                    spawn(async move {
+                        while let Some(progress) = subscriber.next().await {
+                            let _ = our_updates.send(RoomSendQueueUpdate::MediaUploadProgress {
+                                related_to: related_to.clone(),
+                                index,
+                                is_thumbnail,
+                                progress,
+                            });
+                        }
+                    });
+                    Some(progress)
+                } else {
+                    None
+                }
+            };
+
+            let req =
+                Self::handle_request(&room, queued_request, cancel_upload_rx, progress_watcher);
+
+            match req.await {
                 Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
                 {
                     Ok(()) => match parent_key {
@@ -593,6 +641,8 @@ impl RoomSendQueue {
                             let _ = updates.send(RoomSendQueueUpdate::UploadedMedia {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
                                 file: media_info.file,
+                                index,
+                                is_thumbnail,
                             });
                         }
                     },
@@ -679,6 +729,7 @@ impl RoomSendQueue {
         room: &Room,
         request: QueuedRequest,
         cancel_upload_rx: Option<oneshot::Receiver<()>>,
+        progress_watcher: Option<SharedObservable<TransmissionProgress>>,
     ) -> Result<Option<SentRequestKey>, crate::Error> {
         match request.kind {
             QueuedRequestKind::Event { content } => {
@@ -701,6 +752,7 @@ impl RoomSendQueue {
                 related_to: relates_to,
                 #[cfg(feature = "unstable-msc4274")]
                 accumulated,
+                ..
             } => {
                 trace!(%relates_to, "uploading media related to event");
 
@@ -726,18 +778,25 @@ impl RoomSendQueue {
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
                         let mut cursor = std::io::Cursor::new(data);
-                        let encrypted_file = room
-                            .client()
+                        let client = room.client();
+                        let mut req = client
                             .upload_encrypted_file(&mut cursor)
-                            .with_request_config(RequestConfig::short_retry())
-                            .await?;
+                            .with_request_config(RequestConfig::short_retry());
+                        if let Some(watcher) = progress_watcher {
+                            req = req.with_send_progress_observable(watcher);
+                        };
+                        let encrypted_file = req.await?;
                         MediaSource::Encrypted(Box::new(encrypted_file))
                     } else {
                         trace!("upload will be in clear text (room without encryption)");
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        let mut req =
+                            room.client().media().upload(&mime, data, Some(request_config));
+                        if let Some(watcher) = progress_watcher {
+                            req = req.with_send_progress_observable(watcher);
+                        };
+                        let res = req.await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -1221,6 +1280,7 @@ impl QueueStorage {
                             related_to: send_event_txn.clone(),
                             #[cfg(feature = "unstable-msc4274")]
                             accumulated: vec![],
+                            is_thumbnail: true,
                         },
                         Self::LOW_PRIORITY,
                     )
@@ -1239,6 +1299,7 @@ impl QueueStorage {
                             related_to: send_event_txn.clone(),
                             #[cfg(feature = "unstable-msc4274")]
                             parent_is_thumbnail_upload: true,
+                            is_thumbnail: false,
                         },
                     )
                     .await?;
@@ -1258,6 +1319,7 @@ impl QueueStorage {
                             related_to: send_event_txn.clone(),
                             #[cfg(feature = "unstable-msc4274")]
                             accumulated: vec![],
+                            is_thumbnail: false,
                         },
                         Self::LOW_PRIORITY,
                     )
@@ -1605,6 +1667,7 @@ impl QueueStorage {
                 related_to,
                 #[cfg(feature = "unstable-msc4274")]
                 parent_is_thumbnail_upload,
+                is_thumbnail,
             } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
@@ -1630,6 +1693,7 @@ impl QueueStorage {
                     cache_key,
                     related_to,
                     parent_is_thumbnail_upload,
+                    is_thumbnail,
                 )
                 .await?;
             }
@@ -1849,6 +1913,29 @@ pub enum RoomSendQueueUpdate {
 
         /// The final media source for the file that was just uploaded.
         file: MediaSource,
+
+        /// The index of the media within the transaction. A file and its
+        /// thumbnail share the same index.
+        index: u64,
+
+        /// Is this a thumbnail request, or a real one.
+        is_thumbnail: bool,
+    },
+
+    /// A media has been successfully uploaded.
+    MediaUploadProgress {
+        /// The media event this uploaded media relates to.
+        related_to: OwnedTransactionId,
+
+        /// The index of the media within the transaction. A file and its
+        /// thumbnail share the same index.
+        index: u64,
+
+        /// Is this a thumbnail request, or a real one.
+        is_thumbnail: bool,
+
+        /// The transmission progress of this individual file.
+        progress: TransmissionProgress,
     },
 }
 
@@ -1933,7 +2020,7 @@ pub struct SendHandle {
     ///
     /// If this is a media upload, this is the "main" transaction id, i.e. the
     /// one used to send the event, and that will be seen by observers.
-    transaction_id: OwnedTransactionId,
+    pub transaction_id: OwnedTransactionId,
 
     /// Additional handles for a media upload.
     media_handles: Vec<MediaHandles>,
