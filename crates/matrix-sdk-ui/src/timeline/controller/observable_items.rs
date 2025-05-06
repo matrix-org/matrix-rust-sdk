@@ -303,6 +303,31 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
             .timeline_item_has_been_inserted_at(self.items.len().saturating_sub(1), event_index);
     }
 
+    /// Push a new [`TimelineStart`] virtual timeline item.
+    ///
+    /// # Invariant
+    ///
+    /// A [`TimelineStart`] is always the first item if present..
+    ///
+    /// # Panics
+    ///
+    /// It panics if the provided `timeline_item` is not a [`TimelineStart`].
+    ///
+    /// [`TimelineStart`]: super::VirtualTimelineItem::TimelineStart
+    pub fn push_timeline_start_if_missing(&mut self, timeline_item: Arc<TimelineItem>) {
+        assert!(
+            timeline_item.is_timeline_start(),
+            "The provided `timeline_item` is not a `TimelineStart`"
+        );
+
+        // The timeline start virtual item is necessarily the first item.
+        if self.get(0).is_some_and(|item| item.is_timeline_start()) {
+            return;
+        }
+
+        self.push_front(timeline_item, None);
+    }
+
     /// Clear all timeline items and all remote events.
     pub fn clear(&mut self) {
         self.items.clear();
@@ -390,7 +415,7 @@ mod observable_items_tests {
         controller::{EventTimelineItemKind, RemoteEventOrigin},
         event_item::RemoteEventTimelineItem,
         EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
-        TimelineItemContent, TimelineUniqueId,
+        TimelineItemContent, TimelineUniqueId, VirtualTimelineItem,
     };
 
     fn item(event_id: &str) -> Arc<TimelineItem> {
@@ -1154,6 +1179,46 @@ mod observable_items_tests {
 
         assert_eq!(transaction.all_remote_events().0.len(), 3);
         assert_eq!(transaction.len(), 2);
+    }
+
+    #[test]
+    fn test_transaction_push_timeline_start_if_missing() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Push an item.
+        transaction.push_back(item("$ev0"), None);
+
+        // Push the timeline start.
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__id_start".to_owned()),
+        ));
+
+        // Push another item.
+        transaction.push_back(item("$ev1"), None);
+
+        // Try to push the timeline start again.
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__id_start_again".to_owned()),
+        ));
+
+        transaction.commit();
+
+        let mut entries = items.entries();
+
+        assert_matches!(entries.next(), Some(entry) => {
+            assert!(entry.is_timeline_start());
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+           assert_event_id!(entry, "$ev0");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+           assert_event_id!(entry, "$ev1");
+        });
+        assert_matches!(entries.next(), None);
     }
 }
 

@@ -1318,10 +1318,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub async fn insert_timeline_start_if_missing(&self) {
         let mut state = self.state.write().await;
         let mut txn = state.transaction();
-        if txn.items.get(0).is_some_and(|item| item.is_timeline_start()) {
-            return;
-        }
-        txn.items.push_front(txn.meta.new_timeline_item(VirtualTimelineItem::TimelineStart), None);
+        txn.items.push_timeline_start_if_missing(
+            txn.meta.new_timeline_item(VirtualTimelineItem::TimelineStart),
+        );
         txn.commit();
     }
 }
