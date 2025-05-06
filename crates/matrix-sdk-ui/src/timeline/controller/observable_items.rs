@@ -303,6 +303,23 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
             .timeline_item_has_been_inserted_at(self.items.len().saturating_sub(1), event_index);
     }
 
+    /// Push a new [`Local`] timeline item.
+    ///
+    /// # Invariant
+    ///
+    /// A [`Local`] is always the last item.
+    ///
+    /// # Panics
+    ///
+    /// It panics if the provided `timeline_item` is not a [`Local`].
+    ///
+    /// [`Local`]: super::EventTimelineItemKind::Local
+    pub fn push_local(&mut self, timeline_item: Arc<TimelineItem>) {
+        assert!(timeline_item.is_local_echo());
+
+        self.push_back(timeline_item, None);
+    }
+
     /// Push a new [`TimelineStart`] virtual timeline item.
     ///
     /// # Invariant
@@ -413,8 +430,8 @@ mod observable_items_tests {
     use super::*;
     use crate::timeline::{
         controller::{EventTimelineItemKind, RemoteEventOrigin},
-        event_item::RemoteEventTimelineItem,
-        EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
+        event_item::{LocalEventTimelineItem, RemoteEventTimelineItem},
+        EventSendState, EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
         TimelineItemContent, TimelineUniqueId, VirtualTimelineItem,
     };
 
@@ -448,7 +465,35 @@ mod observable_items_tests {
                 }),
                 false,
             ),
-            TimelineUniqueId(format!("__id_{event_id}")),
+            TimelineUniqueId(format!("__eid_{event_id}")),
+        )
+    }
+
+    fn local_item(transaction_id: &str) -> Arc<TimelineItem> {
+        TimelineItem::new(
+            EventTimelineItem::new(
+                owned_user_id!("@ivan:mnt.io"),
+                TimelineDetails::Unavailable,
+                MilliSecondsSinceUnixEpoch(0u32.into()),
+                TimelineItemContent::MsgLike(MsgLikeContent {
+                    kind: MsgLikeKind::Message(Message {
+                        msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
+                        edited: false,
+                        mentions: None,
+                    }),
+                    reactions: Default::default(),
+                    thread_root: None,
+                    in_reply_to: None,
+                    thread_summary: None,
+                }),
+                EventTimelineItemKind::Local(LocalEventTimelineItem {
+                    send_state: EventSendState::NotSentYet,
+                    transaction_id: transaction_id.into(),
+                    send_handle: None,
+                }),
+                false,
+            ),
+            TimelineUniqueId(format!("__tid_{transaction_id}")),
         )
     }
 
@@ -463,6 +508,12 @@ mod observable_items_tests {
     macro_rules! assert_event_id {
         ( $timeline_item:expr, $event_id:literal $( , $message:expr )? $(,)? ) => {
             assert_eq!($timeline_item.as_event().unwrap().event_id().unwrap().as_str(), $event_id $( , $message)? );
+        };
+    }
+
+    macro_rules! assert_transaction_id {
+        ( $timeline_item:expr, $transaction_id:literal $( , $message:expr )? $(,)? ) => {
+            assert_eq!($timeline_item.as_event().unwrap().transaction_id().unwrap().as_str(), $transaction_id $( , $message)? );
         };
     }
 
@@ -1182,6 +1233,37 @@ mod observable_items_tests {
     }
 
     #[test]
+    fn test_transaction_push_local() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Push a remote item.
+        transaction.push_back(item("$ev0"), None);
+
+        // Push a local item.
+        transaction.push_local(local_item("t0"));
+
+        // Push another local item.
+        transaction.push_local(local_item("t1"));
+
+        transaction.commit();
+
+        let mut entries = items.entries();
+
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev0");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_transaction_id!(entry, "t0");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_transaction_id!(entry, "t1");
+        });
+        assert_matches!(entries.next(), None);
+    }
+
+    #[test]
     fn test_transaction_push_timeline_start_if_missing() {
         let mut items = ObservableItems::new();
 
@@ -1213,10 +1295,10 @@ mod observable_items_tests {
             assert!(entry.is_timeline_start());
         });
         assert_matches!(entries.next(), Some(entry) => {
-           assert_event_id!(entry, "$ev0");
+            assert_event_id!(entry, "$ev0");
         });
         assert_matches!(entries.next(), Some(entry) => {
-           assert_event_id!(entry, "$ev1");
+            assert_event_id!(entry, "$ev1");
         });
         assert_matches!(entries.next(), None);
     }
