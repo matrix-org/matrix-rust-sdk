@@ -182,7 +182,7 @@ impl<'a> TimelineStateTransaction<'a> {
         let mut by_user_id = HashMap::new();
         let mut duplicates = HashSet::new();
 
-        for item in self.items.iter().filter_map(|item| item.as_event()) {
+        for item in self.items.iter_remotes_region().filter_map(|(_, item)| item.as_event()) {
             if let Some(event_id) = item.event_id() {
                 for (user_id, _read_receipt) in item.read_receipts() {
                     if let Some(prev_event_id) = by_user_id.insert(user_id, event_id) {
@@ -208,9 +208,9 @@ impl<'a> TimelineStateTransaction<'a> {
     fn check_no_unused_unique_ids(&self) {
         let duplicates = self
             .items
-            .iter()
-            .duplicates_by(|item| item.unique_id())
-            .map(|item| item.unique_id())
+            .iter_all_regions()
+            .duplicates_by(|(_nth, item)| item.unique_id())
+            .map(|(_nth, item)| item.unique_id())
             .collect::<Vec<_>>();
 
         if !duplicates.is_empty() {
