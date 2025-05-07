@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 pub use builder::IndexeddbEventCacheStoreBuilder;
 use indexed_db_futures::IdbDatabase;
+use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::serializer::IndexeddbSerializer;
@@ -42,6 +43,14 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
             name: frm.name(),
             message: frm.message(),
             code: frm.code(),
+        }
+    }
+}
+
+impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
+    fn from(e: IndexeddbEventCacheStoreError) -> Self {
+        match e {
+            IndexeddbEventCacheStoreError::DomException { .. } => EventCacheStoreError::backend(e),
         }
     }
 }
