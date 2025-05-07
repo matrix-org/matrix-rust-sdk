@@ -952,9 +952,17 @@ impl OlmMachine {
             return Ok(());
         };
 
+        // We already checked that `sender_device_keys` matches the actual sender of the
+        // message when we decrypted the message, which included doing
+        // `DeviceData::try_from` on it, so it can't fail.
+
+        let sender_device_data =
+            DeviceData::try_from(sender_device_keys).expect("failed to verify sender device keys");
+        let sender_device = self.store().wrap_device_data(sender_device_data).await?;
+
         changes.received_room_key_bundles.push(StoredRoomKeyBundleData {
             sender_user: event.sender.clone(),
-            sender_data: SenderData::device_info(sender_device_keys.clone()),
+            sender_data: SenderData::from_device(&sender_device),
             bundle_data: event.content.clone(),
         });
         Ok(())
