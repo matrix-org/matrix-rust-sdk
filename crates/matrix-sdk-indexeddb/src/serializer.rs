@@ -39,6 +39,15 @@ pub struct IndexeddbSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
 }
 
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for IndexeddbSerializer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexeddbSerializer")
+            .field("store_cipher", &self.store_cipher.as_ref().map(|_| "<StoreCipher>"))
+            .finish()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum IndexeddbSerializerError {
     #[error(transparent)]
