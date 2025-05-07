@@ -54,6 +54,17 @@ pub struct IndexeddbEventCacheStore {
     pub serializer: IndexeddbSerializer,
 }
 
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for IndexeddbEventCacheStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexeddbEventCacheStore")
+            .field("inner", &self.inner)
+            .field("store_cipher", &self.store_cipher.as_ref().map(|_| "<StoreCipher>"))
+            .field("serializer", &self.serializer)
+            .finish()
+    }
+}
+
 impl IndexeddbEventCacheStore {
     pub fn builder() -> IndexeddbEventCacheStoreBuilder {
         IndexeddbEventCacheStoreBuilder::new()
