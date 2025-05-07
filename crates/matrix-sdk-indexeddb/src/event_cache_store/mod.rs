@@ -17,10 +17,22 @@ mod migrations;
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 pub use builder::IndexeddbEventCacheStoreBuilder;
 use indexed_db_futures::IdbDatabase;
-use matrix_sdk_base::event_cache::store::EventCacheStoreError;
+use matrix_sdk_base::{
+    event_cache::{
+        store::{
+            media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
+            EventCacheStore, EventCacheStoreError,
+        },
+        Event, Gap,
+    },
+    linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
+    media::MediaRequestParameters,
+};
 use matrix_sdk_store_encryption::StoreCipher;
+use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
 
 use crate::serializer::IndexeddbSerializer;
 
@@ -35,6 +47,8 @@ mod keys {
 pub enum IndexeddbEventCacheStoreError {
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
+    #[error("unsupported")]
+    Unsupported,
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -51,6 +65,7 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
     fn from(e: IndexeddbEventCacheStoreError) -> Self {
         match e {
             IndexeddbEventCacheStoreError::DomException { .. } => EventCacheStoreError::backend(e),
+            IndexeddbEventCacheStoreError::Unsupported => EventCacheStoreError::backend(e),
         }
     }
 }
@@ -77,5 +92,304 @@ impl std::fmt::Debug for IndexeddbEventCacheStore {
 impl IndexeddbEventCacheStore {
     pub fn builder() -> IndexeddbEventCacheStoreBuilder {
         IndexeddbEventCacheStoreBuilder::new()
+    }
+}
+
+// Small hack to have the following macro invocation act as the appropriate
+// trait impl block on wasm, but still be compiled on non-wasm as a regular
+// impl block otherwise.
+//
+// The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
+// this hack allows us to still have most of rust-analyzer's IDE functionality
+// within the impl block without having to set it up to check things against
+// the wasm target (which would disable many other parts of the codebase).
+#[cfg(target_arch = "wasm32")]
+macro_rules! impl_event_cache_store {
+    ( $($body:tt)* ) => {
+        #[async_trait(?Send)]
+        impl EventCacheStore for IndexeddbEventCacheStore {
+            type Error = IndexeddbEventCacheStoreError;
+
+            $($body)*
+        }
+    };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! impl_event_cache_store {
+    ( $($body:tt)* ) => {
+        impl IndexeddbEventCacheStore {
+            $($body)*
+        }
+    };
+}
+
+impl_event_cache_store! {
+    /// Try to take a lock using the given store.
+    async fn try_take_leased_lock(
+        &self,
+        _lease_duration_ms: u32,
+        _key: &str,
+        _holder: &str,
+    ) -> Result<bool, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// An [`Update`] reflects an operation that has happened inside a linked
+    /// chunk. The linked chunk is used by the event cache to store the events
+    /// in-memory. This method aims at forwarding this update inside this store.
+    async fn handle_linked_chunk_updates(
+        &self,
+        _room_id: &RoomId,
+        _updates: Vec<Update<Event, Gap>>,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Return all the raw components of a linked chunk, so the caller may
+    /// reconstruct the linked chunk later.
+    #[doc(hidden)]
+    async fn load_all_chunks(
+        &self,
+        _room_id: &RoomId,
+    ) -> Result<Vec<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Load the last chunk of the `LinkedChunk` holding all events of the room
+    /// identified by `room_id`.
+    ///
+    /// This is used to iteratively load events for the `EventCache`.
+    async fn load_last_chunk(
+        &self,
+        _room_id: &RoomId,
+    ) -> Result<
+        (Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator),
+        IndexeddbEventCacheStoreError,
+    > {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Load the chunk before the chunk identified by `before_chunk_identifier`
+    /// of the `LinkedChunk` holding all events of the room identified by
+    /// `room_id`
+    ///
+    /// This is used to iteratively load events for the `EventCache`.
+    async fn load_previous_chunk(
+        &self,
+        _room_id: &RoomId,
+        _before_chunk_identifier: ChunkIdentifier,
+    ) -> Result<Option<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Clear persisted events for all the rooms.
+    ///
+    /// This will empty and remove all the linked chunks stored previously,
+    /// using the above [`Self::handle_linked_chunk_updates`] methods. It
+    /// must *also* delete all the events' content, if they were stored in a
+    /// separate table.
+    ///
+    /// ⚠ This is meant only for super specific use cases, where there shouldn't
+    /// be any live in-memory linked chunks. In general, prefer using
+    /// `EventCache::clear_all_rooms()` from the common SDK crate.
+    async fn clear_all_rooms_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Given a set of event IDs, return the duplicated events along with their
+    /// position if there are any.
+    async fn filter_duplicated_events(
+        &self,
+        _room_id: &RoomId,
+        _events: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedEventId, Position)>, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Find an event by its ID.
+    async fn find_event(
+        &self,
+        _room_id: &RoomId,
+        _event_id: &EventId,
+    ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Find all the events that relate to a given event.
+    ///
+    /// An additional filter can be provided to only retrieve related events for
+    /// a certain relationship.
+    async fn find_event_relations(
+        &self,
+        _room_id: &RoomId,
+        _event_id: &EventId,
+        _filter: Option<&[RelationType]>,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Save an event, that might or might not be part of an existing linked
+    /// chunk.
+    ///
+    /// If the event has no event id, it will not be saved, and the function
+    /// must return an Ok result early.
+    ///
+    /// If the event was already stored with the same id, it must be replaced,
+    /// without causing an error.
+    async fn save_event(
+        &self,
+        _room_id: &RoomId,
+        _event: Event,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Add a media file's content in the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    ///
+    /// * `content` - The content of the file.
+    async fn add_media_content(
+        &self,
+        _request: &MediaRequestParameters,
+        _content: Vec<u8>,
+        _ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Replaces the given media's content key with another one.
+    ///
+    /// This should be used whenever a temporary (local) MXID has been used, and
+    /// it must now be replaced with its actual remote counterpart (after
+    /// uploading some content, or creating an empty MXC URI).
+    ///
+    /// ⚠ No check is performed to ensure that the media formats are consistent,
+    /// i.e. it's possible to update with a thumbnail key a media that was
+    /// keyed as a file before. The caller is responsible of ensuring that
+    /// the replacement makes sense, according to their use case.
+    ///
+    /// This should not raise an error when the `from` parameter points to an
+    /// unknown media, and it should silently continue in this case.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The previous `MediaRequest` of the file.
+    ///
+    /// * `to` - The new `MediaRequest` of the file.
+    async fn replace_media_key(
+        &self,
+        _from: &MediaRequestParameters,
+        _to: &MediaRequestParameters,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Get a media file's content out of the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn get_media_content(
+        &self,
+        _request: &MediaRequestParameters,
+    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Remove a media file's content from the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn remove_media_content(
+        &self,
+        _request: &MediaRequestParameters,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Get a media file's content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// In theory, there could be several files stored using the same URI and a
+    /// different `MediaFormat`. This API is meant to be used with a media file
+    /// that has only been stored with a single format.
+    ///
+    /// If there are several media files for a given URI in different formats,
+    /// this API will only return one of them. Which one is left as an
+    /// implementation detail.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media file.
+    async fn get_media_content_for_uri(
+        &self,
+        _uri: &MxcUri,
+    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Remove all the media files' content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// This should not raise an error when the `uri` parameter points to an
+    /// unknown media, and it should return an Ok result in this case.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media files.
+    async fn remove_media_content_for_uri(
+        &self,
+        _uri: &MxcUri,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
+    /// keep media content.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - The `MediaRetentionPolicy` to use.
+    async fn set_media_retention_policy(
+        &self,
+        _policy: MediaRetentionPolicy,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Get the current `MediaRetentionPolicy`.
+    fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        MediaRetentionPolicy::empty()
+    }
+
+    /// Set whether the current [`MediaRetentionPolicy`] should be ignored for
+    /// the media.
+    ///
+    /// The change will be taken into account in the next cleanup.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequestParameters` of the file.
+    ///
+    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    ///   ignored.
+    async fn set_ignore_media_retention_policy(
+        &self,
+        _request: &MediaRequestParameters,
+        _ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+    }
+
+    /// Clean up the media cache with the current `MediaRetentionPolicy`.
+    ///
+    /// If there is already an ongoing cleanup, this is a noop.
+    async fn clean_up_media_cache(&self) -> Result<(), IndexeddbEventCacheStoreError> {
+        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
     }
 }
