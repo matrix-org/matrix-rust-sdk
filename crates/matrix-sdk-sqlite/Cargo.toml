@@ -7,6 +7,9 @@ description = "Sqlite storage backend for matrix-sdk"
 license = "Apache-2.0"
 rust-version = { workspace = true }
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
+
 [features]
 default = ["state-store", "event-cache"]
 testing = ["matrix-sdk-crypto?/testing"]
