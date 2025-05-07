@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::ControlFlow, sync::Arc};
+use std::sync::Arc;
 
 use as_variant::as_variant;
 use indexmap::IndexMap;
@@ -1171,23 +1171,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // so we are inserting at the last non-local item position as a fallback.
                 let timeline_item_index = timeline_item_index.unwrap_or_else(|| {
                     self.items
-                        .iter()
-                        .enumerate()
+                        .iter_remotes_region()
                         .rev()
                         .find_map(|(timeline_item_index, timeline_item)| {
-                            (!timeline_item.as_event()?.is_local_echo())
-                                .then_some(timeline_item_index + 1)
+                            timeline_item.as_event().and_then(|_| Some(timeline_item_index + 1))
                         })
                         .unwrap_or_else(|| {
-                            // We don't have any local echo, so we could insert at 0. However, in
-                            // the case of an insertion caused by a pagination, we
-                            // may have already pushed the start of the timeline item, so we need
-                            // to check if the first item is that, and insert after it otherwise.
-                            if self.items.get(0).is_some_and(|item| item.is_timeline_start()) {
-                                1
-                            } else {
-                                0
-                            }
+                            // There is no remote timeline item, so we could insert at the start of
+                            // the remotes region.
+                            self.items.first_remotes_region_index()
                         })
                 });
 
@@ -1211,28 +1203,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     txn_id.as_deref(),
                 );
 
-                // Local events are always at the bottom. Let's find the latest remote event
-                // and insert after it, otherwise, if there is no remote event, insert at 0 or 1
-                // depending of the presence of the `TimelineStart` virtual item.
+                // Let's find the latest remote event and insert after it
                 let timeline_item_index = self
                     .items
-                    .iter()
-                    .enumerate()
+                    .iter_remotes_region()
                     .rev()
                     .find_map(|(timeline_item_index, timeline_item)| {
-                        (!timeline_item.as_event()?.is_local_echo())
-                            .then_some(timeline_item_index + 1)
+                        timeline_item.as_event().and_then(|_| Some(timeline_item_index + 1))
                     })
                     .unwrap_or_else(|| {
-                        // We don't have any local echo, so we could insert at 0. However, in
-                        // the case of an insertion caused by a pagination, we
-                        // may have already pushed the start of the timeline item, so we need
-                        // to check if the first item is that, and insert after it otherwise.
-                        if self.items.get(0).is_some_and(|item| item.is_timeline_start()) {
-                            1
-                        } else {
-                            0
-                        }
+                        // There is no remote timeline item, so we could insert at the start of
+                        // the remotes region.
+                        self.items.first_remotes_region_index()
                     });
 
                 let event_index = self
@@ -1306,46 +1288,25 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ) -> Arc<TimelineItem> {
         // Detect a local timeline item that matches `event_id` or `transaction_id`.
         if let Some((local_timeline_item_index, local_timeline_item)) = items
-            .iter()
-            // Get the index of each item.
-            .enumerate()
+            // Iterate the locals region.
+            .iter_locals_region()
             // Iterate from the end to the start.
             .rev()
-            // Use a `Iterator::try_fold` to produce a single value, and to stop the iterator
-            // when a non local event timeline item is met. We want to stop iterating when:
-            //
-            // - a duplicate local event timeline item has been found,
-            // - a non local event timeline item is met,
-            // - a non event timeline is met.
-            //
-            // Indeed, it is a waste of time to iterate over all items in `items`. Local event
-            // timeline items are necessarily at the end of `items`: as soon as they have been
-            // iterated, we can stop the entire iteration.
-            .try_fold((), |(), (nth, timeline_item)| {
-                let Some(event_timeline_item) = timeline_item.as_event() else {
-                    // Not an event timeline item? Stop iterating here.
-                    return ControlFlow::Break(None);
-                };
-
-                // Not a local event timeline item? Stop iterating here.
-                if !event_timeline_item.is_local_echo() {
-                    return ControlFlow::Break(None);
-                }
+            .find_map(|(nth, timeline_item)| {
+                let event_timeline_item = timeline_item.as_event()?;
 
                 if Some(event_id) == event_timeline_item.event_id()
                     || (transaction_id.is_some()
                         && transaction_id == event_timeline_item.transaction_id())
                 {
                     // A duplicate local event timeline item has been found!
-                    ControlFlow::Break(Some((nth, event_timeline_item)))
+                    Some((nth, event_timeline_item))
                 } else {
                     // This local event timeline is not the one we are looking for. Continue our
                     // search.
-                    ControlFlow::Continue(())
+                    None
                 }
             })
-            .break_value()
-            .flatten()
         {
             trace!(
                 ?event_id,
