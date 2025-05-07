@@ -400,10 +400,18 @@ impl Client {
     /// * `prompt` - The desired user experience in the web UI. No value means
     ///   that the user wishes to login into an existing account, and a value of
     ///   `Create` means that the user wishes to register a new account.
+    ///
+    /// * `login_hint` - A generic login hint that an identity provider can use
+    ///   to pre-fill the login form. The format of this hint is not restricted
+    ///   by the spec as external providers all have their own way to handle the hint.
+    ///   However, it should be noted that when providing a user ID as a hint
+    ///   for MAS (with no upstream provider), then the format to use is defined
+    ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
+        login_hint: Option<String>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
@@ -412,6 +420,9 @@ impl Client {
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
+        }
+        if let Some(login_hint) = login_hint {
+            url_builder = url_builder.login_hint(login_hint);
         }
 
         let data = url_builder.build().await?;
