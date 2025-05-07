@@ -100,6 +100,7 @@ ruma = { workspace = true, features = [
     "unstable-msc4230",
     "unstable-msc2967",
     "unstable-msc4108",
+    "unstable-msc4278",
 ] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }

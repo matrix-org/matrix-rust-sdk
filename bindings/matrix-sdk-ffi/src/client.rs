@@ -47,6 +47,9 @@ use ruma::{
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
+        media_preview_config::{
+            InviteAvatars as RumaInviteAvatars, MediaPreviews as RumaMediaPreviews,
+        },
         room::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::{
@@ -1206,6 +1209,91 @@ impl Client {
     /// Checks if the server supports the report room API.
     pub async fn is_report_room_api_supported(&self) -> Result<bool, ClientError> {
         Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
+    }
+
+    /// Get the media previews display policy setting.
+    pub async fn get_media_previews(&self) -> Result<MediaPreviews, ClientError> {
+        let media_previews = self.inner.account().get_media_previews_setting().await?;
+        Ok(media_previews.into())
+    }
+
+    /// Set the media previews display policy setting.
+    pub async fn set_media_previews(
+        &self,
+        media_previews: MediaPreviews,
+    ) -> Result<(), ClientError> {
+        self.inner.account().set_media_previews_setting(media_previews.into()).await?;
+        Ok(())
+    }
+
+    /// Get the invite avatars display policy setting.
+    pub async fn get_invite_avatars(&self) -> Result<InviteAvatars, ClientError> {
+        let invite_avatars = self.inner.account().get_invite_avatars_setting().await?;
+        Ok(invite_avatars.into())
+    }
+
+    /// Set the invite avatars display policy setting.
+    pub async fn set_invite_avatars(
+        &self,
+        invite_avatars: InviteAvatars,
+    ) -> Result<(), ClientError> {
+        self.inner.account().set_invite_avatars_setting(invite_avatars.into()).await?;
+        Ok(())
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum MediaPreviews {
+    On,
+    Private,
+    Off,
+}
+
+impl From<RumaMediaPreviews> for MediaPreviews {
+    fn from(value: RumaMediaPreviews) -> Self {
+        match value {
+            RumaMediaPreviews::On => MediaPreviews::On,
+            RumaMediaPreviews::Private => MediaPreviews::Private,
+            RumaMediaPreviews::Off => MediaPreviews::Off,
+            // Use the default value of On for unhandled cases.
+            _ => MediaPreviews::On,
+        }
+    }
+}
+
+impl From<MediaPreviews> for RumaMediaPreviews {
+    fn from(value: MediaPreviews) -> Self {
+        match value {
+            MediaPreviews::On => RumaMediaPreviews::On,
+            MediaPreviews::Private => RumaMediaPreviews::Private,
+            MediaPreviews::Off => RumaMediaPreviews::Off,
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum InviteAvatars {
+    On,
+    Off,
+}
+
+impl From<RumaInviteAvatars> for InviteAvatars {
+    fn from(value: RumaInviteAvatars) -> Self {
+        match value {
+            RumaInviteAvatars::On => InviteAvatars::On,
+            RumaInviteAvatars::Off => InviteAvatars::Off,
+            // Use the default value of On for unhandled cases.
+            _ => InviteAvatars::On,
+        }
+    }
+}
+
+impl From<InviteAvatars> for RumaInviteAvatars {
+    fn from(value: InviteAvatars) -> Self {
+        match value {
+            InviteAvatars::On => RumaInviteAvatars::On,
+            InviteAvatars::Off => RumaInviteAvatars::Off,
+        }
     }
 }
 

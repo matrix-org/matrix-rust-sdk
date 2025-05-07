@@ -36,6 +36,10 @@ use ruma::{
     assign,
     events::{
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        media_preview_config::{
+            InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
+            UnstableMediaPreviewConfigEventContent,
+        },
         push_rules::PushRulesEventContent,
         room::MediaSource,
         AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
@@ -914,6 +918,88 @@ impl Account {
             .transpose()?
             .unwrap_or_default();
         Ok(ignored_user_list)
+    }
+
+    /// Set the media previews display policy for the account.
+    ///
+    /// This is an unstable event, so we always default to setting the unstable
+    /// version of the event for now.
+    pub async fn set_media_previews_setting(&self, new_setting: MediaPreviews) -> Result<()> {
+        let mut media_preview_config_to_update =
+            self.get_unstable_media_preview_config().await?.unwrap_or_else(|| {
+                UnstableMediaPreviewConfigEventContent::new(Default::default(), Default::default())
+            });
+        media_preview_config_to_update.media_previews = new_setting;
+
+        // Updating the account data
+        self.set_account_data(media_preview_config_to_update).await?;
+        // TODO: I think I should reset all the storage and perform a new local sync
+        // here but I don't know how
+        Ok(())
+    }
+
+    /// Set the avatars in invite requests display policy for the account.
+    ///
+    /// This is an unstable event, so we always default to setting the unstable
+    /// version of the event for now.
+    pub async fn set_invite_avatars_setting(&self, new_setting: InviteAvatars) -> Result<()> {
+        let mut media_preview_config_to_update =
+            self.get_unstable_media_preview_config().await?.unwrap_or_else(|| {
+                UnstableMediaPreviewConfigEventContent::new(Default::default(), Default::default())
+            });
+        media_preview_config_to_update.invite_avatars = new_setting;
+        // Updating the account data
+        self.set_account_data(media_preview_config_to_update).await?;
+        // TODO: I think I should reset all the storage and perform a new local sync
+        // here but I don't know how
+        Ok(())
+    }
+
+    /// Get the current media previews display policy for the account.
+    pub async fn get_media_previews_setting(&self) -> Result<MediaPreviews> {
+        if let Some(media_preview_config) = self.get_media_preview_config().await? {
+            Ok(media_preview_config.media_previews)
+        } else if let Some(unstable_media_preview_config) =
+            self.get_unstable_media_preview_config().await?
+        {
+            Ok(unstable_media_preview_config.media_previews)
+        } else {
+            Ok(Default::default())
+        }
+    }
+
+    /// Get the current avatars in invite requests display policy for the
+    /// account.
+    pub async fn get_invite_avatars_setting(&self) -> Result<InviteAvatars> {
+        if let Some(media_preview_config) = self.get_media_preview_config().await? {
+            Ok(media_preview_config.invite_avatars)
+        } else if let Some(unstable_media_preview_config) =
+            self.get_unstable_media_preview_config().await?
+        {
+            Ok(unstable_media_preview_config.invite_avatars)
+        } else {
+            Ok(Default::default())
+        }
+    }
+
+    async fn get_unstable_media_preview_config(
+        &self,
+    ) -> Result<Option<UnstableMediaPreviewConfigEventContent>> {
+        let unstable_media_preview_config = self
+            .account_data::<UnstableMediaPreviewConfigEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?;
+        Ok(unstable_media_preview_config)
+    }
+
+    async fn get_media_preview_config(&self) -> Result<Option<MediaPreviewConfigEventContent>> {
+        let media_preview_config = self
+            .account_data::<MediaPreviewConfigEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?;
+        Ok(media_preview_config)
     }
 
     /// Get the current push rules from storage.
