@@ -8,7 +8,7 @@ license = "Apache-2.0"
 rust-version = { workspace = true }
 
 [package.metadata.docs.rs]
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
 js = ["dep:getrandom", "getrandom?/js"]

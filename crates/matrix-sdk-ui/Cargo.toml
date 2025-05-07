@@ -7,6 +7,9 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 rust-version = { workspace = true }
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
+
 [features]
 default = ["native-tls"]
 
