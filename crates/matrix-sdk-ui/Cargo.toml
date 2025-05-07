@@ -25,6 +25,7 @@ async_cell = "0.2.2"
 async-once-cell = "0.5.4"
 async-rx = { workspace = true }
 async-stream = { workspace = true }
+bitflags = { workspace = true }
 chrono = { workspace = true }
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
