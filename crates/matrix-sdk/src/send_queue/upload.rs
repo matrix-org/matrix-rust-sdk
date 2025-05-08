@@ -361,6 +361,7 @@ impl QueueStorage {
         cache_key: MediaRequestParameters,
         event_txn: OwnedTransactionId,
         parent_is_thumbnail_upload: bool,
+        is_thumbnail: bool,
     ) -> Result<(), RoomSendQueueError> {
         // The previous file or thumbnail has been sent, now transform the dependent
         // file or thumbnail upload request into a ready one.
@@ -405,6 +406,7 @@ impl QueueStorage {
             related_to: event_txn,
             #[cfg(feature = "unstable-msc4274")]
             accumulated,
+            is_thumbnail,
         };
 
         client

@@ -282,7 +282,7 @@ async fn test_stale_local_echo_time_abort_edit() {
     }
 
     assert!(local_echo.is_editable());
-    assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet { progress: None }));
     assert_eq!(local_echo.content().as_message().unwrap().body(), "hi!");
 
     let mut has_sender_profile = local_echo.sender_profile().is_ready();
