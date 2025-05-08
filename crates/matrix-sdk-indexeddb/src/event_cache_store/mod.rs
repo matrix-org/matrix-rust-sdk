@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 pub use builder::IndexeddbEventCacheStoreBuilder;
+use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
@@ -32,11 +33,13 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
     media::MediaRequestParameters,
 };
+use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use wasm_bindgen::JsValue;
 
-use crate::serializer::IndexeddbSerializer;
+use crate::serializer::{IndexeddbSerializer, MaybeEncrypted};
 
 mod keys {
     pub const CORE: &str = "core";
@@ -47,10 +50,14 @@ mod keys {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IndexeddbEventCacheStoreError {
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
     #[error("unsupported")]
     Unsupported,
+    #[error(transparent)]
+    CryptoStoreError(#[from] CryptoStoreError),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -63,11 +70,19 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
     }
 }
 
+impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreError {
+    fn from(e: serde_wasm_bindgen::Error) -> Self {
+        IndexeddbEventCacheStoreError::Json(serde::de::Error::custom(e.to_string()))
+    }
+}
+
 impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
     fn from(e: IndexeddbEventCacheStoreError) -> Self {
         match e {
+            IndexeddbEventCacheStoreError::Json(e) => EventCacheStoreError::Serialization(e),
             IndexeddbEventCacheStoreError::DomException { .. } => EventCacheStoreError::backend(e),
             IndexeddbEventCacheStoreError::Unsupported => EventCacheStoreError::backend(e),
+            IndexeddbEventCacheStoreError::CryptoStoreError(_) => EventCacheStoreError::backend(e),
         }
     }
 }
@@ -89,6 +104,18 @@ impl std::fmt::Debug for IndexeddbEventCacheStore {
             .field("serializer", &self.serializer)
             .finish()
     }
+}
+
+/// A type that wraps a (de)serialized value `value` and associates it
+/// with an identifier, `id`.
+///
+/// This is useful for (de)serializing values to/from an object store
+/// and ensuring that they are well-formed, as each of the object stores
+/// uses `id` as its key path.
+#[derive(Debug, Deserialize, Serialize)]
+struct ValueWithId {
+    id: String,
+    value: MaybeEncrypted,
 }
 
 impl IndexeddbEventCacheStore {
@@ -136,6 +163,37 @@ impl IndexeddbEventCacheStore {
         key.push(Self::KEY_SEPARATOR);
         key.push(Self::KEY_UPPER_CHARACTER);
         key
+    }
+
+    /// Serializes `value` and wraps it with a `ValueWithId` using `id`.
+    ///
+    /// This helps to ensure that values are well-formed before putting them
+    /// into an object store, as each of the object stores uses `id` as its key
+    /// path.
+    pub fn serialize_value_with_id(
+        &self,
+        id: &str,
+        value: &impl Serialize,
+    ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
+        let serialized = self.serializer.maybe_encrypt_value(value)?;
+        let res_obj = ValueWithId { id: id.to_owned(), value: serialized };
+        Ok(serde_wasm_bindgen::to_value(&res_obj)?)
+    }
+
+    /// Deserializes a `value` as a `ValueWithId` and then returns the result of
+    /// deserializing the inner `value`.
+    ///
+    /// The corresponding serialization function, `serialize_value_with_id`
+    /// helps to ensure that values are well-formed before putting them into
+    /// an object store, as each of the object stores uses `id` as its key
+    /// path.
+    pub fn deserialize_value_with_id<T: DeserializeOwned>(
+        &self,
+        value: JsValue,
+    ) -> Result<T, IndexeddbEventCacheStoreError> {
+        let obj: ValueWithId = value.into_serde()?;
+        let deserialized: T = self.serializer.maybe_decrypt_value(obj.value)?;
+        Ok(deserialized)
     }
 }
 
