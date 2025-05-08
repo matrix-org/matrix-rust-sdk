@@ -53,8 +53,6 @@ use ruma::{events::receipt::ReceiptEventContent, OwnedRoomId, RoomId};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
-use matrix_sdk_test::event_factory::EventFactory;
-
 pub(super) use self::{
     metadata::{RelativePosition, TimelineMetadata},
     observable_items::{
@@ -70,6 +68,7 @@ use super::{
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
+    threaded_events_loader::ThreadedEventsLoader,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, PaginationError,
     Profile, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
@@ -115,12 +114,10 @@ enum TimelineFocusData<P: RoomDataProvider> {
     },
 
     Thread {
-        /// The root event id we've started to focus on.
-        root_event_id: OwnedEventId,
-        /// The paginator instance.
-        paginator: Paginator<P>,
-        /// Number of context events to request for the first request.
-        num_context_events: u16,
+        loader: ThreadedEventsLoader<P>,
+
+        /// Number of relations events to requests for the first request
+        num_events: u16,
     },
 
     PinnedEvents {
@@ -292,13 +289,13 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 )
             }
 
-            TimelineFocus::Thread { root_event_id, num_context_events } => {
-                let paginator = Paginator::new(room_data_provider.clone());
-                (
-                    TimelineFocusData::Thread { paginator, root_event_id, num_context_events },
-                    TimelineFocusKind::Thread,
-                )
-            }
+            TimelineFocus::Thread { root_event_id, num_events } => (
+                TimelineFocusData::Thread {
+                    loader: ThreadedEventsLoader::new(room_data_provider.clone(), root_event_id),
+                    num_events,
+                },
+                TimelineFocusKind::Thread,
+            ),
 
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => (
                 TimelineFocusData::PinnedEvents {
@@ -383,13 +380,17 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusData::Thread { .. } => {
-                let messages = self.build_dummy_events();
+            TimelineFocusData::Thread { loader, num_events } => {
+                let result = loader
+                    .paginate_backwards((*num_events).into())
+                    .await
+                    .map_err(PaginationError::Paginator)?;
 
                 drop(focus_guard);
 
+                // Events are in reverse topological order.
                 self.replace_with_initial_remote_events(
-                    messages.into_iter(),
+                    result.events.into_iter().rev(),
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -413,28 +414,6 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
         }
-    }
-
-    fn build_dummy_events(&self) -> Vec<TimelineEvent> {
-        let factory = EventFactory::new();
-
-        use rand::Rng as _;
-        let suffix: u16 = rand::thread_rng().gen();
-
-        // TODO: We also need to get rid of the timeline start virtual item
-
-        let messages: Vec<TimelineEvent> = (0..100)
-            .rev()
-            .map(|_| {
-                factory
-                    .text_msg(format!("Dummy message {}", suffix))
-                    .event_id(&EventId::parse(format!("${}", suffix).as_str()).unwrap())
-                    .sender(self.room_data_provider.own_user_id())
-                    .into_event()
-            })
-            .collect();
-
-        return messages;
     }
 
     /// Listens to encryption state changes for the room in
@@ -517,10 +496,10 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
-            TimelineFocusData::Thread { .. } => {
-                let messages = self.build_dummy_events();
-                PaginationResult { events: messages, hit_end_of_timeline: false }
-            }
+            TimelineFocusData::Thread { loader, num_events } => loader
+                .paginate_backwards((*num_events).into())
+                .await
+                .map_err(PaginationError::Paginator)?,
         };
 
         // Events are in reverse topological order.
@@ -546,9 +525,12 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
                 return Err(PaginationError::NotEventFocusMode)
             }
-            TimelineFocusData::Event { paginator, .. }
-            | TimelineFocusData::Thread { paginator, .. } => paginator
+            TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_forward(num_events.into())
+                .await
+                .map_err(PaginationError::Paginator)?,
+            TimelineFocusData::Thread { loader, num_events } => loader
+                .paginate_forwards((*num_events).into())
                 .await
                 .map_err(PaginationError::Paginator)?,
         };
