@@ -21,6 +21,7 @@ use async_trait::async_trait;
 pub use builder::IndexeddbEventCacheStoreBuilder;
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
+    deserialized_responses::TimelineEvent,
     event_cache::{
         store::{
             media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
@@ -33,6 +34,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
+use serde::{Deserialize, Serialize};
 
 use crate::serializer::IndexeddbSerializer;
 
@@ -135,6 +137,41 @@ impl IndexeddbEventCacheStore {
         key.push(Self::KEY_UPPER_CHARACTER);
         key
     }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+struct ChunkForCache {
+    id: String,
+    raw_id: u64,
+    previous: Option<String>,
+    raw_previous: Option<u64>,
+    next: Option<String>,
+    raw_next: Option<u64>,
+    type_str: String,
+}
+
+#[allow(dead_code)]
+impl ChunkForCache {
+    /// Used to set field `type_str` to represent a chunk that contains events
+    const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
+    /// Used to set field `type_str` to represent a chunk that is a gap
+    const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+struct GapForCache {
+    prev_token: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+struct TimelineEventForCache {
+    id: String,
+    content: TimelineEvent,
+    room_id: String,
+    position: usize,
 }
 
 // Small hack to have the following macro invocation act as the appropriate
