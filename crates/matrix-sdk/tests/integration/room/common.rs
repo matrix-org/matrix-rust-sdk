@@ -302,24 +302,21 @@ async fn test_room_route() {
 
     // Without eligible server
     sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(
-                f.create(user_id!("@creator:127.0.0.1"), room_version_id!("6"))
-                    .event_id(event_id!("$151957878228ekrDs"))
-                    .server_ts(15195787)
-                    .sender(user_id!("@creator:127.0.0.1"))
-                    .state_key("")
-                    .into_raw_sync(),
-            )
-            .add_timeline_event(
-                f.member(user_id!("@creator:127.0.0.1"))
-                    .membership(MembershipState::Join)
-                    .event_id(event_id!("$151800140517rfvjc"))
-                    .server_ts(151800140)
-                    .sender(user_id!("@creator:127.0.0.1"))
-                    .state_key("@creator:127.0.0.1")
-                    .into_raw_sync(),
-            ),
+        JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+            f.create(user_id!("@creator:127.0.0.1"), room_version_id!("6"))
+                .event_id(event_id!("$151957878228ekrDs"))
+                .server_ts(15195787)
+                .sender(user_id!("@creator:127.0.0.1"))
+                .state_key("")
+                .into_raw_sync(),
+            f.member(user_id!("@creator:127.0.0.1"))
+                .membership(MembershipState::Join)
+                .event_id(event_id!("$151800140517rfvjc"))
+                .server_ts(151800140)
+                .sender(user_id!("@creator:127.0.0.1"))
+                .state_key("@creator:127.0.0.1")
+                .into_raw_sync(),
+        ]),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
