@@ -90,8 +90,50 @@ impl std::fmt::Debug for IndexeddbEventCacheStore {
 }
 
 impl IndexeddbEventCacheStore {
+    pub const KEY_SEPARATOR: char = '\u{001D}';
+    pub const KEY_UPPER_CHARACTER: char = '\u{FFFF}';
+
     pub fn builder() -> IndexeddbEventCacheStoreBuilder {
         IndexeddbEventCacheStoreBuilder::new()
+    }
+
+    /// Encodes each tuple in `parts` as a key and then joins them with
+    /// `Self::KEY_SEPARATOR`.
+    ///
+    /// Each tuple is composed of three fields.
+    ///
+    /// - `&str` - name of an object store
+    /// - `&str` - key of an object in the object store
+    /// - `bool` - whether to encrypt the fields above in the final key
+    ///
+    /// Selective encryption is employed to maintain ordering, so that range
+    /// queries are possible.
+    pub fn encode_key(&self, parts: Vec<(&str, &str, bool)>) -> String {
+        let mut end_key = String::new();
+        for (i, (table_name, key, should_encrypt)) in parts.into_iter().enumerate() {
+            if i > 0 {
+                end_key.push(Self::KEY_SEPARATOR);
+            }
+            let encoded_key = if should_encrypt {
+                self.serializer.encode_key_as_string(table_name, key)
+            } else {
+                key.to_owned()
+            };
+            end_key.push_str(&encoded_key);
+        }
+        end_key
+    }
+
+    /// Same as `Self::encode_key`, but appends `Self::KEY_SEPARATOR` and
+    /// `Self::KEY_UPPER_CHARACTER`.
+    ///
+    /// This is useful when constructing range queries, as it provides an upper
+    /// key for a collection of `parts`.
+    pub fn encode_upper_key(&self, parts: Vec<(&str, &str, bool)>) -> String {
+        let mut key = self.encode_key(parts);
+        key.push(Self::KEY_SEPARATOR);
+        key.push(Self::KEY_UPPER_CHARACTER);
+        key
     }
 }
 
