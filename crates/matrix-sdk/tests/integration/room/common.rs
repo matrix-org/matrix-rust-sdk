@@ -18,7 +18,7 @@ use ruma::{
         room::{avatar, member::MembershipState, message::RoomMessageEventContent},
         AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
     },
-    mxc_uri, room_id,
+    mxc_uri, room_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -298,6 +298,7 @@ async fn test_room_route() {
     let (client, server) = logged_in_client_with_server().await;
     let mut sync_builder = SyncResponseBuilder::new();
     let room_id = &*DEFAULT_TEST_ROOM_ID;
+    let f = EventFactory::new();
 
     // Without eligible server
     sync_builder.add_joined_room(
@@ -313,16 +314,15 @@ async fn test_room_route() {
                 "state_key": "",
                 "type": "m.room.create",
             }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "membership": "join",
-                },
-                "event_id": "$151800140517rfvjc",
-                "origin_server_ts": 151800140,
-                "sender": "@creator:127.0.0.1",
-                "state_key": "@creator:127.0.0.1",
-                "type": "m.room.member",
-            })),
+            .add_timeline_event(
+                f.member(user_id!("@creator:127.0.0.1"))
+                    .membership(MembershipState::Join)
+                    .event_id(event_id!("$151800140517rfvjc"))
+                    .server_ts(151800140)
+                    .sender(user_id!("@creator:127.0.0.1"))
+                    .state_key("@creator:127.0.0.1")
+                    .into_raw_sync(),
+            ),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
