@@ -18,7 +18,7 @@ use ruma::{
         room::{avatar, member::MembershipState, message::RoomMessageEventContent},
         AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
     },
-    mxc_uri, room_id, user_id,
+    mxc_uri, room_id, room_version_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -303,17 +303,14 @@ async fn test_room_route() {
     // Without eligible server
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "creator": "@creator:127.0.0.1",
-                    "room_version": "6",
-                },
-                "event_id": "$151957878228ekrDs",
-                "origin_server_ts": 15195787,
-                "sender": "@creator:127.0.0.1",
-                "state_key": "",
-                "type": "m.room.create",
-            }))
+            .add_timeline_event(
+                f.create(user_id!("@creator:127.0.0.1"), room_version_id!("6"))
+                    .event_id(event_id!("$151957878228ekrDs"))
+                    .server_ts(15195787)
+                    .sender(user_id!("@creator:127.0.0.1"))
+                    .state_key("")
+                    .into_raw_sync(),
+            )
             .add_timeline_event(
                 f.member(user_id!("@creator:127.0.0.1"))
                     .membership(MembershipState::Join)
