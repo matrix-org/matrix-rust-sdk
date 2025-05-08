@@ -17,7 +17,15 @@ use std::collections::{HashMap, HashSet};
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use ruma::{push::Action, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use ruma::{
+    events::{
+        poll::unstable_start::UnstablePollStartEventContent,
+        room::message::{Relation, RelationWithoutReplacement},
+        AnyMessageLikeEventContent,
+    },
+    push::Action,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+};
 use tracing::{debug, instrument, warn};
 
 use super::{
@@ -257,71 +265,33 @@ impl<'a> TimelineStateTransaction<'a> {
 
                 let mut should_add = (settings.event_filter)(&event, &room_version);
 
-                if should_add {
-                    // Retrieve the origin of the event.
-                    let origin = match position {
-                        TimelineItemPosition::End { origin }
-                        | TimelineItemPosition::Start { origin }
-                        | TimelineItemPosition::At { origin, .. } => origin,
+                should_add = self.should_add_based_on_origin(
+                    should_add,
+                    room_data_provider,
+                    position,
+                    &event_id,
+                );
 
-                        TimelineItemPosition::UpdateAt { timeline_item_index: idx } => self
-                            .items
-                            .get(idx)
-                            .and_then(|item| item.as_event())
-                            .and_then(|item| item.as_remote())
-                            .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
-                    };
+                let timeline_event_kind = TimelineEventKind::from_event(
+                    event.to_owned(),
+                    &raw,
+                    room_data_provider,
+                    utd_info,
+                )
+                .await;
 
-                    // If the event should be added according to the general event filter, use a
-                    // second filter to decide whether it should be added depending on the timeline
-                    // focus and events origin, if needed
-                    match self.timeline_focus {
-                        TimelineFocusKind::PinnedEvents => {
-                            // Only add pinned events for the pinned events timeline
-                            should_add = room_data_provider.is_pinned_event(&event_id);
-                        }
-                        TimelineFocusKind::Live => {
-                            match origin {
-                                RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
-                                    // Always add new items to a live timeline receiving items from
-                                    // sync.
-                                    should_add = true;
-                                }
-                                RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => {
-                                    // Forward the previous decision to add it.
-                                }
-                            }
-                        }
-                        TimelineFocusKind::Event => {
-                            match origin {
-                                RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
-                                    // Never add any item to a focused timeline when the item comes
-                                    // down from the sync.
-                                    should_add = false;
-                                }
-                                RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => {
-                                    // Forward the previous decision to add it.
-                                }
-                            }
-                        }
-                        TimelineFocusKind::Thread => match origin {
-                            RemoteEventOrigin::Sync
-                            | RemoteEventOrigin::Unknown
-                            | RemoteEventOrigin::Cache
-                            | RemoteEventOrigin::Pagination => {
-                                should_add = true;
-                                // todo!("Figure out how to handle this properly")
-                            }
-                        },
-                    }
-                }
+                should_add = self.should_add_based_on_thread_relation(
+                    should_add,
+                    &event_id,
+                    &timeline_event_kind,
+                );
 
                 (
                     event_id,
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    TimelineEventKind::from_event(event, &raw, room_data_provider, utd_info).await,
+                    timeline_event_kind,
                     should_add,
                 )
             }
@@ -454,6 +424,133 @@ impl<'a> TimelineStateTransaction<'a> {
 
         // Handle the event to create or update a timeline item.
         TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
+    }
+
+    fn should_add_based_on_origin<P: RoomDataProvider>(
+        &self,
+        should_add: bool,
+        room_data_provider: &P,
+        position: TimelineItemPosition,
+        event_id: &OwnedEventId,
+    ) -> bool {
+        if !should_add {
+            return false;
+        };
+
+        // Retrieve the origin of the event.
+        let origin = match position {
+            TimelineItemPosition::End { origin }
+            | TimelineItemPosition::Start { origin }
+            | TimelineItemPosition::At { origin, .. } => origin,
+
+            TimelineItemPosition::UpdateAt { timeline_item_index: idx } => self
+                .items
+                .get(idx)
+                .and_then(|item| item.as_event())
+                .and_then(|item| item.as_remote())
+                .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
+        };
+
+        // If the event should be added according to the general event filter, use a
+        // second filter to decide whether it should be added depending on the timeline
+        // focus and events origin, if needed
+        match self.timeline_focus {
+            TimelineFocusKind::PinnedEvents => {
+                // Only add pinned events for the pinned events timeline
+                return room_data_provider.is_pinned_event(&event_id);
+            }
+            TimelineFocusKind::Live | TimelineFocusKind::Thread { .. } => {
+                match origin {
+                    RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
+                        // Always add new items to a live timeline receiving items from
+                        // sync.
+                        return true;
+                    }
+                    RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => return should_add,
+                }
+            }
+            TimelineFocusKind::Event => {
+                match origin {
+                    RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
+                        // Never add any item to a focused timeline when the item comes
+                        // down from the sync.
+                        return false;
+                    }
+                    RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => return should_add,
+                }
+            }
+        }
+    }
+
+    fn should_add_based_on_thread_relation(
+        &self,
+        should_add: bool,
+        event_id: &OwnedEventId,
+        timeline_event_kind: &TimelineEventKind,
+    ) -> bool {
+        if !should_add {
+            return false;
+        };
+
+        let thread_root = match &timeline_event_kind {
+            TimelineEventKind::Message { content, .. } => match content {
+                AnyMessageLikeEventContent::RoomMessage(content) => {
+                    content.relates_to.as_ref().and_then(|relation| match relation {
+                        Relation::Thread(thread) => Some(thread.event_id.clone()),
+                        _ => None,
+                    })
+                }
+                AnyMessageLikeEventContent::Sticker(content) => {
+                    content.relates_to.as_ref().and_then(|relation| match relation {
+                        Relation::Thread(thread) => Some(thread.event_id.clone()),
+                        _ => None,
+                    })
+                }
+                AnyMessageLikeEventContent::UnstablePollStart(content) => match content {
+                    UnstablePollStartEventContent::New(content) => {
+                        content.relates_to.as_ref().and_then(|relation| match relation {
+                            RelationWithoutReplacement::Thread(thread) => {
+                                Some(thread.event_id.clone())
+                            }
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                },
+                AnyMessageLikeEventContent::PollStart(content) => {
+                    content.relates_to.as_ref().and_then(|relation| match relation {
+                        Relation::Thread(thread) => Some(thread.event_id.clone()),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+
+        match &self.timeline_focus {
+            TimelineFocusKind::Live | TimelineFocusKind::Event => return thread_root.is_none(),
+            TimelineFocusKind::Thread { root_event_id } => match &timeline_event_kind {
+                TimelineEventKind::Message { content, .. } => {
+                    let is_supported_in_threads = matches!(
+                        content,
+                        AnyMessageLikeEventContent::RoomMessage { .. }
+                            | AnyMessageLikeEventContent::Sticker { .. }
+                            | AnyMessageLikeEventContent::UnstablePollStart { .. }
+                            | AnyMessageLikeEventContent::PollStart { .. }
+                    );
+
+                    let is_thread_root = event_id == root_event_id;
+
+                    return is_supported_in_threads
+                        && (is_thread_root || thread_root.is_some_and(|r| &r == root_event_id));
+                }
+                _ => return false,
+            },
+            _ => {
+                return should_add;
+            }
+        }
     }
 
     /// Remove one timeline item by its `event_index`.
