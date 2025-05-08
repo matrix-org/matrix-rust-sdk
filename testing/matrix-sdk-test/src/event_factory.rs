@@ -39,6 +39,7 @@ use ruma::{
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
             avatar::{self, RoomAvatarEventContent},
+            create::RoomCreateEventContent,
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
@@ -56,7 +57,8 @@ use ruma::{
     },
     serde::Raw,
     server_name, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt,
+    UserId,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -716,6 +718,17 @@ impl EventFactory {
     /// Create a read receipt event.
     pub fn read_receipts(&self) -> ReadReceiptBuilder<'_> {
         ReadReceiptBuilder { factory: self, content: ReceiptEventContent(Default::default()) }
+    }
+
+    /// Create a new `m.room.create` event.
+    pub fn create(
+        &self,
+        user_id: &UserId,
+        room_version: RoomVersionId,
+    ) -> EventBuilder<RoomCreateEventContent> {
+        let mut event = RoomCreateEventContent::new_v1(user_id.to_owned());
+        event.room_version = room_version;
+        self.event(event)
     }
 
     /// Set the next server timestamp.
