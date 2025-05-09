@@ -672,10 +672,10 @@ fn default_algorithm() -> EventEncryptionAlgorithm {
     EventEncryptionAlgorithm::MegolmV1AesSha2
 }
 
-impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
+impl TryFrom<HistoricRoomKey> for InboundGroupSession {
     type Error = SessionCreationError;
 
-    fn try_from(key: &HistoricRoomKey) -> Result<Self, Self::Error> {
+    fn try_from(key: HistoricRoomKey) -> Result<Self, Self::Error> {
         let HistoricRoomKey {
             algorithm,
             room_id,
@@ -685,23 +685,23 @@ impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
             sender_claimed_keys,
         } = key;
 
-        let config = OutboundGroupSession::session_config(algorithm)?;
-        let session = InnerSession::import(session_key, config);
+        let config = OutboundGroupSession::session_config(&algorithm)?;
+        let session = InnerSession::import(&session_key, config);
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
-            session_id: session_id.to_owned().into(),
+            session_id: session_id.into(),
             creator_info: SessionCreatorInfo {
-                curve25519_key: *sender_key,
-                signing_keys: sender_claimed_keys.to_owned().into(),
+                curve25519_key: sender_key,
+                signing_keys: sender_claimed_keys.into(),
             },
             sender_data: SenderData::default(),
             history_visibility: None.into(),
             first_known_index,
-            room_id: room_id.to_owned(),
+            room_id,
             imported: true,
-            algorithm: algorithm.to_owned().into(),
+            algorithm: algorithm.into(),
             backed_up: AtomicBool::from(false).into(),
             shared_history: true,
         })

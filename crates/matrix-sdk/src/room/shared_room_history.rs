@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, ops::Deref};
+use std::iter;
 
-use matrix_sdk_base::media::{MediaFormat, MediaRequestParameters};
-use ruma::{api::client::authenticated_media, events::room::MediaSource, OwnedUserId, UserId};
+use matrix_sdk_base::{
+    crypto::store::StoredRoomKeyBundleData,
+    media::{MediaFormat, MediaRequestParameters},
+};
+use ruma::{events::room::MediaSource, OwnedUserId, UserId};
 use tracing::{info, instrument, warn};
 
-use crate::{
-    crypto::types::{events::room_key_bundle::RoomKeyBundleContent, room_history::RoomKeyBundle},
-    Error, Result, Room,
-};
+use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error, Result, Room};
 
 /// Share any shareable E2EE history in the given room with the given recipient,
 /// as per [MSC4268].
@@ -90,23 +90,25 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
     Ok(())
 }
 
-/// Having accepted an invite for the given room from the given user, download a
-/// key bundle and import the room keys, as per [MSC4268].
+/// Having accepted an invite for the given room from the given user, attempt to
+/// find a information about a room key bundle and, if found, download the
+/// bundle and import the room keys, as per [MSC4268].
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id()))]
-pub async fn accept_key_bundle(room: &Room, user_id: &UserId) -> Result<()> {
+pub async fn maybe_accept_key_bundle(room: &Room, user_id: &UserId) -> Result<()> {
     // TODO: retry this if it gets interrupted or it fails.
     // TODO: do this in the background.
 
     let client = &room.client;
     let olm_machine = client.olm_machine().await;
-    let Some(olm_machine) = olm_machine.deref() else {
+
+    let Some(olm_machine) = olm_machine.as_ref() else {
         warn!("Not fetching room key bundle as the Olm machine is not available");
         return Ok(());
     };
 
-    let Some(bundle) =
+    let Some(StoredRoomKeyBundleData { sender_user, sender_data, bundle_data }) =
         olm_machine.store().get_received_room_key_bundle_data(room.room_id(), user_id).await?
     else {
         // No bundle received (yet).
@@ -114,37 +116,32 @@ pub async fn accept_key_bundle(room: &Room, user_id: &UserId) -> Result<()> {
         return Ok(());
     };
 
-    // TODO
-    // olm_machine.store().clear_received_room_key_bundle_data(room.room_id(),
-    // user_id).await?;
-
     let bundle_content = client
         .media()
         .get_media_content(
             &MediaRequestParameters {
-                source: MediaSource::Encrypted(Box::new(bundle.bundle_data.file)),
+                source: MediaSource::Encrypted(Box::new(bundle_data.file)),
                 format: MediaFormat::File,
             },
             false,
         )
         .await?;
 
-    let bundle_content: RoomKeyBundle = match serde_json::from_slice(&bundle_content) {
-        Ok(bundle_content) => bundle_content,
+    match serde_json::from_slice(&bundle_content) {
+        Ok(bundle) => {
+            olm_machine
+                .receive_room_key_bundle(room.room_id(), &sender_user, &sender_data, bundle)
+                .await?;
+        }
         Err(err) => {
             warn!("Failed to deserialize room key bundle: {}", err);
-            return Ok(());
         }
-    };
+    }
 
-    olm_machine
-        .receive_room_key_bundle(
-            &bundle_content,
-            room.room_id(),
-            &bundle.sender_user,
-            &bundle.sender_data,
-        )
-        .await?;
+    // TODO: Now that we downloaded and imported the bundle, or the bundle was
+    // invalid, we can safely remove the info about the bundle.
+    // olm_machine.store().clear_received_room_key_bundle_data(room.room_id(),
+    // user_id).await?;
 
     Ok(())
 }
