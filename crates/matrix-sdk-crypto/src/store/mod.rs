@@ -59,7 +59,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, MutexGuard, Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -2060,6 +2060,46 @@ impl Store {
         }
 
         Ok(bundle)
+    }
+
+    /// Import the contents of a downloaded and decrypted [MSC4268] key bundle.
+    ///
+    /// # Arguments
+    ///
+    /// * `bundle` - The decrypted and deserialized bundle itself.
+    /// * `room_id` - The room that we expect this bundle to correspond to.
+    /// * `sender_user` - The user that sent us the to-device message pointing
+    ///   to this data.
+    /// * `sender_data` - Information on the sending device at the time we
+    ///   received that message.
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[instrument(skip(bundle))]
+    pub async fn receive_room_key_bundle(
+        &self,
+        room_id: &RoomId,
+        sender_user: &UserId,
+        sender_data: &SenderData,
+        bundle: RoomKeyBundle,
+    ) -> Result<(), CryptoStoreError> {
+        for key in bundle.room_keys {
+            if key.room_id != room_id {
+                warn!("Ignoring key for incorrect room {} in bundle", key.room_id);
+                continue;
+            }
+
+            let _session = match InboundGroupSession::try_from(key) {
+                Ok(session) => session,
+                Err(e) => {
+                    warn!("Ignoring key in bundle with import error: {}", e);
+                    continue;
+                }
+            };
+
+            // TODO: Import the sessions now.
+        }
+
+        Ok(())
     }
 }
 
