@@ -30,7 +30,7 @@ use matrix_sdk_base::{
         },
         Event, Gap,
     },
-    linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
+    linked_chunk::{self, ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
     media::MediaRequestParameters,
 };
 use matrix_sdk_crypto::CryptoStoreError;
@@ -65,6 +65,8 @@ pub enum IndexeddbEventCacheStoreError {
     Unsupported,
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
+    #[error("unknown chunk type: {0}")]
+    UnknownChunkType(String),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -90,6 +92,7 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
             IndexeddbEventCacheStoreError::DomException { .. } => EventCacheStoreError::backend(e),
             IndexeddbEventCacheStoreError::Unsupported => EventCacheStoreError::backend(e),
             IndexeddbEventCacheStoreError::CryptoStoreError(_) => EventCacheStoreError::backend(e),
+            IndexeddbEventCacheStoreError::UnknownChunkType(_) => EventCacheStoreError::backend(e),
         }
     }
 }
@@ -650,9 +653,89 @@ impl_event_cache_store! {
     #[doc(hidden)]
     async fn load_all_chunks(
         &self,
-        _room_id: &RoomId,
+        room_id: &RoomId,
     ) -> Result<Vec<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
+            IdbTransactionMode::Readonly,
+        )?;
+
+        let chunks = tx.object_store(keys::LINKED_CHUNKS)?;
+        let gaps = tx.object_store(keys::GAPS)?;
+        let events = tx.object_store(keys::EVENTS)?;
+
+        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+
+        let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+        let linked_chunks = chunks.get_all_with_key_owned(key_range)?.await?;
+
+        let mut raw_chunks = Vec::new();
+
+        for linked_chunk in linked_chunks {
+            let linked_chunk: ChunkForCache = self.deserialize_value_with_id(linked_chunk)?;
+            let chunk_id = linked_chunk.raw_id;
+            let previous_chunk_id = linked_chunk.raw_previous;
+            let next_chunk_id = linked_chunk.raw_next;
+
+            match linked_chunk.type_str.as_str() {
+                ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
+                    let lower = self.encode_key(vec![
+                        (keys::ROOMS, room_id.as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
+                    ]);
+
+                    let upper = self.encode_upper_key(vec![
+                        (keys::ROOMS, room_id.as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
+                    ]);
+
+                    let events_key_range =
+                        IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+                    let events = events.get_all_with_key(&events_key_range)?.await?;
+                    let mut events_vec = Vec::new();
+
+                    for event in events {
+                        let event: TimelineEventForCache = self.deserialize_value_with_id(event)?;
+                        events_vec.push(event.content);
+                    }
+
+                    let raw_chunk = RawChunk {
+                        identifier: ChunkIdentifier::new(chunk_id),
+                        content: linked_chunk::ChunkContent::Items(events_vec),
+                        previous: previous_chunk_id.map(ChunkIdentifier::new),
+                        next: next_chunk_id.map(ChunkIdentifier::new),
+                    };
+
+                    raw_chunks.push(raw_chunk);
+                }
+                ChunkForCache::CHUNK_TYPE_GAP_TYPE_STRING => {
+                    let id = linked_chunk.id;
+                    let gap = gaps.get_owned(id.clone())?.await?.unwrap();
+
+                    let gap: GapForCache = self.deserialize_value_with_id(gap)?;
+
+                    let gap = Gap { prev_token: gap.prev_token };
+
+                    let raw_chunk = RawChunk {
+                        identifier: ChunkIdentifier::new(chunk_id),
+                        content: linked_chunk::ChunkContent::Gap(gap),
+                        previous: previous_chunk_id.map(ChunkIdentifier::new),
+                        next: next_chunk_id.map(ChunkIdentifier::new),
+                    };
+
+                    raw_chunks.push(raw_chunk);
+                }
+                _ => {
+                    return Err(IndexeddbEventCacheStoreError::UnknownChunkType(
+                        linked_chunk.type_str.clone(),
+                    ));
+                }
+            }
+        }
+        Ok(raw_chunks)
     }
 
     /// Load the last chunk of the `LinkedChunk` holding all events of the room
