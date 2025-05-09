@@ -130,7 +130,7 @@ pub async fn maybe_accept_key_bundle(room: &Room, user_id: &UserId) -> Result<()
     match serde_json::from_slice(&bundle_content) {
         Ok(bundle) => {
             olm_machine
-                .receive_room_key_bundle(room.room_id(), &sender_user, &sender_data, bundle)
+                .store().receive_room_key_bundle(room.room_id(), &sender_user, &sender_data, bundle)
                 .await?;
         }
         Err(err) => {
