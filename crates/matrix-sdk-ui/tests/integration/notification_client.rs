@@ -339,6 +339,427 @@ async fn test_notification_client_sliding_sync() {
 }
 
 #[async_test]
+async fn test_notification_client_sliding_sync_invites() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id2 = room_id!("!a98sd12bjh2:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+
+    let event_id = event_id!("$example_event_id");
+    let invite_event_id = event_id!("$invite_event_id");
+    let sender = user_id!("@user:example.org");
+    let my_user_id = client.user_id().unwrap().to_owned();
+    let event_json = json!({
+        "content": {
+            "body": "Hello world!",
+            "msgtype": "m.text",
+        },
+        "room_id": room_id,
+        "event_id": event_id,
+        "origin_server_ts": 152049794,
+        "sender": sender,
+        "type": "m.room.message",
+    });
+    let invite_event_json = json!({
+        "content": {
+            "displayname": "Alice Margatroid",
+            "membership": "invite"
+        },
+        "room_id": room_id,
+        // No event id, as it's an invite and it's a stripped event which lacks this info.
+        "origin_server_ts": 152049794,
+        "sender": sender,
+        "state_key": client.user_id().unwrap().to_owned(),
+        "type": "m.room.member",
+    });
+
+    let room_name = "The Maltese Falcon";
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = "https://example.org/avatar.jpeg";
+
+    let pos = Mutex::new(0);
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+            // Repeat the transaction id in the response, to validate sticky parameters.
+            let mut pos = pos.lock().unwrap();
+            *pos += 1;
+            let pos_as_str = (*pos).to_string();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "txn_id": partial_request.txn_id,
+                "pos": pos_as_str,
+                "rooms": {
+                    room_id: {
+                        "name": room_name,
+                        "initial": true,
+                        "required_state": [
+                            // Sender's member information.
+                            {
+                                "content": {
+                                    "avatar_url": sender_avatar_url,
+                                    "displayname": sender_display_name,
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rfvjc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": sender,
+                                "state_key": sender,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+
+                            // Own member information.
+                            {
+                                "content": {
+                                    "avatar_url": null,
+                                    "displayname": "My Self",
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rflkc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": my_user_id.clone(),
+                                "state_key": my_user_id,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+
+                            // Power levels.
+                            {
+                                "content": {
+                                    "ban": 50,
+                                    "events": {
+                                        "m.room.avatar": 50,
+                                        "m.room.canonical_alias": 50,
+                                        "m.room.history_visibility": 100,
+                                        "m.room.name": 50,
+                                        "m.room.power_levels": 100,
+                                        "m.room.message": 25,
+                                    },
+                                    "events_default": 0,
+                                    "invite": 0,
+                                    "kick": 50,
+                                    "redact": 50,
+                                    "state_default": 50,
+                                    "users": {
+                                        "@example:localhost": 100,
+                                        sender: 0,
+                                    },
+                                    "users_default": 0,
+                                },
+                                "event_id": "$15139375512JaHAW:localhost",
+                                "origin_server_ts": 151393755,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.power_levels",
+                                "unsigned": {
+                                    "age": 703422,
+                                },
+                            },
+                        ],
+
+                        "timeline": [
+                            event_json.clone(),
+                        ]
+                    },
+                    room_id2: {
+                        "name": "invite room",
+                        "initial": true,
+                        "invite_state": [
+                            // Sender's member information.
+                            {
+                                "content": {
+                                    "avatar_url": sender_avatar_url,
+                                    "displayname": sender_display_name,
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rfvjc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": sender,
+                                "state_key": sender,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+                            // Invite event
+                            invite_event_json,
+                        ],
+                        "timeline": [],
+                    }
+                },
+
+                "extensions": {
+                    "account_data": {
+                        // Leave it empty for now.
+                    }
+                }
+            }))
+        })
+        .mount(&server)
+        .await;
+
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+    let mut result = notification_client
+        .get_notifications_with_sliding_sync(&[
+            NotificationItemsRequest {
+                room_id: room_id.to_owned(),
+                event_ids: vec![event_id.to_owned()],
+            },
+            NotificationItemsRequest {
+                room_id: room_id2.to_owned(),
+                event_ids: vec![invite_event_id.to_owned()],
+            },
+        ])
+        .await
+        .unwrap();
+
+    let Some(Ok(item)) = result.remove(event_id) else {
+        panic!("fetching notification for {event_id} failed");
+    };
+    let NotificationStatus::Event(item) = item else {
+        panic!("notification for {event_id} not found");
+    };
+
+    let Some(Ok(invite)) = result.remove(invite_event_id) else {
+        panic!("fetching notification for {invite_event_id} failed");
+    };
+    let NotificationStatus::Event(_) = invite else {
+        panic!("notification for {invite_event_id} not found");
+    };
+
+    assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+        assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
+    });
+    assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
+    assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
+    assert_eq!(item.room_computed_display_name, sender_display_name);
+    assert_eq!(item.is_noisy, Some(false));
+}
+
+#[async_test]
+async fn test_notification_client_sliding_sync_invites_with_event_id() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id2 = room_id!("!a98sd12bjh2:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+
+    let event_id = event_id!("$example_event_id");
+    let invite_event_id = event_id!("$invite_event_id");
+    let sender = user_id!("@user:example.org");
+    let my_user_id = client.user_id().unwrap().to_owned();
+    let event_json = json!({
+        "content": {
+            "body": "Hello world!",
+            "msgtype": "m.text",
+        },
+        "room_id": room_id,
+        "event_id": event_id,
+        "origin_server_ts": 152049794,
+        "sender": sender,
+        "type": "m.room.message",
+    });
+    let invite_event_json = json!({
+        "content": {
+            "displayname": "Alice Margatroid",
+            "membership": "invite"
+        },
+        "room_id": room_id,
+        // This should never exist in a well-written server, but we need to test it.
+        "event_id": invite_event_id,
+        "origin_server_ts": 152049794,
+        "sender": sender,
+        "state_key": client.user_id().unwrap().to_owned(),
+        "type": "m.room.member",
+    });
+
+    let room_name = "The Maltese Falcon";
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = "https://example.org/avatar.jpeg";
+
+    let pos = Mutex::new(0);
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+            // Repeat the transaction id in the response, to validate sticky parameters.
+            let mut pos = pos.lock().unwrap();
+            *pos += 1;
+            let pos_as_str = (*pos).to_string();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "txn_id": partial_request.txn_id,
+                "pos": pos_as_str,
+                "rooms": {
+                    room_id: {
+                        "name": room_name,
+                        "initial": true,
+                        "required_state": [
+                            // Sender's member information.
+                            {
+                                "content": {
+                                    "avatar_url": sender_avatar_url,
+                                    "displayname": sender_display_name,
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rfvjc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": sender,
+                                "state_key": sender,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+
+                            // Own member information.
+                            {
+                                "content": {
+                                    "avatar_url": null,
+                                    "displayname": "My Self",
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rflkc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": my_user_id.clone(),
+                                "state_key": my_user_id,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+
+                            // Power levels.
+                            {
+                                "content": {
+                                    "ban": 50,
+                                    "events": {
+                                        "m.room.avatar": 50,
+                                        "m.room.canonical_alias": 50,
+                                        "m.room.history_visibility": 100,
+                                        "m.room.name": 50,
+                                        "m.room.power_levels": 100,
+                                        "m.room.message": 25,
+                                    },
+                                    "events_default": 0,
+                                    "invite": 0,
+                                    "kick": 50,
+                                    "redact": 50,
+                                    "state_default": 50,
+                                    "users": {
+                                        "@example:localhost": 100,
+                                        sender: 0,
+                                    },
+                                    "users_default": 0,
+                                },
+                                "event_id": "$15139375512JaHAW:localhost",
+                                "origin_server_ts": 151393755,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.power_levels",
+                                "unsigned": {
+                                    "age": 703422,
+                                },
+                            },
+                        ],
+
+                        "timeline": [
+                            event_json.clone(),
+                        ]
+                    },
+                    room_id2: {
+                        "name": "invite room",
+                        "initial": true,
+                        "invite_state": [
+                            // Sender's member information.
+                            {
+                                "content": {
+                                    "avatar_url": sender_avatar_url,
+                                    "displayname": sender_display_name,
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rfvjc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": sender,
+                                "state_key": sender,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+                            // Invite event
+                            invite_event_json,
+                        ],
+                        "timeline": [],
+                    }
+                },
+
+                "extensions": {
+                    "account_data": {
+                        // Leave it empty for now.
+                    }
+                }
+            }))
+        })
+        .mount(&server)
+        .await;
+
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+    let mut result = notification_client
+        .get_notifications_with_sliding_sync(&[
+            NotificationItemsRequest {
+                room_id: room_id.to_owned(),
+                event_ids: vec![event_id.to_owned()],
+            },
+            NotificationItemsRequest {
+                room_id: room_id2.to_owned(),
+                event_ids: vec![invite_event_id.to_owned()],
+            },
+        ])
+        .await
+        .unwrap();
+
+    let Some(Ok(item)) = result.remove(event_id) else {
+        panic!("fetching notification for {event_id} failed");
+    };
+    let NotificationStatus::Event(item) = item else {
+        panic!("notification for {event_id} not found");
+    };
+
+    let Some(Ok(invite)) = result.remove(invite_event_id) else {
+        panic!("fetching notification for {invite_event_id} failed");
+    };
+    let NotificationStatus::Event(_) = invite else {
+        panic!("notification for {invite_event_id} not found");
+    };
+
+    assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+        assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
+    });
+    assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
+    assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
+    assert_eq!(item.room_computed_display_name, sender_display_name);
+    assert_eq!(item.is_noisy, Some(false));
+}
+
+#[async_test]
 async fn test_notification_client_mixed() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
