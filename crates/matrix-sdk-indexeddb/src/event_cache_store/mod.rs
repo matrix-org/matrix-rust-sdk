@@ -26,7 +26,7 @@ use matrix_sdk_base::{
     event_cache::{
         store::{
             media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
-            EventCacheStore, EventCacheStoreError,
+            EventCacheStore, EventCacheStoreError, MemoryStore,
         },
         Event, Gap,
     },
@@ -72,6 +72,8 @@ pub enum IndexeddbEventCacheStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
     #[error("unknown chunk type: {0}")]
     UnknownChunkType(String),
+    #[error("media store: {0}")]
+    MediaStore(#[from] EventCacheStoreError),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -96,6 +98,7 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
             IndexeddbEventCacheStoreError::Serialization(
                 IndexeddbSerializerError::Serialization(e),
             ) => EventCacheStoreError::Serialization(e),
+            IndexeddbEventCacheStoreError::MediaStore(e) => e,
             IndexeddbEventCacheStoreError::Json(e) => EventCacheStoreError::Serialization(e),
             _ => EventCacheStoreError::backend(e),
         }
@@ -108,6 +111,7 @@ pub struct IndexeddbEventCacheStore {
     inner: IdbDatabase,
     store_cipher: Option<Arc<StoreCipher>>,
     serializer: IndexeddbSerializer,
+    media_store: MemoryStore,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -117,6 +121,7 @@ impl std::fmt::Debug for IndexeddbEventCacheStore {
             .field("inner", &self.inner)
             .field("store_cipher", &self.store_cipher.as_ref().map(|_| "<StoreCipher>"))
             .field("serializer", &self.serializer)
+            .field("memory_store", &self.media_store)
             .finish()
     }
 }
@@ -887,11 +892,14 @@ impl_event_cache_store! {
     /// * `content` - The content of the file.
     async fn add_media_content(
         &self,
-        _request: &MediaRequestParameters,
-        _content: Vec<u8>,
-        _ignore_policy: IgnoreMediaRetentionPolicy,
+        request: &MediaRequestParameters,
+        content: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store
+            .add_media_content(request, content, ignore_policy)
+            .await
+            .map_err(Into::into)
     }
 
     /// Replaces the given media's content key with another one.
@@ -915,10 +923,10 @@ impl_event_cache_store! {
     /// * `to` - The new `MediaRequest` of the file.
     async fn replace_media_key(
         &self,
-        _from: &MediaRequestParameters,
-        _to: &MediaRequestParameters,
+        from: &MediaRequestParameters,
+        to: &MediaRequestParameters,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store.replace_media_key(from, to).await.map_err(Into::into)
     }
 
     /// Get a media file's content out of the media store.
@@ -928,9 +936,9 @@ impl_event_cache_store! {
     /// * `request` - The `MediaRequest` of the file.
     async fn get_media_content(
         &self,
-        _request: &MediaRequestParameters,
+        request: &MediaRequestParameters,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store.get_media_content(request).await.map_err(Into::into)
     }
 
     /// Remove a media file's content from the media store.
@@ -940,9 +948,9 @@ impl_event_cache_store! {
     /// * `request` - The `MediaRequest` of the file.
     async fn remove_media_content(
         &self,
-        _request: &MediaRequestParameters,
+        request: &MediaRequestParameters,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store.remove_media_content(request).await.map_err(Into::into)
     }
 
     /// Get a media file's content associated to an `MxcUri` from the
@@ -961,9 +969,9 @@ impl_event_cache_store! {
     /// * `uri` - The `MxcUri` of the media file.
     async fn get_media_content_for_uri(
         &self,
-        _uri: &MxcUri,
+        uri: &MxcUri,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store.get_media_content_for_uri(uri).await.map_err(Into::into)
     }
 
     /// Remove all the media files' content associated to an `MxcUri` from the
@@ -977,9 +985,9 @@ impl_event_cache_store! {
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(
         &self,
-        _uri: &MxcUri,
+        uri: &MxcUri,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store.remove_media_content_for_uri(uri).await.map_err(Into::into)
     }
 
     /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
@@ -990,14 +998,14 @@ impl_event_cache_store! {
     /// * `policy` - The `MediaRetentionPolicy` to use.
     async fn set_media_retention_policy(
         &self,
-        _policy: MediaRetentionPolicy,
+        policy: MediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store.set_media_retention_policy(policy).await.map_err(Into::into)
     }
 
     /// Get the current `MediaRetentionPolicy`.
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
-        MediaRetentionPolicy::empty()
+        self.media_store.media_retention_policy()
     }
 
     /// Set whether the current [`MediaRetentionPolicy`] should be ignored for
@@ -1013,16 +1021,19 @@ impl_event_cache_store! {
     ///   ignored.
     async fn set_ignore_media_retention_policy(
         &self,
-        _request: &MediaRequestParameters,
-        _ignore_policy: IgnoreMediaRetentionPolicy,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store
+            .set_ignore_media_retention_policy(request, ignore_policy)
+            .await
+            .map_err(Into::into)
     }
 
     /// Clean up the media cache with the current `MediaRetentionPolicy`.
     ///
     /// If there is already an ongoing cleanup, this is a noop.
     async fn clean_up_media_cache(&self) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        self.media_store.clean_up_media_cache().await.map_err(Into::into)
     }
 }

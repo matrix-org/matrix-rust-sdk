@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use matrix_sdk_base::event_cache::store::MemoryStore;
 use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::{
@@ -34,7 +35,12 @@ impl IndexeddbEventCacheStoreBuilder {
         let serializer = IndexeddbSerializer::new(self.store_cipher.clone());
         let inner = open_and_upgrade_db(&name).await?;
 
-        let store = IndexeddbEventCacheStore { inner, store_cipher: self.store_cipher, serializer };
+        let store = IndexeddbEventCacheStore {
+            inner,
+            store_cipher: self.store_cipher,
+            serializer,
+            media_store: MemoryStore::new(),
+        };
         Ok(store)
     }
 }
