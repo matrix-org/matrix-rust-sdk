@@ -14,12 +14,17 @@
 
 //! A high-level API for requests that we send to the matrix driver.
 
-use std::marker::PhantomData;
+use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
-    api::client::{account::request_openid_token, delayed_events::update_delayed_event},
-    events::AnyTimelineEvent,
+    api::client::{
+        account::request_openid_token, delayed_events::update_delayed_event,
+        to_device::send_event_to_device,
+    },
+    events::{AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
+    to_device::DeviceIdOrAllDevices,
+    OwnedUserId,
 };
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
@@ -51,6 +56,9 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Send matrix event that corresponds to the given description.
     SendMatrixEvent(SendEventRequest),
+
+    /// Send matrix event that corresponds to the given description.
+    SendToDeviceEvent(SendToDeviceRequest),
 
     /// Data for sending a UpdateDelayedEvent client server api request.
     UpdateDelayedEvent(UpdateDelayedEventRequest),
@@ -245,6 +253,45 @@ impl FromMatrixDriverResponse for SendEventResponse {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
             MatrixDriverResponse::MatrixEventSent(response) => Some(response),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
+
+/// Ask the client to send matrix event that corresponds to the given
+/// description and returns an event ID (or a delay ID,
+/// see [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)) as a response.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct SendToDeviceRequest {
+    /// The type of the event.
+    #[serde(rename = "type")]
+    pub(crate) event_type: String,
+    // If the to_device message should be encrypted or not.
+    pub(crate) encrypted: bool,
+    /// The messages that will be encrypted (per device) and sent.
+    /// They are organized in a map of user_id -> device_id -> content like the
+    /// cs api request.
+    pub(crate) messages:
+        BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+}
+
+impl From<SendToDeviceRequest> for MatrixDriverRequestData {
+    fn from(value: SendToDeviceRequest) -> Self {
+        MatrixDriverRequestData::SendToDeviceEvent(value)
+    }
+}
+
+impl MatrixDriverRequest for SendToDeviceRequest {
+    type Response = send_event_to_device::v3::Response;
+}
+
+impl FromMatrixDriverResponse for send_event_to_device::v3::Response {
+    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
+        match ev {
+            MatrixDriverResponse::MatrixToDeviceSent(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
