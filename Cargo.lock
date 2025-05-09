@@ -3321,6 +3321,7 @@ dependencies = [
  "async-rx",
  "async-stream",
  "async_cell",
+ "bitflags 2.9.0",
  "chrono",
  "emojis",
  "eyeball",

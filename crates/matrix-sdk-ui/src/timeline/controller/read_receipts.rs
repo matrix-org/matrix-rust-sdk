@@ -377,8 +377,7 @@ impl ReadReceiptTimelineUpdate {
 
         let item_pos = self.old_item_pos.or_else(|| {
             items
-                .iter()
-                .enumerate()
+                .iter_remotes_region()
                 .rev()
                 .filter_map(|(nth, item)| Some((nth, item.as_event()?)))
                 .find_map(|(nth, event_item)| {
@@ -429,14 +428,14 @@ impl ReadReceiptTimelineUpdate {
             return;
         };
 
+        let old_item_pos = self.old_item_pos.unwrap_or(0);
+
         let item_pos = self.new_item_pos.or_else(|| {
             items
-                .iter()
-                .enumerate()
+                .iter_remotes_region()
                 // Don't iterate over all items if the `old_item_pos` is known: the `item_pos`
                 // for the new item is necessarily _after_ the old item.
-                .skip(self.old_item_pos.unwrap_or(0))
-                .rev()
+                .skip_while(|(nth, _)| *nth < old_item_pos)
                 .filter_map(|(nth, item)| Some((nth, item.as_event()?)))
                 .find_map(|(nth, event_item)| {
                     (event_item.event_id() == Some(&event_id)).then_some(nth)

@@ -23,10 +23,7 @@ use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
 use tracing::trace;
 
 use super::{
-    super::{
-        rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem, TimelineItemKind,
-        TimelineUniqueId,
-    },
+    super::{subscriber::skip::SkipCount, TimelineItem, TimelineItemKind, TimelineUniqueId},
     read_receipts::ReadReceipts,
     Aggregations, AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
 };
@@ -196,12 +193,16 @@ impl TimelineMetadata {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
-        let read_marker_idx = items.iter().rposition(|item| item.is_read_marker());
+        let read_marker_idx = items
+            .iter_remotes_region()
+            .rev()
+            .find_map(|(idx, item)| item.is_read_marker().then_some(idx));
 
-        let mut fully_read_event_idx =
-            rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
+        let mut fully_read_event_idx = items.iter_remotes_region().rev().find_map(|(idx, item)| {
+            (item.as_event()?.event_id() == Some(fully_read_event)).then_some(idx)
+        });
 
-        if let Some(i) = &mut fully_read_event_idx {
+        if let Some(fully_read_event_idx) = &mut fully_read_event_idx {
             // The item at position `i` is the first item that's fully read, we're about to
             // insert a read marker just after it.
             //
@@ -209,24 +210,26 @@ impl TimelineMetadata {
 
             // Find the position of the first element…
             let next = items
-                .iter()
-                .enumerate()
+                .iter_remotes_region()
                 // …strictly *after* the fully read event…
-                .skip(*i + 1)
+                .skip_while(|(idx, _)| idx <= fully_read_event_idx)
                 // …that's not virtual and not sent by us…
-                .find(|(_, item)| {
-                    item.as_event().is_some_and(|event| event.sender() != self.own_user_id)
-                })
-                .map(|(i, _)| i);
+                .find_map(|(idx, item)| {
+                    (item.as_event()?.sender() != self.own_user_id).then_some(idx)
+                });
 
             if let Some(next) = next {
                 // `next` point to the first item that's not sent by us, so the *previous* of
                 // next is the right place where to insert the fully read marker.
-                *i = next.wrapping_sub(1);
+                *fully_read_event_idx = next.wrapping_sub(1);
             } else {
                 // There's no event after the read marker that's not sent by us, i.e. the full
-                // timeline has been read: the fully read marker goes to the end.
-                *i = items.len().wrapping_sub(1);
+                // timeline has been read: the fully read marker goes to the end, even after the
+                // local timeline items.
+                //
+                // TODO (@hywan): Should we introduce a `items.position_of_last_remote()` to
+                // insert before the local timeline items?
+                *fully_read_event_idx = items.len().wrapping_sub(1);
             }
         }
 
