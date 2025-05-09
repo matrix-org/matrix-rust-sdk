@@ -99,7 +99,6 @@ use crate::{
             AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
             UploadSigningKeysRequest,
         },
-        room_history::RoomKeyBundle,
         EventEncryptionAlgorithm, ProcessedToDeviceEvent, Signatures,
     },
     utilities::timestamp_to_iso8601,

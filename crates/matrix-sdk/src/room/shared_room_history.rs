@@ -94,9 +94,17 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
 /// find a information about a room key bundle and, if found, download the
 /// bundle and import the room keys, as per [MSC4268].
 ///
+/// # Arguments
+///
+/// * `room` - The room we were invited to, for which we want to check if a room
+///   key bundle was received.
+///
+/// * `inviter` - The user who invited us to the room and is expected to have
+///   sent the room key bundle.
+///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-#[instrument(skip(room), fields(room_id = ?room.room_id()))]
-pub async fn maybe_accept_key_bundle(room: &Room, user_id: &UserId) -> Result<()> {
+#[instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender))]
+pub async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
     // TODO: retry this if it gets interrupted or it fails.
     // TODO: do this in the background.
 
@@ -109,12 +117,14 @@ pub async fn maybe_accept_key_bundle(room: &Room, user_id: &UserId) -> Result<()
     };
 
     let Some(StoredRoomKeyBundleData { sender_user, sender_data, bundle_data }) =
-        olm_machine.store().get_received_room_key_bundle_data(room.room_id(), user_id).await?
+        olm_machine.store().get_received_room_key_bundle_data(room.room_id(), inviter).await?
     else {
         // No bundle received (yet).
         // TODO: deal with the bundle arriving later (https://github.com/matrix-org/matrix-rust-sdk/issues/4926)
         return Ok(());
     };
+
+    tracing::Span::current().record("bundle_sender", sender_user.as_str());
 
     let bundle_content = client
         .media()
@@ -130,7 +140,15 @@ pub async fn maybe_accept_key_bundle(room: &Room, user_id: &UserId) -> Result<()
     match serde_json::from_slice(&bundle_content) {
         Ok(bundle) => {
             olm_machine
-                .store().receive_room_key_bundle(room.room_id(), &sender_user, &sender_data, bundle)
+                .store()
+                .receive_room_key_bundle(
+                    room.room_id(),
+                    &sender_user,
+                    &sender_data,
+                    bundle,
+                    // TODO: Use the progress listener and expose an argument for it.
+                    |_, _| {},
+                )
                 .await?;
         }
         Err(err) => {

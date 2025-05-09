@@ -50,6 +50,7 @@ use std::{
 use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::StreamExt;
+use itertools::{Either, Itertools};
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
     encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
@@ -59,7 +60,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, MutexGuard, Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{info, instrument, warn};
+use tracing::{error, info, instrument, trace, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -181,7 +182,7 @@ impl KeyQueryManager {
     /// the given user.
     ///
     /// If the given timeout elapses, the method will stop waiting and return
-    /// `UserKeyQueryResult::TimeoutExpired`.
+    /// [`UserKeyQueryResult::TimeoutExpired`].
     ///
     /// Requires a [`StoreCacheGuard`] to make sure the users for which a key
     /// query is pending are up to date, but doesn't hold on to it
@@ -2074,29 +2075,51 @@ impl Store {
     ///   received that message.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    #[instrument(skip(bundle))]
+    #[instrument(skip(self, bundle, progress_listener), fields(bundle_size = bundle.room_keys.len()))]
     pub async fn receive_room_key_bundle(
         &self,
         room_id: &RoomId,
         sender_user: &UserId,
         sender_data: &SenderData,
         bundle: RoomKeyBundle,
+        progress_listener: impl Fn(usize, usize),
     ) -> Result<(), CryptoStoreError> {
-        for key in bundle.room_keys {
+        let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
             if key.room_id != room_id {
-                warn!("Ignoring key for incorrect room {} in bundle", key.room_id);
-                continue;
+                trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
+                Either::Right(key)
+            } else {
+                Either::Left(key)
+            }
+        });
+
+        match (bad.is_empty(), good.is_empty()) {
+            // Case 1: Completely empty bundle.
+            (true, true) => {
+                warn!("Received a completely empty room key bundle");
             }
 
-            let _session = match InboundGroupSession::try_from(key) {
-                Ok(session) => session,
-                Err(e) => {
-                    warn!("Ignoring key in bundle with import error: {}", e);
-                    continue;
-                }
-            };
+            // Case 2: A bundle for the wrong room.
+            (false, true) => {
+                let bad_keys: Vec<_> =
+                    bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
 
-            // TODO: Import the sessions now.
+                warn!(
+                    ?bad_keys,
+                    "Received a room key bundle for the wrong room, ignoring all room keys from the bundle"
+                );
+            }
+
+            // Case 3: A bundle containing useful room keys.
+            (_, false) => {
+                // We have at least some good keys, if we also have some bad ones let's mention
+                // that here.
+                if !bad.is_empty() {
+                    warn!(bad_key_count = bad.len(), "The room key bundle contained some room keys that were meant for a different room");
+                }
+
+                self.import_sessions_impl(good, None, progress_listener).await?;
+            }
         }
 
         Ok(())
