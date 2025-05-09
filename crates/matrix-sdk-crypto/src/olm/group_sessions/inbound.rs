@@ -41,7 +41,7 @@ use super::{
     SessionCreationError, SessionKey,
 };
 #[cfg(doc)]
-use crate::types::{events::room_key::RoomKeyContent, room_history::HistoricRoomKey};
+use crate::types::events::room_key::RoomKeyContent;
 use crate::{
     error::{EventError, MegolmResult},
     types::{

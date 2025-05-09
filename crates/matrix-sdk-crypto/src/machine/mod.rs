@@ -988,12 +988,12 @@ impl OlmMachine {
     #[instrument(skip(bundle))]
     pub async fn receive_room_key_bundle(
         &self,
-        bundle: &RoomKeyBundle,
         room_id: &RoomId,
         sender_user: &UserId,
         sender_data: &SenderData,
+        bundle: RoomKeyBundle,
     ) -> OlmResult<()> {
-        for key in bundle.room_keys.iter() {
+        for key in bundle.room_keys {
             if key.room_id != room_id {
                 warn!("Ignoring key for incorrect room {} in bundle", key.room_id);
                 continue;
@@ -1006,7 +1006,10 @@ impl OlmMachine {
                     continue;
                 }
             };
+
+            // TODO: Import the sessions now.
         }
+
         Ok(())
     }
 
