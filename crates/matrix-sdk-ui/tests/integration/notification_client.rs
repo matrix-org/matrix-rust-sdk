@@ -7,11 +7,12 @@ use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test, mocks::mock_encryption_state, sync_timeline_event, JoinedRoomBuilder,
-    SyncResponseBuilder,
+    StateTestEvent, SyncResponseBuilder,
 };
 use matrix_sdk_ui::{
     notification_client::{
-        NotificationClient, NotificationEvent, NotificationProcessSetup, NotificationStatus,
+        NotificationClient, NotificationEvent, NotificationItemsRequest, NotificationProcessSetup,
+        NotificationStatus,
     },
     sync_service::SyncService,
 };
@@ -118,6 +119,7 @@ async fn test_notification_client_sliding_sync() {
     let (client, server) = logged_in_client_with_server().await;
 
     let event_id = event_id!("$example_event_id");
+    let event_id2 = event_id!("$example_event_id2");
     let sender = user_id!("@user:example.org");
     let my_user_id = client.user_id().unwrap().to_owned();
     let event_json = json!({
@@ -128,6 +130,17 @@ async fn test_notification_client_sliding_sync() {
         "room_id": room_id,
         "event_id": event_id,
         "origin_server_ts": 152049794,
+        "sender": sender,
+        "type": "m.room.message",
+    });
+    let event_json2 = json!({
+        "content": {
+            "body": "Hello world again!",
+            "msgtype": "m.text",
+        },
+        "room_id": room_id,
+        "event_id": event_id2,
+        "origin_server_ts": 152049795,
         "sender": sender,
         "type": "m.room.message",
     });
@@ -227,6 +240,7 @@ async fn test_notification_client_sliding_sync() {
 
                         "timeline": [
                             event_json.clone(),
+                            event_json2.clone(),
                         ]
                     }
                 },
@@ -245,8 +259,13 @@ async fn test_notification_client_sliding_sync() {
     let process_setup =
         NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
     let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
-    let item =
-        notification_client.get_notification_with_sliding_sync(room_id, event_id).await.unwrap();
+    let mut result = notification_client
+        .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
+            room_id: room_id.to_owned(),
+            event_ids: vec![event_id.to_owned(), event_id2.to_owned()],
+        }])
+        .await
+        .unwrap();
 
     check_requests(
         server,
@@ -296,9 +315,320 @@ async fn test_notification_client_sliding_sync() {
     )
     .await;
 
-    let NotificationStatus::Event(item) = item else {
-        panic!("notification not found");
+    let Some(Ok(item)) = result.remove(event_id) else {
+        panic!("fetching notification for {event_id} failed");
     };
+    let NotificationStatus::Event(item) = item else {
+        panic!("notification for {event_id} not found");
+    };
+
+    let Some(Ok(item2)) = result.remove(event_id2) else {
+        panic!("fetching notification for {event_id2} failed");
+    };
+    let NotificationStatus::Event(_) = item2 else {
+        panic!("notification for {event_id2} not found");
+    };
+
+    assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+        assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
+    });
+    assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
+    assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
+    assert_eq!(item.room_computed_display_name, sender_display_name);
+    assert_eq!(item.is_noisy, Some(false));
+}
+
+#[async_test]
+async fn test_notification_client_mixed() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+
+    let event_id = event_id!("$example_event_id");
+    let event_id2 = event_id!("$example_event_id2");
+    let sender = user_id!("@user:example.org");
+    let my_user_id = client.user_id().unwrap().to_owned();
+    let event_json = json!({
+        "content": {
+            "body": "Hello world!",
+            "msgtype": "m.text",
+        },
+        "room_id": room_id,
+        "event_id": event_id,
+        "origin_server_ts": 152049794,
+        "sender": sender,
+        "type": "m.room.message",
+    });
+    let event_json2 = json!({
+        "content": {
+            "body": "Hello world again!",
+            "msgtype": "m.text",
+        },
+        "room_id": room_id,
+        "event_id": event_id2,
+        "origin_server_ts": 152049795,
+        "sender": sender,
+        "type": "m.room.message",
+    });
+
+    let room_name = "The Maltese Falcon";
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = "https://example.org/avatar.jpeg";
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_state_event(StateTestEvent::Custom(json!(
+                {
+                    "content": {
+                        "avatar_url": "https://example.org/avatar.jpeg",
+                        "displayname": sender_display_name,
+                        "membership": "join"
+                    },
+                    "room_id": room_id,
+                    "event_id": "$151800140517rfvjc:example.org",
+                    "membership": "join",
+                    "origin_server_ts": 151800140,
+                    "sender": sender,
+                    "state_key": sender,
+                    "type": "m.room.member",
+                    "unsigned": {
+                        "age": 2970366,
+                    }
+                }
+            )))
+            .add_state_event(StateTestEvent::Custom(json!(
+                {
+                    "content": {
+                        "avatar_url": null,
+                        "displayname": "My Self",
+                        "membership": "join"
+                    },
+                    "room_id": room_id,
+                    "event_id": "$151800140517rflkc:example.org",
+                    "membership": "join",
+                    "origin_server_ts": 151800140,
+                    "sender": my_user_id.clone(),
+                    "state_key": my_user_id,
+                    "type": "m.room.member",
+                    "unsigned": {
+                        "age": 2970366,
+                    }
+                }
+            ))),
+    );
+
+    // First, mock a sync that contains a state event so we get a valid room for
+    // room_id.
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let pos = Mutex::new(0);
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+            // Repeat the transaction id in the response, to validate sticky parameters.
+            let mut pos = pos.lock().unwrap();
+            *pos += 1;
+            let pos_as_str = (*pos).to_string();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "txn_id": partial_request.txn_id,
+                "pos": pos_as_str,
+                "rooms": {
+                    room_id: {
+                        "name": room_name,
+                        "initial": true,
+
+                        "required_state": [
+                            // Sender's member information.
+                            {
+                                "content": {
+                                    "avatar_url": sender_avatar_url,
+                                    "displayname": sender_display_name,
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rfvjc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": sender,
+                                "state_key": sender,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+
+                            // Own member information.
+                            {
+                                "content": {
+                                    "avatar_url": null,
+                                    "displayname": "My Self",
+                                    "membership": "join"
+                                },
+                                "room_id": room_id,
+                                "event_id": "$151800140517rflkc:example.org",
+                                "membership": "join",
+                                "origin_server_ts": 151800140,
+                                "sender": my_user_id.clone(),
+                                "state_key": my_user_id,
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                }
+                            },
+
+                            // Power levels.
+                            {
+                                "content": {
+                                    "ban": 50,
+                                    "events": {
+                                        "m.room.avatar": 50,
+                                        "m.room.canonical_alias": 50,
+                                        "m.room.history_visibility": 100,
+                                        "m.room.name": 50,
+                                        "m.room.power_levels": 100,
+                                        "m.room.message": 25,
+                                    },
+                                    "events_default": 0,
+                                    "invite": 0,
+                                    "kick": 50,
+                                    "redact": 50,
+                                    "state_default": 50,
+                                    "users": {
+                                        "@example:localhost": 100,
+                                        sender: 0,
+                                    },
+                                    "users_default": 0,
+                                },
+                                "event_id": "$15139375512JaHAW:localhost",
+                                "origin_server_ts": 151393755,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.power_levels",
+                                "unsigned": {
+                                    "age": 703422,
+                                },
+                            },
+                        ],
+
+                        "timeline": [
+                            event_json.clone(),
+                        ]
+                    }
+                },
+
+                "extensions": {
+                    "account_data": {
+                        // Leave it empty for now.
+                    }
+                }
+            }))
+        })
+        .mount(&server)
+        .await;
+
+    {
+        // The notification client retrieves the event via `/rooms/*/context/`.
+        Mock::given(method("GET"))
+            .and(path(format!("/_matrix/client/r0/rooms/{room_id}/context/{event_id2}")))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "event": event_json2,
+                "state": [
+                    {
+                        "content": {
+                            "avatar_url": "https://example.org/avatar.jpeg",
+                            "displayname": sender_display_name,
+                            "membership": "join"
+                        },
+                        "room_id": room_id,
+                        "event_id": "$151800140517rfvjc:example.org",
+                        "membership": "join",
+                        "origin_server_ts": 151800140,
+                        "sender": sender,
+                        "state_key": sender,
+                        "type": "m.room.member",
+                        "unsigned": {
+                            "age": 2970366,
+                        }
+                    }
+                ],
+            })))
+            .mount(&server)
+            .await;
+
+        // The encryption state is also fetched to figure whether the room is encrypted
+        // or not.
+        mock_encryption_state(&server, false).await;
+    }
+
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+    let mut result = notification_client
+        .get_notifications(&[NotificationItemsRequest {
+            room_id: room_id.to_owned(),
+            event_ids: vec![event_id.to_owned(), event_id2.to_owned()],
+        }])
+        .await
+        .unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "conn_id": "notifications",
+            "lists": {
+                "invites": {
+                    "ranges": [
+                        [0, 16]
+                    ],
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.name", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                    ],
+                    "filters": {
+                        "is_invite": true,
+                        "not_room_types": ["m.space"],
+                    },
+                    "timeline_limit": 8,
+                }
+            },
+            "room_subscriptions": {
+                room_id: {
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.name", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                    ],
+                    "timeline_limit": 16,
+                },
+            },
+            "extensions": {
+                "account_data": {
+                    "enabled": true,
+                }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let Some(Ok(item)) = result.remove(event_id) else {
+        panic!("fetching notification from sliding sync failed");
+    };
+
+    let _ = result.remove(event_id2).expect("fetching notification from /context failed");
 
     assert_matches!(item.event, NotificationEvent::Timeline(event) => {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
