@@ -393,7 +393,7 @@ impl Room {
 
         #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
         if let Some(inviter) = inviter {
-            shared_room_history::accept_key_bundle(&self, inviter.user_id()).await?;
+            shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
         }
 
         Ok(())
