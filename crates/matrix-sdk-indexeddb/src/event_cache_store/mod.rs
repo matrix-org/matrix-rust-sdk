@@ -776,7 +776,22 @@ impl_event_cache_store! {
     /// be any live in-memory linked chunks. In general, prefer using
     /// `EventCache::clear_all_rooms()` from the common SDK crate.
     async fn clear_all_rooms_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let object_store = tx.object_store(keys::LINKED_CHUNKS)?;
+        object_store.clear()?.await?;
+
+        let object_store = tx.object_store(keys::EVENTS)?;
+        object_store.clear()?.await?;
+
+        let object_store = tx.object_store(keys::GAPS)?;
+        object_store.clear()?.await?;
+
+        tx.await.into_result()?;
+        Ok(())
     }
 
     /// Given a set of event IDs, return the duplicated events along with their
