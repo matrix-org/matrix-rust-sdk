@@ -31,14 +31,9 @@ impl IndexeddbEventCacheStoreBuilder {
 
     pub async fn build(self) -> Result<IndexeddbEventCacheStore> {
         let name = self.name.unwrap_or_else(|| "event_cache".to_owned());
-
-        let serializer = IndexeddbSerializer::new(self.store_cipher.clone());
-        let inner = open_and_upgrade_db(&name).await?;
-
         let store = IndexeddbEventCacheStore {
-            inner,
-            store_cipher: self.store_cipher,
-            serializer,
+            inner: open_and_upgrade_db(&name).await?,
+            serializer: IndexeddbSerializer::new(self.store_cipher),
             media_store: MemoryStore::new(),
         };
         Ok(store)

@@ -15,7 +15,7 @@
 mod builder;
 mod migrations;
 
-use std::{future::IntoFuture, sync::Arc};
+use std::future::IntoFuture;
 
 use async_trait::async_trait;
 pub use builder::IndexeddbEventCacheStoreBuilder;
@@ -34,7 +34,6 @@ use matrix_sdk_base::{
     media::MediaRequestParameters,
 };
 use matrix_sdk_crypto::CryptoStoreError;
-use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
     RoomId,
@@ -107,23 +106,11 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
 
 type Result<T, E = IndexeddbEventCacheStoreError> = std::result::Result<T, E>;
 
+#[derive(Debug)]
 pub struct IndexeddbEventCacheStore {
     inner: IdbDatabase,
-    store_cipher: Option<Arc<StoreCipher>>,
     serializer: IndexeddbSerializer,
     media_store: MemoryStore,
-}
-
-#[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for IndexeddbEventCacheStore {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IndexeddbEventCacheStore")
-            .field("inner", &self.inner)
-            .field("store_cipher", &self.store_cipher.as_ref().map(|_| "<StoreCipher>"))
-            .field("serializer", &self.serializer)
-            .field("memory_store", &self.media_store)
-            .finish()
-    }
 }
 
 /// A type that wraps a (de)serialized value `value` and associates it
