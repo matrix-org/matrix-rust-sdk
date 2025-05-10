@@ -93,12 +93,13 @@ pub(crate) enum Action {
         data: MatrixDriverRequestData,
     },
 
-    /// Subscribe to the events in the *current* room, i.e. a room which this
-    /// widget is instantiated with. The client is aware of the room.
+    /// Subscribe to the events that the widget capabilities allow,
+    /// in the _current_ room, i.e. a room which this widget is instantiated
+    /// with. The client is aware of the room.
     Subscribe,
 
-    /// Unsuscribe from the events in the *current* room. Symmetrical to
-    /// `Subscribe`.
+    /// Unsubscribe from the events that the widget capabilities allow,
+    /// in the _current_ room. Symmetrical to `Subscribe`.
     Unsubscribe,
 }
 
