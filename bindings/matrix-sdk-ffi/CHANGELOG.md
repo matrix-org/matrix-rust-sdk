@@ -18,6 +18,9 @@ Additions:
 
 - Add room topic string to `StateEventContent`
 - Add `UploadSource` for representing upload data - this is analogous to `matrix_sdk_ui::timeline::AttachmentSource`
+- Add `Client::observe_account_data_event` and `Client::observe_room_account_data_event` to
+  subscribe to global and room account data changes.
+  ([#4994](https://github.com/matrix-org/matrix-rust-sdk/pull/4994))
 
 Breaking changes:
 

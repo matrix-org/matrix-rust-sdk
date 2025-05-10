@@ -161,7 +161,7 @@ pub enum PushCondition {
 }
 
 impl TryFrom<SdkPushCondition> for PushCondition {
-    type Error = ();
+    type Error = String;
 
     fn try_from(value: SdkPushCondition) -> Result<Self, Self::Error> {
         Ok(match value {
@@ -179,7 +179,7 @@ impl TryFrom<SdkPushCondition> for PushCondition {
             SdkPushCondition::EventPropertyContains { key, value } => {
                 Self::EventPropertyContains { key, value: value.into() }
             }
-            _ => return Err(()),
+            _ => return Err("Unsupported condition type".to_owned()),
         })
     }
 }
