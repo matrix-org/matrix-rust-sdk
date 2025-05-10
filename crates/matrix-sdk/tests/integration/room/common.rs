@@ -1,4 +1,4 @@
-use std::{iter, time::Duration};
+use std::{collections::BTreeMap, iter, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
@@ -384,20 +384,17 @@ async fn test_room_route() {
     assert_eq!(route[2], "mymatrix");
 
     // With power levels
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "users": {
-                    "@user_0:localhost": 50,
-                },
-            },
-            "event_id": "$15139375512JaHAW",
-            "origin_server_ts": 151393755,
-            "sender": "@creator:127.0.0.1",
-            "state_key": "",
-            "type": "m.room.power_levels",
-        }),
-    ));
+    let mut user_map = BTreeMap::from([(user_id!("@user_0:localhost").into(), 50.into())]);
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.power_levels(&mut user_map)
+                .event_id(event_id!("$15139375512JaHAW"))
+                .server_ts(151393755)
+                .sender(user_id!("@creator:127.0.0.1"))
+                .state_key("")
+                .into_raw_sync(),
+        ),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
@@ -409,21 +406,20 @@ async fn test_room_route() {
     assert_eq!(route[2], "yourmatrix");
 
     // With higher power levels
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "users": {
-                    "@user_0:localhost": 50,
-                    "@user_2:mymatrix": 70,
-                },
-            },
-            "event_id": "$15139375512JaHAZ",
-            "origin_server_ts": 151393755,
-            "sender": "@creator:127.0.0.1",
-            "state_key": "",
-            "type": "m.room.power_levels",
-        }),
-    ));
+    let mut user_map = BTreeMap::from([
+        (user_id!("@user_0:localhost").into(), 50.into()),
+        (user_id!("@user_2:mymatrix").into(), 70.into()),
+    ]);
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.power_levels(&mut user_map)
+                .event_id(event_id!("$15139375512JaHAW"))
+                .server_ts(151393755)
+                .sender(user_id!("@creator:127.0.0.1"))
+                .state_key("")
+                .into_raw_sync(),
+        ),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
