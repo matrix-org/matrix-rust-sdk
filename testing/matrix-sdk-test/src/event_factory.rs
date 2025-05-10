@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicU64, Ordering::SeqCst},
 };
 
@@ -47,6 +47,7 @@ use ruma::{
                 RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
+            power_levels::RoomPowerLevelsEventContent,
             redaction::RoomRedactionEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
@@ -56,7 +57,7 @@ use ruma::{
         RedactedMessageLikeEventContent, RedactedStateEventContent,
     },
     serde::Raw,
-    server_name, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
+    server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
     OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt,
     UserId,
 };
@@ -728,6 +729,16 @@ impl EventFactory {
     ) -> EventBuilder<RoomCreateEventContent> {
         let mut event = RoomCreateEventContent::new_v1(user_id.to_owned());
         event.room_version = room_version;
+        self.event(event)
+    }
+
+    /// Create a new `m.room.power_levels` event.
+    pub fn power_levels(
+        &self,
+        map: &mut BTreeMap<OwnedUserId, Int>,
+    ) -> EventBuilder<RoomPowerLevelsEventContent> {
+        let mut event = RoomPowerLevelsEventContent::new();
+        event.users.append(map);
         self.event(event)
     }
 
