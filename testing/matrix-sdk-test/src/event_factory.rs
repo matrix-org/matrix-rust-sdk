@@ -49,6 +49,7 @@ use ruma::{
             name::RoomNameEventContent,
             power_levels::RoomPowerLevelsEventContent,
             redaction::RoomRedactionEventContent,
+            server_acl::RoomServerAclEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
@@ -740,6 +741,16 @@ impl EventFactory {
         let mut event = RoomPowerLevelsEventContent::new();
         event.users.append(map);
         self.event(event)
+    }
+
+    /// Create a new `m.room.server_acl` event.
+    pub fn server_acl(
+        &self,
+        allow_ip_literals: bool,
+        allow: Vec<String>,
+        deny: Vec<String>,
+    ) -> EventBuilder<RoomServerAclEventContent> {
+        self.event(RoomServerAclEventContent::new(allow_ip_literals, allow, deny))
     }
 
     /// Set the next server timestamp.
