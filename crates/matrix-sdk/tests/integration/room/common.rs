@@ -431,20 +431,16 @@ async fn test_room_route() {
     assert_eq!(route[2], "yourmatrix");
 
     // With server ACLs
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "allow": ["*"],
-                "allow_ip_literals": true,
-                "deny": ["notarealhs"],
-            },
-            "event_id": "$143273582443PhrSn",
-            "origin_server_ts": 1432735824,
-            "sender": "@creator:127.0.0.1",
-            "state_key": "",
-            "type": "m.room.server_acl",
-        }),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.server_acl(true, vec!["*".to_owned()], vec!["notarealhs".to_owned()])
+                .event_id(event_id!("$143273582443PhrSn"))
+                .server_ts(1432735824)
+                .sender(user_id!("@creator:127.0.0.1"))
+                .state_key("")
+                .into_raw_sync(),
+        ),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
