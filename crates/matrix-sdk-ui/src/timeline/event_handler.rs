@@ -32,7 +32,6 @@ use ruma::{
                 UnstablePollStartEventContent,
             },
         },
-        reaction::ReactionEventContent,
         receipt::Receipt,
         relation::Replacement,
         room::message::{
@@ -134,10 +133,20 @@ pub(super) struct TimelineEventContext {
 }
 
 #[derive(Clone, Debug)]
+pub(super) enum HandleAggregationKind {
+    Reaction { key: String },
+}
+
+#[derive(Clone, Debug)]
 pub(super) enum TimelineEventKind {
     AddItem {
         content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
+    },
+
+    HandleAggregation {
+        related_event: OwnedEventId,
+        kind: HandleAggregationKind,
     },
 
     /// The common case: a message-like item.
@@ -232,7 +241,24 @@ impl TimelineEventKind {
                         }
                     }
                 }
-                Some(content) => Self::Message { content, relations: ev.relations() },
+
+                Some(content) => {
+                    match content {
+                        AnyMessageLikeEventContent::Reaction(c) => {
+                            // This is a reaction to a message.
+                            Self::HandleAggregation {
+                                related_event: c.relates_to.event_id.clone(),
+                                kind: HandleAggregationKind::Reaction { key: c.relates_to.key },
+                            }
+                        }
+
+                        _ => {
+                            // Default path: TODO remove
+                            Self::Message { content, relations: ev.relations() }
+                        }
+                    }
+                }
+
                 None => Self::add_item(redacted_message_or_none(ev.event_type())?),
             },
 
@@ -416,11 +442,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             }
 
-            TimelineEventKind::Message { content, relations } => match content {
-                AnyMessageLikeEventContent::Reaction(c) => {
-                    self.handle_reaction(c);
+            TimelineEventKind::HandleAggregation { related_event, kind } => match kind {
+                HandleAggregationKind::Reaction { key } => {
+                    self.handle_reaction(related_event, key);
                 }
+            },
 
+            TimelineEventKind::Message { content, relations } => match content {
                 AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
                     relates_to: Some(Relation::Replacement(re)),
                     ..
@@ -738,9 +766,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///
     /// Reactions to local events are applied in
     /// [`crate::timeline::TimelineController::handle_local_echo`].
-    #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
-    fn handle_reaction(&mut self, c: ReactionEventContent) {
-        let target = TimelineEventItemId::EventId(c.relates_to.event_id);
+    #[instrument(skip(self))]
+    fn handle_reaction(&mut self, relates_to: OwnedEventId, reaction_key: String) {
+        let target = TimelineEventItemId::EventId(relates_to);
 
         // Add the aggregation to the manager.
         let reaction_status = match &self.ctx.flow {
@@ -756,7 +784,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::Reaction {
-                key: c.relates_to.key,
+                key: reaction_key,
                 sender: self.ctx.sender.clone(),
                 timestamp: self.ctx.timestamp,
                 reaction_status,
