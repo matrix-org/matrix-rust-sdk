@@ -142,12 +142,17 @@ impl TimelineState {
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
-        should_add_new_items: bool,
         date_divider_mode: DateDividerMode,
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
         content: AnyMessageLikeEventContent,
     ) {
+        // Only add new items if the timeline is live.
+        let should_add_new_items = match self.timeline_focus {
+            TimelineFocusKind::Live => true,
+            TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
+        };
+
         let ctx = TimelineEventContext {
             sender: own_user_id,
             sender_profile: own_profile,
