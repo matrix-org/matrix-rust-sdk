@@ -317,6 +317,7 @@ impl<'a> TimelineStateTransaction<'a> {
                         &raw,
                         room_data_provider,
                         utd_info,
+                        &self.items,
                         &mut self.meta,
                     )
                     .await,
