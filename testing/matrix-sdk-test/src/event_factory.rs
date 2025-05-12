@@ -39,6 +39,7 @@ use ruma::{
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
             avatar::{self, RoomAvatarEventContent},
+            canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent,
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
@@ -59,8 +60,8 @@ use ruma::{
     },
     serde::Raw,
     server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt,
-    UserId,
+    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId,
+    TransactionId, UInt, UserId,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -751,6 +752,18 @@ impl EventFactory {
         deny: Vec<String>,
     ) -> EventBuilder<RoomServerAclEventContent> {
         self.event(RoomServerAclEventContent::new(allow_ip_literals, allow, deny))
+    }
+
+    /// Create a new `m.room.canonical_alias` event.
+    pub fn canonical_alias(
+        &self,
+        alias: Option<OwnedRoomAliasId>,
+        alt_aliases: Vec<OwnedRoomAliasId>,
+    ) -> EventBuilder<RoomCanonicalAliasEventContent> {
+        let mut event = RoomCanonicalAliasEventContent::new();
+        event.alias = alias;
+        event.alt_aliases = alt_aliases;
+        self.event(event)
     }
 
     /// Set the next server timestamp.
