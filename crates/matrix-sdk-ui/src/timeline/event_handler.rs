@@ -1174,7 +1174,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         .iter_remotes_region()
                         .rev()
                         .find_map(|(timeline_item_index, timeline_item)| {
-                            timeline_item.as_event().and_then(|_| Some(timeline_item_index + 1))
+                            timeline_item.as_event().map(|_| timeline_item_index + 1)
                         })
                         .unwrap_or_else(|| {
                             // There is no remote timeline item, so we could insert at the start of
@@ -1209,7 +1209,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     .iter_remotes_region()
                     .rev()
                     .find_map(|(timeline_item_index, timeline_item)| {
-                        timeline_item.as_event().and_then(|_| Some(timeline_item_index + 1))
+                        timeline_item.as_event().map(|_| timeline_item_index + 1)
                     })
                     .unwrap_or_else(|| {
                         // There is no remote timeline item, so we could insert at the start of
