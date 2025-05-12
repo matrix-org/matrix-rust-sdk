@@ -284,6 +284,24 @@ impl TimelineEventKind {
                             kind: HandleAggregationKind::PollEnd,
                         },
 
+                        AnyMessageLikeEventContent::CallInvite(_) => {
+                            Self::add_item(TimelineItemContent::CallInvite)
+                        }
+
+                        AnyMessageLikeEventContent::CallNotify(_) => {
+                            Self::add_item(TimelineItemContent::CallNotify)
+                        }
+
+                        AnyMessageLikeEventContent::Sticker(content) => {
+                            Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
+                                kind: MsgLikeKind::Sticker(Sticker { content }),
+                                reactions: Default::default(),
+                                thread_root: None,
+                                in_reply_to: None,
+                                thread_summary: None,
+                            }))
+                        }
+
                         _ => {
                             // Default path: TODO remove
                             Self::Message { content, relations: ev.relations() }
@@ -502,38 +520,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     }
                 }
 
-                AnyMessageLikeEventContent::Sticker(content) => {
-                    if should_add {
-                        self.add_item(
-                            TimelineItemContent::MsgLike(MsgLikeContent {
-                                kind: MsgLikeKind::Sticker(Sticker { content }),
-                                reactions: Default::default(),
-                                thread_root: None,
-                                in_reply_to: None,
-                                thread_summary: None,
-                            }),
-                            None,
-                        );
-                    }
-                }
-
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(c),
                 ) => {
                     if should_add {
                         self.handle_poll_start(c, relations)
-                    }
-                }
-
-                AnyMessageLikeEventContent::CallInvite(_) => {
-                    if should_add {
-                        self.add_item(TimelineItemContent::CallInvite, None);
-                    }
-                }
-
-                AnyMessageLikeEventContent::CallNotify(_) => {
-                    if should_add {
-                        self.add_item(TimelineItemContent::CallNotify, None)
                     }
                 }
 
