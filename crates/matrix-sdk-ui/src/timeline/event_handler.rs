@@ -25,8 +25,7 @@ use matrix_sdk::{
 use ruma::{
     events::{
         poll::unstable_start::{
-            NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
-            UnstablePollStartEventContent,
+            NewUnstablePollStartEventContentWithoutRelation, UnstablePollStartEventContent,
         },
         receipt::Receipt,
         relation::Replacement,
@@ -184,7 +183,7 @@ impl TimelineEventKind {
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
-        meta: &TimelineMetadata,
+        meta: &mut TimelineMetadata,
     ) -> Option<Self> {
         let room_version = room_data_provider.room_version();
 
@@ -192,6 +191,8 @@ impl TimelineEventKind {
             (event_type != MessageLikeEventType::Reaction)
                 .then_some(TimelineItemContent::MsgLike(MsgLikeContent::redacted()))
         };
+
+        let event_id = Some(event.event_id().to_owned());
 
         Some(match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
@@ -300,6 +301,56 @@ impl TimelineEventKind {
                                 in_reply_to: None,
                                 thread_summary: None,
                             }))
+                        }
+
+                        AnyMessageLikeEventContent::UnstablePollStart(
+                            UnstablePollStartEventContent::New(c),
+                        ) => {
+                            // TODO
+                            let raw_event = Some(raw_event);
+                            let relations = ev.relations();
+
+                            // Always remove the pending edit, if there's any. The reason is that
+                            // if there's an edit in the relations mapping, we want to prefer it
+                            // over any other pending edit, since it's more likely to be up to
+                            // date, and we don't want to apply another pending edit on top of it.
+                            let pending_edit = event_id
+                                .and_then(|event_id| {
+                                    TimelineEventHandler::maybe_unstash_pending_edit(
+                                        &mut meta.pending_edits,
+                                        &event_id,
+                                    )
+                                })
+                                .and_then(|edit| match edit.kind {
+                                    PendingEditKind::Poll(replacement) => {
+                                        Some((Some(edit.event_json), replacement.new_content))
+                                    }
+                                    _ => None,
+                                });
+
+                            let (edit_json, edit_content) = extract_poll_edit_content(relations)
+                                .map(|content| {
+                                    let edit_json =
+                                        raw_event.and_then(extract_bundled_edit_event_json);
+                                    (edit_json, content)
+                                })
+                                .or(pending_edit)
+                                .unzip();
+
+                            let poll_state = PollState::new(c, edit_content);
+
+                            let edit_json = edit_json.flatten();
+
+                            Self::AddItem {
+                                content: TimelineItemContent::MsgLike(MsgLikeContent {
+                                    kind: MsgLikeKind::Poll(poll_state),
+                                    reactions: Default::default(),
+                                    thread_root: None,
+                                    in_reply_to: None,
+                                    thread_summary: None,
+                                }),
+                                edit_json,
+                            }
                         }
 
                         _ => {
@@ -517,14 +568,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     if should_add {
                         self.handle_room_message(c, relations);
-                    }
-                }
-
-                AnyMessageLikeEventContent::UnstablePollStart(
-                    UnstablePollStartEventContent::New(c),
-                ) => {
-                    if should_add {
-                        self.handle_poll_start(c, relations)
                     }
                 }
 
@@ -881,54 +924,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         Some(item.with_content_and_latest_edit(new_content, edit_json))
-    }
-
-    /// Adds a new poll to the timeline.
-    fn handle_poll_start(
-        &mut self,
-        c: NewUnstablePollStartEventContent,
-        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-    ) {
-        // Always remove the pending edit, if there's any. The reason is that if
-        // there's an edit in the relations mapping, we want to prefer it over any
-        // other pending edit, since it's more likely to be up to date, and we
-        // don't want to apply another pending edit on top of it.
-        let pending_edit = self
-            .ctx
-            .flow
-            .event_id()
-            .and_then(|event_id| {
-                Self::maybe_unstash_pending_edit(&mut self.meta.pending_edits, event_id)
-            })
-            .and_then(|edit| match edit.kind {
-                PendingEditKind::Poll(replacement) => {
-                    Some((Some(edit.event_json), replacement.new_content))
-                }
-                _ => None,
-            });
-
-        let (edit_json, edit_content) = extract_poll_edit_content(relations)
-            .map(|content| {
-                let edit_json = self.ctx.flow.raw_event().and_then(extract_bundled_edit_event_json);
-                (edit_json, content)
-            })
-            .or(pending_edit)
-            .unzip();
-
-        let poll_state = PollState::new(c, edit_content);
-
-        let edit_json = edit_json.flatten();
-
-        self.add_item(
-            TimelineItemContent::MsgLike(MsgLikeContent {
-                kind: MsgLikeKind::Poll(poll_state),
-                reactions: Default::default(),
-                thread_root: None,
-                in_reply_to: None,
-                thread_summary: None,
-            }),
-            edit_json,
-        );
     }
 
     fn handle_poll_response(&mut self, poll_event_id: OwnedEventId, answers: Vec<String>) {
