@@ -25,7 +25,7 @@ use super::{
         controller::{FullEventMeta, ObservableItemsTransactionEntry},
         date_dividers::DateDividerAdjuster,
         event_handler::{
-            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
+            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler,
             TimelineItemPosition,
         },
         event_item::RemoteEventOrigin,
@@ -34,7 +34,10 @@ use super::{
     ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
     TimelineSettings,
 };
-use crate::{events::SyncTimelineEventWithoutContent, timeline::VirtualTimelineItem};
+use crate::{
+    events::SyncTimelineEventWithoutContent,
+    timeline::{event_handler::TimelineAction, VirtualTimelineItem},
+};
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// A vector transaction over the items themselves. Holds temporary state
@@ -248,7 +251,8 @@ impl<'a> TimelineStateTransaction<'a> {
             _ => (kind.into_raw(), None),
         };
 
-        let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
+        let (event_id, sender, timestamp, txn_id, timeline_action, should_add) = match raw
+            .deserialize()
         {
             // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
@@ -312,7 +316,7 @@ impl<'a> TimelineStateTransaction<'a> {
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    TimelineEventKind::from_event(
+                    TimelineAction::from_event(
                         event,
                         &raw,
                         room_data_provider,
@@ -334,7 +338,7 @@ impl<'a> TimelineStateTransaction<'a> {
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    Some(TimelineEventKind::failed_to_parse(event, e)),
+                    Some(TimelineAction::failed_to_parse(event, e)),
                     true,
                 ),
 
@@ -443,9 +447,9 @@ impl<'a> TimelineStateTransaction<'a> {
         };
 
         // Handle the event to create or update a timeline item.
-        if let Some(event_kind) = event_kind {
+        if let Some(timeline_action) = timeline_action {
             TimelineEventHandler::new(self, ctx)
-                .handle_event(date_divider_adjuster, event_kind)
+                .handle_event(date_divider_adjuster, timeline_action)
                 .await
         } else {
             HandleEventResult::default()

@@ -138,30 +138,44 @@ pub(super) enum HandleAggregationKind {
     PollEnd,
 }
 
+/// An action that we want to cause on the timeline.
 #[derive(Clone, Debug)]
-pub(super) enum TimelineEventKind {
-    AddItem { content: TimelineItemContent, edit_json: Option<Raw<AnySyncTimelineEvent>> },
+pub(super) enum TimelineAction {
+    /// Add a new timeline item.
+    ///
+    /// This enqueues adding a new item to the timeline (i.e. push to the items
+    /// array in its state). The item may be filtered out, and thus not
+    /// added later.
+    AddItem {
+        /// The content of the item we want to add.
+        content: TimelineItemContent,
+        /// The latest edit JSON for this item.
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
+    },
 
-    HandleAggregation { related_event: OwnedEventId, kind: HandleAggregationKind },
+    /// Handle an aggregation to another event.
+    ///
+    /// The event the aggregation is related to might not be included in the
+    /// timeline, in which case it will be stashed somewhere, until we see
+    /// the related event.
+    HandleAggregation {
+        /// To which other event does this aggregation apply to?
+        related_event: OwnedEventId,
+        /// What kind of aggregation are we handling here?
+        kind: HandleAggregationKind,
+    },
 }
 
-impl TimelineEventKind {
+impl TimelineAction {
     /// Create a new [`TimelineEventKind::AddItem`] with no edit json.
     fn add_item(content: TimelineItemContent) -> Self {
         Self::AddItem { content, edit_json: None }
     }
 
-    /// Creates a new `TimelineEventKind`.
+    /// Create a new [`TimelineAction`] from a given remote event.
     ///
-    /// # Arguments
-    ///
-    /// * `event` - The event for which we should create a `TimelineEventKind`.
-    /// * `raw_event` - The [`Raw`] JSON for `event`. (Required so that we can
-    ///   access `unsigned` data.)
-    /// * `room_data_provider` - An object which will provide information about
-    ///   the room containing the event.
-    /// * `unable_to_decrypt_info` - If `event` represents a failure to decrypt,
-    ///   information about that failure. Otherwise, `None`.
+    /// The return value may be `None` if handling the event (be it a new item
+    /// or an aggregation) is not supported for this event type.
     pub async fn from_event<P: RoomDataProvider>(
         event: AnySyncTimelineEvent,
         raw_event: &Raw<AnySyncTimelineEvent>,
@@ -274,6 +288,14 @@ impl TimelineEventKind {
         })
     }
 
+    /// Create a new [`TimelineAction`] from a given event's content.
+    ///
+    /// This is applicable to both remote event (as this is called from
+    /// [`TimelineAction::from_event`]) or local events (for which we only have
+    /// the content).
+    ///
+    /// The return value may be `None` if handling the event (be it a new item
+    /// or an aggregation) is not supported for this event type.
     pub(super) fn from_content(
         content: AnyMessageLikeEventContent,
         raw_event: Option<&Raw<AnySyncTimelineEvent>>,
@@ -588,7 +610,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     pub(super) async fn handle_event(
         mut self,
         date_divider_adjuster: &mut DateDividerAdjuster,
-        event_kind: TimelineEventKind,
+        timeline_action: TimelineAction,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
@@ -610,14 +632,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        match event_kind {
-            TimelineEventKind::AddItem { content, edit_json } => {
+        match timeline_action {
+            TimelineAction::AddItem { content, edit_json } => {
                 if self.ctx.should_add_new_items {
                     self.add_item(content, edit_json);
                 }
             }
 
-            TimelineEventKind::HandleAggregation { related_event, kind } => match kind {
+            TimelineAction::HandleAggregation { related_event, kind } => match kind {
                 HandleAggregationKind::Reaction { key } => {
                     self.handle_reaction(related_event, key);
                 }
