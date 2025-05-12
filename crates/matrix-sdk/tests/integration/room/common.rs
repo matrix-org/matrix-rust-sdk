@@ -18,7 +18,7 @@ use ruma::{
         room::{avatar, member::MembershipState, message::RoomMessageEventContent},
         AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
     },
-    mxc_uri, room_id, room_version_id, user_id,
+    mxc_uri, owned_room_alias_id, room_id, room_version_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -456,6 +456,7 @@ async fn test_room_permalink() {
     let (client, server) = logged_in_client_with_server().await;
     let mut sync_builder = SyncResponseBuilder::new();
     let room_id = room_id!("!test_room:127.0.0.1");
+    let f = EventFactory::new();
 
     // Without aliases
     sync_builder.add_joined_room(
@@ -487,18 +488,16 @@ async fn test_room_permalink() {
     );
 
     // With an alternative alias
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "alt_aliases": ["#alias:localhost"],
-            },
-            "event_id": "$15139375513VdeRF",
-            "origin_server_ts": 151393755,
-            "sender": "@user_0:localhost",
-            "state_key": "",
-            "type": "m.room.canonical_alias",
-        }),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.canonical_alias(None, vec![owned_room_alias_id!("#alias:localhost")])
+                .event_id(event_id!("$15139375513VdeRF"))
+                .server_ts(151393755)
+                .sender(user_id!("@user_0:localhost"))
+                .state_key("")
+                .into_raw_sync(),
+        ),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     let sync_token =
         client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap().next_batch;
@@ -510,19 +509,19 @@ async fn test_room_permalink() {
     assert_eq!(room.matrix_permalink(false).await.unwrap().to_string(), "matrix:r/alias:localhost");
 
     // With a canonical alias
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "alias": "#canonical:localhost",
-                "alt_aliases": ["#alias:localhost"],
-            },
-            "event_id": "$15139375513VdeRF",
-            "origin_server_ts": 151393755,
-            "sender": "@user_0:localhost",
-            "state_key": "",
-            "type": "m.room.canonical_alias",
-        }),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.canonical_alias(
+                Some(owned_room_alias_id!("#canonical:localhost")),
+                vec![owned_room_alias_id!("#alias:localhost")],
+            )
+            .event_id(event_id!("$15139375513VdeRF"))
+            .server_ts(151393755)
+            .sender(user_id!("@user_0:localhost"))
+            .state_key("")
+            .into_raw_sync(),
+        ),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
@@ -577,19 +576,20 @@ async fn test_room_event_permalink() {
     );
 
     // Adding an alias doesn't change anything
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "alias": "#canonical:localhost",
-                "alt_aliases": ["#alias:localhost"],
-            },
-            "event_id": "$15139375513VdeRF",
-            "origin_server_ts": 151393755,
-            "sender": "@user_0:localhost",
-            "state_key": "",
-            "type": "m.room.canonical_alias",
-        }),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            EventFactory::new()
+                .canonical_alias(
+                    Some(owned_room_alias_id!("#canonical:localhost")),
+                    vec![owned_room_alias_id!("#alias:localhost")],
+                )
+                .event_id(event_id!("$15139375513VdeRF"))
+                .server_ts(151393755)
+                .sender(user_id!("@user_0:localhost"))
+                .state_key("")
+                .into_raw_sync(),
+        ),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
