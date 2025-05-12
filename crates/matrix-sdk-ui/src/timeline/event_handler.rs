@@ -135,6 +135,8 @@ pub(super) struct TimelineEventContext {
 #[derive(Clone, Debug)]
 pub(super) enum HandleAggregationKind {
     Reaction { key: String },
+
+    Redaction,
 }
 
 #[derive(Clone, Debug)]
@@ -153,12 +155,6 @@ pub(super) enum TimelineEventKind {
     Message {
         content: AnyMessageLikeEventContent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-    },
-
-    /// We're redacting a remote event that we may or may not know about (i.e.
-    /// the redacted event *may* have a corresponding timeline item).
-    Redaction {
-        redacts: OwnedEventId,
     },
 }
 
@@ -196,7 +192,10 @@ impl TimelineEventKind {
         Some(match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(&room_version).map(ToOwned::to_owned) {
-                    Self::Redaction { redacts }
+                    Self::HandleAggregation {
+                        related_event: redacts,
+                        kind: HandleAggregationKind::Redaction,
+                    }
                 } else {
                     Self::add_item(redacted_message_or_none(ev.event_type())?)
                 }
@@ -446,6 +445,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 HandleAggregationKind::Reaction { key } => {
                     self.handle_reaction(related_event, key);
                 }
+                HandleAggregationKind::Redaction => {
+                    self.handle_redaction(related_event);
+                }
             },
 
             TimelineEventKind::Message { content, relations } => match content {
@@ -513,10 +515,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     );
                 }
             },
-
-            TimelineEventKind::Redaction { redacts } => {
-                self.handle_redaction(redacts);
-            }
         }
 
         if !self.result.item_added {
