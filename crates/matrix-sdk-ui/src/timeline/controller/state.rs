@@ -34,8 +34,7 @@ use super::{
     super::{
         date_dividers::DateDividerAdjuster,
         event_handler::{
-            Flow, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
-            TimelineItemPosition,
+            Flow, TimelineAction, TimelineEventContext, TimelineEventHandler, TimelineItemPosition,
         },
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
@@ -164,11 +163,11 @@ impl TimelineState {
 
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
-        if let Some(timeline_event_kind) =
-            TimelineEventKind::from_content(content, None, None, None, &txn.items, &mut txn.meta)
+        if let Some(timeline_action) =
+            TimelineAction::from_content(content, None, None, None, &txn.items, &mut txn.meta)
         {
             TimelineEventHandler::new(&mut txn, ctx)
-                .handle_event(&mut date_divider_adjuster, timeline_event_kind)
+                .handle_event(&mut date_divider_adjuster, timeline_action)
                 .await;
             txn.adjust_date_dividers(date_divider_adjuster);
         }
