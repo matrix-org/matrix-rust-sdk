@@ -576,7 +576,8 @@ impl Client {
         macro_rules! observe {
             ($t:ty, $cb: expr) => {{
                 // Using an Arc here is mandatory or else the subscriber will never trigger
-                let observer = Arc::new(self.inner.observe_events::<$t, ()>());
+                let observer =
+                    Arc::new(self.inner.observe_events::<RumaGlobalAccountDataEvent<$t>, ()>());
 
                 Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
                     let mut subscriber = observer.subscribe();
@@ -587,63 +588,47 @@ impl Client {
                     }
                 })))
             }};
+
+            ($t:ty) => {{
+                observe!($t, |event: RumaGlobalAccountDataEvent<$t>| {
+                    listener.on_change(event.into());
+                })
+            }};
         }
 
         match event_type {
             AccountDataEventType::Direct => {
-                observe!(
-                    RumaGlobalAccountDataEvent<DirectEventContent>,
-                    |event: RumaGlobalAccountDataEvent<DirectEventContent>| {
-                        listener.on_change(event.into());
-                    }
-                )
+                observe!(DirectEventContent)
             }
             AccountDataEventType::IdentityServer => {
-                observe!(
-                    RumaGlobalAccountDataEvent<IdentityServerEventContent>,
-                    |event: RumaGlobalAccountDataEvent<IdentityServerEventContent>| {
-                        listener.on_change(event.into());
-                    }
-                )
+                observe!(IdentityServerEventContent)
             }
             AccountDataEventType::IgnoredUserList => {
-                observe!(
-                    RumaGlobalAccountDataEvent<IgnoredUserListEventContent>,
-                    |event: RumaGlobalAccountDataEvent<IgnoredUserListEventContent>| {
-                        listener.on_change(event.into());
-                    }
-                )
+                observe!(IgnoredUserListEventContent)
             }
             AccountDataEventType::PushRules => {
-                observe!(
-                    RumaGlobalAccountDataEvent<PushRulesEventContent>,
-                    |event: RumaGlobalAccountDataEvent<PushRulesEventContent>| {
-                        if let Ok(event) = event.try_into() {
-                            listener.on_change(event);
-                        }
+                observe!(PushRulesEventContent, |event: RumaGlobalAccountDataEvent<
+                    PushRulesEventContent,
+                >| {
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event);
                     }
-                )
+                })
             }
             AccountDataEventType::SecretStorageDefaultKey => {
-                observe!(
-                    RumaGlobalAccountDataEvent<SecretStorageDefaultKeyEventContent>,
-                    |event: RumaGlobalAccountDataEvent<SecretStorageDefaultKeyEventContent>| {
-                        listener.on_change(event.into());
-                    }
-                )
+                observe!(SecretStorageDefaultKeyEventContent)
             }
             AccountDataEventType::SecretStorageKey { key_id } => {
-                observe!(
-                    RumaGlobalAccountDataEvent<SecretStorageKeyEventContent>,
-                    |event: RumaGlobalAccountDataEvent<SecretStorageKeyEventContent>| {
-                        if event.content.key_id != key_id {
-                            return;
-                        }
-                        if let Ok(event) = event.try_into() {
-                            listener.on_change(event);
-                        }
+                observe!(SecretStorageKeyEventContent, |event: RumaGlobalAccountDataEvent<
+                    SecretStorageKeyEventContent,
+                >| {
+                    if event.content.key_id != key_id {
+                        return;
                     }
-                )
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event);
+                    }
+                })
             }
         }
     }
@@ -663,7 +648,9 @@ impl Client {
             ($t:ty, $cb: expr) => {{
                 // Using an Arc here is mandatory or else the subscriber will never trigger
                 let observer =
-                    Arc::new(self.inner.observe_room_events::<$t, ()>(&RoomId::parse(&room_id)?));
+                    Arc::new(self.inner.observe_room_events::<RumaRoomAccountDataEvent<$t>, ()>(
+                        &RoomId::parse(&room_id)?,
+                    ));
 
                 Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
                     let mut subscriber = observer.subscribe();
@@ -674,42 +661,30 @@ impl Client {
                     }
                 }))))
             }};
+
+            ($t:ty) => {{
+                observe!($t, |event: RumaRoomAccountDataEvent<$t>| {
+                    listener.on_change(event.into(), room_id.clone());
+                })
+            }};
         }
 
         match event_type {
             RoomAccountDataEventType::FullyRead => {
-                observe!(
-                    RumaRoomAccountDataEvent<FullyReadEventContent>,
-                    |event: RumaRoomAccountDataEvent<FullyReadEventContent>| {
-                        listener.on_change(event.into(), room_id.clone());
-                    }
-                )
+                observe!(FullyReadEventContent)
             }
             RoomAccountDataEventType::MarkedUnread => {
-                observe!(
-                    RumaRoomAccountDataEvent<MarkedUnreadEventContent>,
-                    |event: RumaRoomAccountDataEvent<MarkedUnreadEventContent>| {
-                        listener.on_change(event.into(), room_id.clone());
-                    }
-                )
+                observe!(MarkedUnreadEventContent)
             }
             RoomAccountDataEventType::Tag => {
-                observe!(
-                    RumaRoomAccountDataEvent<TagEventContent>,
-                    |event: RumaRoomAccountDataEvent<TagEventContent>| {
-                        if let Ok(event) = event.try_into() {
-                            listener.on_change(event, room_id.clone());
-                        }
+                observe!(TagEventContent, |event: RumaRoomAccountDataEvent<TagEventContent>| {
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event, room_id.clone());
                     }
-                )
+                })
             }
             RoomAccountDataEventType::UnstableMarkedUnread => {
-                observe!(
-                    RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>,
-                    |event: RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>| {
-                        listener.on_change(event.into(), room_id.clone());
-                    }
-                )
+                observe!(UnstableMarkedUnreadEventContent)
             }
         }
     }
