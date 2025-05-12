@@ -137,6 +137,8 @@ pub(super) enum HandleAggregationKind {
     Reaction { key: String },
 
     Redaction,
+
+    Edit { replacement: Replacement<RoomMessageEventContentWithoutRelation> },
 }
 
 #[derive(Clone, Debug)]
@@ -250,6 +252,14 @@ impl TimelineEventKind {
                                 kind: HandleAggregationKind::Reaction { key: c.relates_to.key },
                             }
                         }
+
+                        AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
+                            relates_to: Some(Relation::Replacement(re)),
+                            ..
+                        }) => Self::HandleAggregation {
+                            related_event: re.event_id.clone(),
+                            kind: HandleAggregationKind::Edit { replacement: re },
+                        },
 
                         _ => {
                             // Default path: TODO remove
@@ -448,16 +458,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 HandleAggregationKind::Redaction => {
                     self.handle_redaction(related_event);
                 }
+                HandleAggregationKind::Edit { replacement } => {
+                    self.handle_room_message_edit(replacement);
+                }
             },
 
             TimelineEventKind::Message { content, relations } => match content {
-                AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
-                    relates_to: Some(Relation::Replacement(re)),
-                    ..
-                }) => {
-                    self.handle_room_message_edit(re);
-                }
-
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     if should_add {
                         self.handle_room_message(c, relations);
