@@ -140,21 +140,9 @@ pub(super) enum HandleAggregationKind {
 
 #[derive(Clone, Debug)]
 pub(super) enum TimelineEventKind {
-    AddItem {
-        content: TimelineItemContent,
-        edit_json: Option<Raw<AnySyncTimelineEvent>>,
-    },
+    AddItem { content: TimelineItemContent, edit_json: Option<Raw<AnySyncTimelineEvent>> },
 
-    HandleAggregation {
-        related_event: OwnedEventId,
-        kind: HandleAggregationKind,
-    },
-
-    /// The common case: a message-like item.
-    Message {
-        content: AnyMessageLikeEventContent,
-        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-    },
+    HandleAggregation { related_event: OwnedEventId, kind: HandleAggregationKind },
 }
 
 impl TimelineEventKind {
@@ -188,8 +176,6 @@ impl TimelineEventKind {
             (event_type != MessageLikeEventType::Reaction)
                 .then_some(TimelineItemContent::MsgLike(MsgLikeContent::redacted()))
         };
-
-        let event_id = Some(event.event_id().to_owned());
 
         Some(match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
@@ -232,218 +218,29 @@ impl TimelineEventKind {
                         ))
                     } else {
                         // If we get here, it means that some part of the code has created a
-                        // `TimelineEvent` containing an `m.room.encrypted` event
-                        // without decrypting it. Possibly this means that encryption has not been
-                        // configured.
-                        // We treat it the same as any other message-like event.
-                        Self::Message {
-                            content: AnyMessageLikeEventContent::RoomEncrypted(content),
-                            relations: ev.relations(),
-                        }
+                        // `TimelineEvent` containing an `m.room.encrypted` event without
+                        // decrypting it. Possibly this means that encryption has not been
+                        // configured. We treat it the same as any other message-like event.
+                        return Self::from_content(
+                            AnyMessageLikeEventContent::RoomEncrypted(content),
+                            Some(raw_event),
+                            Some(ev.relations()),
+                            Some(ev.event_id()),
+                            timeline_items,
+                            meta,
+                        );
                     }
                 }
 
                 Some(content) => {
-                    match content {
-                        AnyMessageLikeEventContent::Reaction(c) => {
-                            // This is a reaction to a message.
-                            Self::HandleAggregation {
-                                related_event: c.relates_to.event_id.clone(),
-                                kind: HandleAggregationKind::Reaction { key: c.relates_to.key },
-                            }
-                        }
-
-                        AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
-                            relates_to: Some(Relation::Replacement(re)),
-                            ..
-                        }) => Self::HandleAggregation {
-                            related_event: re.event_id.clone(),
-                            kind: HandleAggregationKind::Edit { replacement: re },
-                        },
-
-                        AnyMessageLikeEventContent::UnstablePollStart(
-                            UnstablePollStartEventContent::Replacement(re),
-                        ) => Self::HandleAggregation {
-                            related_event: re.relates_to.event_id.clone(),
-                            kind: HandleAggregationKind::PollEdit { replacement: re.relates_to },
-                        },
-
-                        AnyMessageLikeEventContent::UnstablePollResponse(c) => {
-                            Self::HandleAggregation {
-                                related_event: c.relates_to.event_id,
-                                kind: HandleAggregationKind::PollResponse {
-                                    answers: c.poll_response.answers,
-                                },
-                            }
-                        }
-
-                        AnyMessageLikeEventContent::UnstablePollEnd(c) => Self::HandleAggregation {
-                            related_event: c.relates_to.event_id,
-                            kind: HandleAggregationKind::PollEnd,
-                        },
-
-                        AnyMessageLikeEventContent::CallInvite(_) => {
-                            Self::add_item(TimelineItemContent::CallInvite)
-                        }
-
-                        AnyMessageLikeEventContent::CallNotify(_) => {
-                            Self::add_item(TimelineItemContent::CallNotify)
-                        }
-
-                        AnyMessageLikeEventContent::Sticker(content) => {
-                            Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
-                                kind: MsgLikeKind::Sticker(Sticker { content }),
-                                reactions: Default::default(),
-                                thread_root: None,
-                                in_reply_to: None,
-                                thread_summary: None,
-                            }))
-                        }
-
-                        AnyMessageLikeEventContent::UnstablePollStart(
-                            UnstablePollStartEventContent::New(c),
-                        ) => {
-                            // TODO
-                            let raw_event = Some(raw_event);
-                            let relations = ev.relations();
-
-                            // Always remove the pending edit, if there's any. The reason is that
-                            // if there's an edit in the relations mapping, we want to prefer it
-                            // over any other pending edit, since it's more likely to be up to
-                            // date, and we don't want to apply another pending edit on top of it.
-                            let pending_edit = event_id
-                                .and_then(|event_id| {
-                                    TimelineEventHandler::maybe_unstash_pending_edit(
-                                        &mut meta.pending_edits,
-                                        &event_id,
-                                    )
-                                })
-                                .and_then(|edit| match edit.kind {
-                                    PendingEditKind::Poll(replacement) => {
-                                        Some((Some(edit.event_json), replacement.new_content))
-                                    }
-                                    _ => None,
-                                });
-
-                            let (edit_json, edit_content) = extract_poll_edit_content(relations)
-                                .map(|content| {
-                                    let edit_json =
-                                        raw_event.and_then(extract_bundled_edit_event_json);
-                                    (edit_json, content)
-                                })
-                                .or(pending_edit)
-                                .unzip();
-
-                            let poll_state = PollState::new(c, edit_content);
-
-                            let edit_json = edit_json.flatten();
-
-                            Self::AddItem {
-                                content: TimelineItemContent::MsgLike(MsgLikeContent {
-                                    kind: MsgLikeKind::Poll(poll_state),
-                                    reactions: Default::default(),
-                                    thread_root: None,
-                                    in_reply_to: None,
-                                    thread_summary: None,
-                                }),
-                                edit_json,
-                            }
-                        }
-
-                        AnyMessageLikeEventContent::RoomMessage(msg) => {
-                            let relations = ev.relations();
-                            let raw_event = Some(raw_event);
-
-                            // Always remove the pending edit, if there's any. The reason is that if
-                            // there's an edit in the relations mapping, we want to prefer it over
-                            // any other pending edit, since it's more
-                            // likely to be up to date, and we
-                            // don't want to apply another pending edit on top of it.
-                            let pending_edit = event_id
-                                .as_deref()
-                                .and_then(|event_id| {
-                                    TimelineEventHandler::maybe_unstash_pending_edit(
-                                        &mut meta.pending_edits,
-                                        event_id,
-                                    )
-                                })
-                                .and_then(|edit| match edit.kind {
-                                    PendingEditKind::RoomMessage(replacement) => {
-                                        Some((Some(edit.event_json), replacement.new_content))
-                                    }
-                                    _ => None,
-                                });
-
-                            let (edit_json, edit_content) =
-                                extract_room_msg_edit_content(relations)
-                                    .map(|content| {
-                                        let edit_json =
-                                            raw_event.and_then(extract_bundled_edit_event_json);
-                                        (edit_json, content)
-                                    })
-                                    .or(pending_edit)
-                                    .unzip();
-
-                            let mut replied_to_event_id = None;
-                            let mut thread_root = None;
-                            let in_reply_to_details =
-                                msg.relates_to.as_ref().and_then(|relation| match relation {
-                                    Relation::Reply { in_reply_to } => {
-                                        replied_to_event_id = Some(in_reply_to.event_id.clone());
-                                        Some(InReplyToDetails::new(
-                                            in_reply_to.event_id.clone(),
-                                            timeline_items,
-                                        ))
-                                    }
-                                    Relation::Thread(thread) => {
-                                        thread_root = Some(thread.event_id.clone());
-                                        thread.in_reply_to.as_ref().map(|in_reply_to| {
-                                            replied_to_event_id =
-                                                Some(in_reply_to.event_id.clone());
-                                            InReplyToDetails::new(
-                                                in_reply_to.event_id.clone(),
-                                                timeline_items,
-                                            )
-                                        })
-                                    }
-                                    _ => None,
-                                });
-
-                            // If this message is a reply to another message, add an entry in the
-                            // inverted mapping.
-                            if let Some(event_id) = event_id {
-                                if let Some(replied_to_event_id) = replied_to_event_id {
-                                    // This is a reply! Add an entry.
-                                    meta.replies
-                                        .entry(replied_to_event_id)
-                                        .or_default()
-                                        .insert(event_id.to_owned());
-                                }
-                            }
-
-                            let edit_json = edit_json.flatten();
-
-                            Self::AddItem {
-                                content: TimelineItemContent::message(
-                                    msg,
-                                    edit_content,
-                                    Default::default(),
-                                    thread_root,
-                                    in_reply_to_details,
-                                    None,
-                                ),
-                                edit_json,
-                            }
-                        }
-
-                        _ => {
-                            debug!(
-                                "Ignoring message-like event of type `{}`, not supported (yet)",
-                                content.event_type()
-                            );
-                            return None;
-                        }
-                    }
+                    return Self::from_content(
+                        content,
+                        Some(raw_event),
+                        Some(ev.relations()),
+                        Some(ev.event_id()),
+                        timeline_items,
+                        meta,
+                    );
                 }
 
                 None => Self::add_item(redacted_message_or_none(ev.event_type())?),
@@ -474,6 +271,199 @@ impl TimelineEventKind {
                     content: AnyOtherFullStateEventContent::with_event_content(ev.content()),
                 })),
             },
+        })
+    }
+
+    pub(super) fn from_content(
+        content: AnyMessageLikeEventContent,
+        raw_event: Option<&Raw<AnySyncTimelineEvent>>,
+        relations: Option<BundledMessageLikeRelations<AnySyncMessageLikeEvent>>,
+        event_id: Option<&EventId>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+        meta: &mut TimelineMetadata,
+    ) -> Option<Self> {
+        Some(match content {
+            AnyMessageLikeEventContent::Reaction(c) => {
+                // This is a reaction to a message.
+                Self::HandleAggregation {
+                    related_event: c.relates_to.event_id.clone(),
+                    kind: HandleAggregationKind::Reaction { key: c.relates_to.key },
+                }
+            }
+
+            AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
+                relates_to: Some(Relation::Replacement(re)),
+                ..
+            }) => Self::HandleAggregation {
+                related_event: re.event_id.clone(),
+                kind: HandleAggregationKind::Edit { replacement: re },
+            },
+
+            AnyMessageLikeEventContent::UnstablePollStart(
+                UnstablePollStartEventContent::Replacement(re),
+            ) => Self::HandleAggregation {
+                related_event: re.relates_to.event_id.clone(),
+                kind: HandleAggregationKind::PollEdit { replacement: re.relates_to },
+            },
+
+            AnyMessageLikeEventContent::UnstablePollResponse(c) => Self::HandleAggregation {
+                related_event: c.relates_to.event_id,
+                kind: HandleAggregationKind::PollResponse { answers: c.poll_response.answers },
+            },
+
+            AnyMessageLikeEventContent::UnstablePollEnd(c) => Self::HandleAggregation {
+                related_event: c.relates_to.event_id,
+                kind: HandleAggregationKind::PollEnd,
+            },
+
+            AnyMessageLikeEventContent::CallInvite(_) => {
+                Self::add_item(TimelineItemContent::CallInvite)
+            }
+
+            AnyMessageLikeEventContent::CallNotify(_) => {
+                Self::add_item(TimelineItemContent::CallNotify)
+            }
+
+            AnyMessageLikeEventContent::Sticker(content) => {
+                Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
+                    kind: MsgLikeKind::Sticker(Sticker { content }),
+                    reactions: Default::default(),
+                    thread_root: None,
+                    in_reply_to: None,
+                    thread_summary: None,
+                }))
+            }
+
+            AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
+                c,
+            )) => {
+                // Always remove the pending edit, if there's any. The reason is that
+                // if there's an edit in the relations mapping, we want to prefer it
+                // over any other pending edit, since it's more likely to be up to
+                // date, and we don't want to apply another pending edit on top of it.
+                let pending_edit = event_id
+                    .and_then(|event_id| {
+                        TimelineEventHandler::maybe_unstash_pending_edit(
+                            &mut meta.pending_edits,
+                            event_id,
+                        )
+                    })
+                    .and_then(|edit| match edit.kind {
+                        PendingEditKind::Poll(replacement) => {
+                            Some((Some(edit.event_json), replacement.new_content))
+                        }
+                        _ => None,
+                    });
+
+                let (edit_json, edit_content) = relations
+                    .and_then(extract_poll_edit_content)
+                    .map(|content| {
+                        let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
+                        (edit_json, content)
+                    })
+                    .or(pending_edit)
+                    .unzip();
+
+                let poll_state = PollState::new(c, edit_content);
+
+                let edit_json = edit_json.flatten();
+
+                Self::AddItem {
+                    content: TimelineItemContent::MsgLike(MsgLikeContent {
+                        kind: MsgLikeKind::Poll(poll_state),
+                        reactions: Default::default(),
+                        thread_root: None,
+                        in_reply_to: None,
+                        thread_summary: None,
+                    }),
+                    edit_json,
+                }
+            }
+
+            AnyMessageLikeEventContent::RoomMessage(msg) => {
+                // Always remove the pending edit, if there's any. The reason is that if
+                // there's an edit in the relations mapping, we want to prefer it over
+                // any other pending edit, since it's more
+                // likely to be up to date, and we
+                // don't want to apply another pending edit on top of it.
+                let pending_edit = event_id
+                    .and_then(|event_id| {
+                        TimelineEventHandler::maybe_unstash_pending_edit(
+                            &mut meta.pending_edits,
+                            event_id,
+                        )
+                    })
+                    .and_then(|edit| match edit.kind {
+                        PendingEditKind::RoomMessage(replacement) => {
+                            Some((Some(edit.event_json), replacement.new_content))
+                        }
+                        _ => None,
+                    });
+
+                let (edit_json, edit_content) = relations
+                    .and_then(extract_room_msg_edit_content)
+                    .map(|content| {
+                        let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
+                        (edit_json, content)
+                    })
+                    .or(pending_edit)
+                    .unzip();
+
+                let mut replied_to_event_id = None;
+                let mut thread_root = None;
+                let in_reply_to_details =
+                    msg.relates_to.as_ref().and_then(|relation| match relation {
+                        Relation::Reply { in_reply_to } => {
+                            replied_to_event_id = Some(in_reply_to.event_id.clone());
+                            Some(InReplyToDetails::new(
+                                in_reply_to.event_id.clone(),
+                                timeline_items,
+                            ))
+                        }
+                        Relation::Thread(thread) => {
+                            thread_root = Some(thread.event_id.clone());
+                            thread.in_reply_to.as_ref().map(|in_reply_to| {
+                                replied_to_event_id = Some(in_reply_to.event_id.clone());
+                                InReplyToDetails::new(in_reply_to.event_id.clone(), timeline_items)
+                            })
+                        }
+                        _ => None,
+                    });
+
+                // If this message is a reply to another message, add an entry in the
+                // inverted mapping.
+                if let Some(event_id) = event_id {
+                    if let Some(replied_to_event_id) = replied_to_event_id {
+                        // This is a reply! Add an entry.
+                        meta.replies
+                            .entry(replied_to_event_id)
+                            .or_default()
+                            .insert(event_id.to_owned());
+                    }
+                }
+
+                let edit_json = edit_json.flatten();
+
+                Self::AddItem {
+                    content: TimelineItemContent::message(
+                        msg,
+                        edit_content,
+                        Default::default(),
+                        thread_root,
+                        in_reply_to_details,
+                        None,
+                    ),
+                    edit_json,
+                }
+            }
+
+            _ => {
+                debug!(
+                    "Ignoring message-like event of type `{}`, not supported (yet)",
+                    content.event_type()
+                );
+                return None;
+            }
         })
     }
 
@@ -620,11 +610,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        let should_add = self.ctx.should_add_new_items;
-
         match event_kind {
             TimelineEventKind::AddItem { content, edit_json } => {
-                if should_add {
+                if self.ctx.should_add_new_items {
                     self.add_item(content, edit_json);
                 }
             }
@@ -649,10 +637,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.handle_poll_end(related_event);
                 }
             },
-
-            TimelineEventKind::Message { .. } => {
-                // TODO remove
-            }
         }
 
         if !self.result.item_added {
