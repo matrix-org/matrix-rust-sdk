@@ -574,6 +574,8 @@ impl ClientBuilder {
         };
 
         let event_cache = OnceCell::new();
+        let latest_events = OnceCell::new();
+
         let inner = ClientInner::new(
             auth_ctx,
             server,
@@ -585,6 +587,7 @@ impl ClientBuilder {
             self.respect_login_well_known,
             event_cache,
             send_queue,
+            latest_events,
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
             #[cfg(feature = "e2e-encryption")]
