@@ -378,7 +378,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         );
 
         // We are not inserting in the start region.
-        if timeline_item_index == 0 {
+        if timeline_item_index == 0 && !self.items.is_empty() {
             assert!(
                 matches!(self.items.get(timeline_item_index), Some(timeline_item) if !timeline_item.is_timeline_start())
             );
@@ -715,16 +715,16 @@ mod observable_items_tests {
     use eyeball_im::VectorDiff;
     use ruma::{
         events::room::message::{MessageType, TextMessageEventContent},
-        owned_user_id, MilliSecondsSinceUnixEpoch,
+        owned_user_id, uint, MilliSecondsSinceUnixEpoch,
     };
-    use stream_assert::assert_next_matches;
+    use stream_assert::{assert_next_matches, assert_pending};
 
     use super::*;
     use crate::timeline::{
         controller::{EventTimelineItemKind, RemoteEventOrigin},
         event_item::{LocalEventTimelineItem, RemoteEventTimelineItem},
         EventSendState, EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
-        TimelineItemContent, TimelineUniqueId, VirtualTimelineItem,
+        TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
     };
 
     fn item(event_id: &str) -> Arc<TimelineItem> {
@@ -1553,6 +1553,96 @@ mod observable_items_tests {
             assert_transaction_id!(entry, "t1");
         });
         assert_matches!(entries.next(), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transaction_push_local_panic_not_a_local() {
+        let mut items = ObservableItems::new();
+        let mut transaction = items.transaction();
+        transaction.push_local(item("$ev0"));
+    }
+
+    #[test]
+    fn test_transaction_push_date_divider() {
+        let mut items = ObservableItems::new();
+        let mut stream = items.subscribe().into_stream();
+
+        let mut transaction = items.transaction();
+
+        transaction.push_date_divider(
+            0,
+            TimelineItem::new(
+                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(
+                    MilliSecondsSinceUnixEpoch(uint!(10)),
+                )),
+                TimelineUniqueId("__foo".to_owned()),
+            ),
+        );
+        transaction.push_date_divider(
+            0,
+            TimelineItem::new(
+                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(
+                    MilliSecondsSinceUnixEpoch(uint!(20)),
+                )),
+                TimelineUniqueId("__bar".to_owned()),
+            ),
+        );
+        transaction.push_date_divider(
+            1,
+            TimelineItem::new(
+                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(
+                    MilliSecondsSinceUnixEpoch(uint!(30)),
+                )),
+                TimelineUniqueId("__baz".to_owned()),
+            ),
+        );
+        transaction.commit();
+
+        assert_next_matches!(stream, VectorDiff::PushBack { value: timeline_item } => {
+            assert_matches!(timeline_item.as_virtual(), Some(VirtualTimelineItem::DateDivider(ms)) => {
+                assert_eq!(u64::from(ms.0), 10);
+            });
+        });
+        assert_next_matches!(stream, VectorDiff::PushFront { value: timeline_item } => {
+            assert_matches!(timeline_item.as_virtual(), Some(VirtualTimelineItem::DateDivider(ms)) => {
+                assert_eq!(u64::from(ms.0), 20);
+            });
+        });
+        assert_next_matches!(stream, VectorDiff::Insert { index: 1, value: timeline_item } => {
+            assert_matches!(timeline_item.as_virtual(), Some(VirtualTimelineItem::DateDivider(ms)) => {
+                assert_eq!(u64::from(ms.0), 30);
+            });
+        });
+        assert_pending!(stream);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transaction_push_date_divider_panic_not_a_date_divider() {
+        let mut items = ObservableItems::new();
+        let mut transaction = items.transaction();
+
+        transaction.push_date_divider(0, item("$ev0"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transaction_push_date_divider_panic_not_in_remotes_region() {
+        let mut items = ObservableItems::new();
+        let mut transaction = items.transaction();
+
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__id_start".to_owned()),
+        ));
+        transaction.push_date_divider(
+            0,
+            TimelineItem::new(
+                VirtualTimelineItem::DateDivider(MilliSecondsSinceUnixEpoch(uint!(10))),
+                TimelineUniqueId("__date_divider".to_owned()),
+            ),
+        );
     }
 
     #[test]
