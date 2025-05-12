@@ -7,9 +7,9 @@ use matrix_sdk::{
     RoomMemberships,
 };
 use matrix_sdk_test::{
-    async_test, bulk_room_members, event_factory::EventFactory, sync_state_event,
-    sync_timeline_event, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder,
-    StateTestEvent, SyncResponseBuilder, BOB, DEFAULT_TEST_ROOM_ID,
+    async_test, bulk_room_members, event_factory::EventFactory, sync_state_event, test_json,
+    GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent,
+    SyncResponseBuilder, BOB, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     event_id,
