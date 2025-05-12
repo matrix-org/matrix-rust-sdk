@@ -24,13 +24,9 @@ use matrix_sdk::{
 };
 use ruma::{
     events::{
-        poll::{
-            unstable_end::UnstablePollEndEventContent,
-            unstable_response::UnstablePollResponseEventContent,
-            unstable_start::{
-                NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
-                UnstablePollStartEventContent,
-            },
+        poll::unstable_start::{
+            NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
+            UnstablePollStartEventContent,
         },
         receipt::Receipt,
         relation::Replacement,
@@ -139,6 +135,12 @@ pub(super) enum HandleAggregationKind {
     Redaction,
 
     Edit { replacement: Replacement<RoomMessageEventContentWithoutRelation> },
+
+    PollResponse { answers: Vec<String> },
+
+    PollEdit { replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation> },
+
+    PollEnd,
 }
 
 #[derive(Clone, Debug)]
@@ -259,6 +261,27 @@ impl TimelineEventKind {
                         }) => Self::HandleAggregation {
                             related_event: re.event_id.clone(),
                             kind: HandleAggregationKind::Edit { replacement: re },
+                        },
+
+                        AnyMessageLikeEventContent::UnstablePollStart(
+                            UnstablePollStartEventContent::Replacement(re),
+                        ) => Self::HandleAggregation {
+                            related_event: re.relates_to.event_id.clone(),
+                            kind: HandleAggregationKind::PollEdit { replacement: re.relates_to },
+                        },
+
+                        AnyMessageLikeEventContent::UnstablePollResponse(c) => {
+                            Self::HandleAggregation {
+                                related_event: c.relates_to.event_id,
+                                kind: HandleAggregationKind::PollResponse {
+                                    answers: c.poll_response.answers,
+                                },
+                            }
+                        }
+
+                        AnyMessageLikeEventContent::UnstablePollEnd(c) => Self::HandleAggregation {
+                            related_event: c.relates_to.event_id,
+                            kind: HandleAggregationKind::PollEnd,
                         },
 
                         _ => {
@@ -461,6 +484,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 HandleAggregationKind::Edit { replacement } => {
                     self.handle_room_message_edit(replacement);
                 }
+                HandleAggregationKind::PollResponse { answers } => {
+                    self.handle_poll_response(related_event, answers);
+                }
+                HandleAggregationKind::PollEdit { replacement } => {
+                    self.handle_poll_edit(replacement);
+                }
+                HandleAggregationKind::PollEnd => {
+                    self.handle_poll_end(related_event);
+                }
             },
 
             TimelineEventKind::Message { content, relations } => match content {
@@ -486,20 +518,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
 
                 AnyMessageLikeEventContent::UnstablePollStart(
-                    UnstablePollStartEventContent::Replacement(c),
-                ) => self.handle_poll_edit(c.relates_to),
-
-                AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(c),
                 ) => {
                     if should_add {
                         self.handle_poll_start(c, relations)
                     }
                 }
-
-                AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
-
-                AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
 
                 AnyMessageLikeEventContent::CallInvite(_) => {
                     if should_add {
@@ -916,14 +940,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
     }
 
-    fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
-        let target = TimelineEventItemId::EventId(c.relates_to.event_id);
+    fn handle_poll_response(&mut self, poll_event_id: OwnedEventId, answers: Vec<String>) {
+        let target = TimelineEventItemId::EventId(poll_event_id);
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::PollResponse {
                 sender: self.ctx.sender.clone(),
                 timestamp: self.ctx.timestamp,
-                answers: c.poll_response.answers,
+                answers,
             },
         );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
@@ -932,8 +956,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
-    fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
-        let target = TimelineEventItemId::EventId(c.relates_to.event_id);
+    fn handle_poll_end(&mut self, poll_event_id: OwnedEventId) {
+        let target = TimelineEventItemId::EventId(poll_event_id);
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::PollEnd { end_date: self.ctx.timestamp },
