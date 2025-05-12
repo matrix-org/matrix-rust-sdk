@@ -553,6 +553,7 @@ impl<'e> ObservableItemsTransactionIterBuilder<'e> {
     }
 
     /// Build the iterator.
+    #[allow(clippy::iter_skip_zero)]
     fn build(self) -> ObservableItemsTransactionIter<'e> {
         // Calculate the size of the _start_ region.
         let size_of_start_region = if matches!(
@@ -626,6 +627,7 @@ impl<'e> ObservableItemsTransactionIterBuilder<'e> {
 
 /// An iterator over timeline items.
 pub(crate) struct ObservableItemsTransactionIter<'observable_items_transaction> {
+    #[allow(clippy::type_complexity)]
     inner: Take<
         Skip<
             Enumerate<
@@ -647,13 +649,13 @@ impl<'e> Iterator for ObservableItemsTransactionIter<'e> {
     }
 }
 
-impl<'e> ExactSizeIterator for ObservableItemsTransactionIter<'e> {
+impl ExactSizeIterator for ObservableItemsTransactionIter<'_> {
     fn len(&self) -> usize {
         self.inner.len()
     }
 }
 
-impl<'e> DoubleEndedIterator for ObservableItemsTransactionIter<'e> {
+impl DoubleEndedIterator for ObservableItemsTransactionIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner.next_back()
     }
