@@ -45,6 +45,7 @@ mod error;
 pub mod event_cache;
 pub mod event_handler;
 mod http_client;
+pub mod latest_events;
 pub mod media;
 pub mod notification_settings;
 pub mod pusher;

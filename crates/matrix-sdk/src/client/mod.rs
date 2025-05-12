@@ -91,10 +91,11 @@ use crate::{
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
     http_client::HttpClient,
+    latest_events::LatestEvents,
     media::MediaError,
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
-    send_queue::SendQueueData,
+    send_queue::{SendQueue, SendQueueData},
     sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
@@ -343,6 +344,11 @@ pub(crate) struct ClientInner {
     /// The `max_upload_size` value of the homeserver, it contains the max
     /// request size you can send.
     pub(crate) server_max_upload_size: Mutex<OnceCell<UInt>>,
+
+    /// The entry point to get the [`LatestEvent`] of rooms and threads.
+    ///
+    /// [`LatestEvent`]: crate::latest_event::LatestEvent
+    latest_events: OnceCell<LatestEvents>,
 }
 
 impl ClientInner {
@@ -363,6 +369,7 @@ impl ClientInner {
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
+        latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
@@ -393,6 +400,7 @@ impl ClientInner {
             sync_beat: event_listener::Event::new(),
             event_cache,
             send_queue_data: send_queue,
+            latest_events,
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
@@ -2579,6 +2587,7 @@ impl Client {
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
+                self.inner.latest_events.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
                 #[cfg(feature = "e2e-encryption")]
@@ -2595,6 +2604,16 @@ impl Client {
     pub fn event_cache(&self) -> &EventCache {
         // SAFETY: always initialized in the `Client` ctor.
         self.inner.event_cache.get().unwrap()
+    }
+
+    /// The [`LatestEvents`] instance for this [`Client`].
+    pub async fn latest_events(&self) -> &LatestEvents {
+        self.inner
+            .latest_events
+            .get_or_init(|| async {
+                LatestEvents::new(self.event_cache().clone(), SendQueue::new(self.clone()))
+            })
+            .await
     }
 
     /// Waits until an at least partially synced room is received, and returns
