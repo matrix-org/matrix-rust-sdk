@@ -271,8 +271,7 @@ impl<'a> TimelineStateTransaction<'a> {
                         TimelineItemPosition::UpdateAt { timeline_item_index: idx } => self
                             .items
                             .get(idx)
-                            .and_then(|item| item.as_event())
-                            .and_then(|item| item.as_remote())
+                            .and_then(|item| item.as_event()?.as_remote())
                             .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
                     };
 

@@ -786,22 +786,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         let sender = self.room_data_provider.own_user_id().to_owned();
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
-        // Only add new items if the timeline is live.
-        let should_add_new_items = self.is_live().await;
-
         let date_divider_mode = self.settings.date_divider_mode.clone();
 
         let mut state = self.state.write().await;
         state
-            .handle_local_event(
-                sender,
-                profile,
-                should_add_new_items,
-                date_divider_mode,
-                txn_id,
-                send_handle,
-                content,
-            )
+            .handle_local_event(sender, profile, date_divider_mode, txn_id, send_handle, content)
             .await;
     }
 
