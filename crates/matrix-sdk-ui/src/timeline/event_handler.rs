@@ -15,6 +15,7 @@
 use std::{ops::ControlFlow, sync::Arc};
 
 use as_variant::as_variant;
+use imbl::Vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
     crypto::types::events::UtdCause,
@@ -91,11 +92,6 @@ pub(super) enum Flow {
 }
 
 impl Flow {
-    /// If the flow is remote, returns the associated event id.
-    pub(crate) fn event_id(&self) -> Option<&EventId> {
-        as_variant!(self, Flow::Remote { event_id, .. } => event_id)
-    }
-
     /// Returns the [`TimelineEventItemId`] associated to this future item.
     pub(crate) fn timeline_item_id(&self) -> TimelineEventItemId {
         match self {
@@ -183,6 +179,7 @@ impl TimelineEventKind {
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
         meta: &mut TimelineMetadata,
     ) -> Option<Self> {
         let room_version = room_data_provider.room_version();
@@ -353,9 +350,98 @@ impl TimelineEventKind {
                             }
                         }
 
+                        AnyMessageLikeEventContent::RoomMessage(msg) => {
+                            let relations = ev.relations();
+                            let raw_event = Some(raw_event);
+
+                            // Always remove the pending edit, if there's any. The reason is that if
+                            // there's an edit in the relations mapping, we want to prefer it over
+                            // any other pending edit, since it's more
+                            // likely to be up to date, and we
+                            // don't want to apply another pending edit on top of it.
+                            let pending_edit = event_id
+                                .as_deref()
+                                .and_then(|event_id| {
+                                    TimelineEventHandler::maybe_unstash_pending_edit(
+                                        &mut meta.pending_edits,
+                                        event_id,
+                                    )
+                                })
+                                .and_then(|edit| match edit.kind {
+                                    PendingEditKind::RoomMessage(replacement) => {
+                                        Some((Some(edit.event_json), replacement.new_content))
+                                    }
+                                    _ => None,
+                                });
+
+                            let (edit_json, edit_content) =
+                                extract_room_msg_edit_content(relations)
+                                    .map(|content| {
+                                        let edit_json =
+                                            raw_event.and_then(extract_bundled_edit_event_json);
+                                        (edit_json, content)
+                                    })
+                                    .or(pending_edit)
+                                    .unzip();
+
+                            let mut replied_to_event_id = None;
+                            let mut thread_root = None;
+                            let in_reply_to_details =
+                                msg.relates_to.as_ref().and_then(|relation| match relation {
+                                    Relation::Reply { in_reply_to } => {
+                                        replied_to_event_id = Some(in_reply_to.event_id.clone());
+                                        Some(InReplyToDetails::new(
+                                            in_reply_to.event_id.clone(),
+                                            timeline_items,
+                                        ))
+                                    }
+                                    Relation::Thread(thread) => {
+                                        thread_root = Some(thread.event_id.clone());
+                                        thread.in_reply_to.as_ref().map(|in_reply_to| {
+                                            replied_to_event_id =
+                                                Some(in_reply_to.event_id.clone());
+                                            InReplyToDetails::new(
+                                                in_reply_to.event_id.clone(),
+                                                timeline_items,
+                                            )
+                                        })
+                                    }
+                                    _ => None,
+                                });
+
+                            // If this message is a reply to another message, add an entry in the
+                            // inverted mapping.
+                            if let Some(event_id) = event_id {
+                                if let Some(replied_to_event_id) = replied_to_event_id {
+                                    // This is a reply! Add an entry.
+                                    meta.replies
+                                        .entry(replied_to_event_id)
+                                        .or_default()
+                                        .insert(event_id.to_owned());
+                                }
+                            }
+
+                            let edit_json = edit_json.flatten();
+
+                            Self::AddItem {
+                                content: TimelineItemContent::message(
+                                    msg,
+                                    edit_content,
+                                    Default::default(),
+                                    thread_root,
+                                    in_reply_to_details,
+                                    None,
+                                ),
+                                edit_json,
+                            }
+                        }
+
                         _ => {
-                            // Default path: TODO remove
-                            Self::Message { content, relations: ev.relations() }
+                            debug!(
+                                "Ignoring message-like event of type `{}`, not supported (yet)",
+                                content.event_type()
+                            );
+                            return None;
                         }
                     }
                 }
@@ -564,21 +650,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             },
 
-            TimelineEventKind::Message { content, relations } => match content {
-                AnyMessageLikeEventContent::RoomMessage(c) => {
-                    if should_add {
-                        self.handle_room_message(c, relations);
-                    }
-                }
-
-                // TODO
-                _ => {
-                    debug!(
-                        "Ignoring message-like event of type `{}`, not supported (yet)",
-                        content.event_type()
-                    );
-                }
-            },
+            TimelineEventKind::Message { .. } => {
+                // TODO remove
+            }
         }
 
         if !self.result.item_added {
@@ -601,84 +675,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         self.result
-    }
-
-    /// Handles a new room message by adding it to the timeline.
-    #[instrument(skip_all)]
-    fn handle_room_message(
-        &mut self,
-        msg: RoomMessageEventContent,
-        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-    ) {
-        // Always remove the pending edit, if there's any. The reason is that if
-        // there's an edit in the relations mapping, we want to prefer it over any
-        // other pending edit, since it's more likely to be up to date, and we
-        // don't want to apply another pending edit on top of it.
-        let pending_edit = self
-            .ctx
-            .flow
-            .event_id()
-            .and_then(|event_id| {
-                Self::maybe_unstash_pending_edit(&mut self.meta.pending_edits, event_id)
-            })
-            .and_then(|edit| match edit.kind {
-                PendingEditKind::RoomMessage(replacement) => {
-                    Some((Some(edit.event_json), replacement.new_content))
-                }
-                _ => None,
-            });
-
-        let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
-            .map(|content| {
-                let edit_json = self.ctx.flow.raw_event().and_then(extract_bundled_edit_event_json);
-                (edit_json, content)
-            })
-            .or(pending_edit)
-            .unzip();
-
-        let mut replied_to_event_id = None;
-        let mut thread_root = None;
-        let in_reply_to_details = msg.relates_to.as_ref().and_then(|relation| match relation {
-            Relation::Reply { in_reply_to } => {
-                replied_to_event_id = Some(in_reply_to.event_id.clone());
-                Some(InReplyToDetails::new(in_reply_to.event_id.clone(), self.items))
-            }
-            Relation::Thread(thread) => {
-                thread_root = Some(thread.event_id.clone());
-                thread.in_reply_to.as_ref().map(|in_reply_to| {
-                    replied_to_event_id = Some(in_reply_to.event_id.clone());
-                    InReplyToDetails::new(in_reply_to.event_id.clone(), self.items)
-                })
-            }
-            _ => None,
-        });
-
-        // If this message is a reply to another message, add an entry in the inverted
-        // mapping.
-        if let Some(event_id) = self.ctx.flow.event_id() {
-            if let Some(replied_to_event_id) = replied_to_event_id {
-                // This is a reply! Add an entry.
-                self.meta
-                    .replies
-                    .entry(replied_to_event_id)
-                    .or_default()
-                    .insert(event_id.to_owned());
-            }
-        }
-
-        let edit_json = edit_json.flatten();
-
-        self.add_item(
-            TimelineItemContent::message(
-                msg,
-                edit_content,
-                Default::default(),
-                thread_root,
-                in_reply_to_details,
-                None,
-            ),
-            edit_json,
-        );
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
