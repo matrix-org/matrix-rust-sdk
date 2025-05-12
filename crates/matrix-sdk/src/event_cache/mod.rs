@@ -637,6 +637,15 @@ pub enum RoomEventCacheGenericUpdate {
     },
 }
 
+impl RoomEventCacheGenericUpdate {
+    /// Get the room ID that has triggered this generic update.
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            Self::TimelineUpdated { room_id } => room_id,
+        }
+    }
+}
+
 /// An update related to events happened in a room.
 #[derive(Debug, Clone)]
 pub enum RoomEventCacheUpdate {
