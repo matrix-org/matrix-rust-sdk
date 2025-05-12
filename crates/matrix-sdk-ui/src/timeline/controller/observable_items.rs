@@ -1822,7 +1822,7 @@ mod observable_items_tests {
         transaction.push_local(local_item("t1"));
         transaction.push_local(local_item("t2"));
 
-        // Iterate the remotes region.
+        // Iterate the locals region.
         let mut iter = transaction.iter_locals_region();
         assert_matches!(iter.next(), Some((4, item)) => {
             assert_transaction_id!(item, "t0");
