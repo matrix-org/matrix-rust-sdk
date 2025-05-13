@@ -59,7 +59,7 @@ pub(super) use self::{
         AllRemoteEvents, ObservableItems, ObservableItemsEntry, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
     },
-    state::{FullEventMeta, PendingEdit, PendingEditKind, TimelineState},
+    state::{PendingEdit, PendingEditKind, TimelineState},
     state_transaction::TimelineStateTransaction,
 };
 use super::{
