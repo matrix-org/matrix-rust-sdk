@@ -573,9 +573,6 @@ pub(super) enum TimelineItemPosition {
 /// [`TimelineEventHandler::handle_event`].
 #[derive(Default)]
 pub(super) struct HandleEventResult {
-    /// Was some timeline item added?
-    pub(super) item_added: bool,
-
     /// Was some timeline item removed?
     ///
     /// This can happen only if there was a UTD item that has been decrypted
@@ -637,10 +634,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
+        let mut added_item = false;
+
         match timeline_action {
             TimelineAction::AddItem { content, edit_json } => {
                 if self.ctx.should_add_new_items {
                     self.add_item(content, edit_json);
+                    added_item = true;
                 }
             }
 
@@ -666,7 +666,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
         }
 
-        if !self.result.item_added {
+        if !added_item {
             trace!("No new item added");
 
             if let Flow::Remote {
@@ -681,8 +681,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 self.result.item_removed = true;
             }
-
-            // TODO: Add event as raw
         }
 
         self.result
@@ -1047,8 +1045,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         mut content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
     ) {
-        self.result.item_added = true;
-
         // Apply any pending or stashed aggregations.
         if let Err(err) =
             self.meta.aggregations.apply(&self.ctx.flow.timeline_item_id(), &mut content)
