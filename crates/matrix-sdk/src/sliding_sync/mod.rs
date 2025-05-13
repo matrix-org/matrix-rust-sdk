@@ -36,7 +36,7 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 use matrix_sdk_base::RequestedRequiredStates;
-use matrix_sdk_common::{deserialized_responses::TimelineEvent, executor::spawn, timer};
+use matrix_sdk_common::{executor::spawn, timer};
 use ruma::{
     api::client::{error::ErrorKind, sync::sync_events::v5 as http},
     assign, OwnedRoomId, RoomId,
@@ -281,14 +281,13 @@ impl SlidingSync {
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
         // happens here.
 
-        let mut sync_response = {
+        let sync_response = {
             // Take the lock to avoid concurrent sliding syncs overwriting each other's room
             // infos.
             let _sync_lock = self.inner.client.base_client().sync_lock().lock().await;
 
-            let rooms = &*self.inner.rooms.read().await;
             let mut response_processor =
-                SlidingSyncResponseProcessor::new(self.inner.client.clone(), rooms);
+                SlidingSyncResponseProcessor::new(self.inner.client.clone());
 
             #[cfg(feature = "e2e-encryption")]
             if self.is_e2ee_enabled() {
@@ -323,37 +322,21 @@ impl SlidingSync {
 
                 let mut updated_rooms = Vec::with_capacity(sync_response.rooms.joined.len());
 
-                for (room_id, mut room_data) in sliding_sync_response.rooms.into_iter() {
-                    // `sync_response` contains the rooms with decrypted events if any, so look at
-                    // the timeline events here first if the room exists.
-                    // Otherwise, let's look at the timeline inside the `sliding_sync_response`.
-                    let timeline =
-                        if let Some(joined_room) = sync_response.rooms.joined.remove(&room_id) {
-                            joined_room.timeline.events
-                        } else {
-                            room_data.timeline.drain(..).map(TimelineEvent::new).collect()
-                        };
-
-                    match rooms_map.get_mut(&room_id) {
+                for room_id in sliding_sync_response.rooms.keys() {
+                    match rooms_map.get_mut(room_id) {
                         // The room existed before, let's update it.
                         Some(room) => {
-                            room.update(room_data, timeline);
+                            room.update_state();
                         }
 
                         // First time we need this room, let's create it.
                         None => {
-                            rooms_map.insert(
-                                room_id.clone(),
-                                SlidingSyncRoom::new(
-                                    room_id.clone(),
-                                    room_data.prev_batch,
-                                    timeline,
-                                ),
-                            );
+                            rooms_map
+                                .insert(room_id.clone(), SlidingSyncRoom::new(room_id.clone()));
                         }
                     }
 
-                    updated_rooms.push(room_id);
+                    updated_rooms.push(room_id.to_owned());
                 }
 
                 // There might be other rooms that were only mentioned in the sliding sync
