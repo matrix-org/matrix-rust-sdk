@@ -581,9 +581,6 @@ pub(super) struct HandleEventResult {
     /// This can happen only if there was a UTD item that has been decrypted
     /// into an item that was filtered out with the event filter.
     pub(super) item_removed: bool,
-
-    /// How many items were updated?
-    pub(super) items_updated: u16,
 }
 
 /// Data necessary to update the timeline, given a single event to handle.
@@ -713,7 +710,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 // Update the event itself.
                 self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
-                self.result.items_updated += 1;
             }
         } else if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
             let replaced_event_id = replacement.event_id.clone();
@@ -864,9 +860,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        if find_item_and_apply_aggregation(self.items, &target, aggregation) {
-            self.result.items_updated += 1;
-        }
+        find_item_and_apply_aggregation(self.items, &target, aggregation);
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -896,7 +890,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         trace!("Applying poll start edit.");
         self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
-        self.result.items_updated += 1;
     }
 
     fn apply_poll_edit(
@@ -947,9 +940,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
         );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        if find_item_and_apply_aggregation(self.items, &target, aggregation) {
-            self.result.items_updated += 1;
-        }
+        find_item_and_apply_aggregation(self.items, &target, aggregation);
     }
 
     fn handle_poll_end(&mut self, poll_event_id: OwnedEventId) {
@@ -959,9 +950,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             AggregationKind::PollEnd { end_date: self.ctx.timestamp },
         );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        if find_item_and_apply_aggregation(self.items, &target, aggregation) {
-            self.result.items_updated += 1;
-        }
+        find_item_and_apply_aggregation(self.items, &target, aggregation);
     }
 
     /// Looks for the redacted event in all the timeline event items, and
@@ -995,7 +984,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     Self::maybe_update_responses(self.meta, self.items, &redacted, &new_item);
 
                     self.items.replace(idx, TimelineItem::new(new_item, internal_id));
-                    self.result.items_updated += 1;
                 }
             } else {
                 error!("inconsistent state: redaction received on a non-remote event item");
@@ -1028,7 +1016,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     let internal_id = item.internal_id.to_owned();
                     let new_item = item.with_content(content);
                     self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
-                    self.result.items_updated += 1;
                 }
                 ApplyAggregationResult::LeftItemIntact => {}
                 ApplyAggregationResult::Error(err) => {
