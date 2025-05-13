@@ -401,10 +401,10 @@ pub(crate) fn find_item_and_apply_aggregation(
     items: &mut ObservableItemsTransaction<'_>,
     target: &TimelineEventItemId,
     aggregation: Aggregation,
-) -> bool {
+) {
     let Some((idx, event_item)) = rfind_event_by_item_id(items, target) else {
         trace!("couldn't find aggregation's target {target:?}");
-        return false;
+        return;
     };
 
     let mut new_content = event_item.content().clone();
@@ -414,15 +414,12 @@ pub(crate) fn find_item_and_apply_aggregation(
             trace!("applied aggregation");
             let new_item = event_item.with_content(new_content);
             items.replace(idx, TimelineItem::new(new_item, event_item.internal_id.to_owned()));
-            true
         }
         ApplyAggregationResult::LeftItemIntact => {
             trace!("applying the aggregation had no effect");
-            false
         }
         ApplyAggregationResult::Error(err) => {
             warn!("error when applying aggregation: {err}");
-            false
         }
     }
 }
