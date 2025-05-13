@@ -20,6 +20,7 @@ use driver_req::UpdateDelayedEventRequest;
 use from_widget::{SendToDeviceEventResponse, UpdateDelayedEventResponse};
 use indexmap::IndexMap;
 use ruma::{
+    events::AnyTimelineEvent,
     serde::{JsonObject, Raw},
     OwnedRoomId,
 };
@@ -53,7 +54,7 @@ use super::{
     filter::FilterInput,
     Capabilities, StateKeySelector,
 };
-use crate::Result;
+use crate::{Error, Result};
 
 mod driver_req;
 mod from_widget;
@@ -234,7 +235,7 @@ impl WidgetMachine {
             Err(e) => {
                 return vec![Self::send_from_widget_err_response(
                     raw_request,
-                    FromWidgetErrorResponse::from_error(crate::Error::SerdeJson(e)),
+                    FromWidgetErrorResponse::from_error(Error::SerdeJson(e)),
                 )]
             }
         };
@@ -338,6 +339,33 @@ impl WidgetMachine {
         }
     }
 
+    /// Send a response to a request to read message-like events.
+    ///
+    /// `events` represents the message-like events provided by the
+    /// [`crate::widget::MatrixDriver`].
+    fn send_read_message_like_event_response(
+        &self,
+        request: Raw<FromWidgetRequest>,
+        events: Result<Vec<Raw<AnyTimelineEvent>>, Error>,
+    ) -> Vec<Action> {
+        let response = match &self.capabilities {
+            CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
+                "Received read event request before capabilities negotiation",
+            )),
+            CapabilitiesState::Negotiating => Err(FromWidgetErrorResponse::from_string(
+                "Received read event request while capabilities were negotiating",
+            )),
+            CapabilitiesState::Negotiated(capabilities) => events
+                .map(|mut events| {
+                    events.retain(|e| capabilities.allow_reading(e));
+                    ReadEventResponse { events }
+                })
+                .map_err(FromWidgetErrorResponse::from_error),
+        };
+
+        vec![WidgetMachine::send_from_widget_response(request, response)]
+    }
+
     fn process_read_event_request(
         &mut self,
         request: ReadEventRequest,
@@ -365,26 +393,8 @@ impl WidgetMachine {
 
                 self.send_matrix_driver_request(request).map(|(request, action)| {
                     request.add_response_handler(|result, machine| {
-                        let response = match &machine.capabilities {
-                            CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
-                                "Received read event request before capabilities negotiation",
-                            )),
-                            CapabilitiesState::Negotiating => {
-                                Err(FromWidgetErrorResponse::from_string(
-                                    "Received read event request while capabilities were negotiating",
-                                ))
-                            }
-                            CapabilitiesState::Negotiated(capabilities) => result
-                            .map(|mut events| {
-                                events.retain(|e| capabilities.allow_reading(e));
-                                ReadEventResponse { events }
-                            })
-                            .map_err(FromWidgetErrorResponse::from_error),
-                        };
-
-                        vec![Self::send_from_widget_response(raw_request, response)]
+                        machine.send_read_message_like_event_response(raw_request, result)
                     });
-
                     action
                 })
             }
