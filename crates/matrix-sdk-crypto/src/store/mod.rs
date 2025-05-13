@@ -74,7 +74,8 @@ use crate::{
     },
     types::{
         events::room_key_withheld::RoomKeyWithheldEvent, BackupSecrets, CrossSigningSecrets,
-        EventEncryptionAlgorithm, MegolmBackupV1Curve25519AesSha2Secrets, SecretsBundle,
+        EventEncryptionAlgorithm, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport,
+        SecretsBundle,
     },
     verification::VerificationMachine,
     CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
@@ -1832,68 +1833,8 @@ impl Store {
         from_backup_version: Option<&str>,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
-        let mut sessions = Vec::new();
-
-        async fn new_session_better(
-            session: &InboundGroupSession,
-            old_session: Option<InboundGroupSession>,
-        ) -> bool {
-            if let Some(old_session) = &old_session {
-                session.compare(old_session).await == SessionOrdering::Better
-            } else {
-                true
-            }
-        }
-
-        let total_count = exported_keys.len();
-        let mut keys = BTreeMap::new();
-
-        for (i, key) in exported_keys.into_iter().enumerate() {
-            match InboundGroupSession::from_export(&key) {
-                Ok(session) => {
-                    let old_session = self
-                        .inner
-                        .store
-                        .get_inbound_group_session(session.room_id(), session.session_id())
-                        .await?;
-
-                    // Only import the session if we didn't have this session or
-                    // if it's a better version of the same session.
-                    if new_session_better(&session, old_session).await {
-                        if from_backup_version.is_some() {
-                            session.mark_as_backed_up();
-                        }
-
-                        keys.entry(session.room_id().to_owned())
-                            .or_insert_with(BTreeMap::new)
-                            .entry(session.sender_key().to_base64())
-                            .or_insert_with(BTreeSet::new)
-                            .insert(session.session_id().to_owned());
-
-                        sessions.push(session);
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        sender_key= key.sender_key.to_base64(),
-                        room_id = ?key.room_id,
-                        session_id = key.session_id,
-                        error = ?e,
-                        "Couldn't import a room key from a file export."
-                    );
-                }
-            }
-
-            progress_listener(i, total_count);
-        }
-
-        let imported_count = sessions.len();
-
-        self.inner.store.save_inbound_group_sessions(sessions, from_backup_version).await?;
-
-        info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
-
-        Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
+        let exported_keys: Vec<&ExportedRoomKey> = exported_keys.iter().collect();
+        self.import_sessions_impl(exported_keys, from_backup_version, progress_listener).await
     }
 
     /// Import the given room keys into our store.
@@ -1928,6 +1869,80 @@ impl Store {
         progress_listener: impl Fn(usize, usize),
     ) -> Result<RoomKeyImportResult> {
         self.import_room_keys(exported_keys, None, progress_listener).await
+    }
+
+    async fn import_sessions_impl<T>(
+        &self,
+        room_keys: Vec<T>,
+        from_backup_version: Option<&str>,
+        progress_listener: impl Fn(usize, usize),
+    ) -> Result<RoomKeyImportResult>
+    where
+        T: TryInto<InboundGroupSession> + RoomKeyExport + Copy,
+        T::Error: Debug,
+    {
+        let mut sessions = Vec::new();
+
+        async fn new_session_better(
+            session: &InboundGroupSession,
+            old_session: Option<InboundGroupSession>,
+        ) -> bool {
+            if let Some(old_session) = &old_session {
+                session.compare(old_session).await == SessionOrdering::Better
+            } else {
+                true
+            }
+        }
+
+        let total_count = room_keys.len();
+        let mut keys = BTreeMap::new();
+
+        for (i, key) in room_keys.into_iter().enumerate() {
+            match key.try_into() {
+                Ok(session) => {
+                    let old_session = self
+                        .inner
+                        .store
+                        .get_inbound_group_session(session.room_id(), session.session_id())
+                        .await?;
+
+                    // Only import the session if we didn't have this session or
+                    // if it's a better version of the same session.
+                    if new_session_better(&session, old_session).await {
+                        if from_backup_version.is_some() {
+                            session.mark_as_backed_up();
+                        }
+
+                        keys.entry(session.room_id().to_owned())
+                            .or_insert_with(BTreeMap::new)
+                            .entry(session.sender_key().to_base64())
+                            .or_insert_with(BTreeSet::new)
+                            .insert(session.session_id().to_owned());
+
+                        sessions.push(session);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        sender_key = key.sender_key().to_base64(),
+                        room_id = ?key.room_id(),
+                        session_id = key.session_id(),
+                        error = ?e,
+                        "Couldn't import a room key from a file export."
+                    );
+                }
+            }
+
+            progress_listener(i, total_count);
+        }
+
+        let imported_count = sessions.len();
+
+        self.inner.store.save_inbound_group_sessions(sessions, from_backup_version).await?;
+
+        info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
+
+        Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
     }
 
     pub(crate) fn crypto_store(&self) -> Arc<CryptoStoreWrapper> {
