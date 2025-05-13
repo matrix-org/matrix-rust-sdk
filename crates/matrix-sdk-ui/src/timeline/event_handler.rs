@@ -35,7 +35,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
-        MessageLikeEventType, SyncStateEvent,
+        MessageLikeEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -61,7 +61,6 @@ use super::{
     EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
     ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
 };
-use crate::events::SyncTimelineEventWithoutContent;
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -497,40 +496,27 @@ impl TimelineAction {
         })
     }
 
-    pub(super) fn failed_to_parse(
-        event: SyncTimelineEventWithoutContent,
-        error: serde_json::Error,
-    ) -> Self {
+    pub(super) fn failed_to_parse(event: FailedToParseEvent, error: serde_json::Error) -> Self {
         let error = Arc::new(error);
         match event {
-            SyncTimelineEventWithoutContent::OriginalMessageLike(ev) => {
-                Self::add_item(TimelineItemContent::FailedToParseMessageLike {
-                    event_type: ev.content.event_type,
-                    error,
-                })
-            }
-            SyncTimelineEventWithoutContent::RedactedMessageLike(ev) => {
-                Self::add_item(TimelineItemContent::FailedToParseMessageLike {
-                    event_type: ev.content.event_type,
-                    error,
-                })
-            }
-            SyncTimelineEventWithoutContent::OriginalState(ev) => {
+            FailedToParseEvent::State { event_type, state_key } => {
                 Self::add_item(TimelineItemContent::FailedToParseState {
-                    event_type: ev.content.event_type,
-                    state_key: ev.state_key,
+                    event_type,
+                    state_key,
                     error,
                 })
             }
-            SyncTimelineEventWithoutContent::RedactedState(ev) => {
-                Self::add_item(TimelineItemContent::FailedToParseState {
-                    event_type: ev.content.event_type,
-                    state_key: ev.state_key,
-                    error,
-                })
+            FailedToParseEvent::MsgLike(event_type) => {
+                Self::add_item(TimelineItemContent::FailedToParseMessageLike { event_type, error })
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub(super) enum FailedToParseEvent {
+    MsgLike(MessageLikeEventType),
+    State { event_type: StateEventType, state_key: String },
 }
 
 /// The position at which to perform an update of the timeline with events.
