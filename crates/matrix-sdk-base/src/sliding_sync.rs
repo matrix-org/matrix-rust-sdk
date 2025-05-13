@@ -14,7 +14,8 @@
 
 //! Extend `BaseClient` with capabilities to handle MSC4186.
 
-use ruma::api::client::sync::sync_events::v5 as http;
+use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnyToDeviceEvent, serde::Raw};
 use tracing::{instrument, trace};
@@ -22,6 +23,7 @@ use tracing::{instrument, trace};
 use super::BaseClient;
 use crate::{
     error::Result,
+    read_receipts::compute_unread_counts,
     response_processors as processors,
     rooms::normal::RoomInfoNotableUpdateReasons,
     store::ambiguity_map::AmbiguityCache,
@@ -194,11 +196,9 @@ impl BaseClient {
         // Handle read receipts and typing notifications independently of the rooms:
         // these both live in a different subsection of the server's response,
         // so they may exist without any update for the associated room.
-        processors::room::msc4186::extensions::dispatch_ephemeral_events(
+        processors::room::msc4186::extensions::dispatch_typing_ephemeral_events(
             &mut context,
-            &extensions.receipts,
             &extensions.typing,
-            // We assume this can only happen in joined rooms, or something's very wrong.
             &mut room_updates.joined,
         );
 
@@ -210,43 +210,6 @@ impl BaseClient {
             &self.state_store,
         )
         .await;
-
-        // Rooms in `room_updates.joined` either have a timeline update, or a new read
-        // receipt. Update the read receipt accordingly.
-        // let user_id = &self.session_meta().expect("logged in user").user_id;
-
-        for (room_id, _joined_room_update) in &mut room_updates.joined {
-            if let Some(room_info) = context
-                .state_changes
-                .room_infos
-                .get(room_id)
-                .cloned()
-                .or_else(|| self.get_room(room_id).map(|r| r.clone_info()))
-            {
-                let prev_read_receipts = room_info.read_receipts.clone();
-
-                /*
-                compute_unread_counts(
-                    user_id,
-                    room_id,
-                    context.state_changes.receipts.get(room_id),
-                    previous_events_provider.for_room(room_id),
-                    &joined_room_update.timeline.events,
-                    &mut room_info.read_receipts,
-                );
-                */
-
-                if prev_read_receipts != room_info.read_receipts {
-                    context
-                        .room_info_notable_updates
-                        .entry(room_id.clone())
-                        .or_default()
-                        .insert(RoomInfoNotableUpdateReasons::READ_RECEIPT);
-
-                    context.state_changes.add_room(room_info);
-                }
-            }
-        }
 
         global_account_data_processor.apply(&mut context, &state_store).await;
 
@@ -282,6 +245,71 @@ impl BaseClient {
             account_data: extensions.account_data.global.clone(),
             to_device: Default::default(),
         })
+    }
+
+    /// Process the `receipts` extension, and compute (and save) the unread
+    /// counts based on read receipts, for a particular room.
+    #[doc(hidden)]
+    pub async fn process_sliding_sync_receipts_extension_for_room(
+        &self,
+        room_id: &OwnedRoomId,
+        response: &http::Response,
+        sync_response: &mut SyncResponse,
+        room_previous_events: Vec<TimelineEvent>,
+    ) -> Result<()> {
+        let mut context = processors::Context::default();
+
+        let mut save_context = false;
+
+        // Get or create the `JoinedRoomUpdate`, so that we can push the receipt
+        // ephemeral event, and compute the unread counts.
+        let joined_room_update = sync_response.rooms.joined.entry(room_id.to_owned()).or_default();
+
+        // Handle the receipt ephemeral event.
+        if let Some(receipt_ephemeral_event) = response.extensions.receipts.rooms.get(room_id) {
+            processors::room::msc4186::extensions::dispatch_receipt_ephemeral_event_for_room(
+                &mut context,
+                room_id,
+                receipt_ephemeral_event,
+                joined_room_update,
+            );
+            save_context = true;
+        }
+
+        let user_id = &self.session_meta().expect("logged in user").user_id;
+
+        // Rooms in `room_updates.joined` either have a timeline update, or a new read
+        // receipt. Update the read receipt accordingly.
+        if let Some(mut room_info) = self.get_room(room_id).map(|room| room.clone_info()) {
+            let prev_read_receipts = room_info.read_receipts.clone();
+
+            compute_unread_counts(
+                user_id,
+                room_id,
+                context.state_changes.receipts.get(room_id),
+                room_previous_events,
+                &joined_room_update.timeline.events,
+                &mut room_info.read_receipts,
+            );
+
+            if prev_read_receipts != room_info.read_receipts {
+                context
+                    .room_info_notable_updates
+                    .entry(room_id.clone())
+                    .or_default()
+                    .insert(RoomInfoNotableUpdateReasons::READ_RECEIPT);
+
+                context.state_changes.add_room(room_info);
+                save_context = true;
+            }
+        }
+
+        // Save the new `RoomInfo` if updated.
+        if save_context {
+            processors::changes::save_only(context, &self.state_store).await?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1843,68 +1871,6 @@ mod tests {
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_STAMP));
-            }
-        );
-        assert!(room_info_notable_update_stream.is_empty());
-    }
-
-    #[async_test]
-    async fn test_read_receipt_can_trigger_a_notable_update_reason() {
-        // Given a logged-in client
-        let client = logged_in_base_client(None).await;
-        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
-
-        // When I send sliding sync response containing a new room.
-        let room_id = room_id!("!r:e.uk");
-        let room = http::response::Room::new();
-        let response = response_with_room(room_id, room);
-        client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
-            .await
-            .expect("Failed to process sync");
-
-        // Then a room info notable update is received, but not the one we are
-        // interested by.
-        assert_matches!(
-            room_info_notable_update_stream.recv().await,
-            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
-                assert_eq!(received_room_id, room_id);
-                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
-            }
-        );
-        assert_matches!(
-            room_info_notable_update_stream.recv().await,
-            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
-                assert_eq!(received_room_id, room_id);
-                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME));
-            }
-        );
-        assert!(room_info_notable_update_stream.is_empty());
-
-        // When I send sliding sync response containing a couple of events with no read
-        // receipt.
-        let room_id = room_id!("!r:e.uk");
-        let events = vec![
-            make_raw_event("m.room.message", "$3"),
-            make_raw_event("m.room.message", "$4"),
-            make_raw_event("m.read", "$5"),
-        ];
-        let room = assign!(http::response::Room::new(), {
-            timeline: events,
-        });
-        let response = response_with_room(room_id, room);
-        client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
-            .await
-            .expect("Failed to process sync");
-
-        // Then a room info notable update is received.
-        assert_matches!(
-            room_info_notable_update_stream.recv().await,
-            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
-                assert_eq!(received_room_id, room_id);
-                // assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
-                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE));
             }
         );
         assert!(room_info_notable_update_stream.is_empty());
