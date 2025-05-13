@@ -30,7 +30,7 @@ use matrix_sdk::{
 use ruma::{events::AnySyncTimelineEvent, OwnedEventId, RoomVersionId};
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{info_span, trace, warn, Instrument, Span};
+use tracing::{info_span, instrument, trace, warn, Instrument, Span};
 
 use super::{
     controller::{TimelineController, TimelineSettings},
@@ -312,6 +312,12 @@ impl TimelineBuilder {
 }
 
 /// The task that handles the pinned event IDs updates.
+#[instrument(
+    skip_all,
+    fields(
+        room_id = %timeline_controller.room().room_id(),
+    )
+)]
 async fn pinned_events_task<S>(pinned_event_ids_stream: S, timeline_controller: TimelineController)
 where
     S: Stream<Item = Vec<OwnedEventId>>,
@@ -319,13 +325,20 @@ where
     pin_mut!(pinned_event_ids_stream);
 
     while pinned_event_ids_stream.next().await.is_some() {
-        if let Ok(events) = timeline_controller.reload_pinned_events().await {
-            timeline_controller
-                .replace_with_initial_remote_events(
-                    events.into_iter(),
-                    RemoteEventOrigin::Pagination,
-                )
-                .await;
+        trace!("received a pinned events update");
+        match timeline_controller.reload_pinned_events().await {
+            Ok(events) => {
+                trace!("successfully reloaded pinned events");
+                timeline_controller
+                    .replace_with_initial_remote_events(
+                        events.into_iter(),
+                        RemoteEventOrigin::Pagination,
+                    )
+                    .await;
+            }
+            Err(err) => {
+                warn!("Failed to reload pinned events: {err}");
+            }
         }
     }
 }
