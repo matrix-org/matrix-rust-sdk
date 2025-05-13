@@ -344,7 +344,7 @@ impl SlidingSync {
                 // the `sync_response.join`. Mark them as updated too.
                 //
                 // Since we've removed rooms that were in the room subsection from
-                // `sync_response.rooms.join`, the remaining ones aren't already present in
+                // `sync_response.rooms.joined`, the remaining ones aren't already present in
                 // `updated_rooms` and wouldn't cause any duplicates.
                 updated_rooms.extend(sync_response.rooms.joined.keys().cloned());
 
@@ -2072,6 +2072,7 @@ mod tests {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
+        client.event_cache().subscribe().unwrap();
 
         let sliding_sync = client
             .sliding_sync("test")?

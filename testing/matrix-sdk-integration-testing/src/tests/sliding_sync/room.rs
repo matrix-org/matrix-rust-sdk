@@ -393,13 +393,14 @@ impl UpdateObserver {
     }
 }
 
-/*
 #[tokio::test]
 async fn test_room_notification_count() -> Result<()> {
     use tokio::time::timeout;
 
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    alice.event_cache().subscribe().unwrap();
 
     // Spawn sync for Bob.
     spawn({
@@ -643,7 +644,6 @@ async fn test_room_notification_count() -> Result<()> {
 
     Ok(())
 }
-*/
 
 /// Response preprocessor that drops to_device events
 fn drop_todevice_events(response: &mut Bytes) {
