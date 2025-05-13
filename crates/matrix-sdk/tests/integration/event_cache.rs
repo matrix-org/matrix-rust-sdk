@@ -203,7 +203,7 @@ async fn test_ignored_unignored() {
     {
         let room = client.get_room(other_room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (events, _) = room_event_cache.subscribe().await;
+        let events = room_event_cache.events().await;
         assert!(events.is_empty());
     }
 
@@ -984,7 +984,7 @@ async fn test_backpaginate_with_no_initial_events() {
     pagination.run_backwards_once(20).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
-    let (events, _stream) = room_event_cache.subscribe().await;
+    let events = room_event_cache.events().await;
 
     assert_eq!(events.len(), 3, "{events:?}");
     assert_event_matches_msg(&events[0], "oh well");
@@ -1047,7 +1047,7 @@ async fn test_backpaginate_replace_empty_gap() {
     pagination.run_backwards_once(20).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
-    let (events, _stream) = room_event_cache.subscribe().await;
+    let events = room_event_cache.events().await;
 
     assert_event_matches_msg(&events[0], "hello");
     assert_event_matches_msg(&events[1], "world");
@@ -1130,7 +1130,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     assert!(stream.is_empty());
 
     {
-        let (events, _) = room_event_cache.subscribe().await;
+        let events = room_event_cache.events().await;
         assert_event_matches_msg(&events[0], "hello");
         assert_event_matches_msg(&events[1], "world");
         assert_event_matches_msg(&events[2], "sup");
@@ -1149,7 +1149,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     assert!(outcome.reached_start);
 
     {
-        let (events, _) = room_event_cache.subscribe().await;
+        let events = room_event_cache.events().await;
         assert_event_matches_msg(&events[0], "hello");
         assert_event_matches_msg(&events[1], "world");
         assert_event_matches_msg(&events[2], "sup");
