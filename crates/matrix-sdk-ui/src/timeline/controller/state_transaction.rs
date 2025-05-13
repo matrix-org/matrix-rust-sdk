@@ -451,35 +451,36 @@ impl<'a> TimelineStateTransaction<'a> {
         // See [`ObservableItems::all_remote_events`].
         self.add_or_update_remote_event(event_meta, position, room_data_provider, settings).await;
 
-        let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
-        let ctx = TimelineEventContext {
-            sender,
-            sender_profile,
-            timestamp,
-            read_receipts: if settings.track_read_receipts && should_add {
-                self.meta.read_receipts.compute_event_receipts(
-                    &event_id,
-                    &mut self.items,
-                    matches!(position, TimelineItemPosition::End { .. }),
-                )
-            } else {
-                Default::default()
-            },
-            is_highlighted: push_actions
-                .as_ref()
-                .is_some_and(|actions| actions.iter().any(Action::is_highlight)),
-            flow: Flow::Remote {
-                event_id: event_id.clone(),
-                raw_event: raw,
-                encryption_info,
-                txn_id,
-                position,
-            },
-            should_add_new_items: should_add,
-        };
-
         // Handle the event to create or update a timeline item.
         if let Some(timeline_action) = timeline_action {
+            let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+
+            let ctx = TimelineEventContext {
+                sender,
+                sender_profile,
+                timestamp,
+                read_receipts: if settings.track_read_receipts && should_add {
+                    self.meta.read_receipts.compute_event_receipts(
+                        &event_id,
+                        &mut self.items,
+                        matches!(position, TimelineItemPosition::End { .. }),
+                    )
+                } else {
+                    Default::default()
+                },
+                is_highlighted: push_actions
+                    .as_ref()
+                    .is_some_and(|actions| actions.iter().any(Action::is_highlight)),
+                flow: Flow::Remote {
+                    event_id: event_id.clone(),
+                    raw_event: raw,
+                    encryption_info,
+                    txn_id,
+                    position,
+                },
+                should_add_new_items: should_add,
+            };
+
             TimelineEventHandler::new(self, ctx)
                 .handle_event(date_divider_adjuster, timeline_action)
                 .await
