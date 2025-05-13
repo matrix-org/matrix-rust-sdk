@@ -86,7 +86,7 @@ similar-asserts = "1.6.1"
 stream_assert = "0.1.1"
 tempfile = "3.16.0"
 thiserror = "2.0.11"
-tokio = { version = "1.43.0", default-features = false, features = ["sync"] }
+tokio = { version = "1.43.1", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
