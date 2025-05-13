@@ -99,26 +99,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .await
         .expect("Room should be synced");
 
-    // If the test runs fast, we receive 1 update, then 2 updates. If the test runs
-    // slow, we receive 3 updates directly. Let's solve this flakiness with a
-    // `sleep`.
-    sleep(Duration::from_millis(500)).await;
-
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
-
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
-
-    // The loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
-    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
-    assert!(value.is_date_divider());
-
     // Event $2 was received through sync, but it wasn't added to the pinned event
-    // timeline
+    // timeline.
     assert_pending!(timeline_stream);
 }
 
@@ -516,20 +498,6 @@ async fn test_edited_events_are_not_reflected_in_sync() {
         .await
         .expect("Sync failed");
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
-
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
-
-    // Then the loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
-    let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
-    assert!(value.is_date_divider());
-
     // The edit does not replace the original event
     assert_pending!(timeline_stream);
 }
@@ -588,20 +556,6 @@ async fn test_redacted_events_are_not_reflected_in_sync() {
         .mock_and_sync(&client, &server)
         .await
         .expect("Sync failed");
-
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
-
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
-
-    // Then the loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
-    let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
-    assert!(value.is_date_divider());
 
     // The redaction does not replace the original event
     assert_pending!(timeline_stream);

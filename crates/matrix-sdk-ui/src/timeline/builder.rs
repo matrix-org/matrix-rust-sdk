@@ -326,8 +326,9 @@ where
 
     while pinned_event_ids_stream.next().await.is_some() {
         trace!("received a pinned events update");
+
         match timeline_controller.reload_pinned_events().await {
-            Ok(events) => {
+            Ok(Some(events)) => {
                 trace!("successfully reloaded pinned events");
                 timeline_controller
                     .replace_with_initial_remote_events(
@@ -336,6 +337,12 @@ where
                     )
                     .await;
             }
+
+            Ok(None) => {
+                // The list of pinned events hasn't changed since the previous
+                // time.
+            }
+
             Err(err) => {
                 warn!("Failed to reload pinned events: {err}");
             }
