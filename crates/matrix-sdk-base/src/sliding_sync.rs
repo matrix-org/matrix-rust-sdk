@@ -211,7 +211,7 @@ impl BaseClient {
         )
         .await;
 
-        // Rooms in `new_rooms.join` either have a timeline update, or a new read
+        // Rooms in `room_updates.joined` either have a timeline update, or a new read
         // receipt. Update the read receipt accordingly.
         // let user_id = &self.session_meta().expect("logged in user").user_id;
 

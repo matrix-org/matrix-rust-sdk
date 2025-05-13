@@ -146,11 +146,7 @@ pub mod stripped {
     ///   counterpart.
     /// * `room` - The [`Room`] to modify.
     /// * `room_info` - The current room's info.
-    /// * `push_rules` - The push rules for this room.
-    /// * `changes` - The accumulated list of changes to apply once the
-    ///   processing is finished.
     /// * `notifications` - Notifications to post for the current room.
-    /// * `state_store` — The state store.
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn dispatch_invite_or_knock(
         context: &mut Context,
