@@ -397,7 +397,12 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             }
 
             TimelineFocusData::PinnedEvents { loader } => {
-                let loaded_events = loader.load_events().await.map_err(Error::PinnedEventsError)?;
+                let Some(loaded_events) =
+                    loader.load_events().await.map_err(Error::PinnedEventsError)?
+                else {
+                    // There wasn't any events.
+                    return Ok(false);
+                };
 
                 drop(focus_guard);
 
@@ -447,7 +452,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
 
     pub(crate) async fn reload_pinned_events(
         &self,
-    ) -> Result<Vec<TimelineEvent>, PinnedEventsLoaderError> {
+    ) -> Result<Option<Vec<TimelineEvent>>, PinnedEventsLoaderError> {
         let focus_guard = self.focus.read().await;
 
         if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
