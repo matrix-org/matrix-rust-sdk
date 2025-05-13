@@ -123,18 +123,26 @@ pub(super) struct TimelineEventContext {
     pub(super) should_add_new_items: bool,
 }
 
+/// Which kind of aggregation (i.e. modification of a related event) are we
+/// going to handle?
 #[derive(Clone, Debug)]
 pub(super) enum HandleAggregationKind {
+    /// Adding a reaction to the related event.
     Reaction { key: String },
 
+    /// Redacting (removing) the related event.
     Redaction,
 
+    /// Editing (replacing) the related event with another one.
     Edit { replacement: Replacement<RoomMessageEventContentWithoutRelation> },
 
+    /// Responding to the related poll event.
     PollResponse { answers: Vec<String> },
 
+    /// Editing a related poll event's description.
     PollEdit { replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation> },
 
+    /// Ending a related poll.
     PollEnd,
 }
 
