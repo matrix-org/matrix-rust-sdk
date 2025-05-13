@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use matrix_sdk::{EncryptionState, RoomState};
+use ruma::events::room::tombstone::RoomTombstoneEventContent;
 use tracing::warn;
 
 use crate::{
@@ -26,7 +27,8 @@ pub struct RoomInfo {
     is_direct: bool,
     is_public: bool,
     is_space: bool,
-    is_tombstoned: bool,
+    /// If present, it means the room has been archived/upgraded.
+    tombstone: Option<RoomTombstoneInfo>,
     is_favourite: bool,
     canonical_alias: Option<String>,
     alternative_aliases: Vec<String>,
@@ -94,7 +96,7 @@ impl RoomInfo {
             is_direct: room.is_direct().await?,
             is_public: room.is_public(),
             is_space: room.is_space(),
-            is_tombstoned: room.is_tombstoned(),
+            tombstone: room.tombstone().map(Into::into),
             is_favourite: room.is_favourite(),
             canonical_alias: room.canonical_alias().map(Into::into),
             alternative_aliases: room.alt_aliases().into_iter().map(Into::into).collect(),
@@ -135,5 +137,19 @@ impl RoomInfo {
             join_rule: join_rule.ok(),
             history_visibility: room.history_visibility_or_default().try_into()?,
         })
+    }
+}
+
+/// Contains the `m.room.tombstone` state of the room, with a message about the
+/// room upgrade and the id of the newly created room to replace this one.
+#[derive(uniffi::Record)]
+pub struct RoomTombstoneInfo {
+    body: String,
+    replacement_room_id: String,
+}
+
+impl From<ruma::events::room::tombstone::RoomTombstoneEventContent> for RoomTombstoneInfo {
+    fn from(value: RoomTombstoneEventContent) -> Self {
+        Self { body: value.body, replacement_room_id: value.replacement_room.to_string() }
     }
 }

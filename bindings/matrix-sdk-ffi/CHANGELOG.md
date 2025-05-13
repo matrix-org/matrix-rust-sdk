@@ -13,6 +13,9 @@ Breaking changes:
   allows a foreign language to read file contents natively and then pass those contents to
   the foreign function when uploading a file through the `Timeline`.
   ([#4948](https://github.com/matrix-org/matrix-rust-sdk/pull/4948))
+- `RoomInfo` replaces its field `is_tombstoned: bool` with `tombstone: Option<RoomTombstoneInfo>`,
+  containing the data needed to implement the room migration UI, a message and the replacement room id.
+  ([#5027](https://github.com/matrix-org/matrix-rust-sdk/pull/5027))
 
 Additions:
 
