@@ -686,6 +686,30 @@ impl WidgetMachine {
         actions
     }
 
+    /// Attempts to acquire capabilities that have been requested by the widget
+    /// during the initial capability negotiation handshake.
+    fn process_requested_capabilities(&mut self, requested: Capabilities) -> Vec<Action> {
+        match self.send_matrix_driver_request(AcquireCapabilities {
+            desired_capabilities: requested.clone(),
+        }) {
+            None => Vec::new(),
+            Some((request, action)) => {
+                request.add_response_handler(|result, machine| {
+                    machine.process_acquired_capabilities(result, requested)
+                });
+                vec![action]
+            }
+        }
+    }
+
+    /// Performs an initial capability negotiation handshake.
+    ///
+    /// The sequence is as follows: the machine sends a [`RequestCapabilities`]
+    /// `toWidget` action, the widget responds with its requested
+    /// capabilities, the machine attempts to acquire the
+    /// requested capabilities from the driver, then it sends a
+    /// [`NotifyCapabilitiesChanged`] `toWidget` action to tell the widget
+    /// which capabilities were approved.
     fn negotiate_capabilities(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
 
@@ -695,28 +719,13 @@ impl WidgetMachine {
 
         self.capabilities = CapabilitiesState::Negotiating;
 
-        let Some((request, action)) = self.send_to_widget_request(RequestCapabilities {}) else {
-            // We're done, return early.
-            return actions;
-        };
-
-        request.add_response_handler(|response, machine| {
-            let requested_capabilities = response.capabilities;
-
-            let Some((request, action)) = machine.send_matrix_driver_request(AcquireCapabilities {
-                desired_capabilities: requested_capabilities.clone(),
-            }) else {
-                // We're done, return early.
-                return Vec::new();
-            };
-
+        if let Some((request, action)) = self.send_to_widget_request(RequestCapabilities {}) {
             request.add_response_handler(|result, machine| {
-                machine.process_acquired_capabilities(result, requested_capabilities)
+                machine.process_requested_capabilities(result.capabilities)
             });
-            vec![action]
-        });
+            actions.push(action);
+        }
 
-        actions.push(action);
         actions
     }
 }
