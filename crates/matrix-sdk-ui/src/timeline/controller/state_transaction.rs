@@ -18,8 +18,8 @@ use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use ruma::{
-    events::AnySyncTimelineEvent, push::Action, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId,
-    OwnedUserId,
+    events::AnySyncTimelineEvent, push::Action, serde::Raw, MilliSecondsSinceUnixEpoch,
+    OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
 use tracing::{debug, instrument, warn};
 
@@ -34,12 +34,9 @@ use super::{
     ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
     TimelineSettings,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent,
-    timeline::{
-        event_handler::{RemovedItem, TimelineAction},
-        VirtualTimelineItem,
-    },
+use crate::timeline::{
+    event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
+    VirtualTimelineItem,
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
@@ -281,6 +278,109 @@ impl<'a> TimelineStateTransaction<'a> {
         }
     }
 
+    /// After a deserialization error, adds a failed-to-parse item to the
+    /// timeline if configured to do so, or logs the error (and optionally
+    /// save metadata) if not.
+    async fn maybe_add_error_item(
+        &mut self,
+        position: TimelineItemPosition,
+        room_data_provider: &impl RoomDataProvider,
+        raw: &Raw<AnySyncTimelineEvent>,
+        deserialization_error: serde_json::Error,
+        settings: &TimelineSettings,
+    ) -> Option<(
+        OwnedEventId,
+        OwnedUserId,
+        MilliSecondsSinceUnixEpoch,
+        Option<OwnedTransactionId>,
+        Option<TimelineAction>,
+        bool,
+    )> {
+        let state_key: Option<String> = raw.get_field("state_key").ok().flatten();
+
+        // A state event is an event that has a state key. Note that the two branches
+        // differ because the inferred return type for `get_field` is different
+        // in each case.
+        //
+        // If this was a state event but it didn't include a state_key, we'll assume it
+        // was a msg-like, because we can't do much more.
+        let event_type = if let Some(state_key) = state_key {
+            raw.get_field("type")
+                .ok()
+                .flatten()
+                .map(|event_type| FailedToParseEvent::State { event_type, state_key })
+        } else {
+            raw.get_field("type").ok().flatten().map(FailedToParseEvent::MsgLike)
+        };
+
+        let event_id: Option<OwnedEventId> = raw.get_field("event_id").ok().flatten();
+        let Some(event_id) = event_id else {
+            // If the event doesn't even have an event ID, we can't do anything with it.
+            warn!(
+                ?event_type,
+                "Failed to deserialize timeline event (with no ID): {deserialization_error}"
+            );
+            return None;
+        };
+
+        let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
+        let origin_server_ts: Option<MilliSecondsSinceUnixEpoch> =
+            raw.get_field("origin_server_ts").ok().flatten();
+
+        match (sender, origin_server_ts, event_type) {
+            (Some(sender), Some(origin_server_ts), Some(event_type))
+                if settings.add_failed_to_parse =>
+            {
+                // We have sufficient information to show an item in the timeline, and we've
+                // been requested to show it, let's do it.
+                #[derive(serde::Deserialize)]
+                struct Unsigned {
+                    transaction_id: Option<OwnedTransactionId>,
+                }
+
+                let transaction_id: Option<OwnedTransactionId> = raw
+                    .get_field::<Unsigned>("unsigned")
+                    .ok()
+                    .flatten()
+                    .and_then(|unsigned| unsigned.transaction_id);
+
+                // The event can be partially deserialized, and it is allowed to be added to
+                // the timeline.
+                Some((
+                    event_id,
+                    sender,
+                    origin_server_ts,
+                    transaction_id,
+                    Some(TimelineAction::failed_to_parse(event_type, deserialization_error)),
+                    true,
+                ))
+            }
+
+            (sender, origin_server_ts, event_type) => {
+                // We either lack information for rendering an item, or we've been requested not
+                // to show it. Save it into the metadata and return.
+                warn!(
+                    ?event_type,
+                    ?event_id,
+                    "Failed to deserialize timeline event: {deserialization_error}"
+                );
+
+                let event_meta = FullEventMeta {
+                    event_id: &event_id,
+                    sender: sender.as_deref(),
+                    timestamp: origin_server_ts,
+                    visible: false,
+                };
+
+                // Remember the event before returning prematurely.
+                // See [`ObservableItems::all_remote_events`].
+                self.add_or_update_remote_event(event_meta, position, room_data_provider, settings)
+                    .await;
+                None
+            }
+        }
+    }
+
     /// Handle a remote event.
     ///
     /// Returns whether an item has been removed from the timeline.
@@ -329,84 +429,15 @@ impl<'a> TimelineStateTransaction<'a> {
             }
 
             // The event seems invalid…
-            Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
-                // The event can be partially deserialized, and it is allowed to be added to the
-                // timeline.
-                Ok(event) if settings.add_failed_to_parse => (
-                    event.event_id().to_owned(),
-                    event.sender().to_owned(),
-                    event.origin_server_ts(),
-                    event.transaction_id().map(ToOwned::to_owned),
-                    Some(TimelineAction::failed_to_parse(event, e)),
-                    true,
-                ),
-
-                // The event can be partially deserialized, but it is NOT allowed to be added to
-                // the timeline.
-                Ok(event) => {
-                    let event_type = event.event_type();
-                    let event_id = event.event_id();
-                    warn!(%event_type, %event_id, "Failed to deserialize timeline event: {e}");
-
-                    let event_meta = FullEventMeta {
-                        event_id,
-                        sender: Some(event.sender()),
-                        timestamp: Some(event.origin_server_ts()),
-                        visible: false,
-                    };
-
-                    // Remember the event before returning prematurely.
-                    // See [`ObservableItems::all_remote_events`].
-                    self.add_or_update_remote_event(
-                        event_meta,
-                        position,
-                        room_data_provider,
-                        settings,
-                    )
-                    .await;
-
-                    // No item has been removed.
+            Err(e) => {
+                if let Some(tuple) =
+                    self.maybe_add_error_item(position, room_data_provider, &raw, e, settings).await
+                {
+                    tuple
+                } else {
                     return false;
                 }
-
-                // The event can NOT be partially deserialized, it seems really broken.
-                Err(e) => {
-                    let event_type: Option<String> = raw.get_field("type").ok().flatten();
-                    let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    warn!(
-                        event_type,
-                        event_id, "Failed to deserialize timeline event even without content: {e}"
-                    );
-
-                    let event_id = event_id.and_then(|s| EventId::parse(s).ok());
-
-                    if let Some(event_id) = &event_id {
-                        let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
-                        let timestamp: Option<MilliSecondsSinceUnixEpoch> =
-                            raw.get_field("origin_server_ts").ok().flatten();
-
-                        let event_meta = FullEventMeta {
-                            event_id,
-                            sender: sender.as_deref(),
-                            timestamp,
-                            visible: false,
-                        };
-
-                        // Remember the event before returning prematurely.
-                        // See [`ObservableItems::all_remote_events`].
-                        self.add_or_update_remote_event(
-                            event_meta,
-                            position,
-                            room_data_provider,
-                            settings,
-                        )
-                        .await;
-                    }
-
-                    // No item has been removed.
-                    return false;
-                }
-            },
+            }
         };
 
         let event_meta = FullEventMeta {
