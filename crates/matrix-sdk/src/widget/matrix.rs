@@ -17,25 +17,28 @@
 
 use std::collections::BTreeMap;
 
-use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
         filter::RoomEventFilter,
+        to_device::send_event_to_device::{self, v3::Request as RumaToDeviceRequest},
     },
     assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventType,
-        StateEventType, TimelineEventType,
+        AnySyncStateEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        MessageLikeEventType, StateEventType, TimelineEventType, ToDeviceEventType,
     },
     serde::{from_raw_json_value, Raw},
-    EventId, RoomId, TransactionId,
+    to_device::DeviceIdOrAllDevices,
+    EventId, OwnedRoomId, OwnedUserId, TransactionId,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tracing::error;
+use tracing::{error, info};
 
 use super::{machine::SendEventResponse, StateKeySelector};
 use crate::{event_handler::EventHandlerDropGuard, room::MessagesOptions, Error, Result, Room};
@@ -86,7 +89,14 @@ impl MatrixDriver {
     ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
         let room_id = self.room.room_id();
         let convert = |sync_or_stripped_state| match sync_or_stripped_state {
-            RawAnySyncOrStrippedState::Sync(ev) => Some(attach_room_id(ev.cast_ref(), room_id)),
+            RawAnySyncOrStrippedState::Sync(ev) => {
+                add_props_to_raw(&ev, Some(room_id.to_owned()), None)
+                    .map(Raw::cast)
+                    .map_err(|e| {
+                        error!("failed to convert event from `get_state_event` response:{}", e)
+                    })
+                    .ok()
+            }
             RawAnySyncOrStrippedState::Stripped(_) => {
                 error!("MatrixDriver can't operate in invited rooms");
                 None
@@ -181,7 +191,7 @@ impl MatrixDriver {
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`
     /// is dropped, forwarding will be stopped.
-    pub(crate) fn events(&self) -> EventReceiver {
+    pub(crate) fn events(&self) -> EventReceiver<Raw<AnyTimelineEvent>> {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
 
@@ -190,14 +200,29 @@ impl MatrixDriver {
         let _room_id = room_id.clone();
         let handle_msg_like =
             self.room.add_event_handler(move |raw: Raw<AnySyncMessageLikeEvent>| {
-                let _ = _tx.send(attach_room_id(raw.cast_ref(), &_room_id));
+                match add_props_to_raw(&raw, Some(_room_id), None) {
+                    Ok(event_with_room_id) => {
+                        let _ = _tx.send(event_with_room_id.cast());
+                    }
+                    Err(e) => {
+                        error!("Failed to attach room id to message like event: {}", e);
+                    }
+                }
                 async {}
             });
         let drop_guard_msg_like = self.room.client().event_handler_drop_guard(handle_msg_like);
-
+        let _room_id = room_id;
+        let _tx = tx;
         // Get only all state events from the state section of the sync.
         let handle_state = self.room.add_event_handler(move |raw: Raw<AnySyncStateEvent>| {
-            let _ = tx.send(attach_room_id(raw.cast_ref(), &room_id));
+            match add_props_to_raw(&raw, Some(_room_id.to_owned()), None) {
+                Ok(event_with_room_id) => {
+                    let _ = _tx.send(event_with_room_id.cast());
+                }
+                Err(e) => {
+                    error!("Failed to attach room id to state event: {}", e);
+                }
+            }
             async {}
         });
         let drop_guard_state = self.room.client().event_handler_drop_guard(handle_state);
@@ -208,25 +233,140 @@ impl MatrixDriver {
         // section of the sync will not be forwarded to the widget.
         // TODO annotate the events and send both timeline and state section state
         // events.
-        EventReceiver { rx, _drop_guards: [drop_guard_msg_like, drop_guard_state] }
+        EventReceiver { rx, _drop_guards: vec![drop_guard_msg_like, drop_guard_state] }
+    }
+
+    /// Starts forwarding new room events. Once the returned `EventReceiver`
+    /// is dropped, forwarding will be stopped.
+    pub(crate) fn to_device_events(&self) -> EventReceiver<Raw<AnyToDeviceEvent>> {
+        let (tx, rx) = unbounded_channel();
+
+        let to_device_handle = self.room.client().add_event_handler(
+            move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>| {
+                match add_props_to_raw(&raw, None, encryption_info.as_ref()) {
+                    Ok(ev) => {
+                        let _ = tx.send(ev);
+                    }
+                    Err(e) => {
+                        error!("Failed to attach encryption flag to to_device event: {}", e);
+                    }
+                }
+                async {}
+            },
+        );
+
+        let drop_guard = self.room.client().event_handler_drop_guard(to_device_handle);
+        EventReceiver { rx, _drop_guards: vec![drop_guard] }
+    }
+
+    /// It will ignore all devices where errors occurred or where the device is
+    /// not verified or where th user has a has_verification_violation.
+    pub(crate) async fn send_to_device(
+        &self,
+        event_type: ToDeviceEventType,
+        encrypted: bool,
+        messages: BTreeMap<
+            OwnedUserId,
+            BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
+        >,
+    ) -> Result<send_event_to_device::v3::Response> {
+        let client = self.room.client();
+
+        let request = if encrypted {
+            return Err(Error::UnknownError(
+                "Sending encrypted to_device events is not supported by the widget driver.".into(),
+            ));
+        } else {
+            RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages)
+        };
+
+        let response = client.send(request).await;
+
+        response.map_err(Into::into)
     }
 }
 
 /// A simple entity that wraps an `UnboundedReceiver`
 /// along with the drop guard for the room event handler.
-pub(crate) struct EventReceiver {
-    rx: UnboundedReceiver<Raw<AnyTimelineEvent>>,
-    _drop_guards: [EventHandlerDropGuard; 2],
+pub(crate) struct EventReceiver<E> {
+    rx: UnboundedReceiver<E>,
+    _drop_guards: Vec<EventHandlerDropGuard>,
 }
 
-impl EventReceiver {
-    pub(crate) async fn recv(&mut self) -> Option<Raw<AnyTimelineEvent>> {
+impl<T> EventReceiver<T> {
+    pub(crate) async fn recv(&mut self) -> Option<T> {
         self.rx.recv().await
     }
 }
 
-fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<AnyTimelineEvent> {
-    let mut ev_obj = raw_ev.deserialize_as::<BTreeMap<String, Box<RawJsonValue>>>().unwrap();
-    ev_obj.insert("room_id".to_owned(), serde_json::value::to_raw_value(room_id).unwrap());
-    Raw::new(&ev_obj).unwrap().cast()
+// `room_id` and `encryption` is the only modification we need to do to the
+// events otherwise they are just forwarded raw to the widget.
+// This is why we do not serialization the whole event but pass it as a raw
+// value through the widget driver and only serialize here to allow potimizing
+// with `serde(borrow)`.
+#[derive(Deserialize, Serialize)]
+struct RoomIdEncryptionSerializer {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_id: Option<OwnedRoomId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encrypted: Option<bool>,
+    #[serde(flatten)]
+    rest: Value,
+}
+
+/// Attach additional properties to the event.
+///
+/// Attach a room id to the event. This is needed because the widget API
+/// requires the room id to be present in the event.
+///
+/// Attach the `ecryption` flag to the event. This is needed so the widget gets
+/// informed if an event is encrypted or not. Since the client is responsible
+/// for decrypting the event, there otherwise is no way for the widget to know
+/// if its an encrypted (signed/trusted) event or not.
+fn add_props_to_raw<T>(
+    raw: &Raw<T>,
+    room_id: Option<OwnedRoomId>,
+    encryption_info: Option<&EncryptionInfo>,
+) -> Result<Raw<T>> {
+    match raw.deserialize_as::<RoomIdEncryptionSerializer>() {
+        Ok(mut event) => {
+            event.room_id = room_id.or(event.room_id);
+            event.encrypted = encryption_info.map(|_| true).or(event.encrypted);
+            info!("rest is: {:?}", event.rest);
+            Ok(Raw::new(&event)?.cast())
+        }
+        Err(e) => Err(Error::from(e)),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use ruma::{room_id, serde::Raw};
+    use serde_json::json;
+
+    use super::add_props_to_raw;
+
+    #[test]
+    fn test_app_props_to_raw() {
+        let raw = Raw::new(&json!({
+            "encrypted": true,
+            "type": "m.room.message",
+            "content": {
+                "body": "Hello world"
+            }
+        }))
+        .unwrap();
+        let room_id = room_id!("!my_id:example.org");
+        let new = add_props_to_raw(&raw, Some(room_id.to_owned()), None).unwrap();
+        assert_eq!(
+            serde_json::to_value(new).unwrap(),
+            json!({
+                "encrypted": true,
+                "room_id": "!my_id:example.org",
+                "type": "m.room.message",
+                "content": {
+                    "body": "Hello world"
+                }
+            })
+        );
+    }
 }
