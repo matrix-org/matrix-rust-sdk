@@ -13,6 +13,15 @@ All notable changes to this project will be documented in this file.
 - `Room::relations()` is a new method to list all the events related to another event
   ("relations"), with additional filters for relation type or relation type + event type.
   ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
+- The `EventCache`'s persistent storage has been enabled by default. This means that all the events
+  received by sync or back-paginations will be stored, in memory or on disk, by default, as soon as
+  `EventCache::subscribe()` has been called (which happens automatically if you're using the
+  `matrix_sdk_ui::Timeline`). This offers offline access and super quick back-paginations (when the
+  cache has been filled) whenever the event cache is enabled. It's also not possible to disable the
+  persistent storage anymore. Note that by default, the event cache store uses an in-memory store,
+  so the events will be lost when the process exits. To store the events on disk, you need to use
+  the sqlite event cache store.
+  ([#4308](https://github.com/matrix-org/matrix-rust-sdk/pull/4308))
 
 ### Bug fixes
 
