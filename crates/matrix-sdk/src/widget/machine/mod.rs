@@ -713,6 +713,8 @@ impl WidgetMachine {
     fn negotiate_capabilities(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
 
+        // XXX: This branch appears to be accounting for capability **re**negotiation
+        // (MSC2974), which isn't implemented yet
         if matches!(&self.capabilities, CapabilitiesState::Negotiated(c) if !c.read.is_empty()) {
             actions.push(Action::Unsubscribe);
         }
