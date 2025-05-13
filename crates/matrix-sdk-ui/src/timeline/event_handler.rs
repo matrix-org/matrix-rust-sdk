@@ -569,16 +569,8 @@ pub(super) enum TimelineItemPosition {
     },
 }
 
-/// The outcome of handling a single event with
-/// [`TimelineEventHandler::handle_event`].
-#[derive(Default)]
-pub(super) struct HandleEventResult {
-    /// Was some timeline item removed?
-    ///
-    /// This can happen only if there was a UTD item that has been decrypted
-    /// into an item that was filtered out with the event filter.
-    pub(super) item_removed: bool,
-}
+/// Whether an item was removed or not.
+pub(super) type RemovedItem = bool;
 
 /// Data necessary to update the timeline, given a single event to handle.
 ///
@@ -590,7 +582,6 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
     items: &'a mut ObservableItemsTransaction<'o>,
     meta: &'a mut TimelineMetadata,
     ctx: TimelineEventContext,
-    result: HandleEventResult,
 }
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
@@ -599,7 +590,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         ctx: TimelineEventContext,
     ) -> Self {
         let TimelineStateTransaction { items, meta, .. } = state;
-        Self { items, meta, ctx, result: HandleEventResult::default() }
+        Self { items, meta, ctx }
     }
 
     /// Handle an event.
@@ -613,7 +604,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         mut self,
         date_divider_adjuster: &mut DateDividerAdjuster,
         timeline_action: TimelineAction,
-    ) -> HandleEventResult {
+    ) -> RemovedItem {
         let span = tracing::Span::current();
 
         date_divider_adjuster.mark_used();
@@ -666,6 +657,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
         }
 
+        let mut removed_item = false;
+
         if !added_item {
             trace!("No new item added");
 
@@ -678,12 +671,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
                 self.items.remove(timeline_item_index);
-
-                self.result.item_removed = true;
+                removed_item = true;
             }
         }
 
-        self.result
+        removed_item
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]

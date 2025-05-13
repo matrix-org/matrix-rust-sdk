@@ -24,10 +24,7 @@ use super::{
     super::{
         controller::{FullEventMeta, ObservableItemsTransactionEntry},
         date_dividers::DateDividerAdjuster,
-        event_handler::{
-            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler,
-            TimelineItemPosition,
-        },
+        event_handler::{Flow, TimelineEventContext, TimelineEventHandler, TimelineItemPosition},
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
@@ -36,7 +33,10 @@ use super::{
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
-    timeline::{event_handler::TimelineAction, VirtualTimelineItem},
+    timeline::{
+        event_handler::{RemovedItem, TimelineAction},
+        VirtualTimelineItem,
+    },
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
@@ -231,7 +231,7 @@ impl<'a> TimelineStateTransaction<'a> {
 
     /// Handle a remote event.
     ///
-    /// Returns the number of timeline updates that were made.
+    /// Returns whether an item has been removed from the timeline.
     pub(super) async fn handle_remote_event<P: RoomDataProvider>(
         &mut self,
         event: TimelineEvent,
@@ -239,7 +239,7 @@ impl<'a> TimelineStateTransaction<'a> {
         room_data_provider: &P,
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
-    ) -> HandleEventResult {
+    ) -> RemovedItem {
         let TimelineEvent { push_actions, kind } = event;
         let encryption_info = kind.encryption_info().cloned();
 
@@ -365,7 +365,8 @@ impl<'a> TimelineStateTransaction<'a> {
                     )
                     .await;
 
-                    return HandleEventResult::default();
+                    // No item has been removed.
+                    return false;
                 }
 
                 // The event can NOT be partially deserialized, it seems really broken.
@@ -402,7 +403,8 @@ impl<'a> TimelineStateTransaction<'a> {
                         .await;
                     }
 
-                    return HandleEventResult::default();
+                    // No item has been removed.
+                    return false;
                 }
             },
         };
@@ -451,7 +453,8 @@ impl<'a> TimelineStateTransaction<'a> {
                 .handle_event(date_divider_adjuster, timeline_action)
                 .await
         } else {
-            HandleEventResult::default()
+            // No item has been removed from the timeline.
+            false
         }
     }
 
