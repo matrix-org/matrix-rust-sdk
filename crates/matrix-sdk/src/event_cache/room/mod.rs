@@ -158,8 +158,22 @@ impl RoomEventCache {
         }
     }
 
+    /// Read all current events.
+    ///
+    /// Use [`RoomEventCache::subscribe`] to get all current events, plus a
+    /// listener/subscriber.
+    pub async fn events(&self) -> Vec<TimelineEvent> {
+        let state = self.inner.state.read().await;
+
+        state.events().events().map(|(_position, item)| item.clone()).collect()
+    }
+
     /// Subscribe to this room updates, after getting the initial list of
     /// events.
+    ///
+    /// Use [`RoomEventCache::events`] to get all current events without the
+    /// listener/subscriber. Creating, and especially dropping, a
+    /// [`RoomEventCacheListener`] isn't free.
     pub async fn subscribe(&self) -> (Vec<TimelineEvent>, RoomEventCacheListener) {
         let state = self.inner.state.read().await;
         let events = state.events().events().map(|(_position, item)| item.clone()).collect();
@@ -1637,7 +1651,7 @@ mod tests {
 
         // The in-memory linked chunk keeps the bundled relation.
         {
-            let (events, _) = room_event_cache.subscribe().await;
+            let events = room_event_cache.events().await;
 
             assert_eq!(events.len(), 1);
 
@@ -1803,7 +1817,7 @@ mod tests {
         assert!(room_event_cache.event(event_id1).await.is_some());
 
         // But their presence in a linked chunk is forgotten.
-        let (items, _) = room_event_cache.subscribe().await;
+        let items = room_event_cache.events().await;
         assert!(items.is_empty());
 
         // The event cache store too.
@@ -1935,7 +1949,7 @@ mod tests {
         // when subscribing, to check that the items correspond to their new
         // positions. The duplicated item is removed (so it's not the first
         // element anymore), and it's added to the back of the list.
-        let (items, _stream) = room_event_cache.subscribe().await;
+        let items = room_event_cache.events().await;
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].event_id().unwrap(), event_id1);
         assert_eq!(items[1].event_id().unwrap(), event_id2);
@@ -1995,7 +2009,7 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        let (items, _stream) = room_event_cache.subscribe().await;
+        let items = room_event_cache.events().await;
 
         // Because the persisted content was invalid, the room store is reset: there are
         // no events in the cache.
@@ -2262,7 +2276,7 @@ mod tests {
         assert!(stream.is_empty());
 
         // When reading the events, we do get only the last one.
-        let (events, _) = room_event_cache.subscribe().await;
+        let events = room_event_cache.events().await;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id().as_deref(), Some(evid2));
 
@@ -2386,7 +2400,7 @@ mod tests {
         }
 
         // Getting the events will only give us the latest chunk.
-        let (events3, _stream2) = room_event_cache.subscribe().await;
+        let events3 = room_event_cache.events().await;
         assert_eq!(events3.len(), 1);
         assert_eq!(events3[0].event_id().as_deref(), Some(evid2));
     }
