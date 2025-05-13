@@ -1,17 +1,13 @@
-use std::collections::BTreeMap;
-
-use imbl::Vector;
-use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider, RequestedRequiredStates};
+use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
 use ruma::{
     api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http},
     events::AnyToDeviceEvent,
     serde::Raw,
-    OwnedRoomId,
 };
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{Client, Result, SlidingSyncRoom};
+use crate::{Client, Result};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
@@ -138,26 +134,13 @@ impl Client {
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<SyncResponse> {
-        let response = self
-            .base_client()
-            .process_sliding_sync(response, &(), requested_required_states)
-            .await?;
+        let response =
+            self.base_client().process_sliding_sync(response, requested_required_states).await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
 
         Ok(response)
-    }
-}
-
-struct SlidingSyncPreviousEventsProvider<'a>(&'a BTreeMap<OwnedRoomId, SlidingSyncRoom>);
-
-impl PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'_> {
-    fn for_room(
-        &self,
-        room_id: &ruma::RoomId,
-    ) -> Vector<matrix_sdk_common::deserialized_responses::TimelineEvent> {
-        self.0.get(room_id).map(|room| room.timeline_queue()).unwrap_or_default()
     }
 }
 
@@ -167,16 +150,15 @@ impl PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'_> {
 /// independently, if needs be, making sure that both are properly processed by
 /// event handlers.
 #[must_use]
-pub(crate) struct SlidingSyncResponseProcessor<'a> {
+pub(crate) struct SlidingSyncResponseProcessor {
     client: Client,
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,
     response: Option<SyncResponse>,
-    rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>,
 }
 
-impl<'a> SlidingSyncResponseProcessor<'a> {
-    pub fn new(client: Client, rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>) -> Self {
-        Self { client, to_device_events: Vec::new(), response: None, rooms }
+impl SlidingSyncResponseProcessor {
+    pub fn new(client: Client) -> Self {
+        Self { client, to_device_events: Vec::new(), response: None }
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -213,11 +195,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         self.response = Some(
             self.client
                 .base_client()
-                .process_sliding_sync(
-                    response,
-                    &SlidingSyncPreviousEventsProvider(self.rooms),
-                    requested_required_states,
-                )
+                .process_sliding_sync(response, requested_required_states)
                 .await?,
         );
         self.post_process().await

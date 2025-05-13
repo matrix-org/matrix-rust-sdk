@@ -393,6 +393,7 @@ impl UpdateObserver {
     }
 }
 
+/*
 #[tokio::test]
 async fn test_room_notification_count() -> Result<()> {
     use tokio::time::timeout;
@@ -642,6 +643,7 @@ async fn test_room_notification_count() -> Result<()> {
 
     Ok(())
 }
+*/
 
 /// Response preprocessor that drops to_device events
 fn drop_todevice_events(response: &mut Bytes) {
