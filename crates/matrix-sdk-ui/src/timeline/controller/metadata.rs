@@ -372,3 +372,9 @@ pub(in crate::timeline) struct EventMeta {
     /// remote event, but if it moves, it has an impact on this mapping.
     pub timeline_item_index: Option<usize>,
 }
+
+impl EventMeta {
+    pub fn new(event_id: OwnedEventId, visible: bool) -> Self {
+        Self { event_id, visible, timeline_item_index: None }
+    }
+}

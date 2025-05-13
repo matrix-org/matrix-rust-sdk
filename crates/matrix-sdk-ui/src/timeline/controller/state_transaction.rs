@@ -19,18 +19,19 @@ use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use ruma::{
     events::AnySyncTimelineEvent, push::Action, serde::Raw, MilliSecondsSinceUnixEpoch,
-    OwnedEventId, OwnedTransactionId, OwnedUserId,
+    OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
 };
 use tracing::{debug, instrument, warn};
 
 use super::{
     super::{
-        controller::{FullEventMeta, ObservableItemsTransactionEntry},
+        controller::ObservableItemsTransactionEntry,
         date_dividers::DateDividerAdjuster,
         event_handler::{Flow, TimelineEventContext, TimelineEventHandler, TimelineItemPosition},
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
+    metadata::EventMeta,
     ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
     TimelineSettings,
 };
@@ -365,17 +366,17 @@ impl<'a> TimelineStateTransaction<'a> {
                     "Failed to deserialize timeline event: {deserialization_error}"
                 );
 
-                let event_meta = FullEventMeta {
-                    event_id: &event_id,
-                    sender: sender.as_deref(),
-                    timestamp: origin_server_ts,
-                    visible: false,
-                };
-
                 // Remember the event before returning prematurely.
                 // See [`ObservableItems::all_remote_events`].
-                self.add_or_update_remote_event(event_meta, position, room_data_provider, settings)
-                    .await;
+                self.add_or_update_remote_event(
+                    EventMeta::new(event_id, false),
+                    sender.as_deref(),
+                    origin_server_ts,
+                    position,
+                    room_data_provider,
+                    settings,
+                )
+                .await;
                 None
             }
         }
@@ -440,16 +441,17 @@ impl<'a> TimelineStateTransaction<'a> {
             }
         };
 
-        let event_meta = FullEventMeta {
-            event_id: &event_id,
-            sender: Some(&sender),
-            timestamp: Some(timestamp),
-            visible: should_add,
-        };
-
         // Remember the event.
         // See [`ObservableItems::all_remote_events`].
-        self.add_or_update_remote_event(event_meta, position, room_data_provider, settings).await;
+        self.add_or_update_remote_event(
+            EventMeta::new(event_id.clone(), should_add),
+            Some(&sender),
+            Some(timestamp),
+            position,
+            room_data_provider,
+            settings,
+        )
+        .await;
 
         // Handle the event to create or update a timeline item.
         if let Some(timeline_action) = timeline_action {
@@ -596,27 +598,29 @@ impl<'a> TimelineStateTransaction<'a> {
     /// This method also adjusts read receipt if needed.
     async fn add_or_update_remote_event<P: RoomDataProvider>(
         &mut self,
-        event_meta: FullEventMeta<'_>,
+        event_meta: EventMeta,
+        sender: Option<&UserId>,
+        timestamp: Option<MilliSecondsSinceUnixEpoch>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) {
+        let event_id = event_meta.event_id.clone();
+
         match position {
-            TimelineItemPosition::Start { .. } => {
-                self.items.push_front_remote_event(event_meta.base_meta())
-            }
+            TimelineItemPosition::Start { .. } => self.items.push_front_remote_event(event_meta),
 
             TimelineItemPosition::End { .. } => {
-                self.items.push_back_remote_event(event_meta.base_meta());
+                self.items.push_back_remote_event(event_meta);
             }
 
             TimelineItemPosition::At { event_index, .. } => {
-                self.items.insert_remote_event(event_index, event_meta.base_meta());
+                self.items.insert_remote_event(event_index, event_meta);
             }
 
             TimelineItemPosition::UpdateAt { .. } => {
                 if let Some(event) =
-                    self.items.get_remote_event_by_event_id_mut(event_meta.event_id)
+                    self.items.get_remote_event_by_event_id_mut(&event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -624,7 +628,7 @@ impl<'a> TimelineStateTransaction<'a> {
                         if settings.track_read_receipts {
                             // Since the event's visibility changed, we need to update the read
                             // receipts of the previous visible event.
-                            self.maybe_update_read_receipts_of_prev_event(event_meta.event_id);
+                            self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
                         }
                     }
                 }
@@ -639,9 +643,9 @@ impl<'a> TimelineStateTransaction<'a> {
                     | TimelineItemPosition::At { .. }
             )
         {
-            self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
+            self.load_read_receipts_for_event(&event_id, room_data_provider).await;
 
-            self.maybe_add_implicit_read_receipt(event_meta);
+            self.maybe_add_implicit_read_receipt(&event_id, sender, timestamp);
         }
     }
 

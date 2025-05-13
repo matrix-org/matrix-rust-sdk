@@ -26,7 +26,7 @@ use ruma::{
     },
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    RoomVersionId, UserId,
+    RoomVersionId,
 };
 use tracing::{instrument, trace, warn};
 
@@ -40,7 +40,6 @@ use super::{
         traits::RoomDataProvider,
         Profile, TimelineItem,
     },
-    metadata::EventMeta,
     observable_items::ObservableItems,
     DateDividerMode, TimelineFocusKind, TimelineMetadata, TimelineSettings,
     TimelineStateTransaction,
@@ -230,7 +229,7 @@ impl TimelineState {
     pub(super) fn handle_read_receipts(
         &mut self,
         receipt_event_content: ReceiptEventContent,
-        own_user_id: &UserId,
+        own_user_id: &ruma::UserId,
     ) {
         let mut txn = self.transaction();
         txn.handle_explicit_read_receipts(receipt_event_content, own_user_id);
@@ -313,30 +312,6 @@ impl std::fmt::Debug for PendingEdit {
                 f.debug_struct("RoomMessage").finish_non_exhaustive()
             }
             PendingEditKind::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
-        }
-    }
-}
-
-/// Full metadata about an event.
-///
-/// Only used to group function parameters.
-pub(crate) struct FullEventMeta<'a> {
-    /// The ID of the event.
-    pub event_id: &'a EventId,
-    /// Whether the event is among the timeline items.
-    pub visible: bool,
-    /// The sender of the event.
-    pub sender: Option<&'a UserId>,
-    /// The timestamp of the event.
-    pub timestamp: Option<MilliSecondsSinceUnixEpoch>,
-}
-
-impl FullEventMeta<'_> {
-    pub(super) fn base_meta(&self) -> EventMeta {
-        EventMeta {
-            event_id: self.event_id.to_owned(),
-            visible: self.visible,
-            timeline_item_index: None,
         }
     }
 }

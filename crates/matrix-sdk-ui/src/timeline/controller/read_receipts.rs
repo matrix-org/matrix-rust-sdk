@@ -18,15 +18,15 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-    EventId, OwnedEventId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
 };
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
-    rfind_event_by_id, AllRemoteEvents, FullEventMeta, ObservableItemsTransaction,
-    RelativePosition, RoomDataProvider, TimelineMetadata, TimelineState,
+    rfind_event_by_id, AllRemoteEvents, ObservableItemsTransaction, RelativePosition,
+    RoomDataProvider, TimelineMetadata, TimelineState,
 };
 use crate::timeline::{controller::TimelineStateTransaction, TimelineItem};
 
@@ -555,9 +555,12 @@ impl TimelineStateTransaction<'_> {
     /// count, so we need to handle them locally too. For that we create an
     /// "implicit" read receipt, compared to the "explicit" ones sent by the
     /// client.
-    pub(super) fn maybe_add_implicit_read_receipt(&mut self, event_meta: FullEventMeta<'_>) {
-        let FullEventMeta { event_id, sender, timestamp, .. } = event_meta;
-
+    pub(super) fn maybe_add_implicit_read_receipt(
+        &mut self,
+        event_id: &EventId,
+        sender: Option<&UserId>,
+        timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    ) {
         let (Some(user_id), Some(timestamp)) = (sender, timestamp) else {
             // We cannot add a read receipt if we do not know the user or the timestamp.
             return;
