@@ -655,6 +655,37 @@ impl WidgetMachine {
         ))
     }
 
+    /// Processes a response from the [`crate::widget::MatrixDriver`] saying
+    /// that the widget is approved to acquire some capabilities. This will
+    /// store those capabilities in the state machine and then notify the
+    /// widget.
+    fn process_acquired_capabilities(
+        &mut self,
+        approved: Result<Capabilities, Error>,
+        requested: Capabilities,
+    ) -> Vec<Action> {
+        let approved = approved.unwrap_or_else(|e| {
+            error!("Acquiring capabilities failed: {e}");
+            Capabilities::default()
+        });
+
+        let mut actions = Vec::new();
+        if !approved.read.is_empty() {
+            actions.push(Action::Subscribe);
+        }
+
+        self.capabilities = CapabilitiesState::Negotiated(approved.clone());
+
+        if let Some(action) = self
+            .send_to_widget_request(NotifyCapabilitiesChanged { approved, requested })
+            .map(|(_request, action)| action)
+        {
+            actions.push(action);
+        }
+
+        actions
+    }
+
     fn negotiate_capabilities(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
 
@@ -680,33 +711,8 @@ impl WidgetMachine {
             };
 
             request.add_response_handler(|result, machine| {
-                let approved_capabilities = result.unwrap_or_else(|e| {
-                    error!("Acquiring capabilities failed: {e}");
-                    Capabilities::default()
-                });
-
-                let mut actions = Vec::new();
-                if !approved_capabilities.read.is_empty() {
-                    actions.push(Action::Subscribe);
-                }
-
-                machine.capabilities = CapabilitiesState::Negotiated(approved_capabilities.clone());
-
-                let notify_caps_changed = NotifyCapabilitiesChanged {
-                    approved: approved_capabilities,
-                    requested: requested_capabilities,
-                };
-
-                if let Some(action) = machine
-                    .send_to_widget_request(notify_caps_changed)
-                    .map(|(_request, action)| action)
-                {
-                    actions.push(action);
-                }
-
-                actions
+                machine.process_acquired_capabilities(result, requested_capabilities)
             });
-
             vec![action]
         });
 
