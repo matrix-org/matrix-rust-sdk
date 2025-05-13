@@ -204,7 +204,7 @@ impl TimelineState {
                 continue;
             };
 
-            let handle_one_res = txn
+            let removed_item = txn
                 .handle_remote_event(
                     event,
                     TimelineItemPosition::UpdateAt { timeline_item_index: idx },
@@ -216,7 +216,7 @@ impl TimelineState {
 
             // If the UTD was removed rather than updated, offset all
             // subsequent loop iterations.
-            if handle_one_res.item_removed {
+            if removed_item {
                 offset += 1;
             }
         }
