@@ -25,6 +25,7 @@ use futures_core::Stream;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
+    deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
@@ -666,6 +667,12 @@ impl Timeline {
         } else {
             Ok(false)
         }
+    }
+
+    /// Create a [`RepliedToEvent`] from an arbitrary event, be it in the
+    /// timeline or not.
+    pub async fn make_replied_to(&self, event: TimelineEvent) -> Result<RepliedToEvent, Error> {
+        self.controller.make_replied_to(event).await
     }
 }
 

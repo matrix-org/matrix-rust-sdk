@@ -32,7 +32,7 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{
-    self, AttachmentSource, EventItemOrigin, Profile, RepliedToEvent, TimelineDetails,
+    self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -687,9 +687,7 @@ impl Timeline {
         let event_id = EventId::parse(&event_id_str)?;
 
         let replied_to = match self.inner.room().load_or_fetch_event(&event_id, None).await {
-            Ok(event) => RepliedToEvent::try_from_timeline_event_for_room(event, self.inner.room())
-                .await
-                .map_err(ClientError::from),
+            Ok(event) => self.inner.make_replied_to(event).await.map_err(ClientError::from),
             Err(e) => Err(ClientError::from(e)),
         };
 

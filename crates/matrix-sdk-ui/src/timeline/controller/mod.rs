@@ -1319,6 +1319,23 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         );
         txn.commit();
     }
+
+    pub(super) async fn make_replied_to(
+        &self,
+        event: TimelineEvent,
+    ) -> Result<RepliedToEvent, Error> {
+        // Reborrow, to avoid that the automatic deref borrows the entire guard (and we
+        // can't borrow both items and meta).
+        let state = &mut *self.state.write().await;
+
+        RepliedToEvent::try_from_timeline_event(
+            event,
+            &self.room_data_provider,
+            &state.items,
+            &mut state.meta,
+        )
+        .await
+    }
 }
 
 impl TimelineController {
@@ -1330,8 +1347,8 @@ impl TimelineController {
     /// replying to, if applicable.
     #[instrument(skip(self))]
     pub(super) async fn fetch_in_reply_to_details(&self, event_id: &EventId) -> Result<(), Error> {
-        let state = self.state.write().await;
-        let (index, item) = rfind_event_by_id(&state.items, event_id)
+        let state_guard = self.state.write().await;
+        let (index, item) = rfind_event_by_id(&state_guard.items, event_id)
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?;
         let remote_item = item
             .as_remote()
@@ -1358,7 +1375,8 @@ impl TimelineController {
         let internal_id = item.internal_id.to_owned();
         let item = item.clone();
         let event = fetch_replied_to_event(
-            state,
+            state_guard,
+            &self.state,
             index,
             &item,
             internal_id,
@@ -1511,8 +1529,10 @@ impl<P: RoomDataProvider> TimelineController<P, (OlmMachine, OwnedRoomId)> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fetch_replied_to_event(
-    mut state: RwLockWriteGuard<'_, TimelineState>,
+    mut state_guard: RwLockWriteGuard<'_, TimelineState>,
+    state_lock: &RwLock<TimelineState>,
     index: usize,
     item: &EventTimelineItem,
     internal_id: TimelineUniqueId,
@@ -1520,7 +1540,7 @@ async fn fetch_replied_to_event(
     in_reply_to: &EventId,
     room: &Room,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
-    if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
+    if let Some((_, item)) = rfind_event_by_id(&state_guard.items, in_reply_to) {
         let details = TimelineDetails::Ready(Box::new(RepliedToEvent::from_timeline_item(&item)));
         trace!("Found replied-to event locally");
         return Ok(details);
@@ -1536,16 +1556,25 @@ async fn fetch_replied_to_event(
         .with_content(TimelineItemContent::MsgLike(msglike.with_in_reply_to(in_reply_to_details)));
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
-    state.items.replace(index, new_timeline_item);
+    state_guard.items.replace(index, new_timeline_item);
 
-    // Don't hold the state lock while the network request is made
-    drop(state);
+    // Don't hold the state lock while the network request is made.
+    drop(state_guard);
 
     trace!("Fetching replied-to event");
     let res = match room.load_or_fetch_event(in_reply_to, None).await {
-        Ok(timeline_event) => TimelineDetails::Ready(Box::new(
-            RepliedToEvent::try_from_timeline_event(timeline_event, room).await?,
-        )),
+        Ok(timeline_event) => {
+            let state = &mut *state_lock.write().await;
+            TimelineDetails::Ready(Box::new(
+                RepliedToEvent::try_from_timeline_event(
+                    timeline_event,
+                    room,
+                    &state.items,
+                    &mut state.meta,
+                )
+                .await?,
+            ))
+        }
         Err(e) => TimelineDetails::Error(Arc::new(e)),
     };
     Ok(res)
