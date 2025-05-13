@@ -17,7 +17,10 @@ use std::collections::{HashMap, HashSet};
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use ruma::{push::Action, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
+use ruma::{
+    events::AnySyncTimelineEvent, push::Action, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId,
+    OwnedUserId,
+};
 use tracing::{debug, instrument, warn};
 
 use super::{
@@ -229,6 +232,55 @@ impl<'a> TimelineStateTransaction<'a> {
         }
     }
 
+    /// Whether the event should be added to the timeline as a new item.
+    fn should_add_event_item<P: RoomDataProvider>(
+        &self,
+        room_data_provider: &P,
+        settings: &TimelineSettings,
+        event: &AnySyncTimelineEvent,
+        position: TimelineItemPosition,
+    ) -> bool {
+        let room_version = room_data_provider.room_version();
+        if !(settings.event_filter)(event, &room_version) {
+            // The user filtered out the event.
+            return false;
+        }
+
+        match self.timeline_focus {
+            TimelineFocusKind::PinnedEvents => {
+                // Only add pinned events for the pinned events timeline.
+                room_data_provider.is_pinned_event(event.event_id())
+            }
+
+            TimelineFocusKind::Event => {
+                // Retrieve the origin of the event.
+                let origin = match position {
+                    TimelineItemPosition::End { origin }
+                    | TimelineItemPosition::Start { origin }
+                    | TimelineItemPosition::At { origin, .. } => origin,
+
+                    TimelineItemPosition::UpdateAt { timeline_item_index: idx } => self
+                        .items
+                        .get(idx)
+                        .and_then(|item| item.as_event()?.as_remote())
+                        .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
+                };
+
+                match origin {
+                    // Never add any item to a focused timeline when the item comes from sync.
+                    RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => false,
+                    RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => true,
+                }
+            }
+
+            TimelineFocusKind::Live => {
+                // The live timeline doesn't apply any additional
+                // filtering: the event *should* be added!
+                true
+            }
+        }
+    }
+
     /// Handle a remote event.
     ///
     /// Returns whether an item has been removed from the timeline.
@@ -256,56 +308,10 @@ impl<'a> TimelineStateTransaction<'a> {
         {
             // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
-                let event_id = event.event_id().to_owned();
-                let room_version = room_data_provider.room_version();
-
-                let mut should_add = (settings.event_filter)(&event, &room_version);
-
-                if should_add {
-                    // If the event should be added according to the general event filter, use a
-                    // second filter to decide whether it should be added depending on the timeline
-                    // focus and events origin, if needed
-                    match self.timeline_focus {
-                        TimelineFocusKind::PinnedEvents => {
-                            // Only add pinned events for the pinned events timeline
-                            should_add = room_data_provider.is_pinned_event(&event_id);
-                        }
-
-                        TimelineFocusKind::Event => {
-                            // Retrieve the origin of the event.
-                            let origin = match position {
-                                TimelineItemPosition::End { origin }
-                                | TimelineItemPosition::Start { origin }
-                                | TimelineItemPosition::At { origin, .. } => origin,
-
-                                TimelineItemPosition::UpdateAt { timeline_item_index: idx } => self
-                                    .items
-                                    .get(idx)
-                                    .and_then(|item| item.as_event()?.as_remote())
-                                    .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
-                            };
-
-                            match origin {
-                                RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
-                                    // Never add any item to a focused timeline when the item comes
-                                    // down from the sync.
-                                    should_add = false;
-                                }
-                                RemoteEventOrigin::Cache | RemoteEventOrigin::Pagination => {
-                                    // Forward the previous decision to add it.
-                                }
-                            }
-                        }
-
-                        TimelineFocusKind::Live => {
-                            // The live timeline doesn't apply any additional
-                            // filtering: the event *should* be added!
-                        }
-                    }
-                }
-
+                let should_add =
+                    self.should_add_event_item(room_data_provider, settings, &event, position);
                 (
-                    event_id,
+                    event.event_id().to_owned(),
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
