@@ -36,7 +36,7 @@ where
         Self { request_meta, _phantom: PhantomData }
     }
 
-    pub(crate) fn then(
+    pub(crate) fn add_response_handler(
         self,
         response_handler: impl FnOnce(T, &mut WidgetMachine) -> Vec<Action> + Send + 'static,
     ) {

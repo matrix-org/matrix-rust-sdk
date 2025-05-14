@@ -259,7 +259,7 @@ impl WidgetMachine {
                     return actions;
                 };
 
-                request.then(|res, machine| {
+                request.add_response_handler(|res, machine| {
                     let response = match res {
                         Ok(res) => OpenIdResponse::Allowed(OpenIdState::new(request_id, res)),
                         Err(msg) => {
@@ -298,7 +298,7 @@ impl WidgetMachine {
                     delay_id: req.delay_id,
                 })
                 .map(|(request, request_action)| {
-                    request.then(|result, _machine| {
+                    request.add_response_handler(|result, _machine| {
                         vec![Self::send_from_widget_response(
                             raw_request,
                             // This is mapped to another type because the
@@ -343,7 +343,7 @@ impl WidgetMachine {
                 let request = ReadMessageLikeEventRequest { event_type, limit };
 
                 self.send_matrix_driver_request(request).map(|(request, action)| {
-                    request.then(|result, machine| {
+                    request.add_response_handler(|result, machine| {
                         let response = match &machine.capabilities {
                             CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
                                 "Received read event request before capabilities negotiation",
@@ -384,7 +384,7 @@ impl WidgetMachine {
                 if allowed {
                     self.send_matrix_driver_request(ReadStateEventRequest { event_type, state_key })
                         .map(|(request, action)| {
-                            request.then(|result, _machine| {
+                            request.add_response_handler(|result, _machine| {
                                 let response = result
                                     .map(|events| ReadEventResponse { events })
                                     .map_err(FromWidgetErrorResponse::from_error);
@@ -428,7 +428,7 @@ impl WidgetMachine {
 
         let (request, action) = self.send_matrix_driver_request(request)?;
 
-        request.then(|mut result, machine| {
+        request.add_response_handler(|mut result, machine| {
             if let Ok(r) = result.as_mut() {
                 r.set_room_id(machine.room_id.clone());
             }
@@ -610,7 +610,7 @@ impl WidgetMachine {
             return actions;
         };
 
-        request.then(|response, machine| {
+        request.add_response_handler(|response, machine| {
             let requested_capabilities = response.capabilities;
 
             let Some((request, action)) = machine.send_matrix_driver_request(AcquireCapabilities {
@@ -620,7 +620,7 @@ impl WidgetMachine {
                 return Vec::new();
             };
 
-            request.then(|result, machine| {
+            request.add_response_handler(|result, machine| {
                 let approved_capabilities = result.unwrap_or_else(|e| {
                     error!("Acquiring capabilities failed: {e}");
                     Capabilities::default()
