@@ -387,8 +387,7 @@ impl SlidingSync {
             self.inner.sticky.read().unwrap().data().extensions.to_device.enabled == Some(true);
 
         let restored_fields = if self.inner.share_pos || to_device_enabled {
-            let lists = self.inner.lists.read().await;
-            restore_sliding_sync_state(&self.inner.client, &self.inner.storage_key, &lists).await?
+            restore_sliding_sync_state(&self.inner.client, &self.inner.storage_key).await?
         } else {
             None
         };
@@ -792,21 +791,6 @@ pub(super) struct SlidingSyncPositionMarkers {
     pos: Option<String>,
 }
 
-/// Frozen bits of a Sliding Sync that are stored in the *state* store.
-#[derive(Debug, Serialize, Deserialize)]
-struct FrozenSlidingSync {
-    /// Deprecated: prefer storing in the crypto store.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    to_device_since: Option<String>,
-}
-
-impl FrozenSlidingSync {
-    fn new() -> Self {
-        // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
-        Self { to_device_since: None }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 struct FrozenSlidingSyncPos {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -921,7 +905,7 @@ mod tests {
     use super::{
         http,
         sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
-        FrozenSlidingSync, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+        SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
         SlidingSyncStickyParameters,
     };
     use crate::{
@@ -1130,16 +1114,6 @@ mod tests {
             assert!(room_subscriptions.contains_key(room_id_1).not());
             assert!(room_subscriptions.contains_key(room_id_2));
         }
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_to_device_token_properly_are_not_cached() -> Result<()> {
-        // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
-        // in the crypto store since PR #2323.
-        let frozen = FrozenSlidingSync::new();
-        assert!(frozen.to_device_since.is_none());
 
         Ok(())
     }
@@ -1821,13 +1795,9 @@ mod tests {
 
         assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("0"));
 
-        let restored_fields = restore_sliding_sync_state(
-            &client,
-            &sliding_sync.inner.storage_key,
-            &*sliding_sync.inner.lists.read().await,
-        )
-        .await?
-        .expect("must have restored fields");
+        let restored_fields = restore_sliding_sync_state(&client, &sliding_sync.inner.storage_key)
+            .await?
+            .expect("must have restored fields");
 
         // While it has been saved into the database, it's not necessarily going to be
         // used later!
@@ -1916,13 +1886,9 @@ mod tests {
 
         assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("0".to_owned()));
 
-        let restored_fields = restore_sliding_sync_state(
-            &client,
-            &sliding_sync.inner.storage_key,
-            &*sliding_sync.inner.lists.read().await,
-        )
-        .await?
-        .expect("must have restored fields");
+        let restored_fields = restore_sliding_sync_state(&client, &sliding_sync.inner.storage_key)
+            .await?
+            .expect("must have restored fields");
 
         // While it has been saved into the database, it's not necessarily going to be
         // used later!
