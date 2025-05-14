@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// TODO: remove!
+#![allow(unused)]
+
 use std::collections::{BTreeMap, HashSet};
 
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedEventId, OwnedRoomId};
