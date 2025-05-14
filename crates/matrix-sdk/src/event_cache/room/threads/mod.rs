@@ -17,48 +17,7 @@ use std::collections::{BTreeMap, HashSet};
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedEventId, OwnedRoomId};
 use thiserror::Error;
 
-mod serde_helpers {
-    use ruma::{events::relation::BundledThread, OwnedEventId};
-    use serde::Deserialize;
-
-    #[derive(Deserialize)]
-    pub struct Relations {
-        #[serde(rename = "m.thread")]
-        pub thread: Option<Box<BundledThread>>,
-    }
-
-    #[derive(Deserialize)]
-    pub struct Unsigned {
-        #[serde(rename = "m.relations")]
-        pub relations: Option<Relations>,
-    }
-
-    #[derive(Deserialize)]
-    enum RelationsType {
-        #[serde(rename = "m.thread")]
-        Thread,
-    }
-
-    #[derive(Deserialize)]
-    struct RelatesTo {
-        #[serde(rename = "rel_type")]
-        rel_type: RelationsType,
-        #[serde(rename = "event_id")]
-        event_id: Option<OwnedEventId>,
-    }
-
-    #[derive(Deserialize)]
-    pub struct SimplifiedContent {
-        #[serde(rename = "m.relates_to")]
-        relates_to: Option<RelatesTo>,
-    }
-
-    impl SimplifiedContent {
-        pub fn thread_root(self) -> Option<OwnedEventId> {
-            self.relates_to?.event_id
-        }
-    }
-}
+mod serde_helpers;
 
 /// All the information and events related to a single thread.
 #[derive(Debug)]
@@ -154,7 +113,7 @@ impl RoomThreads {
                 thread_root.clone(),
                 ThreadEventCache {
                     summary: summary.clone(),
-                    events: HashSet::from_iter([thread_root.clone(), event_id.clone()]),
+                    events: HashSet::from_iter([thread_root.clone(), event_id]),
                 },
             );
 
