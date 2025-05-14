@@ -2270,6 +2270,7 @@ impl OlmMachine {
     ///
     /// * `event` - The event to get information for.
     /// * `room_id` - The ID of the room where the event was sent to.
+    #[instrument(skip(self, event), fields(event_id, sender, session_id))]
     pub async fn get_room_event_encryption_info(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -2285,6 +2286,11 @@ impl OlmMachine {
                 return Err(EventError::UnsupportedAlgorithm.into());
             }
         };
+
+        Span::current()
+            .record("sender", debug(&event.sender))
+            .record("event_id", debug(&event.event_id))
+            .record("session_id", content.session_id());
 
         self.get_session_encryption_info(room_id, content.session_id(), &event.sender).await
     }
