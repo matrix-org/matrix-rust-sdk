@@ -249,15 +249,17 @@ impl SlidingSyncBuilder {
         let restored_fields =
             restore_sliding_sync_state(&client, &self.storage_key, &lists).await?;
 
-        let (pos, rooms) = if let Some(fields) = restored_fields {
+        let pos = if let Some(fields) = restored_fields {
             #[cfg(feature = "e2e-encryption")]
-            let pos = if self.share_pos { fields.pos } else { None };
+            if self.share_pos {
+                fields.pos
+            } else {
+                None
+            }
             #[cfg(not(feature = "e2e-encryption"))]
-            let pos = None;
-
-            (pos, fields.rooms)
+            None
         } else {
-            (None, BTreeMap::new())
+            None
         };
 
         #[cfg(feature = "e2e-encryption")]
@@ -265,7 +267,6 @@ impl SlidingSyncBuilder {
         #[cfg(not(feature = "e2e-encryption"))]
         let share_pos = false;
 
-        let rooms = AsyncRwLock::new(rooms);
         let lists = AsyncRwLock::new(lists);
 
         Ok(SlidingSync::new(SlidingSyncInner {
@@ -276,7 +277,6 @@ impl SlidingSyncBuilder {
             share_pos,
 
             lists,
-            rooms,
 
             position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
 
