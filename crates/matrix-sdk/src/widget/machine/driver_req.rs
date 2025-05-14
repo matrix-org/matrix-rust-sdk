@@ -72,7 +72,7 @@ where
 
     /// Setup a callback function that will be called once the Matrix driver has
     /// processed the request.
-    pub(crate) fn then(
+    pub(crate) fn add_response_handler(
         self,
         response_handler: impl FnOnce(Result<T, crate::Error>, &mut WidgetMachine) -> Vec<Action>
             + Send
