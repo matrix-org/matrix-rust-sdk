@@ -2114,6 +2114,162 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_unstable_unread_marker_is_ignored_after_stable() {
+        // Given a logged-in client,
+        let client = logged_in_base_client(None).await;
+        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
+
+        // When I receive a sliding sync response containing a new room,
+        let room_id = room_id!("!r:e.uk");
+        let room = http::response::Room::new();
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // Other notable updates are received, but not the ones we are interested by.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
+            }
+        );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+
+        // When I receive a sliding sync response containing one update about an
+        // unstable unread marker,
+        let room_id = room_id!("!r:e.uk");
+        let unstable_room_account_data_events = vec![Raw::from_json_string(
+            json!({
+                "type": "com.famedly.marked_unread",
+                "event_id": "$1",
+                "content": { "unread": true },
+                "sender": client.session_meta().unwrap().user_id,
+                "origin_server_ts": 12344445,
+            })
+            .to_string(),
+        )
+        .unwrap()];
+        let mut response = response_with_room(room_id, http::response::Room::new());
+        response
+            .extensions
+            .account_data
+            .rooms
+            .insert(room_id.to_owned(), unstable_room_account_data_events.clone());
+
+        client
+            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // Then a room info notable update is received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::UNREAD_MARKER), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+
+        // When I receive a sliding sync response with a stable unread marker update,
+        let stable_room_account_data_events = vec![Raw::from_json_string(
+            json!({
+                "type": "m.marked_unread",
+                "event_id": "$1",
+                "content": { "unread": false },
+                "sender": client.session_meta().unwrap().user_id,
+                "origin_server_ts": 12344445,
+            })
+            .to_string(),
+        )
+        .unwrap()];
+        response
+            .extensions
+            .account_data
+            .rooms
+            .insert(room_id.to_owned(), stable_room_account_data_events);
+        client
+            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // Then a room info notable update is received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::UNREAD_MARKER));
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+
+        // When I receive a sliding sync response with an unstable unread
+        // marker update again,
+        response
+            .extensions
+            .account_data
+            .rooms
+            .insert(room_id.to_owned(), unstable_room_account_data_events);
+        client
+            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // There is no notable update.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+
+        // Finally, when I receive a sliding sync response with a stable unread marker
+        // update again,
+        let stable_room_account_data_events = vec![Raw::from_json_string(
+            json!({
+                "type": "m.marked_unread",
+                "event_id": "$3",
+                "content": { "unread": true },
+                "sender": client.session_meta().unwrap().user_id,
+                "origin_server_ts": 12344445,
+            })
+            .to_string(),
+        )
+        .unwrap()];
+        response
+            .extensions
+            .account_data
+            .rooms
+            .insert(room_id.to_owned(), stable_room_account_data_events);
+        client
+            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // Then a room info notable update is received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::UNREAD_MARKER));
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+    }
+
+    #[async_test]
     async fn test_pinned_events_are_updated_on_sync() {
         let user_a_id = user_id!("@a:e.uk");
         let client = logged_in_base_client(Some(user_a_id)).await;

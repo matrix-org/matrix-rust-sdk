@@ -2370,6 +2370,7 @@ mod tests {
                 "guest_access": null,
                 "history_visibility": null,
                 "is_marked_unread": false,
+                "is_marked_unread_source": "Unstable",
                 "join_rules": null,
                 "max_power_level": 100,
                 "name": null,
