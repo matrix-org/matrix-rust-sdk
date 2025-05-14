@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedEventId, OwnedRoomId};
 use thiserror::Error;
@@ -65,6 +65,11 @@ mod serde_helpers {
 pub struct ThreadEventCache {
     /// Current, always up-to-date thread summary.
     summary: ThreadSummary,
+
+    /// The events which belong in a thread, including the root.
+    ///
+    /// TODO: replace with a linked chunk!
+    events: HashSet<OwnedEventId>,
 }
 
 /// A model of all the threads in a room.
@@ -99,8 +104,13 @@ impl RoomThreads {
         // deserializing for nothing.
         if !self.threads.contains_key(&event_id) {
             if let Some(summary) = ThreadSummary::extract_from_bundled(raw)? {
-                self.threads
-                    .insert(event_id.clone(), ThreadEventCache { summary: summary.clone() });
+                self.threads.insert(
+                    event_id.clone(),
+                    ThreadEventCache {
+                        summary: summary.clone(),
+                        events: HashSet::from_iter([event_id.clone()]),
+                    },
+                );
                 return Ok(Some((event_id, summary)));
             }
         }
@@ -113,13 +123,19 @@ impl RoomThreads {
             .and_then(|content| content.thread_root())
         {
             if let Some(thread_cache) = self.threads.get_mut(&thread_root) {
-                let known_summary = &mut thread_cache.summary;
-                known_summary.count += 1;
-                known_summary.latest_event = event_id;
-                // TODO: we can update the current_user_participated field too,
-                // based on the sender.
-                //summary.current_user_participated = maybe?
-                return Ok(Some((thread_root, known_summary.clone())));
+                if thread_cache.events.insert(event_id.clone()) {
+                    let summary = &mut thread_cache.summary;
+                    summary.count = thread_cache.events.len();
+                    summary.latest_event = event_id;
+                    // TODO: we can update the current_user_participated field too,
+                    // based on the sender.
+                    //summary.current_user_participated = maybe?
+
+                    return Ok(Some((thread_root, summary.clone())));
+                }
+
+                // The event was already known in the thread: no summary update.
+                return Ok(None);
             }
 
             // The thread was unknown; add a stub summary.
@@ -134,7 +150,13 @@ impl RoomThreads {
                 maybe_outdated: true,
             };
 
-            self.threads.insert(thread_root.clone(), ThreadEventCache { summary: summary.clone() });
+            self.threads.insert(
+                thread_root.clone(),
+                ThreadEventCache {
+                    summary: summary.clone(),
+                    events: HashSet::from_iter([thread_root.clone(), event_id.clone()]),
+                },
+            );
 
             Ok(Some((thread_root, summary)))
         } else {
@@ -348,6 +370,10 @@ mod tests {
         assert!(summary.current_user_participated.not());
         assert_eq!(&summary.latest_event, thread_event_id);
         assert!(summary.maybe_outdated);
+
+        // If we process it a second time, the summary isn't updated.
+        let summary = room_threads.on_new_sync_event(&event).expect("event processing works");
+        assert_matches!(summary, None);
 
         // On subsequent events, we will update the thread summary accordingly.
         let thread_event_id2 = event_id!("$thread2");
