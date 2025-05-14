@@ -8,12 +8,12 @@ use std::collections::BTreeMap;
 
 use matrix_sdk_base::{StateStore, StoreError};
 use matrix_sdk_common::timer;
-use ruma::{OwnedRoomId, UserId};
+use ruma::UserId;
 use tracing::{trace, warn};
 
 use super::{
     FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList,
-    SlidingSyncPositionMarkers, SlidingSyncRoom,
+    SlidingSyncPositionMarkers,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::sliding_sync::FrozenSlidingSyncPos;
@@ -88,7 +88,7 @@ pub(super) async fn store_sliding_sync_state(
     storage
         .set_custom_value(
             instance_storage_key.as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::new(&*sliding_sync.inner.rooms.read().await))?,
+            serde_json::to_vec(&FrozenSlidingSync::new())?,
         )
         .await?;
 
@@ -185,7 +185,6 @@ pub(super) async fn restore_sliding_sync_list(
 pub(super) struct RestoredFields {
     pub to_device_token: Option<String>,
     pub pos: Option<String>,
-    pub rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
 }
 
 /// Restore the `SlidingSync`'s state from what is stored in the storage.
@@ -221,7 +220,7 @@ pub(super) async fn restore_sliding_sync_state(
         .map(|custom_value| serde_json::from_slice::<FrozenSlidingSync>(&custom_value))
     {
         // `SlidingSync` has been found and successfully deserialized.
-        Some(Ok(FrozenSlidingSync { to_device_since, rooms: frozen_rooms })) => {
+        Some(Ok(FrozenSlidingSync { to_device_since })) => {
             trace!("Successfully read the `SlidingSync` from the cache");
             // Only update the to-device token if we failed to read it from the crypto store
             // above.
@@ -244,13 +243,6 @@ pub(super) async fn restore_sliding_sync_state(
                     }
                 }
             }
-
-            restored_fields.rooms = frozen_rooms
-                .into_iter()
-                .map(|frozen_room| {
-                    (frozen_room.room_id.clone(), SlidingSyncRoom::from_frozen(frozen_room))
-                })
-                .collect();
         }
 
         // `SlidingSync` has been found, but it wasn't possible to deserialize it. It's
@@ -284,14 +276,13 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use ruma::owned_room_id;
 
     use super::{
-        super::FrozenSlidingSyncRoom, clean_storage, format_storage_key_for_sliding_sync,
+        clean_storage, format_storage_key_for_sliding_sync,
         format_storage_key_for_sliding_sync_list, format_storage_key_prefix,
         restore_sliding_sync_state, store_sliding_sync_state, SlidingSyncList,
     };
-    use crate::{test_utils::logged_in_client, Result, SlidingSyncRoom};
+    use crate::{test_utils::logged_in_client, Result};
 
     #[allow(clippy::await_holding_lock)]
     #[async_test]
@@ -320,9 +311,6 @@ mod tests {
             .await?
             .is_none());
 
-        let room_id1 = owned_room_id!("!r1:matrix.org");
-        let room_id2 = owned_room_id!("!r2:matrix.org");
-
         // Create a new `SlidingSync` instance, and store it.
         let storage_key = {
             let sync_id = "test-sync-id";
@@ -344,14 +332,6 @@ mod tests {
 
                 let list_bar = lists.get("list_bar").unwrap();
                 list_bar.set_maximum_number_of_rooms(Some(1337));
-            }
-
-            // Add some rooms.
-            {
-                let mut rooms = sliding_sync.inner.rooms.write().await;
-
-                rooms.insert(room_id1.clone(), SlidingSyncRoom::new(room_id1.clone()));
-                rooms.insert(room_id2.clone(), SlidingSyncRoom::new(room_id2.clone()));
             }
 
             let position_guard = sliding_sync.inner.position.lock().await;
@@ -415,15 +395,6 @@ mod tests {
                 assert_eq!(list_bar.maximum_number_of_rooms(), None);
             }
 
-            // Check the rooms.
-            {
-                let rooms = sliding_sync.inner.rooms.read().await;
-
-                // Rooms were cached.
-                assert!(rooms.contains_key(&room_id1));
-                assert!(rooms.contains_key(&room_id2));
-            }
-
             // The maximum number of rooms reloaded from the cache should have been
             // published.
             {
@@ -466,8 +437,6 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_sliding_sync_high_level_cache_and_restore() -> Result<()> {
-        use ruma::owned_room_id;
-
         use crate::sliding_sync::FrozenSlidingSync;
 
         let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
@@ -536,9 +505,6 @@ mod tests {
                 full_storage_key.as_bytes(),
                 serde_json::to_vec(&FrozenSlidingSync {
                     to_device_since: Some(to_device_token.clone()),
-                    rooms: vec![FrozenSlidingSyncRoom {
-                        room_id: owned_room_id!("!r0:matrix.org"),
-                    }],
                 })?,
             )
             .await?;
@@ -547,11 +513,10 @@ mod tests {
             .await?
             .expect("must have restored fields");
 
-        // After restoring, the to-device since token, stream position and rooms could
-        // be read from the state store.
+        // After restoring, the to-device since token, and the stream position could be
+        // read from the state store.
         assert_eq!(restored_fields.to_device_token.unwrap(), to_device_token);
         assert_eq!(restored_fields.pos.unwrap(), pos);
-        assert_eq!(restored_fields.rooms.len(), 1);
 
         Ok(())
     }

@@ -112,9 +112,6 @@ pub(super) struct SlidingSyncInner {
     /// The lists of this Sliding Sync instance.
     lists: AsyncRwLock<BTreeMap<String, SlidingSyncList>>,
 
-    /// All the rooms synced with Sliding Sync.
-    rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
-
     /// Request parameters that are sticky.
     sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncStickyParameters>>,
 
@@ -802,20 +799,12 @@ struct FrozenSlidingSync {
     /// Deprecated: prefer storing in the crypto store.
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    rooms: Vec<FrozenSlidingSyncRoom>,
 }
 
 impl FrozenSlidingSync {
-    fn new(rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>) -> Self {
+    fn new() -> Self {
         // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
-        Self {
-            to_device_since: None,
-            rooms: rooms
-                .iter()
-                .map(|(_room_id, sliding_sync_room)| FrozenSlidingSyncRoom::from(sliding_sync_room))
-                .collect::<Vec<_>>(),
-        }
+        Self { to_device_since: None }
     }
 }
 
@@ -1147,14 +1136,10 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_to_device_token_properly_cached() -> Result<()> {
-        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
-        .await?;
-
+    async fn test_to_device_token_properly_are_not_cached() -> Result<()> {
         // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
         // in the crypto store since PR #2323.
-        let frozen = FrozenSlidingSync::new(&*sliding_sync.inner.rooms.read().await);
+        let frozen = FrozenSlidingSync::new();
         assert!(frozen.to_device_since.is_none());
 
         Ok(())
