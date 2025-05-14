@@ -30,6 +30,10 @@ use ruma::{
         ignored_user_list::{IgnoredUser as RumaIgnoredUser, IgnoredUserListEventContent},
         location::AssetType as RumaAssetType,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        media_preview_config::{
+            InviteAvatars as RumaInviteAvatars, MediaPreviewConfigEventContent,
+            MediaPreviews as RumaMediaPreviews,
+        },
         poll::start::PollKind as RumaPollKind,
         push_rules::PushRulesEventContent,
         room::{
@@ -1104,6 +1108,63 @@ pub enum AccountDataEvent {
     },
 }
 
+/// The policy that decides if media previews should be shown in the timeline.
+#[derive(Clone, uniffi::Enum, Default)]
+pub enum MediaPreviews {
+    #[default]
+    On,
+    Private,
+    Off,
+}
+
+impl From<RumaMediaPreviews> for MediaPreviews {
+    fn from(value: RumaMediaPreviews) -> Self {
+        match value {
+            RumaMediaPreviews::On => Self::On,
+            RumaMediaPreviews::Private => Self::Private,
+            RumaMediaPreviews::Off => Self::Off,
+            _ => Default::default(),
+        }
+    }
+}
+
+impl From<MediaPreviews> for RumaMediaPreviews {
+    fn from(value: MediaPreviews) -> Self {
+        match value {
+            MediaPreviews::On => Self::On,
+            MediaPreviews::Private => Self::Private,
+            MediaPreviews::Off => Self::Off,
+        }
+    }
+}
+
+/// The policy that decides if avarars should be shown in invite requests.
+#[derive(Clone, uniffi::Enum, Default)]
+pub enum InviteAvatars {
+    #[default]
+    On,
+    Off,
+}
+
+impl From<RumaInviteAvatars> for InviteAvatars {
+    fn from(value: RumaInviteAvatars) -> Self {
+        match value {
+            RumaInviteAvatars::On => Self::On,
+            RumaInviteAvatars::Off => Self::Off,
+            _ => Default::default(),
+        }
+    }
+}
+
+impl From<InviteAvatars> for RumaInviteAvatars {
+    fn from(value: InviteAvatars) -> Self {
+        match value {
+            InviteAvatars::On => Self::On,
+            InviteAvatars::Off => Self::Off,
+        }
+    }
+}
+
 /// Details about an ignored user.
 ///
 /// This is currently empty.
@@ -1347,6 +1408,28 @@ impl From<RumaSecretStorageV1AesHmacSha2Properties> for SecretStorageV1AesHmacSh
         Self {
             iv: value.iv.map(|base64| base64.encode()),
             mac: value.mac.map(|base64| base64.encode()),
+        }
+    }
+}
+
+/// The content of an `m.media_preview_config` event.
+///
+/// Is also the content of the unstable
+/// `io.element.msc4278.media_preview_config`.
+#[derive(Clone, uniffi::Record, Default)]
+pub struct MediaPreviewConfig {
+    /// The media previews setting for the user.
+    pub media_previews: MediaPreviews,
+
+    /// The invite avatars setting for the user.
+    pub invite_avatars: InviteAvatars,
+}
+
+impl From<MediaPreviewConfigEventContent> for MediaPreviewConfig {
+    fn from(value: MediaPreviewConfigEventContent) -> Self {
+        Self {
+            media_previews: value.media_previews.into(),
+            invite_avatars: value.invite_avatars.into(),
         }
     }
 }

@@ -33,12 +33,12 @@ use ruma::{
     device_id,
     directory::PublicRoomsChunk,
     events::{
-        room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, MessageLikeEventType,
-        StateEventType,
+        room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, GlobalAccountDataEventType,
+        MessageLikeEventType, StateEventType,
     },
     serde::Raw,
     time::Duration,
-    DeviceId, MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName,
+    DeviceId, MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName, UserId,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -1015,6 +1015,39 @@ impl MatrixMockServer {
         // Routing happens in the final method ok(), since it can get complicated.
         let mock = Mock::given(method("GET"));
         self.mock_endpoint(mock, RoomRelationsEndpoint::default()).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get the global account
+    /// data.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::room_id,
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_global_account_data()..ok(
+    ///     client.user_id().unwrap(),
+    ///     ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
+    ///     json!({
+    ///         "media_previews": "private",
+    ///         "invite_avatars": "off"
+    ///     })
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_global_account_data(&self) -> MockEndpoint<'_, GlobalAccountDataEndpoint> {
+        let mock = Mock::given(method("GET"));
+        self.mock_endpoint(mock, GlobalAccountDataEndpoint).expect_default_access_token()
     }
 }
 
@@ -2678,6 +2711,45 @@ impl<'a> MockEndpoint<'a, RoomRelationsEndpoint> {
             "prev_batch": response.prev_batch,
             "recursion_depth": response.recursion_depth,
         })))
+    }
+}
+
+/// A prebuilt mock for the global account data endpoint.
+pub struct GlobalAccountDataEndpoint;
+
+impl<'a> MockEndpoint<'a, GlobalAccountDataEndpoint> {
+    /// Returns a mock for a successful global account data event.
+    pub fn ok(
+        self,
+        user_id: &UserId,
+        event_type: GlobalAccountDataEventType,
+        json_response: Value,
+    ) -> MatrixMock<'a> {
+        let mock = self
+            .mock
+            .and(path_regex(format!(
+                r"^/_matrix/client/v3/user/{user_id}/account_data/{event_type}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json_response));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns a mock for a not found global account data event.
+    pub fn not_found(
+        self,
+        user_id: &UserId,
+        event_type: GlobalAccountDataEventType,
+    ) -> MatrixMock<'a> {
+        let mock = self
+            .mock
+            .and(path_regex(format!(
+                r"^/_matrix/client/v3/user/{user_id}/account_data/{event_type}"
+            )))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_NOT_FOUND",
+                "error": "Not found"
+            })));
+        MatrixMock { server: self.server, mock }
     }
 }
 
