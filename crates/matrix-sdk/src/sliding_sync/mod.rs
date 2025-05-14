@@ -20,7 +20,6 @@ mod cache;
 mod client;
 mod error;
 mod list;
-mod room;
 mod sticky_parameters;
 mod utils;
 
@@ -50,7 +49,7 @@ use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
 use self::utils::JoinHandleExt as _;
-pub use self::{builder::*, client::VersionBuilderError, error::*, list::*, room::*};
+pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
 use self::{
     cache::restore_sliding_sync_state,
     client::SlidingSyncResponseProcessor,
