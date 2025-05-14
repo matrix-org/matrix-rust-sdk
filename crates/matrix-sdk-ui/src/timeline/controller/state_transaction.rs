@@ -276,6 +276,13 @@ impl<'a> TimelineStateTransaction<'a> {
                 // filtering: the event *should* be added!
                 true
             }
+
+            TimelineFocusKind::Thread => {
+                // The thread timeline doesn't apply any additional
+                // for now. It will however do so in the future, as
+                // will the live one
+                true
+            }
         }
     }
 
