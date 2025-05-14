@@ -2278,7 +2278,7 @@ mod tests {
                                     "content": {
                                         "unread": unread
                                     },
-                                    "type": "com.famedly.marked_unread"
+                                    "type": "m.marked_unread"
                                 })
                                 .to_string(),
                             ).unwrap()
