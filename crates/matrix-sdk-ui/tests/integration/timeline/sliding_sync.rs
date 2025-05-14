@@ -394,8 +394,6 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let _room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
-
     Ok(())
 }
 
@@ -404,9 +402,6 @@ async fn timeline_test_helper(
     sliding_sync: &SlidingSync,
     room_id: &RoomId,
 ) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>)> {
-    let sliding_sync_room = sliding_sync.get_room(room_id).await.unwrap();
-
-    let room_id = sliding_sync_room.room_id();
     let sdk_room = client.get_room(room_id).ok_or_else(|| {
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
