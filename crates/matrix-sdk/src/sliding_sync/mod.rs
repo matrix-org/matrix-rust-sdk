@@ -180,11 +180,6 @@ impl SlidingSync {
         }
     }
 
-    /// Lookup a specific room
-    pub async fn get_room(&self, room_id: &RoomId) -> Option<SlidingSyncRoom> {
-        self.inner.rooms.read().await.get(room_id).cloned()
-    }
-
     /// Check the number of rooms.
     pub fn get_number_of_rooms(&self) -> usize {
         self.inner.rooms.blocking_read().len()
