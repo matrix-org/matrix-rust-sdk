@@ -267,19 +267,6 @@ impl RoomReadReceipts {
     }
 }
 
-/// Provider for timeline events prior to the current sync.
-pub trait PreviousEventsProvider: Send + Sync {
-    /// Returns the list of known timeline events, in sync order, for the given
-    /// room.
-    fn for_room(&self, room_id: &RoomId) -> Vector<TimelineEvent>;
-}
-
-impl PreviousEventsProvider for () {
-    fn for_room(&self, _: &RoomId) -> Vector<TimelineEvent> {
-        Vector::new()
-    }
-}
-
 /// Small helper to select the "best" receipt (that with the biggest sync
 /// order).
 struct ReceiptSelector {
