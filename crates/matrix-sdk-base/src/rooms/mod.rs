@@ -170,6 +170,9 @@ pub struct BaseRoomInfo {
     /// Whether this room has been manually marked as unread.
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
+    /// The source of is_marked_unread.
+    #[serde(default)]
+    pub(crate) is_marked_unread_source: AccountDataSource,
     /// Some notable tags.
     ///
     /// We are not interested by all the tags. Some tags are more important than
@@ -422,6 +425,7 @@ impl Default for BaseRoomInfo {
             topic: None,
             rtc_member_events: BTreeMap::new(),
             is_marked_unread: false,
+            is_marked_unread_source: AccountDataSource::Unstable,
             notable_tags: RoomNotableTags::empty(),
             pinned_events: None,
         }
@@ -585,6 +589,17 @@ impl RoomMemberships {
 
         memberships
     }
+}
+
+/// The possible sources of an account data type.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum AccountDataSource {
+    /// The source is account data with the stable prefix.
+    Stable,
+
+    /// The source is account data with the unstable prefix.
+    #[default]
+    Unstable,
 }
 
 #[cfg(test)]
