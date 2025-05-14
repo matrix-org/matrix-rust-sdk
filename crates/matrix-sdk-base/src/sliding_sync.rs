@@ -2044,7 +2044,7 @@ mod tests {
         let room_id = room_id!("!r:e.uk");
         let room_account_data_events = vec![Raw::from_json_string(
             json!({
-                "type": "com.famedly.marked_unread",
+                "type": "m.marked_unread",
                 "event_id": "$1",
                 "content": { "unread": true },
                 "sender": client.session_meta().unwrap().user_id,
@@ -2088,7 +2088,7 @@ mod tests {
         // …Unless its value changes!
         let room_account_data_events = vec![Raw::from_json_string(
             json!({
-                "type": "com.famedly.marked_unread",
+                "type": "m.marked_unread",
                 "event_id": "$1",
                 "content": { "unread": false },
                 "sender": client.session_meta().unwrap().user_id,

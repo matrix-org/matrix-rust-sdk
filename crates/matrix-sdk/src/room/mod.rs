@@ -87,7 +87,7 @@ use ruma::{
         beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
-        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self, RoomAvatarEventContent},
@@ -3149,7 +3149,7 @@ impl Room {
     pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
-        let content = UnstableMarkedUnreadEventContent::from(MarkedUnreadEventContent::new(unread));
+        let content = MarkedUnreadEventContent::new(unread);
 
         let request = set_room_account_data::v3::Request::new(
             user_id.to_owned(),
