@@ -41,7 +41,7 @@ use ruma::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::trace;
 use wasm_bindgen::JsValue;
-use web_sys::{IdbKeyRange, IdbTransactionMode};
+use web_sys::{IdbCursorDirection, IdbKeyRange, IdbTransactionMode};
 
 use crate::serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted};
 
@@ -772,12 +772,78 @@ impl_event_cache_store! {
     /// This is used to iteratively load events for the `EventCache`.
     async fn load_last_chunk(
         &self,
-        _room_id: &RoomId,
+        room_id: &RoomId,
     ) -> Result<
         (Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator),
         IndexeddbEventCacheStoreError,
     > {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
+            IdbTransactionMode::Readonly,
+        )?;
+
+        let chunks = tx.object_store(keys::LINKED_CHUNKS)?;
+        let gaps = tx.object_store(keys::GAPS)?;
+        let events = tx.object_store(keys::EVENTS)?;
+
+        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+        if let Some(cursor) =
+            chunks.open_cursor_with_range_and_direction(&range, IdbCursorDirection::Prev)?.await?
+        {
+            let chunk: ChunkForCache = self.deserialize_value_with_id(cursor.value())?;
+            let chunk_id = chunk.raw_id.to_string();
+            let content = match chunk.type_str.as_str() {
+                ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
+                    let lower = self.encode_key(vec![
+                        (keys::ROOMS, room_id.as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id, false),
+                    ]);
+
+                    let upper = self.encode_upper_key(vec![
+                        (keys::ROOMS, room_id.as_ref(), true),
+                        (keys::LINKED_CHUNKS, &chunk_id, false),
+                    ]);
+
+                    let events_key_range =
+                        IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+                    let events = events.get_all_with_key(&events_key_range)?.await?;
+                    let mut events_vec = Vec::new();
+                    for event in events {
+                        let event: TimelineEventForCache = self.deserialize_value_with_id(event)?;
+                        events_vec.push(event.content);
+                    }
+                    linked_chunk::ChunkContent::Items(events_vec)
+                }
+                ChunkForCache::CHUNK_TYPE_GAP_TYPE_STRING => {
+                    let gap = gaps.get_owned(chunk.id.clone())?.await?.unwrap();
+                    let gap: GapForCache = self.deserialize_value_with_id(gap)?;
+                    linked_chunk::ChunkContent::Gap(Gap { prev_token: gap.prev_token })
+                }
+                s => {
+                    return Err(IndexeddbEventCacheStoreError::UnknownChunkType(s.to_owned()));
+                }
+            };
+
+            let identifier = ChunkIdentifier::new(chunk.raw_id);
+            let raw_chunk = RawChunk {
+                identifier,
+                content,
+                previous: chunk.raw_previous.map(ChunkIdentifier::new),
+                // TODO: This should always be None, and if it's not, something
+                // is wrong with our query... should this be an expect()? Or, at least
+                // an error?
+                next: chunk.raw_next.map(ChunkIdentifier::new),
+            };
+            let generator =
+                ChunkIdentifierGenerator::new_from_previous_chunk_identifier(identifier);
+            Ok((Some(raw_chunk), generator))
+        } else {
+            Ok((None, ChunkIdentifierGenerator::new_from_scratch()))
+        }
     }
 
     /// Load the chunk before the chunk identified by `before_chunk_identifier`
