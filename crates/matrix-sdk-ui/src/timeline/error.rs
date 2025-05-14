@@ -122,6 +122,9 @@ pub enum PaginationError {
     /// An error occurred while paginating.
     #[error("Error when paginating.")]
     Paginator(#[source] PaginatorError),
+
+    #[error("Pagination mode not supported")]
+    NotSupported,
 }
 
 #[derive(Debug, Error)]

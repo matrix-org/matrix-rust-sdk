@@ -62,6 +62,7 @@ mod reactions;
 mod read_receipts;
 mod replies;
 mod subscribe;
+mod thread;
 
 pub(crate) mod sliding_sync;
 

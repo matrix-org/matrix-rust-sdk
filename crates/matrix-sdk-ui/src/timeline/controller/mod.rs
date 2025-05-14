@@ -67,6 +67,7 @@ use super::{
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
+    threaded_events_loader::ThreadedEventsLoader,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, PaginationError,
     Profile, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
@@ -108,6 +109,13 @@ enum TimelineFocusData<P: RoomDataProvider> {
         paginator: Paginator<P>,
         /// Number of context events to request for the first request.
         num_context_events: u16,
+    },
+
+    Thread {
+        loader: ThreadedEventsLoader<P>,
+
+        /// Number of relations events to requests for the first request
+        num_events: u16,
     },
 
     PinnedEvents {
@@ -173,10 +181,11 @@ impl Default for TimelineSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) enum TimelineFocusKind {
     Live,
     Event,
+    Thread,
     PinnedEvents,
 }
 
@@ -278,6 +287,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 )
             }
 
+            TimelineFocus::Thread { root_event_id, num_events } => (
+                TimelineFocusData::Thread {
+                    loader: ThreadedEventsLoader::new(room_data_provider.clone(), root_event_id),
+                    num_events,
+                },
+                TimelineFocusKind::Thread,
+            ),
+
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => (
                 TimelineFocusData::PinnedEvents {
                     loader: PinnedEventsLoader::new(
@@ -359,6 +376,24 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 .await;
 
                 Ok(has_events)
+            }
+
+            TimelineFocusData::Thread { loader, num_events } => {
+                let result = loader
+                    .paginate_backwards((*num_events).into())
+                    .await
+                    .map_err(PaginationError::Paginator)?;
+
+                drop(focus_guard);
+
+                // Events are in reverse topological order.
+                self.replace_with_initial_remote_events(
+                    result.events.into_iter().rev(),
+                    RemoteEventOrigin::Pagination,
+                )
+                .await;
+
+                Ok(true)
             }
 
             TimelineFocusData::PinnedEvents { loader } => {
@@ -459,6 +494,10 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
+            TimelineFocusData::Thread { loader, num_events } => loader
+                .paginate_backwards((*num_events).into())
+                .await
+                .map_err(PaginationError::Paginator)?,
         };
 
         // Events are in reverse topological order.
@@ -488,6 +527,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 .paginate_forward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
+            TimelineFocusData::Thread { .. } => return Err(PaginationError::NotSupported),
         };
 
         // Events are in topological order.

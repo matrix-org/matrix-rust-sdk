@@ -31,7 +31,7 @@ use matrix_sdk::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
-    room::{EventWithContextResponse, Messages, MessagesOptions, PushContext},
+    room::{EventWithContextResponse, Messages, MessagesOptions, PushContext, Relations},
     send_queue::RoomSendQueueUpdate,
     BoxFuture,
 };
@@ -427,5 +427,13 @@ impl RoomDataProvider for TestRoomDataProvider {
         _sender: &UserId,
     ) -> Option<EncryptionInfo> {
         self.encryption_info.get(session_id).cloned()
+    }
+
+    async fn relations(
+        &self,
+        _event_id: OwnedEventId,
+        _opts: matrix_sdk::room::RelationsOptions,
+    ) -> Result<Relations, matrix_sdk::Error> {
+        unimplemented!();
     }
 }
