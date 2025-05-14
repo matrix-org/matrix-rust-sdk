@@ -287,6 +287,29 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_no_thread_summary() {
+        let room_id = room_id!("!room:example.org");
+        let f = EventFactory::new().sender(&ALICE).room(room_id);
+
+        let root = f.text_msg("hello world!").into_raw();
+
+        // If there's no thread summary, it can be extracted without trouble.
+        let extracted_summary =
+            ThreadSummary::extract_from_bundled(&root).expect("extracting works");
+        assert_matches!(extracted_summary, None);
+
+        // If there's a bundled relation, but it's not a thread, we can still extract
+        // without failing.
+        let mut relations = BundledMessageLikeRelations::new();
+        relations.replace = Some(Box::new(f.text_msg("hello wrold!").into_raw()));
+
+        let root = f.text_msg("hello world!").bundled_relations(relations).into_raw();
+        let extracted_summary =
+            ThreadSummary::extract_from_bundled(&root).expect("extracting works");
+        assert_matches!(extracted_summary, None);
+    }
+
+    #[test]
     fn test_extract_invalid_thread_summary() {
         let room_id = room_id!("!room:example.org");
         let f = EventFactory::new().sender(&ALICE).room(room_id);
@@ -394,5 +417,26 @@ mod tests {
         assert!(summary.current_user_participated.not());
         assert_eq!(&summary.latest_event, thread_event_id2);
         assert!(summary.maybe_outdated);
+    }
+
+    #[test]
+    fn test_on_new_sync_event_noop() {
+        // When an event doesn't have any relevant thread information, no summary is
+        // extracted.
+        let room_id = room_id!("!room:example.org");
+        let f = EventFactory::new().sender(&ALICE).room(room_id);
+
+        let replied_to_event_id = event_id!("$replied_to");
+        let event_id = event_id!("$thread");
+        let event = f
+            .text_msg("hello to you too!")
+            .reply_to(replied_to_event_id)
+            .event_id(event_id)
+            .into_raw();
+
+        let mut room_threads = RoomThreads::new(room_id.to_owned());
+
+        let summary = room_threads.on_new_sync_event(&event).expect("event processing works");
+        assert_matches!(summary, None);
     }
 }
