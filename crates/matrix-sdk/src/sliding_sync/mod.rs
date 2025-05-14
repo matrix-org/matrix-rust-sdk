@@ -180,11 +180,6 @@ impl SlidingSync {
         }
     }
 
-    /// Check the number of rooms.
-    pub fn get_number_of_rooms(&self) -> usize {
-        self.inner.rooms.blocking_read().len()
-    }
-
     /// Find a list by its name, and do something on it if it exists.
     pub async fn on_list<Function, FunctionOutput, R>(
         &self,
