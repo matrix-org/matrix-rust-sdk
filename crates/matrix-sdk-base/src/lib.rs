@@ -37,7 +37,6 @@ mod response_processors;
 mod rooms;
 
 pub mod read_receipts;
-pub use read_receipts::PreviousEventsProvider;
 pub mod sliding_sync;
 
 pub mod store;
