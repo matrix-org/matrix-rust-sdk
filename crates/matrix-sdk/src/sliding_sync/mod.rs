@@ -293,32 +293,17 @@ impl SlidingSync {
         let update_summary = {
             // Update the rooms.
             let updated_rooms = {
-                let mut rooms_map = self.inner.rooms.write().await;
+                let mut updated_rooms = Vec::with_capacity(
+                    sliding_sync_response.rooms.len() + sync_response.rooms.joined.len(),
+                );
 
-                let mut updated_rooms = Vec::with_capacity(sync_response.rooms.joined.len());
-
-                for room_id in sliding_sync_response.rooms.keys() {
-                    match rooms_map.get_mut(room_id) {
-                        // The room existed before, let's update it.
-                        Some(room) => {
-                            room.update_state();
-                        }
-
-                        // First time we need this room, let's create it.
-                        None => {
-                            rooms_map
-                                .insert(room_id.clone(), SlidingSyncRoom::new(room_id.clone()));
-                        }
-                    }
-
-                    updated_rooms.push(room_id.to_owned());
-                }
+                updated_rooms.extend(sliding_sync_response.rooms.keys().cloned());
 
                 // There might be other rooms that were only mentioned in the sliding sync
                 // extensions part of the response, and thus would result in rooms present in
-                // the `sync_response.join`. Mark them as updated too.
+                // the `sync_response.joined`. Mark them as updated too.
                 //
-                // Since we've removed rooms that were in the room subsection from
+                // Since we've removed rooms that we're in the room subsection from
                 // `sync_response.rooms.joined`, the remaining ones aren't already present in
                 // `updated_rooms` and wouldn't cause any duplicates.
                 updated_rooms.extend(sync_response.rooms.joined.keys().cloned());
