@@ -358,7 +358,7 @@ async fn test_verification_states_multiple_device() {
     .unwrap();
 
     let (state, _) = bob
-        .get_or_update_verification_state(&web_unverified_inbound_session, other_user_id)
+        .get_room_event_verification_state(&web_unverified_inbound_session, other_user_id)
         .await
         .unwrap();
     assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), state);
@@ -376,7 +376,7 @@ async fn test_verification_states_multiple_device() {
     .unwrap();
 
     let (state, _) = bob
-        .get_or_update_verification_state(&web_signed_inbound_session, other_user_id)
+        .get_room_event_verification_state(&web_signed_inbound_session, other_user_id)
         .await
         .unwrap();
 
