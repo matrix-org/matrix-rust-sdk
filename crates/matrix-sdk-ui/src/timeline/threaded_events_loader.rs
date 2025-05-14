@@ -1,4 +1,4 @@
-// Copyright 2024 The Matrix.org Foundation C.I.C.
+// Copyright 2025 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,49 +25,26 @@ use ruma::{api::Direction, events::relation::RelationType, OwnedEventId, UInt};
 
 use super::traits::RoomDataProvider;
 
-#[derive(Debug)]
-struct PaginationTokens {
-    previous: PaginationToken,
-    next: PaginationToken,
-}
-
 pub struct ThreadedEventsLoader<P: RoomDataProvider> {
     room: P,
     root_event_id: OwnedEventId,
-    tokens: Mutex<PaginationTokens>,
+    token: Mutex<PaginationToken>,
 }
 
 impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
     /// Create a new [`Paginator`], given a room implementation.
     pub fn new(room: P, root_event_id: OwnedEventId) -> Self {
-        Self {
-            room,
-            root_event_id,
-            tokens: Mutex::new(PaginationTokens { previous: None.into(), next: None.into() }),
-        }
+        Self { room, root_event_id, token: Mutex::new(None.into()) }
     }
 
     pub async fn paginate_backwards(
         &self,
         num_events: UInt,
     ) -> Result<PaginationResult, PaginatorError> {
-        self.paginate(Direction::Backward, num_events).await
-    }
-
-    async fn paginate(
-        &self,
-        direction: Direction,
-        num_events: UInt,
-    ) -> Result<PaginationResult, PaginatorError> {
         let token = {
-            let tokens = self.tokens.lock().unwrap();
+            let token = self.token.lock().unwrap();
 
-            let token = match direction {
-                Direction::Backward => &tokens.previous,
-                Direction::Forward => &tokens.next,
-            };
-
-            match token {
+            match &*token {
                 PaginationToken::None => None,
                 PaginationToken::HasMore(token) => Some(token.clone()),
                 PaginationToken::HitEnd => {
@@ -78,7 +55,7 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
 
         let options = RelationsOptions {
             from: token,
-            dir: direction,
+            dir: Direction::Backward,
             limit: Some(num_events),
             include_relations: IncludeRelations::RelationsOfType(RelationType::Thread),
             recurse: true,
@@ -94,12 +71,7 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
 
         // Update the stored tokens
         {
-            let mut tokens = self.tokens.lock().unwrap();
-
-            let token = match direction {
-                Direction::Backward => &mut tokens.previous,
-                Direction::Forward => &mut tokens.next,
-            };
+            let mut token = self.token.lock().unwrap();
 
             *token = match result.next_batch_token {
                 Some(val) => PaginationToken::HasMore(val),
@@ -108,7 +80,7 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
         }
 
         // Finally insert the thread root if at the end of the timeline going backwards
-        if hit_end_of_timeline && direction == Direction::Backward {
+        if hit_end_of_timeline {
             let root_event =
                 self.room.load_event_with_relations(&self.root_event_id, None, None).await?.0;
 

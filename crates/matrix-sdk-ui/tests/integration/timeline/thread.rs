@@ -13,17 +13,12 @@
 // limitations under the License.
 
 use assert_matches2::assert_let;
+use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate};
 use matrix_sdk_test::{async_test, event_factory::EventFactory};
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
-use ruma::{
-    event_id,
-    events::{room::message::RoomMessageEventContent, AnyTimelineEvent},
-    owned_event_id, room_id,
-    serde::Raw,
-    user_id,
-};
+use ruma::{event_id, events::AnyTimelineEvent, owned_event_id, room_id, serde::Raw, user_id};
 use stream_assert::assert_pending;
 
 #[async_test]
@@ -75,98 +70,7 @@ async fn test_new_thread() {
 }
 
 #[async_test]
-async fn test_simple_thread() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let room_id = room_id!("!a:b.c");
-    let sender_id = user_id!("@alice:b.c");
-
-    let factory = EventFactory::new().room(room_id).sender(sender_id);
-
-    let thread_root_event_id = owned_event_id!("$root");
-
-    server
-        .mock_room_event()
-        .match_event_id()
-        .ok(factory
-            .text_msg("Thread root")
-            .sender(sender_id)
-            .event_id(&thread_root_event_id)
-            .into())
-        .mock_once()
-        .mount()
-        .await;
-
-    let batch1 =
-        vec![factory.text_msg("Threaded event 2").event_id(event_id!("$2")).into_raw_sync().cast()];
-    let batch2 =
-        vec![factory.text_msg("Threaded event 1").event_id(event_id!("$1")).into_raw_sync().cast()];
-
-    server
-        .mock_room_relations()
-        .match_target_event(thread_root_event_id.clone())
-        .ok(RoomRelationsResponseTemplate::default().events(batch1).next_batch("next_batch"))
-        .mock_once()
-        .mount()
-        .await;
-
-    server
-        .mock_room_relations()
-        .match_target_event(thread_root_event_id.clone())
-        .match_from("next_batch")
-        .ok(RoomRelationsResponseTemplate::default().events(batch2))
-        .mock_once()
-        .mount()
-        .await;
-
-    let room = server.sync_joined_room(&client, room_id).await;
-
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id, num_events: 1 })
-        .build()
-        .await
-        .unwrap();
-
-    let (items, mut timeline_stream) = timeline.subscribe().await;
-
-    assert_eq!(items.len(), 1 + 1); //  a date divider + the event
-    assert!(items[0].is_date_divider());
-    assert_eq!(
-        items[1].as_event().unwrap().content().as_message().unwrap().body(),
-        "Threaded event 2"
-    );
-    assert_pending!(timeline_stream);
-
-    let hit_start = timeline.paginate_backwards(1).await.unwrap();
-    assert!(hit_start);
-
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-
-    // Remove date separator and insert a new one plus the remaining threaded
-    // even and the thread root
-    assert_eq!(timeline_updates.len(), 4);
-
-    let items = timeline.items().await;
-    assert_eq!(items.len(), 4); // a date separator and the 3 events
-
-    assert!(items[0].is_date_divider());
-
-    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "Thread root");
-
-    assert_eq!(
-        items[2].as_event().unwrap().content().as_message().unwrap().body(),
-        "Threaded event 1"
-    );
-
-    assert_eq!(
-        items[3].as_event().unwrap().content().as_message().unwrap().body(),
-        "Threaded event 2"
-    );
-}
-
-#[async_test]
-async fn test_thread_ordering() {
+async fn test_thread_backpagination() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -194,8 +98,8 @@ async fn test_thread_ordering() {
         factory.text_msg("Threaded event 3").event_id(event_id!("$4")).into_raw_sync().cast(),
     ];
     let batch2 = vec![
-        factory.text_msg("Threaded event 2").event_id(event_id!("$1")).into_raw_sync().cast(),
-        factory.text_msg("Threaded event 1").event_id(event_id!("$2")).into_raw_sync().cast(),
+        factory.text_msg("Threaded event 2").event_id(event_id!("$2")).into_raw_sync().cast(),
+        factory.text_msg("Threaded event 1").event_id(event_id!("$1")).into_raw_sync().cast(),
     ];
 
     server
@@ -224,6 +128,10 @@ async fn test_thread_ordering() {
         .unwrap();
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
+    assert_pending!(timeline_stream);
+
+    assert_eq!(items.len(), 2 + 1); //  A date divider + the 2 events
+    assert!(items[0].is_date_divider());
 
     assert_eq!(
         items[1].as_event().unwrap().content().as_message().unwrap().body(),
@@ -233,14 +141,37 @@ async fn test_thread_ordering() {
         items[2].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 4"
     );
-    assert_pending!(timeline_stream);
 
     let hit_start = timeline.paginate_backwards(100).await.unwrap();
     assert!(hit_start);
 
-    timeline_stream.next().await;
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
 
+    // Remove date separator and insert a new one plus the remaining threaded
+    // events and the thread root
+    assert_eq!(timeline_updates.len(), 5);
+
+    println!("Stefan: {:?}", timeline_updates);
+
+    // Check the timeline diffs
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$root"));
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+    assert!(value.is_date_divider());
+
+    assert_let!(VectorDiff::Remove { index: 4 } = &timeline_updates[4]);
+
+    // Check the final items
     let items = timeline.items().await;
+
+    assert!(items[0].is_date_divider());
 
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "Thread root");
 
@@ -261,48 +192,4 @@ async fn test_thread_ordering() {
         items[5].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 4"
     );
-}
-
-#[async_test]
-async fn test_thread_live_updates() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let room_id = room_id!("!a:b.c");
-    let sender_id = user_id!("@alice:b.c");
-
-    let f = EventFactory::new().room(room_id).sender(sender_id);
-
-    let thread_root_event_id = owned_event_id!("$root");
-
-    server
-        .mock_room_event()
-        .match_event_id()
-        .ok(f.text_msg("Thread root").sender(sender_id).event_id(&thread_root_event_id).into())
-        .mock_once()
-        .mount()
-        .await;
-
-    server
-        .mock_room_relations()
-        .match_target_event(thread_root_event_id.clone())
-        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
-        .mock_once()
-        .mount()
-        .await;
-
-    let room = server.sync_joined_room(&client, room_id).await;
-
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id, num_events: 1 })
-        .build()
-        .await
-        .unwrap();
-
-    timeline.send(RoomMessageEventContent::text_plain("Random message").into()).await.unwrap();
-
-    let (items, mut timeline_stream) = timeline.subscribe().await;
-
-    assert_eq!(items.len(), 2); // a date separator and the root
-    assert_pending!(timeline_stream);
 }

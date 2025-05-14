@@ -181,7 +181,7 @@ impl Default for TimelineSettings {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(super) enum TimelineFocusKind {
     Live,
     Event,
@@ -488,7 +488,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
-                return Err(PaginationError::NotEventFocusMode)
+                return Err(PaginationError::NotSupported)
             }
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_backward(num_events.into())
@@ -520,14 +520,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
-            TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
-                return Err(PaginationError::NotEventFocusMode)
-            }
+            TimelineFocusData::Live
+            | TimelineFocusData::PinnedEvents { .. }
+            | TimelineFocusData::Thread { .. } => return Err(PaginationError::NotSupported),
+
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_forward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
-            TimelineFocusData::Thread { .. } => return Err(PaginationError::NotSupported),
         };
 
         // Events are in topological order.
