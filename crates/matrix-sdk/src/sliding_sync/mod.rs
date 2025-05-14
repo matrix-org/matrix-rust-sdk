@@ -235,21 +235,6 @@ impl SlidingSync {
         self.add_list(list_builder).await
     }
 
-    /// Lookup a set of rooms
-    pub async fn get_rooms<I: Iterator<Item = OwnedRoomId>>(
-        &self,
-        room_ids: I,
-    ) -> Vec<Option<SlidingSyncRoom>> {
-        let rooms = self.inner.rooms.read().await;
-
-        room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
-    }
-
-    /// Get all rooms.
-    pub async fn get_all_rooms(&self) -> Vec<SlidingSyncRoom> {
-        self.inner.rooms.read().await.values().cloned().collect()
-    }
-
     /// Handle the HTTP response.
     #[instrument(skip_all)]
     async fn handle_response(
