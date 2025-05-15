@@ -41,6 +41,12 @@ use std::{borrow::Cow, collections::HashMap};
 
 use as_variant::as_variant;
 use ruma::{
+    events::{
+        poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
+        relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
+        AnySyncTimelineEvent,
+    },
+    serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
 };
 use tracing::{info, trace, warn};
@@ -50,6 +56,30 @@ use crate::timeline::{
     EventTimelineItem, MsgLikeContent, MsgLikeKind, PollState, ReactionInfo, ReactionStatus,
     TimelineEventItemId, TimelineItem, TimelineItemContent,
 };
+
+#[derive(Clone)]
+pub(in crate::timeline) enum PendingEditKind {
+    RoomMessage(Replacement<RoomMessageEventContentWithoutRelation>),
+    Poll(Replacement<NewUnstablePollStartEventContentWithoutRelation>),
+}
+
+impl std::fmt::Debug for PendingEditKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RoomMessage(_) => f.debug_struct("RoomMessage").finish_non_exhaustive(),
+            Self::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::timeline) struct PendingEdit {
+    /// The kind of edit this is.
+    pub kind: PendingEditKind,
+
+    /// The raw JSON for the edit.
+    pub edit_json: Option<Raw<AnySyncTimelineEvent>>,
+}
 
 /// Which kind of aggregation (related event) is this?
 #[derive(Clone, Debug)]
@@ -88,6 +118,8 @@ pub(crate) enum AggregationKind {
 
     /// An event has been redacted.
     Redaction,
+
+    Edit(PendingEdit),
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -214,6 +246,11 @@ impl Aggregation {
                     ApplyAggregationResult::UpdatedItem
                 }
             }
+
+            AggregationKind::Edit(_) => {
+                // Let the caller handle the edit.
+                ApplyAggregationResult::Edit
+            }
         }
     }
 
@@ -273,6 +310,11 @@ impl Aggregation {
                 } else {
                     ApplyAggregationResult::LeftItemIntact
                 }
+            }
+
+            AggregationKind::Edit(_) => {
+                // Let the caller handle the edit.
+                ApplyAggregationResult::Edit
             }
         }
     }
@@ -377,6 +419,23 @@ impl Aggregations {
                 ApplyAggregationResult::Error(err) => {
                     warn!("error when unapplying aggregation: {err}");
                 }
+                ApplyAggregationResult::Edit => {
+                    // This edit has been removed; try to find another that still applies.
+                    if let Some(aggregations) = self.related_events.get(found) {
+                        if resolve_edits(aggregations, items, &mut cowed) {
+                            items.replace(
+                                item_pos,
+                                TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
+                            );
+                        } else {
+                            // No other edit was found, leave the item as is.
+                            // TODO likely need to change the item to indicate
+                            // it's been un-edited etc.
+                        }
+                    } else {
+                        // No other edits apply.
+                    }
+                }
             }
         } else {
             info!("missing related-to item ({found:?}) for aggregation {aggregation_id:?}");
@@ -397,21 +456,33 @@ impl Aggregations {
         &self,
         item_id: &TimelineEventItemId,
         event: &mut Cow<'_, EventTimelineItem>,
+        items: &mut ObservableItemsTransaction<'_>,
         room_version: &RoomVersionId,
     ) -> Result<bool, AggregationError> {
         let Some(aggregations) = self.related_events.get(item_id) else {
             return Ok(false);
         };
+
         let mut changed = false;
+        let mut has_edits = false;
+
         for a in aggregations {
             match a.apply(event, room_version) {
                 ApplyAggregationResult::UpdatedItem => {
                     changed = true;
                 }
+                ApplyAggregationResult::Edit => {
+                    has_edits = true;
+                }
                 ApplyAggregationResult::LeftItemIntact => {}
                 ApplyAggregationResult::Error(err) => return Err(err),
             }
         }
+
+        if has_edits {
+            changed = resolve_edits(aggregations, items, event) || changed;
+        }
+
         Ok(changed)
     }
 
@@ -464,6 +535,7 @@ impl Aggregations {
                 match &mut found.kind {
                     AggregationKind::PollResponse { .. }
                     | AggregationKind::PollEnd { .. }
+                    | AggregationKind::Edit(..)
                     | AggregationKind::Redaction => {
                         // Nothing particular to do.
                     }
@@ -473,12 +545,8 @@ impl Aggregations {
                         // caller.
                         *reaction_status = ReactionStatus::RemoteToRemote(event_id);
 
-                        find_item_and_apply_aggregation(
-                            items,
-                            &target,
-                            found.clone(),
-                            room_version,
-                        );
+                        let found = found.clone();
+                        find_item_and_apply_aggregation(self, items, &target, found, room_version);
                     }
                 }
             }
@@ -489,12 +557,147 @@ impl Aggregations {
     }
 }
 
+/// Look at all the edits of a given event, and apply the most recent one, if
+/// found.
+fn resolve_edits(
+    aggregations: &[Aggregation],
+    items: &ObservableItemsTransaction<'_>,
+    event: &mut Cow<'_, EventTimelineItem>,
+) -> bool {
+    let mut best_edit: Option<PendingEdit> = None;
+    let mut best_edit_pos = None;
+
+    for a in aggregations {
+        if let AggregationKind::Edit(pending_edit) = &a.kind {
+            match &a.own_id {
+                TimelineEventItemId::TransactionId(_) => {
+                    // A local echo is always the most recent edit: use this one.
+                    best_edit = Some(pending_edit.clone());
+                    break;
+                }
+
+                TimelineEventItemId::EventId(event_id) => {
+                    if let Some(best_edit_pos) = &mut best_edit_pos {
+                        let pos = items.position_by_event_id(event_id);
+                        if let Some(pos) = pos {
+                            // If the edit is more recent (higher index) than the previous best
+                            // edit we knew about, use this one.
+                            if pos > *best_edit_pos {
+                                best_edit = Some(pending_edit.clone());
+                                *best_edit_pos = pos;
+                                trace!(?best_edit_pos, edit_id = ?a.own_id, "found better edit");
+                            }
+                        } else {
+                            trace!(edit_id = ?a.own_id, "couldn't find timeline meta for edit event");
+
+                            // The edit event isn't in the timeline, so it might be a bundled
+                            // edit. In this case, record it as the best edit if and only if
+                            // there wasn't any other.
+                            if best_edit.is_none() {
+                                best_edit = Some(pending_edit.clone());
+                                trace!(?best_edit_pos, edit_id = ?a.own_id, "found bundled edit");
+                            }
+                        }
+                    } else {
+                        // There wasn't any best edit yet, so record this one as being it, with
+                        // its position.
+                        best_edit = Some(pending_edit.clone());
+                        best_edit_pos = items.position_by_event_id(event_id);
+                        trace!(?best_edit_pos, edit_id = ?a.own_id, "first best edit");
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(edit) = best_edit {
+        edit_item(event, edit)
+    } else {
+        false
+    }
+}
+
+/// Apply the selected edit to the given EventTimelineItem
+fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
+    let PendingEdit { kind: edit_kind, edit_json, .. } = edit;
+
+    if let Some(event_json) = &edit_json {
+        let Some(edit_sender) = event_json.get_field::<OwnedUserId>("sender").ok().flatten() else {
+            info!("edit event didn't have a sender; likely a malformed event");
+            return false;
+        };
+
+        if edit_sender != item.sender() {
+            info!(
+                original_sender = %item.sender(),
+                %edit_sender,
+                "Edit event applies to another user's timeline item, discarding"
+            );
+            return false;
+        }
+    }
+
+    let TimelineItemContent::MsgLike(content) = item.content() else {
+        info!("Edit of message event applies to {:?}, discarding", item.content().debug_string(),);
+        return false;
+    };
+
+    match (edit_kind, content) {
+        (
+            PendingEditKind::RoomMessage(replacement),
+            MsgLikeContent { kind: MsgLikeKind::Message(msg), .. },
+        ) => {
+            // First combination: it's a message edit for a message. Good.
+            let mut new_msg = msg.clone();
+            new_msg.apply_edit(replacement.new_content);
+
+            let new_item = item.with_content_and_latest_edit(
+                TimelineItemContent::MsgLike(content.with_kind(MsgLikeKind::Message(new_msg))),
+                edit_json,
+            );
+            *item = Cow::Owned(new_item);
+        }
+
+        (
+            PendingEditKind::Poll(replacement),
+            MsgLikeContent { kind: MsgLikeKind::Poll(poll_state), .. },
+        ) => {
+            // Second combination: it's a poll edit for a poll. Good.
+            if let Some(new_poll_state) = poll_state.edit(replacement.new_content) {
+                let new_item = item.with_content_and_latest_edit(
+                    TimelineItemContent::MsgLike(
+                        content.with_kind(MsgLikeKind::Poll(new_poll_state)),
+                    ),
+                    edit_json,
+                );
+                *item = Cow::Owned(new_item);
+            } else {
+                // The poll has ended, so we can't edit it anymore.
+                return false;
+            }
+        }
+
+        (edit_kind, _) => {
+            // Invalid combination.
+            info!(
+                content = item.content().debug_string(),
+                edit = format!("{:?}", edit_kind),
+                "Mismatch between edit type and content type",
+            );
+            return false;
+        }
+    }
+
+    true
+}
+
 /// Find an item identified by the target identifier, and apply the aggregation
 /// onto it.
 ///
 /// Returns the updated [`EventTimelineItem`] if the aggregation was applied, or
 /// `None` otherwise.
 pub(crate) fn find_item_and_apply_aggregation(
+    aggregations: &Aggregations,
     items: &mut ObservableItemsTransaction<'_>,
     target: &TimelineEventItemId,
     aggregation: Aggregation,
@@ -515,6 +718,20 @@ pub(crate) fn find_item_and_apply_aggregation(
             items.replace(idx, new_item);
             Some(new_event_item)
         }
+        ApplyAggregationResult::Edit => {
+            if let Some(aggregations) = aggregations.related_events.get(target) {
+                if resolve_edits(aggregations, items, &mut cowed) {
+                    let new_event_item = cowed.into_owned();
+                    let new_item = TimelineItem::new(
+                        new_event_item.clone(),
+                        event_item.internal_id.to_owned(),
+                    );
+                    items.replace(idx, new_item);
+                    return Some(new_event_item);
+                }
+            }
+            None
+        }
         ApplyAggregationResult::LeftItemIntact => {
             trace!("applying the aggregation had no effect");
             None
@@ -530,6 +747,10 @@ pub(crate) fn find_item_and_apply_aggregation(
 enum ApplyAggregationResult {
     /// The passed `Cow<EventTimelineItem>` has been cloned and updated.
     UpdatedItem,
+
+    /// An edit must be included in the edit set and resolved later, using the
+    /// relative position of the edits.
+    Edit,
 
     /// The item hasn't been modified after applying the aggregation, because it
     /// was likely already applied prior to this.

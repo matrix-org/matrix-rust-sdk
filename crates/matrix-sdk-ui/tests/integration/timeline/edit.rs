@@ -492,7 +492,14 @@ async fn test_edit_to_replied_updates_reply() {
 
     yield_now().await; // let the send queue handle the edit.
 
-    // The reply events are updated with the edited replied-to content.
+    // The edit happens.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+        let msg = value.content().as_message().unwrap();
+        assert_eq!(msg.body(), "hello world");
+        assert!(msg.is_edited());
+    });
+
+    // And then the reply events are updated with the edited replied-to content.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         let msglike = value.content().as_msglike().unwrap();
         let reply_message = msglike.as_message().unwrap();
@@ -515,13 +522,6 @@ async fn test_edit_to_replied_updates_reply() {
         assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
-    });
-
-    // And the edit happens.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
-        let msg = value.content().as_message().unwrap();
-        assert_eq!(msg.body(), "hello world");
-        assert!(msg.is_edited());
     });
 
     sleep(Duration::from_millis(200)).await;

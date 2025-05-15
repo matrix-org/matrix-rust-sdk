@@ -275,6 +275,11 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.get_by_event_id(event_id)
     }
 
+    /// Get the position of an event in the events array by its ID.
+    pub fn position_by_event_id(&self, event_id: &EventId) -> Option<usize> {
+        self.all_remote_events.position_by_event_id(event_id)
+    }
+
     /// Replace a timeline item at position `timeline_item_index` by
     /// `timeline_item`.
     pub fn replace(
@@ -1938,6 +1943,11 @@ impl AllRemoteEvents {
     /// Get an immutable reference to a specific remote event by its ID.
     pub fn get_by_event_id(&self, event_id: &EventId) -> Option<&EventMeta> {
         self.0.iter().rev().find(|event_meta| event_meta.event_id == event_id)
+    }
+
+    /// Get the position of an event in the events array by its ID.
+    pub fn position_by_event_id(&self, event_id: &EventId) -> Option<usize> {
+        self.0.iter().position(|event_meta| event_meta.event_id == event_id)
     }
 
     /// Shift to the right all timeline item indexes that are equal to or
