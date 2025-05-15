@@ -378,7 +378,6 @@ impl Aggregations {
     ///
     /// May return an error if it found an aggregation, but it couldn't be
     /// properly applied.
-    #[must_use]
     pub fn try_remove_aggregation(
         &mut self,
         aggregation_id: &TimelineEventItemId,
