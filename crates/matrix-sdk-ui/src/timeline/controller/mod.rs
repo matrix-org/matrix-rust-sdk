@@ -59,7 +59,7 @@ pub(super) use self::{
         AllRemoteEvents, ObservableItems, ObservableItemsEntry, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
     },
-    state::{PendingEdit, PendingEditKind, TimelineState},
+    state::TimelineState,
     state_transaction::TimelineStateTransaction,
 };
 use super::{
@@ -84,7 +84,7 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
-mod aggregations;
+pub(in crate::timeline) mod aggregations;
 mod decryption_retry_task;
 mod metadata;
 mod observable_items;
@@ -1242,7 +1242,13 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(&mut tr.items, &target, aggregation, &tr.meta.room_version);
+        find_item_and_apply_aggregation(
+            &tr.meta.aggregations,
+            &mut tr.items,
+            &target,
+            aggregation,
+            &tr.meta.room_version,
+        );
 
         tr.commit();
     }
