@@ -39,13 +39,15 @@
 
 use std::collections::HashMap;
 
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId};
+use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
+};
 use tracing::{trace, warn};
 
 use super::{rfind_event_by_item_id, ObservableItemsTransaction};
 use crate::timeline::{
-    MsgLikeContent, MsgLikeKind, PollState, ReactionInfo, ReactionStatus, TimelineEventItemId,
-    TimelineItem, TimelineItemContent,
+    EventTimelineItem, MsgLikeContent, MsgLikeKind, PollState, ReactionInfo, ReactionStatus,
+    TimelineEventItemId, TimelineItem, TimelineItemContent,
 };
 
 /// Which kind of aggregation (related event) is this?
@@ -82,6 +84,9 @@ pub(crate) enum AggregationKind {
         /// we can, etc.
         reaction_status: ReactionStatus,
     },
+
+    /// An event has been redacted.
+    Redaction,
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -131,30 +136,47 @@ impl Aggregation {
     ///
     /// In case of error, returns an error detailing why the aggregation
     /// couldn't be applied.
-    pub fn apply(&self, content: &mut TimelineItemContent) -> ApplyAggregationResult {
+    pub fn apply(
+        &self,
+        event: &mut EventTimelineItem,
+        room_version: &RoomVersionId,
+    ) -> ApplyAggregationResult {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, answers } => {
-                let state = match poll_state_from_item(content) {
-                    Ok(state) => state,
-                    Err(err) => return ApplyAggregationResult::Error(err),
-                };
-                state.add_response(sender.clone(), *timestamp, answers.clone());
-                ApplyAggregationResult::UpdatedItem
+                match poll_state_from_item(event.content_mut()) {
+                    Ok(state) => {
+                        state.add_response(sender.clone(), *timestamp, answers.clone());
+                        ApplyAggregationResult::UpdatedItem
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
+            }
+
+            AggregationKind::Redaction => {
+                if event.content().is_redacted() {
+                    ApplyAggregationResult::LeftItemIntact
+                } else {
+                    *event = event.redact(room_version);
+                    ApplyAggregationResult::UpdatedItem
+                }
             }
 
             AggregationKind::PollEnd { end_date } => {
-                let poll_state = match poll_state_from_item(content) {
-                    Ok(state) => state,
-                    Err(err) => return ApplyAggregationResult::Error(err),
-                };
-                if !poll_state.end(*end_date) {
-                    return ApplyAggregationResult::Error(AggregationError::PollAlreadyEnded);
+                match poll_state_from_item(event.content_mut()) {
+                    Ok(state) => {
+                        if !state.end(*end_date) {
+                            return ApplyAggregationResult::Error(
+                                AggregationError::PollAlreadyEnded,
+                            );
+                        }
+                        ApplyAggregationResult::UpdatedItem
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
                 }
-                ApplyAggregationResult::UpdatedItem
             }
 
             AggregationKind::Reaction { key, sender, timestamp, reaction_status } => {
-                let Some(reactions) = content.reactions_mut() else {
+                let Some(reactions) = event.content_mut().reactions_mut() else {
                     // These items don't hold reactions.
                     return ApplyAggregationResult::LeftItemIntact;
                 };
@@ -213,6 +235,11 @@ impl Aggregation {
                 ApplyAggregationResult::Error(AggregationError::CantUndoPollEnd)
             }
 
+            AggregationKind::Redaction => {
+                // Redactions are not reversible.
+                ApplyAggregationResult::Error(AggregationError::CantUndoRedaction)
+            }
+
             AggregationKind::Reaction { key, sender, .. } => {
                 let Some(reactions) = content.reactions_mut() else {
                     // An item that doesn't hold any reactions.
@@ -261,6 +288,25 @@ impl Aggregations {
     /// Add a given aggregation that relates to the [`TimelineItemContent`]
     /// identified by the given [`TimelineEventItemId`].
     pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
+        // If the aggregation is a redaction, it invalidates all the other aggregations;
+        // remove them.
+        if matches!(aggregation.kind, AggregationKind::Redaction) {
+            for agg in self.related_events.remove(&related_to).unwrap_or_default() {
+                self.inverted_map.remove(&agg.own_id);
+            }
+        }
+
+        // If there was any redaction among the current aggregation, adding a new one
+        // should be a noop.
+        if let Some(previous_aggregations) = self.related_events.get(&related_to) {
+            if previous_aggregations
+                .iter()
+                .any(|agg| matches!(agg.kind, AggregationKind::Redaction))
+            {
+                return;
+            }
+        }
+
         self.inverted_map.insert(aggregation.own_id.clone(), related_to.clone());
         self.related_events.entry(related_to).or_default().push(aggregation);
     }
@@ -310,13 +356,14 @@ impl Aggregations {
     pub fn apply(
         &self,
         item_id: &TimelineEventItemId,
-        content: &mut TimelineItemContent,
+        event: &mut EventTimelineItem,
+        room_version: &RoomVersionId,
     ) -> Result<(), AggregationError> {
         let Some(aggregations) = self.related_events.get(item_id) else {
             return Ok(());
         };
         for a in aggregations {
-            if let ApplyAggregationResult::Error(err) = a.apply(content) {
+            if let ApplyAggregationResult::Error(err) = a.apply(event, room_version) {
                 return Err(err);
             }
         }
@@ -371,7 +418,9 @@ impl Aggregations {
                 found.own_id = to.clone();
 
                 match &mut found.kind {
-                    AggregationKind::PollResponse { .. } | AggregationKind::PollEnd { .. } => {
+                    AggregationKind::PollResponse { .. }
+                    | AggregationKind::PollEnd { .. }
+                    | AggregationKind::Redaction => {
                         // Nothing particular to do.
                     }
                     AggregationKind::Reaction { reaction_status, .. } => {
@@ -395,31 +444,36 @@ impl Aggregations {
 /// Find an item identified by the target identifier, and apply the aggregation
 /// onto it.
 ///
-/// Returns whether the aggregation has been applied or not (so as to increment
-/// a number of updated result, for instance).
+/// Returns the updated [`EventTimelineItem`] if the aggregation was applied, or
+/// `None` otherwise.
 pub(crate) fn find_item_and_apply_aggregation(
     items: &mut ObservableItemsTransaction<'_>,
     target: &TimelineEventItemId,
     aggregation: Aggregation,
-) {
+    room_version: &RoomVersionId,
+) -> Option<EventTimelineItem> {
     let Some((idx, event_item)) = rfind_event_by_item_id(items, target) else {
         trace!("couldn't find aggregation's target {target:?}");
-        return;
+        return None;
     };
 
-    let mut new_content = event_item.content().clone();
+    let mut new_event_item = event_item.clone();
 
-    match aggregation.apply(&mut new_content) {
+    match aggregation.apply(&mut new_event_item, room_version) {
         ApplyAggregationResult::UpdatedItem => {
             trace!("applied aggregation");
-            let new_item = event_item.with_content(new_content);
-            items.replace(idx, TimelineItem::new(new_item, event_item.internal_id.to_owned()));
+            let new_item =
+                TimelineItem::new(new_event_item.clone(), event_item.internal_id.to_owned());
+            items.replace(idx, new_item);
+            Some(new_event_item)
         }
         ApplyAggregationResult::LeftItemIntact => {
             trace!("applying the aggregation had no effect");
+            None
         }
         ApplyAggregationResult::Error(err) => {
             warn!("error when applying aggregation: {err}");
+            None
         }
     }
 }
@@ -455,6 +509,9 @@ pub(crate) enum AggregationError {
 
     #[error("a poll end can't be unapplied")]
     CantUndoPollEnd,
+
+    #[error("a redaction can't be unapplied")]
+    CantUndoRedaction,
 
     #[error("trying to apply an aggregation of one type to an invalid target: expected {expected}, actual {actual}")]
     InvalidType { expected: String, actual: String },

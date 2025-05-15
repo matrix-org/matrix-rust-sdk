@@ -314,6 +314,11 @@ impl EventTimelineItem {
         &self.content
     }
 
+    /// Get a mutable handle to the content of this item.
+    pub(crate) fn content_mut(&mut self) -> &mut TimelineItemContent {
+        &mut self.content
+    }
+
     /// Get the read receipts of this item.
     ///
     /// The key is the ID of a room member and the value are details about the

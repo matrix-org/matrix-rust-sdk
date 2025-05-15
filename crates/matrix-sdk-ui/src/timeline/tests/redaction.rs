@@ -17,11 +17,14 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_test::{async_test, ALICE, BOB};
-use ruma::events::{
-    reaction::RedactedReactionEventContent, room::message::OriginalSyncRoomMessageEvent,
-    FullStateEventContent,
+use ruma::{
+    event_id,
+    events::{
+        reaction::RedactedReactionEventContent, room::message::OriginalSyncRoomMessageEvent,
+        FullStateEventContent,
+    },
 };
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
@@ -81,17 +84,53 @@ async fn test_redact_replied_to_event() {
 
     timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&ALICE)).await;
 
+    let first_item_again =
+        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(first_item_again.content().is_redacted());
+    assert_matches!(first_item_again.original_json(), None);
+
     let second_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let msglike = second_item_again.content().as_msglike().unwrap();
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content().is_redacted());
+}
 
-    let first_item_again =
-        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert!(first_item_again.content().is_redacted());
-    assert_matches!(first_item_again.original_json(), None);
+#[async_test]
+async fn test_redaction_before_event() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe_events().await;
+
+    let f = &timeline.factory;
+
+    let target_event_id = event_id!("$target");
+
+    // We get a reaction to the event, first.
+    timeline.handle_live_event(f.reaction(target_event_id, "😀").sender(&ALICE)).await;
+
+    // Then we see the redaction.
+    timeline.handle_live_event(f.redaction(target_event_id).sender(&ALICE)).await;
+
+    // Then another reaction.
+    timeline.handle_live_event(f.reaction(target_event_id, "👍").sender(&ALICE)).await;
+
+    // Nothing happens yet.
+    assert_pending!(stream);
+
+    // Then we see the original event.
+    timeline
+        .handle_live_event(f.text_msg("Hello, world!").event_id(target_event_id).sender(&ALICE))
+        .await;
+
+    // It is immediately redacted.
+    let first_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(first_item.content().is_redacted());
+    assert_matches!(first_item.original_json(), None);
+    assert_matches!(first_item.latest_edit_json(), None);
+
+    // And the reactions didn't get applied.
+    assert!(first_item.content().reactions().is_empty());
 }
 
 #[async_test]
