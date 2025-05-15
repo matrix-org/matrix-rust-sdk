@@ -45,11 +45,10 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    algorithms::{rfind_event_by_id, rfind_event_by_item_id},
+    algorithms::rfind_event_by_id,
     controller::{
-        find_item_and_apply_aggregation, Aggregation, AggregationKind, ApplyAggregationResult,
-        ObservableItemsTransaction, PendingEdit, PendingEditKind, TimelineMetadata,
-        TimelineStateTransaction,
+        find_item_and_apply_aggregation, Aggregation, AggregationKind, ObservableItemsTransaction,
+        PendingEdit, PendingEditKind, TimelineMetadata, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -1039,34 +1038,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_aggregation_redaction(&mut self, aggregation_id: OwnedEventId) -> bool {
         let aggregation_id = TimelineEventItemId::EventId(aggregation_id);
 
-        let Some((target, aggregation)) =
-            self.meta.aggregations.try_remove_aggregation(&aggregation_id)
-        else {
+        match self.meta.aggregations.try_remove_aggregation(&aggregation_id, self.items) {
+            Ok(val) => val,
             // This wasn't a known aggregation that was redacted.
-            return false;
-        };
-
-        if let Some((item_pos, item)) = rfind_event_by_item_id(self.items, target) {
-            let mut cowed = Cow::Borrowed(&*item);
-            match aggregation.unapply(&mut cowed) {
-                ApplyAggregationResult::UpdatedItem => {
-                    trace!("removed aggregation");
-                    self.items.replace(
-                        item_pos,
-                        TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
-                    );
-                }
-                ApplyAggregationResult::LeftItemIntact => {}
-                ApplyAggregationResult::Error(err) => {
-                    warn!("error when unapplying aggregation: {err}");
-                }
+            Err(err) => {
+                warn!("error while attempting to remove aggregation: {err}");
+                // It could find an aggregation but didn't properly unapply it.
+                true
             }
-        } else {
-            info!("missing related-to item ({target:?}) for aggregation {aggregation_id:?}");
         }
-
-        // In all cases, we noticed this was an aggregation.
-        true
     }
 
     /// Add a new event item in the timeline.
