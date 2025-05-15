@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, fmt, sync::Arc};
+use std::{borrow::Cow, collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
 use decryption_retry_task::DecryptionRetryTask;
@@ -909,14 +909,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                             if let Some((item_pos, item)) =
                                 rfind_event_by_item_id(&txn.items, &target)
                             {
-                                let mut event_item = item.clone();
-                                match aggregation.apply(&mut event_item, &txn.meta.room_version) {
+                                let mut cowed = Cow::Borrowed(&*item);
+                                match aggregation.apply(&mut cowed, &txn.meta.room_version) {
                                     ApplyAggregationResult::UpdatedItem => {
                                         trace!("reapplied aggregation in the event");
                                         let internal_id = item.internal_id.to_owned();
                                         txn.items.replace(
                                             item_pos,
-                                            TimelineItem::new(event_item, internal_id),
+                                            TimelineItem::new(cowed.into_owned(), internal_id),
                                         );
                                         txn.commit();
                                     }
@@ -1002,13 +1002,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 return false;
             };
 
-            let mut content = item.content().clone();
-            match aggregation.unapply(&mut content) {
+            let mut cowed = Cow::Borrowed(&*item);
+            match aggregation.unapply(&mut cowed) {
                 ApplyAggregationResult::UpdatedItem => {
                     trace!("removed local reaction to local echo");
-                    let internal_id = item.internal_id.clone();
-                    let new_item = item.with_content(content);
-                    state.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
+                    state.items.replace(
+                        item_pos,
+                        TimelineItem::new(cowed.into_owned(), item.internal_id.clone()),
+                    );
                 }
                 ApplyAggregationResult::LeftItemIntact => {}
                 ApplyAggregationResult::Error(err) => {

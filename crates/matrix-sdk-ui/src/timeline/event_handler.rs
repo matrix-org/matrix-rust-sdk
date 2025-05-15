@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use as_variant::as_variant;
 use imbl::Vector;
@@ -1047,13 +1047,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         if let Some((item_pos, item)) = rfind_event_by_item_id(self.items, target) {
-            let mut content = item.content().clone();
-            match aggregation.unapply(&mut content) {
+            let mut cowed = Cow::Borrowed(&*item);
+            match aggregation.unapply(&mut cowed) {
                 ApplyAggregationResult::UpdatedItem => {
                     trace!("removed aggregation");
-                    let internal_id = item.internal_id.to_owned();
-                    let new_item = item.with_content(content);
-                    self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
+                    self.items.replace(
+                        item_pos,
+                        TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
+                    );
                 }
                 ApplyAggregationResult::LeftItemIntact => {}
                 ApplyAggregationResult::Error(err) => {
@@ -1140,12 +1141,22 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         // Apply any pending or stashed aggregations.
-        if let Err(err) = self.meta.aggregations.apply_all(
+        let mut cowed = Cow::Borrowed(&item);
+        match self.meta.aggregations.apply_all(
             &self.ctx.flow.timeline_item_id(),
-            &mut item,
+            &mut cowed,
             &self.meta.room_version,
         ) {
-            warn!("discarding aggregations: {err}");
+            Ok(true) => {
+                // At least one aggregation has been applied.
+                item = cowed.into_owned();
+            }
+            Ok(false) => {
+                // No aggregations have been applied.
+            }
+            Err(err) => {
+                warn!("discarding aggregations: {err}");
+            }
         }
 
         match &self.ctx.flow {
