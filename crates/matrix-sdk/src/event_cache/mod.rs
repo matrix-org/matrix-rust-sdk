@@ -44,7 +44,10 @@ use matrix_sdk_base::{
     sync::RoomUpdates,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
-use room::RoomEventCacheState;
+use room::{
+    threads::{EventCacheThreadError, ThreadSummary},
+    RoomEventCacheState,
+};
 use ruma::{
     events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId, RoomVersionId,
 };
@@ -104,6 +107,10 @@ pub enum EventCacheError {
     /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
     #[error(transparent)]
     LinkedChunkLoader(#[from] LazyLoaderError),
+
+    /// An error happened while handling thread updates for this room.
+    #[error(transparent)]
+    Thread(#[from] EventCacheThreadError),
 }
 
 /// A result using the [`EventCacheError`].
@@ -601,6 +608,13 @@ pub enum RoomEventCacheUpdate {
 
         /// Where the diffs are coming from.
         origin: EventsOrigin,
+    },
+
+    /// The room received new information in threads, and some thread summaries
+    /// have been updated as a result of that.
+    UpdateThreadSummaries {
+        /// Mapping from the thread root event ID to the thread summary.
+        summaries: BTreeMap<OwnedEventId, ThreadSummary>,
     },
 
     /// The room has received new ephemeral events.

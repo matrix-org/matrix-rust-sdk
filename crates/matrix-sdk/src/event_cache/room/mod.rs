@@ -378,6 +378,7 @@ impl RoomEventCacheInner {
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         let mut prev_batch = timeline.prev_batch;
+
         if timeline.events.is_empty()
             && prev_batch.is_none()
             && ephemeral_events.is_empty()
@@ -408,7 +409,23 @@ impl RoomEventCacheInner {
                 in_store_duplicated_event_ids,
             },
             all_duplicates,
-        ) = state.collect_valid_and_duplicated_events(timeline.events).await?;
+        ) = state
+            .collect_valid_and_duplicated_events(
+                // TODO: could we get rid of this clone?
+                timeline.events.clone(),
+            )
+            .await?;
+
+        // If we only received duplicated events, we don't need to store the gap: if
+        // there was a gap, we'd have received an unknown event at the tail of
+        // the room's timeline (unless the server reordered sync events since the last
+        // time we sync'd).
+        if all_duplicates {
+            prev_batch = None;
+        }
+
+        // Handle the thread updates separately.
+        let thread_updates = state.handle_live_threads(timeline.events, prev_batch.is_some())?;
 
         // During a sync, when a duplicated event is found, the old event is removed and
         // the new event is added.
@@ -431,27 +448,20 @@ impl RoomEventCacheInner {
             // events themselves.
             let new_timeline_event_diffs = state
                 .with_events_mut(|room_events| {
-                    // If we only received duplicated events, we don't need to store the gap: if
-                    // there was a gap, we'd have received an unknown event at the tail of
-                    // the room's timeline (unless the server reordered sync events since the last
-                    // time we sync'd).
-                    if !all_duplicates {
-                        if let Some(prev_token) = &prev_batch {
-                            // As a tiny optimization: remove the last chunk if it's an empty event
-                            // one, as it's not useful to keep it before a gap.
-                            let prev_chunk_to_remove =
-                                room_events.rchunks().next().and_then(|chunk| {
-                                    (chunk.is_items() && chunk.num_items() == 0)
-                                        .then_some(chunk.identifier())
-                                });
+                    if let Some(prev_token) = &prev_batch {
+                        // As a tiny optimization: remove the last chunk if it's an empty event
+                        // one, as it's not useful to keep it before a gap.
+                        let prev_chunk_to_remove = room_events.rchunks().next().and_then(|chunk| {
+                            (chunk.is_items() && chunk.num_items() == 0)
+                                .then_some(chunk.identifier())
+                        });
 
-                            room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
 
-                            if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                                room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
-                                    "we just checked the chunk is there, and it's an empty item chunk",
-                                );
-                            }
+                        if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+                            room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
+                                "we just checked the chunk is there, and it's an empty item chunk",
+                            );
                         }
                     }
 
@@ -493,6 +503,12 @@ impl RoomEventCacheInner {
                 let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Sync,
+                });
+            }
+
+            if !thread_updates.is_empty() {
+                let _ = self.sender.send(RoomEventCacheUpdate::UpdateThreadSummaries {
+                    summaries: thread_updates,
                 });
             }
 
@@ -539,7 +555,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
-        collections::HashSet,
+        collections::{BTreeMap, HashSet},
         sync::{atomic::AtomicUsize, Arc},
     };
 
@@ -568,7 +584,9 @@ mod private {
             EventCacheError,
         },
         events::RoomEvents,
-        sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending,
+        threads::{EventCacheThreadError, RoomThreads, ThreadSummary},
+        EventLocation, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::RoomPaginationStatus;
 
@@ -588,6 +606,9 @@ mod private {
 
         /// The events of the room.
         events: RoomEvents,
+
+        /// All the information about threads from this room.
+        threads: RoomThreads,
 
         /// The events deduplicator instance to help finding duplicates.
         deduplicator: Deduplicator,
@@ -647,10 +668,13 @@ mod private {
             let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
             let deduplicator = Deduplicator::new(room_id.clone(), store.clone());
 
+            let threads = RoomThreads::new();
+
             Ok(Self {
                 room: room_id,
                 room_version,
                 store,
+                threads,
                 events,
                 deduplicator,
                 waited_for_initial_prev_token: false,
@@ -1189,6 +1213,16 @@ mod private {
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
 
             Ok(updates_as_vector_diffs)
+        }
+
+        /// Handle new events from a sync, for threads.
+        #[instrument(skip_all, fields(room_id = %self.room))]
+        pub fn handle_live_threads(
+            &mut self,
+            events: Vec<TimelineEvent>,
+            is_gappy: bool,
+        ) -> Result<BTreeMap<OwnedEventId, ThreadSummary>, EventCacheThreadError> {
+            self.threads.handle_live(events, is_gappy)
         }
 
         /// If the given event is a redaction, try to retrieve the

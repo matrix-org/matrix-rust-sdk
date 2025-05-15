@@ -36,7 +36,7 @@ enum RelationsType {
 #[derive(Deserialize)]
 struct RelatesTo {
     #[serde(rename = "rel_type")]
-    rel_type: RelationsType,
+    _rel_type: RelationsType,
     #[serde(rename = "event_id")]
     event_id: Option<OwnedEventId>,
 }
