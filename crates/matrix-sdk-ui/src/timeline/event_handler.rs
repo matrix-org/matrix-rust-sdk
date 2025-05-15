@@ -20,7 +20,6 @@ use indexmap::IndexMap;
 use matrix_sdk::{
     crypto::types::events::UtdCause,
     deserialized_responses::{EncryptionInfo, UnableToDecryptInfo},
-    ring_buffer::RingBuffer,
     send_queue::SendHandle,
 };
 use ruma::{
@@ -42,13 +41,12 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId,
 };
-use tracing::{debug, error, field::debug, info, instrument, trace, warn};
+use tracing::{debug, error, field::debug, instrument, trace, warn};
 
 use super::{
-    algorithms::rfind_event_by_id,
     controller::{
         find_item_and_apply_aggregation, Aggregation, AggregationKind, ObservableItemsTransaction,
-        PendingEdit, PendingEditKind, TimelineMetadata, TimelineStateTransaction,
+        PendingEditKind, TimelineMetadata, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -61,6 +59,7 @@ use super::{
     EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
     ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
 };
+use crate::timeline::controller::aggregations::PendingEdit;
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -400,32 +399,32 @@ impl TimelineAction {
             AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
                 c,
             )) => {
-                // Always remove the pending edit, if there's any. The reason is that
-                // if there's an edit in the relations mapping, we want to prefer it
-                // over any other pending edit, since it's more likely to be up to
-                // date, and we don't want to apply another pending edit on top of it.
-                let pending_edit = event_id
-                    .and_then(|event_id| {
-                        TimelineEventHandler::maybe_unstash_pending_edit(
-                            &mut meta.pending_edits,
-                            event_id,
-                        )
-                    })
-                    .and_then(|edit| match edit.kind {
-                        PendingEditKind::Poll(replacement) => {
-                            Some((Some(edit.event_json), replacement.new_content))
-                        }
-                        _ => None,
-                    });
+                // Record the bundled edit in the aggregations set, if any.
+                if let Some(new_content) = relations.and_then(extract_poll_edit_content) {
+                    let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
 
-                let (edit_json, edit_content) = relations
-                    .and_then(extract_poll_edit_content)
-                    .map(|content| {
-                        let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
-                        (edit_json, content)
-                    })
-                    .or(pending_edit)
-                    .unzip();
+                    if let Some(target_id) = event_id {
+                        // It is replacing the current event.
+                        if let Some(edit_event_id) = raw_event.and_then(|raw_event| {
+                            raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+                        }) {
+                            let aggregation = Aggregation::new(
+                                TimelineEventItemId::EventId(edit_event_id),
+                                AggregationKind::Edit(PendingEdit {
+                                    kind: PendingEditKind::Poll(Replacement::new(
+                                        target_id.to_owned(),
+                                        new_content,
+                                    )),
+                                    edit_json,
+                                }),
+                            );
+                            meta.aggregations.add(
+                                TimelineEventItemId::EventId(target_id.to_owned()),
+                                aggregation,
+                            );
+                        }
+                    }
+                }
 
                 let mut replied_to_event_id = None;
                 let mut thread_root = None;
@@ -460,9 +459,7 @@ impl TimelineAction {
                     }
                 }
 
-                let poll_state = PollState::new(c, edit_content);
-
-                let edit_json = edit_json.flatten();
+                let poll_state = PollState::new(c, None);
 
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
@@ -472,38 +469,37 @@ impl TimelineAction {
                         in_reply_to: in_reply_to_details,
                         thread_summary: None,
                     }),
-                    edit_json,
+                    edit_json: None,
                 }
             }
 
             AnyMessageLikeEventContent::RoomMessage(msg) => {
-                // Always remove the pending edit, if there's any. The reason is that if
-                // there's an edit in the relations mapping, we want to prefer it over
-                // any other pending edit, since it's more
-                // likely to be up to date, and we
-                // don't want to apply another pending edit on top of it.
-                let pending_edit = event_id
-                    .and_then(|event_id| {
-                        TimelineEventHandler::maybe_unstash_pending_edit(
-                            &mut meta.pending_edits,
-                            event_id,
-                        )
-                    })
-                    .and_then(|edit| match edit.kind {
-                        PendingEditKind::RoomMessage(replacement) => {
-                            Some((Some(edit.event_json), replacement.new_content))
-                        }
-                        _ => None,
-                    });
+                // Record the bundled edit in the aggregations set, if any.
+                if let Some(new_content) = relations.and_then(extract_room_msg_edit_content) {
+                    let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
 
-                let (edit_json, edit_content) = relations
-                    .and_then(extract_room_msg_edit_content)
-                    .map(|content| {
-                        let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
-                        (edit_json, content)
-                    })
-                    .or(pending_edit)
-                    .unzip();
+                    if let Some(target_id) = event_id {
+                        // It is replacing the current event.
+                        if let Some(edit_event_id) = raw_event.and_then(|raw_event| {
+                            raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+                        }) {
+                            let aggregation = Aggregation::new(
+                                TimelineEventItemId::EventId(edit_event_id),
+                                AggregationKind::Edit(PendingEdit {
+                                    kind: PendingEditKind::RoomMessage(Replacement::new(
+                                        target_id.to_owned(),
+                                        new_content,
+                                    )),
+                                    edit_json,
+                                }),
+                            );
+                            meta.aggregations.add(
+                                TimelineEventItemId::EventId(target_id.to_owned()),
+                                aggregation,
+                            );
+                        }
+                    }
+                }
 
                 let mut replied_to_event_id = None;
                 let mut thread_root = None;
@@ -538,18 +534,16 @@ impl TimelineAction {
                     }
                 }
 
-                let edit_json = edit_json.flatten();
-
                 Self::AddItem {
                     content: TimelineItemContent::message(
                         msg,
-                        edit_content,
+                        None,
                         Default::default(),
                         thread_root,
                         in_reply_to_details,
                         None,
                     ),
-                    edit_json,
+                    edit_json: None,
                 }
             }
 
@@ -696,13 +690,19 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.handle_redaction(related_event);
                 }
                 HandleAggregationKind::Edit { replacement } => {
-                    self.handle_room_message_edit(replacement);
+                    self.handle_edit(
+                        replacement.event_id.clone(),
+                        PendingEditKind::RoomMessage(replacement),
+                    );
                 }
                 HandleAggregationKind::PollResponse { answers } => {
                     self.handle_poll_response(related_event, answers);
                 }
                 HandleAggregationKind::PollEdit { replacement } => {
-                    self.handle_poll_edit(replacement);
+                    self.handle_edit(
+                        replacement.event_id.clone(),
+                        PendingEditKind::Poll(replacement),
+                    );
                 }
                 HandleAggregationKind::PollEnd => {
                     self.handle_poll_end(related_event);
@@ -731,146 +731,30 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         removed_item
     }
 
-    #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
-    fn handle_room_message_edit(
-        &mut self,
-        replacement: Replacement<RoomMessageEventContentWithoutRelation>,
-    ) {
-        if let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) {
-            let edit_json = self.ctx.flow.raw_event().cloned();
-            if let Some(new_item) = self.apply_msg_edit(&item, replacement.new_content, edit_json) {
-                trace!("Applied edit");
+    #[instrument(skip(self, edit_kind))]
+    fn handle_edit(&mut self, edited_event_id: OwnedEventId, edit_kind: PendingEditKind) {
+        let target = TimelineEventItemId::EventId(edited_event_id.clone());
 
-                let internal_id = item.internal_id.to_owned();
-
-                // Update all events that replied to this message with the edited content.
-                Self::maybe_update_responses(
-                    self.meta,
-                    self.items,
-                    &replacement.event_id,
-                    &new_item,
-                );
-
-                // Update the event itself.
-                self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
-            }
-        } else if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
-            let replaced_event_id = replacement.event_id.clone();
-            let replacement = PendingEdit {
-                kind: PendingEditKind::RoomMessage(replacement),
-                event_json: raw_event.clone(),
-            };
-            self.stash_pending_edit(*position, replaced_event_id, replacement);
-        } else {
-            debug!("Local message edit for a timeline item not found, discarding");
-        }
-    }
-
-    /// Try to stash a pending edit, if it makes sense to do so.
-    #[instrument(skip(self, replacement))]
-    fn stash_pending_edit(
-        &mut self,
-        position: TimelineItemPosition,
-        replaced_event_id: OwnedEventId,
-        replacement: PendingEdit,
-    ) {
-        match position {
-            TimelineItemPosition::Start { .. }
-            | TimelineItemPosition::At { .. }
-            | TimelineItemPosition::UpdateAt { .. } => {
-                // Only insert the edit if there wasn't any other edit
-                // before.
-                //
-                // For a start position, this is the right thing to do, because if there was a
-                // stashed edit, it relates to a more recent one (either appended for a live
-                // sync, or inserted earlier via back-pagination).
-                //
-                // For an update position, if there was a stashed edit, we can't really know
-                // which version is the more recent, without an ordering of the
-                // edit events themselves, so we discard it in that case.
-                if !self
-                    .meta
-                    .pending_edits
-                    .iter()
-                    .any(|edit| edit.edited_event() == replaced_event_id)
-                {
-                    self.meta.pending_edits.push(replacement);
-                    debug!("Timeline item not found, stashing edit");
-                } else {
-                    debug!("Timeline item not found, but there was a previous edit for the event: discarding");
-                }
-            }
-
-            TimelineItemPosition::End { .. } => {
-                // This is a more recent edit, coming either live from sync or from a
-                // forward-pagination: it's fine to overwrite the previous one, if
-                // available.
-                let edits = &mut self.meta.pending_edits;
-                let _ = Self::maybe_unstash_pending_edit(edits, &replaced_event_id);
-                edits.push(replacement);
-                debug!("Timeline item not found, stashing edit");
-            }
-        }
-    }
-
-    /// Look for a pending edit for the given event, and remove it from the list
-    /// and return it, if found.
-    fn maybe_unstash_pending_edit(
-        edits: &mut RingBuffer<PendingEdit>,
-        event_id: &EventId,
-    ) -> Option<PendingEdit> {
-        let pos = edits.iter().position(|edit| edit.edited_event() == event_id)?;
-        trace!(edited_event = %event_id, "unstashed pending edit");
-        Some(edits.remove(pos).unwrap())
-    }
-
-    /// Try applying an edit to an existing [`EventTimelineItem`].
-    ///
-    /// Return a new item if applying the edit succeeded, or `None` if there was
-    /// an error while applying it.
-    fn apply_msg_edit(
-        &self,
-        item: &EventTimelineItem,
-        new_content: RoomMessageEventContentWithoutRelation,
-        edit_json: Option<Raw<AnySyncTimelineEvent>>,
-    ) -> Option<EventTimelineItem> {
-        if self.ctx.sender != item.sender() {
-            info!(
-                original_sender = ?item.sender(), edit_sender = ?self.ctx.sender,
-                "Edit event applies to another user's timeline item, discarding"
-            );
-            return None;
-        }
-
-        let TimelineItemContent::MsgLike(content) = item.content() else {
-            info!(
-                "Edit of message event applies to {:?}, discarding",
-                item.content().debug_string(),
-            );
-            return None;
-        };
-
-        let MsgLikeContent { kind: MsgLikeKind::Message(msg), .. } = content else {
-            info!(
-                "Edit of message event applies to {:?}, discarding",
-                item.content().debug_string(),
-            );
-            return None;
-        };
-
-        let mut new_msg = msg.clone();
-        new_msg.apply_edit(new_content);
-
-        let mut new_item = item.with_content_and_latest_edit(
-            TimelineItemContent::MsgLike(content.with_kind(MsgLikeKind::Message(new_msg))),
-            edit_json,
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::Edit(PendingEdit {
+                kind: edit_kind,
+                edit_json: self.ctx.flow.raw_event().cloned(),
+            }),
         );
 
-        if let Flow::Remote { encryption_info, .. } = &self.ctx.flow {
-            new_item = new_item.with_encryption_info(encryption_info.clone());
-        }
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
 
-        Some(new_item)
+        if let Some(new_item) = find_item_and_apply_aggregation(
+            &self.meta.aggregations,
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version,
+        ) {
+            // Update all events that replied to this message with the edited content.
+            Self::maybe_update_responses(self.meta, self.items, &edited_event_id, &new_item);
+        }
     }
 
     /// Apply a reaction to a *remote* event.
@@ -892,6 +776,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 ReactionStatus::RemoteToRemote(event_id.clone())
             }
         };
+
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::Reaction {
@@ -903,73 +788,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(self.items, &target, aggregation, &self.meta.room_version);
-    }
-
-    #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
-    fn handle_poll_edit(
-        &mut self,
-        replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
-    ) {
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) else {
-            if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
-                let replaced_event_id = replacement.event_id.clone();
-                let replacement = PendingEdit {
-                    kind: PendingEditKind::Poll(replacement),
-                    event_json: raw_event.clone(),
-                };
-                self.stash_pending_edit(*position, replaced_event_id, replacement);
-            } else {
-                debug!("Local poll edit for a timeline item not found, discarding");
-            }
-            return;
-        };
-
-        let edit_json = self.ctx.flow.raw_event().cloned();
-
-        let Some(new_item) = self.apply_poll_edit(item.inner, replacement, edit_json) else {
-            return;
-        };
-
-        trace!("Applying poll start edit.");
-        self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
-    }
-
-    fn apply_poll_edit(
-        &self,
-        item: &EventTimelineItem,
-        replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
-        edit_json: Option<Raw<AnySyncTimelineEvent>>,
-    ) -> Option<EventTimelineItem> {
-        if self.ctx.sender != item.sender() {
-            info!(
-                original_sender = ?item.sender(), edit_sender = ?self.ctx.sender,
-                "Edit event applies to another user's timeline item, discarding"
-            );
-            return None;
-        }
-
-        let TimelineItemContent::MsgLike(content) = &item.content() else {
-            info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
-            return None;
-        };
-
-        let MsgLikeContent { kind: MsgLikeKind::Poll(poll_state), .. } = content else {
-            info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
-            return None;
-        };
-
-        let new_content = match poll_state.edit(replacement.new_content) {
-            Some(edited_poll_state) => TimelineItemContent::MsgLike(
-                content.with_kind(MsgLikeKind::Poll(edited_poll_state)),
-            ),
-            None => {
-                info!("Not applying edit to a poll that's already ended");
-                return None;
-            }
-        };
-
-        Some(item.with_content_and_latest_edit(new_content, edit_json))
+        find_item_and_apply_aggregation(
+            &self.meta.aggregations,
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version,
+        );
     }
 
     fn handle_poll_response(&mut self, poll_event_id: OwnedEventId, answers: Vec<String>) {
@@ -983,7 +808,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
         );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(self.items, &target, aggregation, &self.meta.room_version);
+        find_item_and_apply_aggregation(
+            &self.meta.aggregations,
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version,
+        );
     }
 
     fn handle_poll_end(&mut self, poll_event_id: OwnedEventId) {
@@ -993,7 +824,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             AggregationKind::PollEnd { end_date: self.ctx.timestamp },
         );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(self.items, &target, aggregation, &self.meta.room_version);
+        find_item_and_apply_aggregation(
+            &self.meta.aggregations,
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version,
+        );
     }
 
     /// Looks for the redacted event in all the timeline event items, and
@@ -1019,6 +856,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         if let Some(new_item) = find_item_and_apply_aggregation(
+            &self.meta.aggregations,
             self.items,
             &target,
             aggregation,
@@ -1125,6 +963,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         match self.meta.aggregations.apply_all(
             &self.ctx.flow.timeline_item_id(),
             &mut cowed,
+            self.items,
             &self.meta.room_version,
         ) {
             Ok(true) => {
