@@ -293,6 +293,6 @@ impl TimelineState {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
-        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus)
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus.clone())
     }
 }
