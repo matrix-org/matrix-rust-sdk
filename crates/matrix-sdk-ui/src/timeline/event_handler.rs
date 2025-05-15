@@ -31,7 +31,8 @@ use ruma::{
         receipt::Receipt,
         relation::Replacement,
         room::message::{
-            Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+            Relation, RelationWithoutReplacement, RoomMessageEventContent,
+            RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
@@ -354,13 +355,79 @@ impl TimelineAction {
             }
 
             AnyMessageLikeEventContent::Sticker(content) => {
-                Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
-                    kind: MsgLikeKind::Sticker(Sticker { content }),
-                    reactions: Default::default(),
-                    thread_root: None,
-                    in_reply_to: None,
-                    thread_summary: None,
-                }))
+                // Always remove the pending edit, if there's any. The reason is that if
+                // there's an edit in the relations mapping, we want to prefer it over
+                // any other pending edit, since it's more
+                // likely to be up to date, and we
+                // don't want to apply another pending edit on top of it.
+                let pending_edit = event_id
+                    .and_then(|event_id| {
+                        TimelineEventHandler::maybe_unstash_pending_edit(
+                            &mut meta.pending_edits,
+                            event_id,
+                        )
+                    })
+                    .and_then(|edit| match edit.kind {
+                        PendingEditKind::RoomMessage(replacement) => {
+                            Some((Some(edit.event_json), replacement.new_content))
+                        }
+                        _ => None,
+                    });
+
+                let (edit_json, _) = relations
+                    .and_then(extract_room_msg_edit_content)
+                    .map(|content| {
+                        let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
+                        (edit_json, content)
+                    })
+                    .or(pending_edit)
+                    .unzip();
+
+                let mut replied_to_event_id = None;
+                let mut thread_root = None;
+                let in_reply_to_details =
+                    content.relates_to.as_ref().and_then(|relation| match relation {
+                        Relation::Reply { in_reply_to } => {
+                            replied_to_event_id = Some(in_reply_to.event_id.clone());
+                            Some(InReplyToDetails::new(
+                                in_reply_to.event_id.clone(),
+                                timeline_items,
+                            ))
+                        }
+                        Relation::Thread(thread) => {
+                            thread_root = Some(thread.event_id.clone());
+                            thread.in_reply_to.as_ref().map(|in_reply_to| {
+                                replied_to_event_id = Some(in_reply_to.event_id.clone());
+                                InReplyToDetails::new(in_reply_to.event_id.clone(), timeline_items)
+                            })
+                        }
+                        _ => None,
+                    });
+
+                // If this message is a reply to another message, add an entry in the
+                // inverted mapping.
+                if let Some(event_id) = event_id {
+                    if let Some(replied_to_event_id) = replied_to_event_id {
+                        // This is a reply! Add an entry.
+                        meta.replies
+                            .entry(replied_to_event_id)
+                            .or_default()
+                            .insert(event_id.to_owned());
+                    }
+                }
+
+                let edit_json = edit_json.flatten();
+
+                Self::AddItem {
+                    content: TimelineItemContent::MsgLike(MsgLikeContent {
+                        kind: MsgLikeKind::Sticker(Sticker { content }),
+                        reactions: Default::default(),
+                        thread_root: thread_root,
+                        in_reply_to: in_reply_to_details,
+                        thread_summary: None,
+                    }),
+                    edit_json: edit_json,
+                }
             }
 
             AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
@@ -393,6 +460,39 @@ impl TimelineAction {
                     .or(pending_edit)
                     .unzip();
 
+                let mut replied_to_event_id = None;
+                let mut thread_root = None;
+                let in_reply_to_details =
+                    c.relates_to.as_ref().and_then(|relation| match relation {
+                        RelationWithoutReplacement::Reply { in_reply_to } => {
+                            replied_to_event_id = Some(in_reply_to.event_id.clone());
+                            Some(InReplyToDetails::new(
+                                in_reply_to.event_id.clone(),
+                                timeline_items,
+                            ))
+                        }
+                        RelationWithoutReplacement::Thread(thread) => {
+                            thread_root = Some(thread.event_id.clone());
+                            thread.in_reply_to.as_ref().map(|in_reply_to| {
+                                replied_to_event_id = Some(in_reply_to.event_id.clone());
+                                InReplyToDetails::new(in_reply_to.event_id.clone(), timeline_items)
+                            })
+                        }
+                        _ => None,
+                    });
+
+                // If this message is a reply to another message, add an entry in the
+                // inverted mapping.
+                if let Some(event_id) = event_id {
+                    if let Some(replied_to_event_id) = replied_to_event_id {
+                        // This is a reply! Add an entry.
+                        meta.replies
+                            .entry(replied_to_event_id)
+                            .or_default()
+                            .insert(event_id.to_owned());
+                    }
+                }
+
                 let poll_state = PollState::new(c, edit_content);
 
                 let edit_json = edit_json.flatten();
@@ -401,8 +501,8 @@ impl TimelineAction {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Poll(poll_state),
                         reactions: Default::default(),
-                        thread_root: None,
-                        in_reply_to: None,
+                        thread_root: thread_root,
+                        in_reply_to: in_reply_to_details,
                         thread_summary: None,
                     }),
                     edit_json,
