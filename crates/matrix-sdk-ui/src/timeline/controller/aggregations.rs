@@ -43,7 +43,7 @@ use as_variant::as_variant;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
 };
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 
 use super::{rfind_event_by_item_id, ObservableItemsTransaction};
 use crate::timeline::{
@@ -225,7 +225,7 @@ impl Aggregation {
     ///
     /// In case of error, returns an error detailing why the aggregation
     /// couldn't be unapplied.
-    pub fn unapply(&self, event: &mut Cow<'_, EventTimelineItem>) -> ApplyAggregationResult {
+    fn unapply(&self, event: &mut Cow<'_, EventTimelineItem>) -> ApplyAggregationResult {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, .. } => {
                 let state = match poll_state_from_item(event) {
@@ -323,15 +323,22 @@ impl Aggregations {
 
     /// Is the given id one for a known aggregation to another event?
     ///
-    /// If so, returns the target event identifier as well as the aggregation.
-    /// The aggregation must be unapplied on the corresponding timeline
-    /// item.
+    /// If so, unapplies it by replacing the corresponding related item, if
+    /// needs be.
+    ///
+    /// Returns true if an aggregation was found. This doesn't mean
+    /// the underlying item has been updated, if it was missing from the
+    /// timeline for instance.
+    ///
+    /// May return an error if it found an aggregation, but it couldn't be
+    /// properly applied.
     #[must_use]
     pub fn try_remove_aggregation(
         &mut self,
         aggregation_id: &TimelineEventItemId,
-    ) -> Option<(&TimelineEventItemId, Aggregation)> {
-        let found = self.inverted_map.get(aggregation_id)?;
+        items: &mut ObservableItemsTransaction<'_>,
+    ) -> Result<bool, AggregationError> {
+        let Some(found) = self.inverted_map.get(aggregation_id) else { return Ok(false) };
 
         // Find and remove the aggregation in the other mapping.
         let aggregation = if let Some(aggregations) = self.related_events.get_mut(found) {
@@ -351,11 +358,31 @@ impl Aggregations {
             None
         };
 
-        if aggregation.is_none() {
+        let Some(aggregation) = aggregation else {
             warn!("incorrect internal state: {aggregation_id:?} was present in the inverted map, not in related-to map.");
+            return Ok(false);
+        };
+
+        if let Some((item_pos, item)) = rfind_event_by_item_id(items, found) {
+            let mut cowed = Cow::Borrowed(&*item);
+            match aggregation.unapply(&mut cowed) {
+                ApplyAggregationResult::UpdatedItem => {
+                    trace!("removed aggregation");
+                    items.replace(
+                        item_pos,
+                        TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
+                    );
+                }
+                ApplyAggregationResult::LeftItemIntact => {}
+                ApplyAggregationResult::Error(err) => {
+                    warn!("error when unapplying aggregation: {err}");
+                }
+            }
+        } else {
+            info!("missing related-to item ({found:?}) for aggregation {aggregation_id:?}");
         }
 
-        Some((found, aggregation?))
+        Ok(true)
     }
 
     /// Apply all the aggregations to a [`TimelineItemContent`].
@@ -500,7 +527,7 @@ pub(crate) fn find_item_and_apply_aggregation(
 }
 
 /// The result of applying (or unapplying) an aggregation onto a timeline item.
-pub(crate) enum ApplyAggregationResult {
+enum ApplyAggregationResult {
     /// The passed `Cow<EventTimelineItem>` has been cloned and updated.
     UpdatedItem,
 

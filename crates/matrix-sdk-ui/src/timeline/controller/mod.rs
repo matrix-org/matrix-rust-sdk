@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeSet, fmt, sync::Arc};
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
 use decryption_retry_task::DecryptionRetryTask;
@@ -958,38 +958,26 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
 
         // Avoid multiple mutable and immutable borrows of the lock guard by explicitly
         // dereferencing it once.
-        let state = &mut *state;
+        let mut txn = state.transaction();
 
         // Look if this was a local aggregation.
-        if let Some((target, aggregation)) = state
-            .meta
-            .aggregations
-            .try_remove_aggregation(&TimelineEventItemId::TransactionId(txn_id.to_owned()))
-        {
-            let Some((item_pos, item)) = rfind_event_by_item_id(&state.items, target) else {
-                warn!("missing target item for a local aggregation");
-                return false;
-            };
-
-            let mut cowed = Cow::Borrowed(&*item);
-            match aggregation.unapply(&mut cowed) {
-                ApplyAggregationResult::UpdatedItem => {
-                    trace!("removed local reaction to local echo");
-                    state.items.replace(
-                        item_pos,
-                        TimelineItem::new(cowed.into_owned(), item.internal_id.clone()),
-                    );
-                }
-                ApplyAggregationResult::LeftItemIntact => {}
-                ApplyAggregationResult::Error(err) => {
-                    warn!("when undoing local aggregation: {err}");
-                }
+        let found_aggregation = match txn.meta.aggregations.try_remove_aggregation(
+            &TimelineEventItemId::TransactionId(txn_id.to_owned()),
+            &mut txn.items,
+        ) {
+            Ok(val) => val,
+            Err(err) => {
+                warn!("error when discarding local echo for an aggregation: {err}");
+                // The aggregation has been found, it's just that we couldn't discard it.
+                true
             }
+        };
 
-            return true;
+        if found_aggregation {
+            txn.commit();
         }
 
-        false
+        found_aggregation
     }
 
     pub(super) async fn replace_local_echo(
