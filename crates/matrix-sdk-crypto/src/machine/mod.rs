@@ -19,11 +19,13 @@ use std::{
 };
 
 use itertools::Itertools;
+#[cfg(feature = "experimental-send-custom-to-device")]
+use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
-        VerificationState, WithheldCode,
+        VerificationState,
     },
     locks::RwLock as StdRwLock,
     BoxFuture,
@@ -50,10 +52,12 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tokio::sync::Mutex;
+#[cfg(feature = "experimental-send-custom-to-device")]
+use tracing::trace;
 use tracing::{
     debug, error,
     field::{debug, display},
-    info, instrument, trace, warn, Span,
+    info, instrument, warn, Span,
 };
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
@@ -1124,6 +1128,7 @@ impl OlmMachine {
     /// # Returns
     /// A list of `ToDeviceRequest` to send out the event, and the list of
     /// devices where encryption did not succeed (device excluded or no olm)
+    #[cfg(feature = "experimental-send-custom-to-device")]
     pub async fn encrypt_content_for_devices(
         &self,
         devices: Vec<DeviceData>,

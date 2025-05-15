@@ -1,3 +1,5 @@
+#![cfg(feature = "experimental-send-custom-to-device")]
+
 use matrix_sdk::{
     authentication::matrix::MatrixSession, config::RequestConfig,
     test_utils::client::mock_session_tokens, Client,

@@ -99,6 +99,7 @@ pub use matrix_sdk_base::crypto::{
     SessionCreationError, SignatureError, VERSION,
 };
 
+#[cfg(feature = "experimental-send-custom-to-device")]
 use crate::config::RequestConfig;
 pub use crate::error::RoomKeyImportError;
 
@@ -573,6 +574,7 @@ impl Client {
         self.send(request).await
     }
 
+    #[cfg(feature = "experimental-send-custom-to-device")]
     pub(crate) async fn send_to_device_with_config(
         &self,
         request: &ToDeviceRequest,

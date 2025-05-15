@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
+#[cfg(feature = "experimental-send-custom-to-device")]
 use std::ops::Deref;
 use std::{
     collections::{btree_map, BTreeMap},
@@ -39,6 +39,8 @@ use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
     api::{
         client::{
@@ -69,14 +71,9 @@ use ruma::{
     DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
     RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
-#[cfg(feature = "e2e-encryption")]
+#[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{
-    events::{
-        room::encryption::RoomEncryptionEventContent, AnyToDeviceEventContent, InitialStateEvent,
-    },
-    serde::Raw,
-    to_device::DeviceIdOrAllDevices,
-    OwnedUserId,
+    events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices, OwnedUserId,
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
@@ -84,6 +81,8 @@ use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
+#[cfg(feature = "experimental-send-custom-to-device")]
+use crate::encryption::identities::Device;
 use crate::{
     authentication::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
@@ -108,9 +107,7 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
-    encryption::{
-        identities::Device, Encryption, EncryptionData, EncryptionSettings, VerificationState,
-    },
+    encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
     store_locks::CrossProcessStoreLock,
 };
 
@@ -2533,7 +2530,7 @@ impl Client {
     /// # Returns
     /// A list of `ToDeviceRequest` to send out the event, and the list of
     /// devices where encryption did not succeed (device excluded or no olm)
-    #[cfg(feature = "e2e-encryption")]
+    #[cfg(feature = "experimental-send-custom-to-device")]
     pub async fn encrypt_and_send_custom_to_device(
         &self,
         targets: Vec<&Device>,
