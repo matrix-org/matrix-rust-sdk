@@ -48,8 +48,8 @@ use super::{
     algorithms::{rfind_event_by_id, rfind_event_by_item_id},
     controller::{
         find_item_and_apply_aggregation, Aggregation, AggregationKind, ApplyAggregationResult,
-        ObservableItemsTransaction, PendingEdit, PendingEditKind, TimelineMetadata,
-        TimelineStateTransaction,
+        ObservableItemsTransaction, PendingEdit, PendingEditKind, TimelineFocusKind,
+        TimelineMetadata, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -667,6 +667,7 @@ pub(super) type RemovedItem = bool;
 pub(super) struct TimelineEventHandler<'a, 'o> {
     items: &'a mut ObservableItemsTransaction<'o>,
     meta: &'a mut TimelineMetadata,
+    timeline_focus: TimelineFocusKind,
     ctx: TimelineEventContext,
 }
 
@@ -675,8 +676,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         state: &'a mut TimelineStateTransaction<'o>,
         ctx: TimelineEventContext,
     ) -> Self {
+        let timeline_focus = state.timeline_focus();
         let TimelineStateTransaction { items, meta, .. } = state;
-        Self { items, meta, ctx }
+        Self { items, meta, timeline_focus, ctx }
     }
 
     /// Handle an event.
@@ -716,8 +718,24 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         match timeline_action {
             TimelineAction::AddItem { content, edit_json } => {
                 if self.ctx.should_add_new_items {
-                    self.add_item(content, edit_json);
-                    added_item = true;
+                    match &self.timeline_focus {
+                        TimelineFocusKind::Live | TimelineFocusKind::Event => {
+                            if content.thread_root().is_none() {
+                                self.add_item(content, edit_json);
+                                added_item = true;
+                            }
+                        }
+                        TimelineFocusKind::Thread { root_event_id } => {
+                            if content.thread_root().is_some_and(|r| &r == root_event_id) {
+                                self.add_item(content, edit_json);
+                                added_item = true;
+                            }
+                        }
+                        _ => {
+                            self.add_item(content, edit_json);
+                            added_item = true;
+                        }
+                    }
                 }
             }
 

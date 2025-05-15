@@ -80,6 +80,10 @@ impl<'a> TimelineStateTransaction<'a> {
         }
     }
 
+    pub fn timeline_focus(&self) -> TimelineFocusKind {
+        self.timeline_focus.clone()
+    }
+
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs<RoomData>(
         &mut self,
