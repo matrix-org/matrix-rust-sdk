@@ -964,10 +964,39 @@ impl_event_cache_store! {
     /// Find an event by its ID.
     async fn find_event(
         &self,
-        _room_id: &RoomId,
-        _event_id: &EventId,
+        room_id: &RoomId,
+        event_id: &EventId,
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::EVENTS],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let events = tx.object_store(keys::EVENTS)?;
+
+        // TODO: This is very inefficient, as we are reading and
+        // deserializing every event in the room in order to pick
+        // out a single one. The problem is that the current
+        // schema doesn't easily allow us to find an event without
+        // knowing which chunk it is in. To improve this, we will
+        // need to add another index to our event store.
+        let lower = self.encode_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+        ]);
+        let upper = self.encode_upper_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+        ]);
+        let events_key_range =
+            IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+        let values = events.get_all_with_key(&events_key_range)?.await?;
+        for value in values {
+            let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
+            if event.id == *event_id {
+                return Ok(Some(event.content))
+            }
+        }
+        Ok(None)
     }
 
     /// Find all the events that relate to a given event.
