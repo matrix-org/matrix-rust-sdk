@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- [**breaking**] [`TimelineItemContent::reactions()`] returns an `Option<&ReactionsByKeyBySender>`
+  instead of `ReactionsByKeyBySender`. This reflects the fact that some timeline items cannot hold
+  reactions at all.
+
 ### Bug Fixes
 
 - Introduce `Timeline` regions, which helps to remove a class of bugs in the
