@@ -947,7 +947,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let is_room_encrypted = self.meta.is_room_encrypted;
 
-        let mut item = EventTimelineItem::new(
+        let item = EventTimelineItem::new(
             sender,
             sender_profile,
             timestamp,
@@ -957,24 +957,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         // Apply any pending or stashed aggregations.
-        let mut cowed = Cow::Borrowed(&item);
-        match self.meta.aggregations.apply_all(
+        let mut cowed = Cow::Owned(item);
+        if let Err(err) = self.meta.aggregations.apply_all(
             &self.ctx.flow.timeline_item_id(),
             &mut cowed,
             self.items,
             &self.meta.room_version,
         ) {
-            Ok(true) => {
-                // At least one aggregation has been applied.
-                item = cowed.into_owned();
-            }
-            Ok(false) => {
-                // No aggregations have been applied.
-            }
-            Err(err) => {
-                warn!("discarding aggregations: {err}");
-            }
+            warn!("discarding aggregations: {err}");
         }
+        let item = cowed.into_owned();
 
         match &self.ctx.flow {
             Flow::Local { .. } => {
