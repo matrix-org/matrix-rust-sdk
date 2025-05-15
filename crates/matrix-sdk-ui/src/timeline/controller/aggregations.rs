@@ -353,7 +353,7 @@ impl Aggregations {
     /// Will return an error at the first aggregation that couldn't be applied;
     /// see [`Aggregation::apply`] which explains under which conditions it can
     /// happen.
-    pub fn apply(
+    pub fn apply_all(
         &self,
         item_id: &TimelineEventItemId,
         event: &mut EventTimelineItem,
