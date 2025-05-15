@@ -25,6 +25,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bug fixes
 
+- A invited DM room joined with `Client::join_room_by_id()` or `Client::join_room_by_id_or_alias()`
+  will now be correctly marked as a DM.
+  ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
+
 ### Refactor
 
 - `Room::push_context()` has been renamed into `Room::push_condition_room_ctx()`. The newer
