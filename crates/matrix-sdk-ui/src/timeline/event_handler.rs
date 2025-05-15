@@ -904,7 +904,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(self.items, &target, aggregation);
+        find_item_and_apply_aggregation(self.items, &target, aggregation, &self.meta.room_version);
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -984,7 +984,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
         );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(self.items, &target, aggregation);
+        find_item_and_apply_aggregation(self.items, &target, aggregation, &self.meta.room_version);
     }
 
     fn handle_poll_end(&mut self, poll_event_id: OwnedEventId) {
@@ -994,7 +994,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             AggregationKind::PollEnd { end_date: self.ctx.timestamp },
         );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(self.items, &target, aggregation);
+        find_item_and_apply_aggregation(self.items, &target, aggregation, &self.meta.room_version);
     }
 
     /// Looks for the redacted event in all the timeline event items, and
@@ -1014,27 +1014,21 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return;
         }
 
-        // General path: redact another kind of (non-reaction) event.
-        if let Some((idx, item)) = rfind_event_by_id(self.items, &redacted) {
-            if item.as_remote().is_some() {
-                if item.content.is_redacted() {
-                    debug!("event item is already redacted");
-                } else {
-                    let new_item = item.redact(&self.meta.room_version);
-                    let internal_id = item.internal_id.to_owned();
+        let target = TimelineEventItemId::EventId(redacted.clone());
+        let aggregation =
+            Aggregation::new(self.ctx.flow.timeline_item_id(), AggregationKind::Redaction);
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
 
-                    // Look for any timeline event that's a reply to the redacted event, and redact
-                    // the replied-to event there as well.
-                    Self::maybe_update_responses(self.meta, self.items, &redacted, &new_item);
-
-                    self.items.replace(idx, TimelineItem::new(new_item, internal_id));
-                }
-            } else {
-                error!("inconsistent state: redaction received on a non-remote event item");
-            }
-        } else {
-            debug!("Timeline item not found, discarding redaction");
-        };
+        if let Some(new_item) = find_item_and_apply_aggregation(
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version,
+        ) {
+            // Look for any timeline event that's a reply to the redacted event, and redact
+            // the replied-to event there as well.
+            Self::maybe_update_responses(self.meta, self.items, &redacted, &new_item);
+        }
     }
 
     /// Attempts to redact an aggregation (e.g. a reaction, a poll response,
@@ -1088,16 +1082,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///    timeline item being added here.
     fn add_item(
         &mut self,
-        mut content: TimelineItemContent,
+        content: TimelineItemContent,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
     ) {
-        // Apply any pending or stashed aggregations.
-        if let Err(err) =
-            self.meta.aggregations.apply(&self.ctx.flow.timeline_item_id(), &mut content)
-        {
-            warn!("discarding aggregations: {err}");
-        }
-
         let sender = self.ctx.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());
         let timestamp = self.ctx.timestamp;
@@ -1143,7 +1130,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let is_room_encrypted = self.meta.is_room_encrypted;
 
-        let item = EventTimelineItem::new(
+        let mut item = EventTimelineItem::new(
             sender,
             sender_profile,
             timestamp,
@@ -1151,6 +1138,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             kind,
             is_room_encrypted,
         );
+
+        // Apply any pending or stashed aggregations.
+        if let Err(err) = self.meta.aggregations.apply(
+            &self.ctx.flow.timeline_item_id(),
+            &mut item,
+            &self.meta.room_version,
+        ) {
+            warn!("discarding aggregations: {err}");
+        }
 
         match &self.ctx.flow {
             Flow::Local { .. } => {

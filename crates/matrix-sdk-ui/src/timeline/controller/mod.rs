@@ -910,15 +910,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                             if let Some((item_pos, item)) =
                                 rfind_event_by_item_id(&txn.items, &target)
                             {
-                                let mut content = item.content().clone();
-                                match aggregation.apply(&mut content) {
+                                let mut event_item = item.clone();
+                                match aggregation.apply(&mut event_item, &txn.meta.room_version) {
                                     ApplyAggregationResult::UpdatedItem => {
                                         trace!("reapplied aggregation in the event");
                                         let internal_id = item.internal_id.to_owned();
-                                        let new_item = item.with_content(content);
                                         txn.items.replace(
                                             item_pos,
-                                            TimelineItem::new(new_item, internal_id),
+                                            TimelineItem::new(event_item, internal_id),
                                         );
                                         txn.commit();
                                     }
@@ -1286,7 +1285,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());
-        find_item_and_apply_aggregation(&mut tr.items, &target, aggregation);
+        find_item_and_apply_aggregation(&mut tr.items, &target, aggregation, &tr.meta.room_version);
 
         tr.commit();
     }
