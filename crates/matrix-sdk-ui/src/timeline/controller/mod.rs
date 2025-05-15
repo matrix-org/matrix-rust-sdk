@@ -892,44 +892,18 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             // If it was just sent, try to find if it matches a corresponding aggregation,
             // and mark it as sent in that case.
             if let Some(new_event_id) = new_event_id {
-                match txn
-                    .meta
-                    .aggregations
-                    .mark_aggregation_as_sent(txn_id.to_owned(), new_event_id.to_owned())
-                {
-                    MarkAggregationSentResult::MarkedSent { update } => {
-                        trace!("marked aggregation as sent");
-
-                        if let Some((target, aggregation)) = update {
-                            if let Some((item_pos, item)) =
-                                rfind_event_by_item_id(&txn.items, &target)
-                            {
-                                let mut cowed = Cow::Borrowed(&*item);
-                                match aggregation.apply(&mut cowed, &txn.meta.room_version) {
-                                    ApplyAggregationResult::UpdatedItem => {
-                                        trace!("reapplied aggregation in the event");
-                                        let internal_id = item.internal_id.to_owned();
-                                        txn.items.replace(
-                                            item_pos,
-                                            TimelineItem::new(cowed.into_owned(), internal_id),
-                                        );
-                                        txn.commit();
-                                    }
-                                    ApplyAggregationResult::LeftItemIntact => {}
-                                    ApplyAggregationResult::Error(err) => {
-                                        warn!("when reapplying aggregation just marked as sent: {err}");
-                                    }
-                                }
-                            }
-                        }
-
-                        // Early return: we've found the event to mark as sent, it was an
-                        // aggregation.
-                        return;
-                    }
-
-                    MarkAggregationSentResult::NotFound => {}
+                if txn.meta.aggregations.mark_aggregation_as_sent(
+                    txn_id.to_owned(),
+                    new_event_id.to_owned(),
+                    &mut txn.items,
+                    &txn.meta.room_version,
+                ) {
+                    trace!("Aggregation marked as sent");
+                    txn.commit();
+                    return;
                 }
+
+                trace!("Sent aggregation was not found");
             }
 
             warn!("Timeline item not found, can't update send state");

@@ -141,7 +141,7 @@ impl Aggregation {
     ///
     /// In case of error, returns an error detailing why the aggregation
     /// couldn't be applied.
-    pub fn apply(
+    fn apply(
         &self,
         event: &mut Cow<'_, EventTimelineItem>,
         room_version: &RoomVersionId,
@@ -414,22 +414,21 @@ impl Aggregations {
     /// updating the internal mappings.
     ///
     /// When an aggregation has been marked as sent, it may need to be reapplied
-    /// to the corresponding [`TimelineItemContent`]; in this case, a
-    /// [`MarkAggregationSentResult::MarkedSent`] result with a set `update`
-    /// will be returned, and must be applied.
+    /// to the corresponding [`TimelineItemContent`]; this is why we're also
+    /// passing the context to apply an aggregation here.
     pub fn mark_aggregation_as_sent(
         &mut self,
         txn_id: OwnedTransactionId,
         event_id: OwnedEventId,
-    ) -> MarkAggregationSentResult {
+        items: &mut ObservableItemsTransaction<'_>,
+        room_version: &RoomVersionId,
+    ) -> bool {
         let from = TimelineEventItemId::TransactionId(txn_id);
         let to = TimelineEventItemId::EventId(event_id.clone());
 
         let Some(target) = self.inverted_map.remove(&from) else {
-            return MarkAggregationSentResult::NotFound;
+            return false;
         };
-
-        let mut target_and_new_aggregation = MarkAggregationSentResult::MarkedSent { update: None };
 
         if let Some(aggregations) = self.related_events.get_mut(&target) {
             if let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from) {
@@ -441,21 +440,25 @@ impl Aggregations {
                     | AggregationKind::Redaction => {
                         // Nothing particular to do.
                     }
+
                     AggregationKind::Reaction { reaction_status, .. } => {
                         // Mark the reaction as becoming remote, and signal that update to the
                         // caller.
                         *reaction_status = ReactionStatus::RemoteToRemote(event_id);
-                        target_and_new_aggregation = MarkAggregationSentResult::MarkedSent {
-                            update: Some((target.clone(), found.clone())),
-                        };
+
+                        find_item_and_apply_aggregation(
+                            items,
+                            &target,
+                            found.clone(),
+                            room_version,
+                        );
                     }
                 }
             }
         }
 
         self.inverted_map.insert(to, target);
-
-        target_and_new_aggregation
+        true
     }
 }
 
@@ -494,17 +497,6 @@ pub(crate) fn find_item_and_apply_aggregation(
             None
         }
     }
-}
-
-/// The result of marking an aggregation as sent.
-pub(crate) enum MarkAggregationSentResult {
-    /// The aggregation has been found, and marked as sent.
-    ///
-    /// Optionally, it can include an [`Aggregation`] `update` to the matching
-    /// [`TimelineItemContent`] item identified by the [`TimelineEventItemId`].
-    MarkedSent { update: Option<(TimelineEventItemId, Aggregation)> },
-    /// The aggregation was unknown to the aggregations manager, aka not found.
-    NotFound,
 }
 
 /// The result of applying (or unapplying) an aggregation onto a timeline item.
