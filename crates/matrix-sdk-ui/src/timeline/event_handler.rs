@@ -156,8 +156,6 @@ pub(super) enum TimelineAction {
     AddItem {
         /// The content of the item we want to add.
         content: TimelineItemContent,
-        /// The latest edit JSON for this item.
-        edit_json: Option<Raw<AnySyncTimelineEvent>>,
     },
 
     /// Handle an aggregation to another event.
@@ -174,9 +172,9 @@ pub(super) enum TimelineAction {
 }
 
 impl TimelineAction {
-    /// Create a new [`TimelineEventKind::AddItem`] with no edit json.
+    /// Create a new [`TimelineEventKind::AddItem`].
     fn add_item(content: TimelineItemContent) -> Self {
-        Self::AddItem { content, edit_json: None }
+        Self::AddItem { content }
     }
 
     /// Create a new [`TimelineAction`] from a given remote event.
@@ -461,7 +459,7 @@ impl TimelineAction {
                     }
                 }
 
-                let poll_state = PollState::new(c, None);
+                let poll_state = PollState::new(c);
 
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
@@ -471,7 +469,6 @@ impl TimelineAction {
                         in_reply_to: in_reply_to_details,
                         thread_summary: None,
                     }),
-                    edit_json: None,
                 }
             }
 
@@ -541,13 +538,11 @@ impl TimelineAction {
                 Self::AddItem {
                     content: TimelineItemContent::message(
                         msg,
-                        None,
                         Default::default(),
                         thread_root,
                         in_reply_to_details,
                         None,
                     ),
-                    edit_json: None,
                 }
             }
 
@@ -679,9 +674,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut added_item = false;
 
         match timeline_action {
-            TimelineAction::AddItem { content, edit_json } => {
+            TimelineAction::AddItem { content } => {
                 if self.ctx.should_add_new_items {
-                    self.add_item(content, edit_json);
+                    self.add_item(content);
                     added_item = true;
                 }
             }
@@ -906,11 +901,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///    `all_remote_events`,
     /// 2. the lastly added or updated remote event must be associated to the
     ///    timeline item being added here.
-    fn add_item(
-        &mut self,
-        content: TimelineItemContent,
-        edit_json: Option<Raw<AnySyncTimelineEvent>>,
-    ) {
+    fn add_item(&mut self, content: TimelineItemContent) {
         let sender = self.ctx.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());
         let timestamp = self.ctx.timestamp;
@@ -947,7 +938,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     is_highlighted: self.ctx.is_highlighted,
                     encryption_info: encryption_info.clone(),
                     original_json: Some(raw_event.clone()),
-                    latest_edit_json: edit_json,
+                    latest_edit_json: None,
                     origin,
                 }
                 .into()
