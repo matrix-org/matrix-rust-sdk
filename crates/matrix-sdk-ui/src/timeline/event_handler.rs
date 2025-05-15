@@ -1140,7 +1140,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         // Apply any pending or stashed aggregations.
-        if let Err(err) = self.meta.aggregations.apply(
+        if let Err(err) = self.meta.aggregations.apply_all(
             &self.ctx.flow.timeline_item_id(),
             &mut item,
             &self.meta.room_version,
