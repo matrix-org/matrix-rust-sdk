@@ -53,7 +53,7 @@ use tokio::sync::Mutex;
 use tracing::{
     debug, error,
     field::{debug, display},
-    info, instrument, warn, Span,
+    info, instrument, trace, warn, Span,
 };
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
@@ -1786,52 +1786,61 @@ impl OlmMachine {
         }
     }
 
-    /// Check that the sender of a Megolm session satisfies the trust
+    /// Check that a Megolm event satisfies the sender trust
     /// requirement from the decryption settings.
+    ///
+    /// If the requirement is not satisfied, returns
+    /// [`MegolmError::SenderIdentityNotTrusted`].
     fn check_sender_trust_requirement(
         &self,
         session: &InboundGroupSession,
         encryption_info: &EncryptionInfo,
         trust_requirement: &TrustRequirement,
     ) -> MegolmResult<()> {
-        /// Get the error from the encryption information.
-        fn encryption_info_to_error(encryption_info: &EncryptionInfo) -> MegolmResult<()> {
-            // When this is called, the verification state *must* be unverified,
-            // otherwise the sender_data would have been SenderVerified
-            let VerificationState::Unverified(verification_level) =
-                &encryption_info.verification_state
-            else {
-                unreachable!("inconsistent verification state");
-            };
+        trace!(
+            verification_state = ?encryption_info.verification_state,
+            ?trust_requirement, "check_sender_trust_requirement",
+        );
+
+        // VerificationState::Verified is acceptable for all TrustRequirement levels, so
+        // let's get that out of the way
+        let verification_level = match &encryption_info.verification_state {
+            VerificationState::Verified => return Ok(()),
+            VerificationState::Unverified(verification_level) => verification_level,
+        };
+
+        let ok = match trust_requirement {
+            TrustRequirement::Untrusted => true,
+
+            TrustRequirement::CrossSignedOrLegacy => {
+                // `VerificationLevel::UnsignedDevice` and `VerificationLevel::None` correspond
+                // to `SenderData::DeviceInfo` and `SenderData::UnknownDevice`
+                // respectively, and those cases may be acceptable if the reason
+                // for the lack of data is that the sessions were established
+                // before we started collecting SenderData.
+                let legacy_session = match &session.sender_data {
+                    SenderData::DeviceInfo { legacy_session, .. } => legacy_session,
+                    SenderData::UnknownDevice { legacy_session, .. } => legacy_session,
+                    _ => &false,
+                };
+
+                matches!(
+                    (verification_level, legacy_session),
+                    (VerificationLevel::UnverifiedIdentity, _)
+                        | (VerificationLevel::UnsignedDevice, true)
+                        | (VerificationLevel::None(_), true)
+                )
+            }
+
+            TrustRequirement::CrossSigned => {
+                matches!(verification_level, VerificationLevel::UnverifiedIdentity)
+            }
+        };
+
+        if ok {
+            Ok(())
+        } else {
             Err(MegolmError::SenderIdentityNotTrusted(verification_level.clone()))
-        }
-
-        match trust_requirement {
-            TrustRequirement::Untrusted => Ok(()),
-
-            TrustRequirement::CrossSignedOrLegacy => match &session.sender_data {
-                // Reject if the sender was previously verified, but changed
-                // their identity and is not verified any more.
-                SenderData::VerificationViolation(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
-                ),
-                SenderData::SenderUnverified(..) => Ok(()),
-                SenderData::SenderVerified(..) => Ok(()),
-                SenderData::DeviceInfo { legacy_session: true, .. } => Ok(()),
-                SenderData::UnknownDevice { legacy_session: true, .. } => Ok(()),
-                _ => encryption_info_to_error(encryption_info),
-            },
-
-            TrustRequirement::CrossSigned => match &session.sender_data {
-                // Reject if the sender was previously verified, but changed
-                // their identity and is not verified any more.
-                SenderData::VerificationViolation(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
-                ),
-                SenderData::SenderUnverified(..) => Ok(()),
-                SenderData::SenderVerified(..) => Ok(()),
-                _ => encryption_info_to_error(encryption_info),
-            },
         }
     }
 
