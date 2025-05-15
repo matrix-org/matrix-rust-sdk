@@ -21,7 +21,7 @@ use matrix_sdk::{
     },
     room::{IncludeRelations, RelationsOptions},
 };
-use ruma::{api::Direction, events::relation::RelationType, OwnedEventId, UInt};
+use ruma::{api::Direction, OwnedEventId, UInt};
 
 use super::traits::RoomDataProvider;
 
