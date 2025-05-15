@@ -57,7 +57,7 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
             from: token,
             dir: Direction::Backward,
             limit: Some(num_events),
-            include_relations: IncludeRelations::RelationsOfType(RelationType::Thread),
+            include_relations: IncludeRelations::AllRelations,
             recurse: true,
         };
 
