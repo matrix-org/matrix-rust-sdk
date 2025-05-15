@@ -729,6 +729,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                             if content.thread_root().is_some_and(|r| &r == root_event_id) {
                                 self.add_item(content, edit_json);
                                 added_item = true;
+                            } else if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+                                if root_event_id == event_id {
+                                    self.add_item(content, edit_json);
+                                    added_item = true;
+                                }
                             }
                         }
                         _ => {
