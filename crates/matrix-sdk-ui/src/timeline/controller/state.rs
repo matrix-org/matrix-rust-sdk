@@ -148,9 +148,8 @@ impl TimelineState {
     ) {
         // Only add new items if the timeline is live.
         let should_add_new_items = match self.timeline_focus {
-            TimelineFocusKind::Live => true,
+            TimelineFocusKind::Live | TimelineFocusKind::Thread { .. } => true,
             TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
-            TimelineFocusKind::Thread => false,
         };
 
         let ctx = TimelineEventContext {
