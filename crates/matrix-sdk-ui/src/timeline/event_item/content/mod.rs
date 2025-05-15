@@ -531,9 +531,9 @@ impl TimelineItemContent {
 
     /// Return the reactions, grouped by key and then by sender, for a given
     /// content.
-    pub fn reactions(&self) -> ReactionsByKeyBySender {
+    pub fn reactions(&self) -> Option<&ReactionsByKeyBySender> {
         match self {
-            TimelineItemContent::MsgLike(msglike) => msglike.reactions.clone(),
+            TimelineItemContent::MsgLike(msglike) => Some(&msglike.reactions),
 
             TimelineItemContent::MembershipChange(..)
             | TimelineItemContent::ProfileChange(..)
@@ -543,7 +543,7 @@ impl TimelineItemContent {
             | TimelineItemContent::CallInvite
             | TimelineItemContent::CallNotify => {
                 // No reactions for these kind of items.
-                Default::default()
+                None
             }
         }
     }

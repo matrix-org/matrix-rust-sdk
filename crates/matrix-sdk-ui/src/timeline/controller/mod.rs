@@ -607,9 +607,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         let prev_status = item
             .content()
             .reactions()
-            .get(key)
-            .and_then(|group| group.get(user_id))
-            .map(|reaction_info| reaction_info.status.clone());
+            .and_then(|map| Some(map.get(key)?.get(user_id)?.status.clone()));
 
         let Some(prev_status) = prev_status else {
             match &item.kind {
@@ -685,7 +683,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     return Ok(false);
                 };
 
-                let mut reactions = item.content().reactions().clone();
+                let mut reactions = item.content().reactions().cloned().unwrap_or_default();
                 let reaction_info = reactions.remove_reaction(user_id, key);
 
                 if reaction_info.is_some() {
@@ -708,7 +706,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                             rfind_event_by_id(&state.items, &annotated_event_id)
                         {
                             // Re-add the reaction to the mapping.
-                            let mut reactions = item.content().reactions();
+                            let mut reactions =
+                                item.content().reactions().cloned().unwrap_or_default();
                             reactions
                                 .entry(key.to_owned())
                                 .or_default()
@@ -1057,7 +1056,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
                 content,
                 None,
-                prev_item.content().reactions(),
+                prev_item.content().reactions().cloned().unwrap_or_default(),
                 prev_item.content().thread_root(),
                 prev_item.content().in_reply_to(),
                 prev_item.content().thread_summary(),
