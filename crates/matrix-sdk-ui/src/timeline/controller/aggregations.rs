@@ -462,32 +462,28 @@ impl Aggregations {
         event: &mut Cow<'_, EventTimelineItem>,
         items: &mut ObservableItemsTransaction<'_>,
         room_version: &RoomVersionId,
-    ) -> Result<bool, AggregationError> {
+    ) -> Result<(), AggregationError> {
         let Some(aggregations) = self.related_events.get(item_id) else {
-            return Ok(false);
+            return Ok(());
         };
 
-        let mut changed = false;
         let mut has_edits = false;
 
         for a in aggregations {
             match a.apply(event, room_version) {
-                ApplyAggregationResult::UpdatedItem => {
-                    changed = true;
-                }
                 ApplyAggregationResult::Edit => {
                     has_edits = true;
                 }
-                ApplyAggregationResult::LeftItemIntact => {}
+                ApplyAggregationResult::UpdatedItem | ApplyAggregationResult::LeftItemIntact => {}
                 ApplyAggregationResult::Error(err) => return Err(err),
             }
         }
 
         if has_edits {
-            changed = resolve_edits(aggregations, items, event) || changed;
+            resolve_edits(aggregations, items, event);
         }
 
-        Ok(changed)
+        Ok(())
     }
 
     /// Mark a target event as being sent (i.e. it transitions from an local
