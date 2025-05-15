@@ -50,24 +50,13 @@ pub(in crate::timeline) struct ResponseData {
 }
 
 impl PollState {
-    pub(crate) fn new(
-        content: NewUnstablePollStartEventContent,
-        edit: Option<NewUnstablePollStartEventContentWithoutRelation>,
-    ) -> Self {
-        let mut ret = Self {
+    pub(crate) fn new(content: NewUnstablePollStartEventContent) -> Self {
+        Self {
             start_event_content: content,
             response_data: vec![],
             end_event_timestamp: None,
             has_been_edited: false,
-        };
-
-        if let Some(edit) = edit {
-            // SAFETY: [`Self::edit`] only returns `None` when the poll has ended, not the
-            // case here.
-            ret = ret.edit(edit).unwrap();
         }
-
-        ret
     }
 
     /// Applies an edit to a poll, returns `None` if the poll was already marked

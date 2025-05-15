@@ -528,7 +528,6 @@ mod tests {
                 timestamp(),
                 TimelineItemContent::message(
                     RoomMessageEventContent::text_plain("hi"),
-                    None,
                     ReactionsByKeyBySender::default(),
                     None,
                     None,

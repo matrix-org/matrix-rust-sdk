@@ -199,7 +199,7 @@ impl RepliedToEvent {
                     let thread_summary = None;
 
                     // TODO: could we provide the bundled edit here?
-                    let poll_state = PollState::new(content, None);
+                    let poll_state = PollState::new(content);
                     TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Poll(poll_state),
                         reactions,

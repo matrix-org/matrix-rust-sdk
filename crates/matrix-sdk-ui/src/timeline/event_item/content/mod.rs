@@ -39,10 +39,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent, SyncRoomMemberEvent},
-            message::{
-                Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-                SyncRoomMessageEvent,
-            },
+            message::{Relation, RoomMessageEventContent, SyncRoomMessageEvent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
@@ -292,6 +289,13 @@ impl TimelineItemContent {
                 }
             });
 
+        let mut poll = PollState::new(NewUnstablePollStartEventContent::new(
+            event.content.poll_start().clone(),
+        ));
+        if let Some(edit) = edit {
+            poll = poll.edit(edit).expect("the poll can't be ended yet!"); // TODO or can it?
+        }
+
         // We're not interested in aggregations for the latest preview item.
         let reactions = Default::default();
         let thread_root = None;
@@ -299,10 +303,7 @@ impl TimelineItemContent {
         let thread_summary = None;
 
         let msglike = MsgLikeContent {
-            kind: MsgLikeKind::Poll(PollState::new(
-                NewUnstablePollStartEventContent::new(event.content.poll_start().clone()),
-                edit,
-            )),
+            kind: MsgLikeKind::Poll(poll),
             reactions,
             thread_root,
             in_reply_to,
@@ -410,7 +411,6 @@ impl TimelineItemContent {
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
         c: RoomMessageEventContent,
-        edit: Option<RoomMessageEventContentWithoutRelation>,
         reactions: ReactionsByKeyBySender,
         thread_root: Option<OwnedEventId>,
         in_reply_to: Option<InReplyToDetails>,
@@ -420,7 +420,7 @@ impl TimelineItemContent {
             if in_reply_to.is_some() { RemoveReplyFallback::Yes } else { RemoveReplyFallback::No };
 
         Self::MsgLike(MsgLikeContent {
-            kind: MsgLikeKind::Message(Message::from_event(c, edit, remove_reply_fallback)),
+            kind: MsgLikeKind::Message(Message::from_event(c, None, remove_reply_fallback)),
             reactions,
             thread_root,
             in_reply_to,
