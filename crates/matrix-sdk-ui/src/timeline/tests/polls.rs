@@ -1,6 +1,8 @@
+use assert_matches2::assert_let;
 use fakes::poll_a2;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
+    event_id,
     events::{
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -228,6 +230,28 @@ async fn test_ending_poll_doesnt_clear_latest_json_edit() {
 
     // The poll still has a latest edit JSON.
     assert!(timeline.event_items().await[0].latest_edit_json().is_some());
+}
+
+#[async_test]
+async fn test_poll_contains_relations() {
+    let timeline = TestTimeline::new();
+
+    let thread_root_id = event_id!("$thread_root");
+    let in_reply_to_id = event_id!("$in_reply_to");
+
+    let poll_start = poll_a2(&timeline.factory)
+        .in_thread(thread_root_id, in_reply_to_id)
+        .sender(&ALICE)
+        .event_id(event_id!("$poll"));
+
+    timeline.handle_live_event(poll_start).await;
+
+    let poll = timeline.event_items().await[0].clone();
+
+    assert_eq!(poll.content().thread_root(), Some(thread_root_id.to_owned()));
+
+    assert_let!(Some(details) = poll.content().in_reply_to());
+    assert_eq!(details.event_id, in_reply_to_id);
 }
 
 impl TestTimeline {

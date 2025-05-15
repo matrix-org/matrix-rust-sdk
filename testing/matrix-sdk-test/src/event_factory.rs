@@ -45,7 +45,8 @@ use ruma::{
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, ImageMessageEventContent, MessageType, Relation,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                RelationWithoutReplacement, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -356,6 +357,29 @@ impl EventBuilder<RoomMessageEventContent> {
             _ => panic!("unexpected event type for a caption"),
         }
 
+        self
+    }
+}
+
+impl EventBuilder<UnstablePollStartEventContent> {
+    /// Adds a reply relation to the current event.
+    pub fn reply_to(mut self, event_id: &EventId) -> Self {
+        if let UnstablePollStartEventContent::New(content) = &mut self.content {
+            content.relates_to = Some(RelationWithoutReplacement::Reply {
+                in_reply_to: InReplyTo::new(event_id.to_owned()),
+            });
+        };
+        self
+    }
+
+    /// Adds a thread relation to the root event, setting the reply to
+    /// event id as well.
+    pub fn in_thread(mut self, root: &EventId, reply_to_event_id: &EventId) -> Self {
+        let thread = Thread::reply(root.to_owned(), reply_to_event_id.to_owned());
+
+        if let UnstablePollStartEventContent::New(content) = &mut self.content {
+            content.relates_to = Some(RelationWithoutReplacement::Thread(thread));
+        };
         self
     }
 }
