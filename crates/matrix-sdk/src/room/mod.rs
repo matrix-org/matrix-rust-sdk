@@ -260,19 +260,7 @@ impl Room {
                 prev_room_state,
             ))));
         }
-
-        let mark_as_direct = prev_room_state == RoomState::Invited
-            && self.inner.is_direct().await.unwrap_or_else(|e| {
-                warn!(room_id = ?self.room_id(), "is_direct() failed: {e}");
-                false
-            });
-
         self.client.join_room_by_id(self.room_id()).await?;
-
-        if mark_as_direct {
-            self.set_is_direct(true).await?;
-        }
-
         Ok(())
     }
 
