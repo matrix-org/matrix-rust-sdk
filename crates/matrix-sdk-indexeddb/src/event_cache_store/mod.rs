@@ -958,10 +958,47 @@ impl_event_cache_store! {
     /// position if there are any.
     async fn filter_duplicated_events(
         &self,
-        _room_id: &RoomId,
-        _events: Vec<OwnedEventId>,
+        room_id: &RoomId,
+        events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::EVENTS],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let store = tx.object_store(keys::EVENTS)?;
+
+        // TODO: This is very inefficient, as we are reading and
+        // deserializing every event in the room in order to pick
+        // out a single one. The problem is that the current
+        // schema doesn't easily allow us to find an event without
+        // knowing which chunk it is in. To improve this, we will
+        // need to add another index to our event store.
+        let lower = self.encode_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+        ]);
+        let upper = self.encode_upper_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+        ]);
+        let key_range =
+            IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+        let mut result = Vec::new();
+        let values = store.get_all_with_key(&key_range)?.await?;
+        for value in values {
+            let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
+            if let Some(event_id) = event.content.event_id() {
+                if events.contains(&event_id) {
+                    let position = Position::new(ChunkIdentifier::new(event.chunk_id), event.position);
+                    result.push((event_id, position))
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// Find an event by its ID.
