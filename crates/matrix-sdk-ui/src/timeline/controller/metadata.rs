@@ -14,18 +14,16 @@
 
 use std::{
     collections::{BTreeSet, HashMap},
-    num::NonZeroUsize,
     sync::Arc,
 };
 
-use matrix_sdk::ring_buffer::RingBuffer;
 use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
 use tracing::trace;
 
 use super::{
     super::{subscriber::skip::SkipCount, TimelineItem, TimelineItemKind, TimelineUniqueId},
     read_receipts::ReadReceipts,
-    Aggregations, AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
+    Aggregations, AllRemoteEvents, ObservableItemsTransaction,
 };
 use crate::unable_to_decrypt_hook::UtdHookManager;
 
@@ -79,9 +77,6 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// Given an event, what are all the events that are replies to it?
     pub replies: HashMap<OwnedEventId, BTreeSet<OwnedEventId>>,
 
-    /// Edit events received before the related event they're editing.
-    pub pending_edits: RingBuffer<PendingEdit>,
-
     /// Identifier of the fully-read event, helping knowing where to introduce
     /// the read marker.
     pub fully_read_event: Option<OwnedEventId>,
@@ -100,10 +95,6 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub(super) read_receipts: ReadReceipts,
 }
 
-/// Maximum number of stash pending edits.
-/// SAFETY: 32 is not 0.
-const MAX_NUM_STASHED_PENDING_EDITS: NonZeroUsize = NonZeroUsize::new(32).unwrap();
-
 impl TimelineMetadata {
     pub(in crate::timeline) fn new(
         own_user_id: OwnedUserId,
@@ -117,7 +108,6 @@ impl TimelineMetadata {
             own_user_id,
             next_internal_id: Default::default(),
             aggregations: Default::default(),
-            pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
             replies: Default::default(),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
@@ -136,7 +126,6 @@ impl TimelineMetadata {
         // ids across timeline clears.
         self.aggregations.clear();
         self.replies.clear();
-        self.pending_edits.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
         // before attempting to update it for each new timeline item.
