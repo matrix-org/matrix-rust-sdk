@@ -853,10 +853,73 @@ impl_event_cache_store! {
     /// This is used to iteratively load events for the `EventCache`.
     async fn load_previous_chunk(
         &self,
-        _room_id: &RoomId,
-        _before_chunk_identifier: ChunkIdentifier,
+        room_id: &RoomId,
+        before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
-        std::future::ready(Err(IndexeddbEventCacheStoreError::Unsupported)).await
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
+            IdbTransactionMode::Readonly,
+        )?;
+
+        let chunks = tx.object_store(keys::LINKED_CHUNKS)?;
+        let gaps = tx.object_store(keys::GAPS)?;
+        let events = tx.object_store(keys::EVENTS)?;
+
+        let key = self.encode_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+            (keys::LINKED_CHUNKS, &before_chunk_identifier.index().to_string(), false),
+        ]);
+        if let Some(value) = chunks.get_owned(&key)?.await? {
+            let chunk: ChunkForCache = self.deserialize_value_with_id(value)?;
+            if let Some(previous_key) = chunk.previous {
+                if let Some(value) = chunks.get_owned(&previous_key)?.await? {
+                    let previous_chunk: ChunkForCache = self.deserialize_value_with_id(value)?;
+                    let previous_chunk_id = previous_chunk.raw_id.to_string();
+                    let content = match previous_chunk.type_str.as_str() {
+                        ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
+                            let lower = self.encode_key(vec![
+                                (keys::ROOMS, room_id.as_ref(), true),
+                                (keys::LINKED_CHUNKS, &previous_chunk_id, false),
+                            ]);
+
+                            let upper = self.encode_upper_key(vec![
+                                (keys::ROOMS, room_id.as_ref(), true),
+                                (keys::LINKED_CHUNKS, &previous_chunk_id, false),
+                            ]);
+
+                            let events_key_range =
+                                IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+
+                            let events = events.get_all_with_key(&events_key_range)?.await?;
+                            let mut events_vec = Vec::new();
+                            for event in events {
+                                let event: TimelineEventForCache = self.deserialize_value_with_id(event)?;
+                                events_vec.push(event.content);
+                            }
+                            linked_chunk::ChunkContent::Items(events_vec)
+                        }
+                        ChunkForCache::CHUNK_TYPE_GAP_TYPE_STRING => {
+                            let gap = gaps.get_owned(previous_chunk.id.clone())?.await?.unwrap();
+                            let gap: GapForCache = self.deserialize_value_with_id(gap)?;
+                            linked_chunk::ChunkContent::Gap(Gap { prev_token: gap.prev_token })
+                        }
+                        s => {
+                            return Err(IndexeddbEventCacheStoreError::UnknownChunkType(s.to_owned()));
+                        }
+                    };
+                    return Ok(Some(RawChunk {
+                        content,
+                        identifier: ChunkIdentifier::new(previous_chunk.raw_id),
+                        previous: previous_chunk.raw_previous.map(ChunkIdentifier::new),
+                        // TODO: This should always be `before_chunk_identifier`, and if it's not, something
+                        // is wrong with our query... should this be an expect()? Or, at least
+                        // an error?
+                        next: previous_chunk.raw_next.map(ChunkIdentifier::new)
+                    }));
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// Clear persisted events for all the rooms.
