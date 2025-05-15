@@ -1947,7 +1947,16 @@ impl AllRemoteEvents {
 
     /// Get the position of an event in the events array by its ID.
     pub fn position_by_event_id(&self, event_id: &EventId) -> Option<usize> {
-        self.0.iter().position(|event_meta| event_meta.event_id == event_id)
+        // Reverse the iterator to start looking at the end. Since this will give us the
+        // "reverse" position, reverse the index after finding the event.
+        //
+        // If the reversed index was 0 in a array of size 1, then it should stay 0, so
+        // that justifies the `- 1` in the formula below.
+        self.0
+            .iter()
+            .rev()
+            .position(|event_meta| event_meta.event_id == event_id)
+            .map(|rev_index| self.0.len() - 1 - rev_index)
     }
 
     /// Shift to the right all timeline item indexes that are equal to or
