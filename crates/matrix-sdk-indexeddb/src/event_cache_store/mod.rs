@@ -232,6 +232,7 @@ struct TimelineEventForCache {
     id: String,
     content: TimelineEvent,
     room_id: String,
+    chunk_id: u64,
     position: usize,
 }
 
@@ -560,6 +561,7 @@ impl_event_cache_store! {
                             id: id.clone(),
                             content: event,
                             room_id: room_id.to_string(),
+                            chunk_id,
                             position: index,
                         };
 
@@ -584,6 +586,7 @@ impl_event_cache_store! {
                         id: event_id.clone(),
                         content: item,
                         room_id: room_id.to_string(),
+                        chunk_id,
                         position: index,
                     };
 
