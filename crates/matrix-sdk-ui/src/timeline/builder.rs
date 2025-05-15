@@ -414,6 +414,10 @@ async fn room_event_cache_updates_task(
                         .await;
                 }
             }
+
+            RoomEventCacheUpdate::UpdateThreadSummaries { summaries: _summaries } => {
+                // TODO: see you later alligator
+            }
         }
     }
 }

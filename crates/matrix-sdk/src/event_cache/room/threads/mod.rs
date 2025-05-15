@@ -14,8 +14,10 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedEventId, OwnedRoomId};
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedEventId};
 use thiserror::Error;
+use tracing::warn;
 
 mod serde_helpers;
 
@@ -33,15 +35,50 @@ pub struct ThreadEventCache {
 
 /// A model of all the threads in a room.
 pub struct RoomThreads {
-    room_id: OwnedRoomId,
-
     threads: BTreeMap<OwnedEventId, ThreadEventCache>,
 }
 
 impl RoomThreads {
-    pub fn new(room_id: OwnedRoomId) -> Self {
+    pub fn new() -> Self {
         // TODO: persistent storage, reload threads from the database, etc.
-        Self { room_id, threads: BTreeMap::new() }
+        Self { threads: BTreeMap::new() }
+    }
+
+    /// Handle live events to include in the thread cache.
+    ///
+    /// `is_gappy` must be true if, and only if, the event cache concluded that
+    /// there *might* be some missing events in the timeline.
+    pub(super) fn handle_live(
+        &mut self,
+        events: Vec<TimelineEvent>,
+        is_gappy: bool,
+    ) -> Result<BTreeMap<OwnedEventId, ThreadSummary>, EventCacheThreadError> {
+        let mut updates = BTreeMap::new();
+
+        // Process each event, which may be either a thread root, a thread reply, or
+        // none of these.
+        for event in events {
+            if let Some((root, summary)) = self.on_new_sync_event(event.raw())? {
+                // We have a new thread summary to emit.
+                updates.insert(root, summary);
+            }
+        }
+
+        // If is_gappy, then mark all threads as potentially outdated.
+        if is_gappy {
+            for (root, thread) in &mut self.threads {
+                thread.summary.maybe_outdated = true;
+                updates.insert(root.clone(), thread.summary.clone());
+
+                // TODO: trigger a background refresh to get the latest values,
+                // using /context on the thread root.
+                // This means the `RoomThreads` must have a copy of the room
+                // update sender to send its own updates,
+                // independently of the `RoomEventCache`.
+            }
+        }
+
+        Ok(updates)
     }
 
     /// Given a new sync event, process it and update the thread cache.
@@ -55,6 +92,7 @@ impl RoomThreads {
     ) -> Result<Option<(OwnedEventId, ThreadSummary)>, EventCacheThreadError> {
         let Some(event_id) = raw.get_field::<OwnedEventId>("event_id").ok().flatten() else {
             // No event id, nothing to do.
+            warn!("event had not event id, ignoring");
             return Ok(None);
         };
 
@@ -304,7 +342,7 @@ mod tests {
             .event_id(root_event_id)
             .into_raw();
 
-        let mut room_threads = RoomThreads::new(room_id.to_owned());
+        let mut room_threads = RoomThreads::new();
 
         // We find a new summary the first time we process this event.
         let (thread_root, summary) = room_threads
@@ -338,7 +376,7 @@ mod tests {
             .event_id(thread_event_id)
             .into_raw();
 
-        let mut room_threads = RoomThreads::new(room_id.to_owned());
+        let mut room_threads = RoomThreads::new();
 
         // We get a summary for the thread root the first time we process this event.
         let (found_root, summary) = room_threads
@@ -393,7 +431,7 @@ mod tests {
             .event_id(event_id)
             .into_raw();
 
-        let mut room_threads = RoomThreads::new(room_id.to_owned());
+        let mut room_threads = RoomThreads::new();
 
         let summary = room_threads.on_new_sync_event(&event).expect("event processing works");
         assert_matches!(summary, None);
