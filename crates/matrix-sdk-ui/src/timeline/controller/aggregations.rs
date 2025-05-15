@@ -40,6 +40,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use as_variant::as_variant;
+use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
@@ -79,6 +80,9 @@ pub(in crate::timeline) struct PendingEdit {
 
     /// The raw JSON for the edit.
     pub edit_json: Option<Raw<AnySyncTimelineEvent>>,
+
+    /// The encryption info for this edit.
+    pub encryption_info: Option<EncryptionInfo>,
 }
 
 /// Which kind of aggregation (related event) is this?
@@ -619,7 +623,7 @@ fn resolve_edits(
 
 /// Apply the selected edit to the given EventTimelineItem
 fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
-    let PendingEdit { kind: edit_kind, edit_json, .. } = edit;
+    let PendingEdit { kind: edit_kind, edit_json, encryption_info } = edit;
 
     if let Some(event_json) = &edit_json {
         let Some(edit_sender) = event_json.get_field::<OwnedUserId>("sender").ok().flatten() else {
@@ -686,6 +690,10 @@ fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
             );
             return false;
         }
+    }
+
+    if let Some(encryption_info) = encryption_info {
+        *item = Cow::Owned(item.with_encryption_info(Some(encryption_info)));
     }
 
     true

@@ -416,6 +416,8 @@ impl TimelineAction {
                                         new_content,
                                     )),
                                     edit_json,
+                                    // TODO maybe we could provide it?
+                                    encryption_info: None,
                                 }),
                             );
                             meta.aggregations.add(
@@ -491,6 +493,8 @@ impl TimelineAction {
                                         new_content,
                                     )),
                                     edit_json,
+                                    // TODO maybe we could provide it?
+                                    encryption_info: None,
                                 }),
                             );
                             meta.aggregations.add(
@@ -735,11 +739,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_edit(&mut self, edited_event_id: OwnedEventId, edit_kind: PendingEditKind) {
         let target = TimelineEventItemId::EventId(edited_event_id.clone());
 
+        let encryption_info =
+            as_variant!(&self.ctx.flow, Flow::Remote { encryption_info, .. } => encryption_info.clone()).flatten();
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::Edit(PendingEdit {
                 kind: edit_kind,
                 edit_json: self.ctx.flow.raw_event().cloned(),
+                encryption_info,
             }),
         );
 
