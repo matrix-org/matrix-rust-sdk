@@ -21,6 +21,7 @@ e2e-encryption = ["dep:matrix-sdk-crypto"]
 js = ["matrix-sdk-common/js", "matrix-sdk-crypto?/js", "ruma/js", "matrix-sdk-store-encryption/js"]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
+experimental-send-custom-to-device = ["matrix-sdk-crypto?/experimental-send-custom-to-device"]
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see

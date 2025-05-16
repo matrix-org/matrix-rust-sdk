@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+use std::ops::Deref;
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
@@ -69,12 +71,18 @@ use ruma::{
     DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
     RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
+#[cfg(feature = "experimental-send-custom-to-device")]
+use ruma::{
+    events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices, OwnedUserId,
+};
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
+#[cfg(feature = "experimental-send-custom-to-device")]
+use crate::encryption::identities::Device;
 use crate::{
     authentication::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
@@ -2540,6 +2548,74 @@ impl Client {
         let response = self.send(request).await?;
         let base_room = self.inner.base_client.room_knocked(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
+    }
+
+    /// Encrypts then send the given content via the `sendToDevice` end-point
+    /// using olm encryption.
+    ///
+    /// If there are a lot of targets this will be break down by chunks.
+    ///
+    /// # Returns
+    /// A list of `ToDeviceRequest` to send out the event, and the list of
+    /// devices where encryption did not succeed (device excluded or no olm)
+    #[cfg(feature = "experimental-send-custom-to-device")]
+    pub async fn encrypt_and_send_custom_to_device(
+        &self,
+        targets: Vec<&Device>,
+        event_type: &str,
+        content: Raw<AnyToDeviceEventContent>,
+    ) -> Result<Vec<(OwnedUserId, OwnedDeviceId)>> {
+        let users = targets.iter().map(|device| device.user_id());
+
+        // Will claim one-time-key for users that needs it
+        // TODO: For later optimisation: This will establish missing olm sessions with
+        // all this users devices, but we just want for some devices.
+        self.claim_one_time_keys(users).await?;
+
+        let olm = self.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+        let (requests, withhelds) = olm
+            .encrypt_content_for_devices(
+                targets.into_iter().map(|d| d.deref().clone()).collect(),
+                event_type,
+                &content
+                    .deserialize_as::<serde_json::Value>()
+                    .expect("Deserialize as Value will always work"),
+            )
+            .await?;
+
+        let mut failures: Vec<(OwnedUserId, OwnedDeviceId)> = Default::default();
+
+        // Push the withhelds in the failures
+        withhelds.iter().for_each(|(d, _)| {
+            failures.push((d.user_id().to_owned(), d.device_id().to_owned()));
+        });
+
+        // TODO: parallelize that? it's already grouping 250 devices per chunk.
+        for request in requests {
+            let send_result =
+                self.send_to_device_with_config(&request, RequestConfig::short_retry()).await;
+
+            // If the sending failed we need to collect the failures to report them
+            if send_result.is_err() {
+                // Mark the sending as failed
+                for (user_id, device_map) in request.messages {
+                    for device_id in device_map.keys() {
+                        match device_id {
+                            DeviceIdOrAllDevices::DeviceId(device_id) => {
+                                failures.push((user_id.clone(), device_id.to_owned()));
+                            }
+                            DeviceIdOrAllDevices::AllDevices => {
+                                // Cannot happen in this case
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(failures)
     }
 }
 

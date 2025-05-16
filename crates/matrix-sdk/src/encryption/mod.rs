@@ -99,6 +99,8 @@ pub use matrix_sdk_base::crypto::{
     SessionCreationError, SignatureError, VERSION,
 };
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+use crate::config::RequestConfig;
 pub use crate::error::RoomKeyImportError;
 
 /// All the data related to the encryption state.
@@ -570,6 +572,21 @@ impl Client {
         );
 
         self.send(request).await
+    }
+
+    #[cfg(feature = "experimental-send-custom-to-device")]
+    pub(crate) async fn send_to_device_with_config(
+        &self,
+        request: &ToDeviceRequest,
+        config: RequestConfig,
+    ) -> HttpResult<ToDeviceResponse> {
+        let request = RumaToDeviceRequest::new_raw(
+            request.event_type.clone(),
+            request.txn_id.clone(),
+            request.messages.clone(),
+        );
+
+        self.send_inner(request, Some(config), Default::default()).await
     }
 
     pub(crate) async fn send_verification_request(
