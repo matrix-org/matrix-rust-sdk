@@ -177,9 +177,7 @@ async fn test_mark_as_unread() {
     let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))
-        .and(path_regex(
-            r"^/_matrix/client/r0/user/.*/rooms/.*/account_data/com.famedly.marked_unread",
-        ))
+        .and(path_regex(r"^/_matrix/client/r0/user/.*/rooms/.*/account_data/m.marked_unread"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)

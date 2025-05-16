@@ -22,8 +22,15 @@ All notable changes to this project will be documented in this file.
   so the events will be lost when the process exits. To store the events on disk, you need to use
   the sqlite event cache store.
   ([#4308](https://github.com/matrix-org/matrix-rust-sdk/pull/4308))
+- `Room::set_unread_flag()` now sets the stable `m.marked_unread` room account data, which was
+  stabilized in Matrix 1.12. `Room::is_marked_unread()` also ignores the unstable
+  `com.famedly.marked_unread` room account data if the stable variant is present.
 
 ### Bug fixes
+
+- A invited DM room joined with `Client::join_room_by_id()` or `Client::join_room_by_id_or_alias()`
+  will now be correctly marked as a DM.
+  ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
 
 ### Refactor
 

@@ -204,7 +204,7 @@ impl VerificationMachine {
         self.verifications.get(user_id, flow_id)
     }
 
-    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Box<Sas>> {
         self.verifications.get_sas(user_id, flow_id)
     }
 
@@ -257,17 +257,16 @@ impl VerificationMachine {
         requests.extend(self.verifications.garbage_collect());
 
         for request in requests {
-            if let Ok(OutgoingContent::ToDevice(AnyToDeviceEventContent::KeyVerificationCancel(
-                content,
-            ))) = request.clone().try_into()
-            {
-                let event = ToDeviceEvent { content, sender: self.own_user_id().to_owned() };
+            if let Ok(OutgoingContent::ToDevice(to_device)) = request.clone().try_into() {
+                if let AnyToDeviceEventContent::KeyVerificationCancel(content) = *to_device {
+                    let event = ToDeviceEvent { content, sender: self.own_user_id().to_owned() };
 
-                events.push(
-                    Raw::new(&event)
-                        .expect("Failed to serialize m.key_verification.cancel event")
-                        .cast(),
-                );
+                    events.push(
+                        Raw::new(&event)
+                            .expect("Failed to serialize m.key_verification.cancel event")
+                            .cast(),
+                    );
+                }
             }
 
             self.verifications.add_verification_request(request)

@@ -1411,10 +1411,34 @@ impl Client {
         }
     }
 
+    /// Finish joining a room.
+    ///
+    /// If the room was an invite that should be marked as a DM, will include it
+    /// in the DM event after creating the joined room.
+    async fn finish_join_room(&self, room_id: &RoomId) -> Result<Room> {
+        let mark_as_dm = if let Some(room) = self.get_room(room_id) {
+            room.state() == RoomState::Invited
+                && room.is_direct().await.unwrap_or_else(|e| {
+                    warn!(%room_id, "is_direct() failed: {e}");
+                    false
+                })
+        } else {
+            false
+        };
+
+        let base_room = self.base_client().room_joined(room_id).await?;
+        let room = Room::new(self.clone(), base_room);
+
+        if mark_as_dm {
+            room.set_is_direct(true).await?;
+        }
+
+        Ok(room)
+    }
+
     /// Join a room by `RoomId`.
     ///
-    /// Returns a `join_room_by_id::Response` consisting of the
-    /// joined rooms `RoomId`.
+    /// Returns the `Room` in the joined state.
     ///
     /// # Arguments
     ///
@@ -1422,19 +1446,19 @@ impl Client {
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<Room> {
         let request = join_room_by_id::v3::Request::new(room_id.to_owned());
         let response = self.send(request).await?;
-        let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(Room::new(self.clone(), base_room))
+        self.finish_join_room(&response.room_id).await
     }
 
-    /// Join a room by `RoomId`.
+    /// Join a room by `RoomOrAliasId`.
     ///
-    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
-    /// joined rooms `RoomId`.
+    /// Returns the `Room` in the joined state.
     ///
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined. An
     ///   alias looks like `#name:example.com`.
+    /// * `server_names` - The server names to be used for resolving the alias,
+    ///   if needs be.
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
@@ -1444,8 +1468,7 @@ impl Client {
             via: server_names.to_owned(),
         });
         let response = self.send(request).await?;
-        let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(Room::new(self.clone(), base_room))
+        self.finish_join_room(&response.room_id).await
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -3004,12 +3027,7 @@ pub(crate) mod tests {
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
 
         // This second call hits the in-memory cache.
-        assert!(client
-            .server_versions()
-            .await
-            .unwrap()
-            .iter()
-            .any(|version| *version == MatrixVersion::V1_0));
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
         drop(client);
 
@@ -3046,12 +3064,7 @@ pub(crate) mod tests {
         // Hits network again.
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
         // Hits in-memory cache again.
-        assert!(client
-            .server_versions()
-            .await
-            .unwrap()
-            .iter()
-            .any(|version| *version == MatrixVersion::V1_0));
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
     }
 
     #[async_test]

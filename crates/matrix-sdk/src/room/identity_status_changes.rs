@@ -186,7 +186,8 @@ fn wrap_room_member_events(
             if *event.state_key() == own_user_id {
                 return;
             }
-            let _: Result<_, _> = sender.send(RoomIdentityChange::SyncRoomMemberEvent(event)).await;
+            let _: Result<_, _> =
+                sender.send(RoomIdentityChange::SyncRoomMemberEvent(Box::new(event))).await;
         });
     let drop_guard = room.client.event_handler_drop_guard(handle);
     (drop_guard, ReceiverStream::new(receiver))

@@ -345,7 +345,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         match &*focus_guard {
             TimelineFocusData::Live => {
                 // Retrieve the cached events, and add them to the timeline.
-                let (events, _stream) = room_event_cache.subscribe().await;
+                let events = room_event_cache.events().await;
 
                 let has_events = !events.is_empty();
 

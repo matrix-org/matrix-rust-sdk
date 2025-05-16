@@ -350,14 +350,8 @@ mod tests {
             {
                 let mut rooms = sliding_sync.inner.rooms.write().await;
 
-                rooms.insert(
-                    room_id1.clone(),
-                    SlidingSyncRoom::new(room_id1.clone(), None, Vec::new()),
-                );
-                rooms.insert(
-                    room_id2.clone(),
-                    SlidingSyncRoom::new(room_id2.clone(), None, Vec::new()),
-                );
+                rooms.insert(room_id1.clone(), SlidingSyncRoom::new(room_id1.clone()));
+                rooms.insert(room_id2.clone(), SlidingSyncRoom::new(room_id2.clone()));
             }
 
             let position_guard = sliding_sync.inner.position.lock().await;
@@ -472,7 +466,6 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_sliding_sync_high_level_cache_and_restore() -> Result<()> {
-        use imbl::Vector;
         use ruma::owned_room_id;
 
         use crate::sliding_sync::FrozenSlidingSync;
@@ -545,8 +538,6 @@ mod tests {
                     to_device_since: Some(to_device_token.clone()),
                     rooms: vec![FrozenSlidingSyncRoom {
                         room_id: owned_room_id!("!r0:matrix.org"),
-                        prev_batch: Some("t0ken".to_owned()),
-                        timeline_queue: Vector::new(),
                     }],
                 })?,
             )

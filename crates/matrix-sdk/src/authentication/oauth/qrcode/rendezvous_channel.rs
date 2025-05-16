@@ -39,12 +39,14 @@ type Etag = String;
 fn get_header(
     header_map: &HeaderMap,
     header_name: &HeaderName,
-) -> Result<String, FromHttpResponseError<RumaApiError>> {
+) -> Result<String, Box<FromHttpResponseError<RumaApiError>>> {
     let header = header_map
         .get(header_name)
-        .ok_or(HeaderDeserializationError::MissingHeader(ETAG.to_string()))?;
+        .ok_or(HeaderDeserializationError::MissingHeader(ETAG.to_string()))
+        .map_err(|error| Box::new(FromHttpResponseError::from(error)))?;
 
-    let header = header.to_str()?.to_owned();
+    let header =
+        header.to_str().map_err(|error| Box::new(FromHttpResponseError::from(error)))?.to_owned();
 
     Ok(header)
 }

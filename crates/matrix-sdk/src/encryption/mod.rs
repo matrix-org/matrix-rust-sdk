@@ -554,7 +554,7 @@ impl Client {
 
         self.get_room(room_id)
             .expect("Can't send a message to a room that isn't known to the store")
-            .send(content)
+            .send(*content)
             .with_transaction_id(txn_id)
             .await
     }
@@ -783,8 +783,8 @@ impl Encryption {
         let olm = olm.as_ref()?;
         #[allow(clippy::bind_instead_of_map)]
         olm.get_verification(user_id, flow_id).and_then(|v| match v {
-            matrix_sdk_base::crypto::Verification::SasV1(s) => {
-                Some(SasVerification { inner: s, client: self.client.clone() }.into())
+            matrix_sdk_base::crypto::Verification::SasV1(sas) => {
+                Some(SasVerification { inner: sas, client: self.client.clone() }.into())
             }
             #[cfg(feature = "qrcode")]
             matrix_sdk_base::crypto::Verification::QrV1(qr) => {

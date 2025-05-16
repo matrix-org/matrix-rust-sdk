@@ -24,7 +24,7 @@ use crate::{Client, Result};
 /// An object controlling QR code style key verification flows.
 #[derive(Debug, Clone)]
 pub struct QrVerification {
-    pub(crate) inner: BaseQrVerification,
+    pub(crate) inner: Box<BaseQrVerification>,
     pub(crate) client: Client,
 }
 

@@ -153,7 +153,7 @@ impl NotificationClient {
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
         match self.get_notification_with_sliding_sync(room_id, event_id).await? {
-            NotificationStatus::Event(event) => Ok(Some(event)),
+            NotificationStatus::Event(event) => Ok(Some(*event)),
             NotificationStatus::EventFilteredOut => Ok(None),
             NotificationStatus::EventNotFound => {
                 self.get_notification_with_context(room_id, event_id).await
@@ -185,7 +185,7 @@ impl NotificationClient {
             for event_id in &request.event_ids {
                 match notifications.remove(event_id) {
                     Some(Ok(NotificationStatus::Event(item))) => {
-                        notification_items.add_notification(event_id.to_owned(), item);
+                        notification_items.add_notification(event_id.to_owned(), *item);
                     }
                     Some(Ok(NotificationStatus::EventNotFound)) | None => {
                         match self.get_notification_with_context(&request.room_id, event_id).await {
@@ -688,7 +688,7 @@ impl NotificationClient {
                         Vec::new(),
                     )
                     .await
-                    .map(NotificationStatus::Event);
+                    .map(|event| NotificationStatus::Event(Box::new(event)));
 
                     match notification_status {
                         Ok(notification_item) => {
@@ -771,7 +771,7 @@ fn is_event_encrypted(event_type: TimelineEventType) -> bool {
 
 #[derive(Debug)]
 pub enum NotificationStatus {
-    Event(NotificationItem),
+    Event(Box<NotificationItem>),
     EventNotFound,
     EventFilteredOut,
 }
@@ -835,9 +835,9 @@ pub enum RawNotificationEvent {
 #[derive(Debug)]
 pub enum NotificationEvent {
     /// The Notification was for a TimelineEvent
-    Timeline(AnySyncTimelineEvent),
+    Timeline(Box<AnySyncTimelineEvent>),
     /// The Notification is an invite with the given stripped room event data
-    Invite(StrippedRoomMemberEvent),
+    Invite(Box<StrippedRoomMemberEvent>),
 }
 
 impl NotificationEvent {
@@ -851,7 +851,10 @@ impl NotificationEvent {
     /// Returns the root event id of the thread the notification event is in, if
     /// any.
     fn thread_id(&self) -> Option<OwnedEventId> {
-        let NotificationEvent::Timeline(AnySyncTimelineEvent::MessageLike(event)) = &self else {
+        let NotificationEvent::Timeline(sync_timeline_event) = &self else {
+            return None;
+        };
+        let AnySyncTimelineEvent::MessageLike(event) = sync_timeline_event.as_ref() else {
             return None;
         };
         let content = event.original_content()?;
@@ -923,11 +926,11 @@ impl NotificationItem {
                 {
                     ev.content.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::Yes);
                 }
-                NotificationEvent::Timeline(event)
+                NotificationEvent::Timeline(Box::new(event))
             }
-            RawNotificationEvent::Invite(raw_event) => NotificationEvent::Invite(
+            RawNotificationEvent::Invite(raw_event) => NotificationEvent::Invite(Box::new(
                 raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?,
-            ),
+            )),
         };
 
         let sender = match room.state() {

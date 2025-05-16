@@ -95,7 +95,6 @@ ruma = { workspace = true, features = [
     "unstable-msc2965",
     "unstable-msc3930",
     "unstable-msc3245-v1-compat",
-    "unstable-msc2867",
     "unstable-msc4230",
     "unstable-msc2967",
     "unstable-msc4108",
