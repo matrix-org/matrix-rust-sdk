@@ -58,7 +58,8 @@ pub enum AnyOutgoingRequest {
     SignatureUpload(SignatureUploadRequest),
     /// A room message request, usually for sending in-room interactive
     /// verification events.
-    RoomMessage(RoomMessageRequest),
+    // `Box` the `RoomMessageRequest` to reduce the size of the enum.
+    RoomMessage(Box<RoomMessageRequest>),
 }
 
 #[cfg(test)]
@@ -96,7 +97,7 @@ impl From<ToDeviceRequest> for AnyOutgoingRequest {
 
 impl From<RoomMessageRequest> for AnyOutgoingRequest {
     fn from(request: RoomMessageRequest) -> Self {
-        Self::RoomMessage(request)
+        Self::RoomMessage(Box::new(request))
     }
 }
 
@@ -128,7 +129,7 @@ impl From<OutgoingVerificationRequest> for AnyOutgoingRequest {
     fn from(request: OutgoingVerificationRequest) -> Self {
         match request {
             OutgoingVerificationRequest::ToDevice(r) => AnyOutgoingRequest::ToDeviceRequest(r),
-            OutgoingVerificationRequest::InRoom(r) => AnyOutgoingRequest::RoomMessage(r),
+            OutgoingVerificationRequest::InRoom(r) => AnyOutgoingRequest::RoomMessage(Box::new(r)),
         }
     }
 }
