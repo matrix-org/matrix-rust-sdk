@@ -25,6 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     events::{
+        beacon::BeaconEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -113,12 +114,21 @@ struct Unsigned<C: EventContent> {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     redacted_because: Option<RedactedBecause>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    age: Option<Int>,
 }
 
 // rustc can't derive Default because C isn't marked as `Default` 🤔 oh well.
 impl<C: EventContent> Default for Unsigned<C> {
     fn default() -> Self {
-        Self { prev_content: None, transaction_id: None, relations: None, redacted_because: None }
+        Self {
+            prev_content: None,
+            transaction_id: None,
+            relations: None,
+            redacted_because: None,
+            age: None,
+        }
     }
 }
 
@@ -173,6 +183,12 @@ where
     pub fn unsigned_transaction_id(mut self, transaction_id: &TransactionId) -> Self {
         self.unsigned.get_or_insert_with(Default::default).transaction_id =
             Some(transaction_id.to_owned());
+        self
+    }
+
+    /// Add age to unsigned data in this event.
+    pub fn age(mut self, age: impl Into<Int>) -> Self {
+        self.unsigned.get_or_insert_with(Default::default).age = Some(age.into());
         self
     }
 
@@ -788,6 +804,16 @@ impl EventFactory {
         event.alias = alias;
         event.alt_aliases = alt_aliases;
         self.event(event)
+    }
+
+    /// Create a new `org.matrix.msc3672.beacon` event.
+    pub fn beacon(
+        &self,
+        beacon_info_event_id: OwnedEventId,
+        geo_uri: String,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> EventBuilder<BeaconEventContent> {
+        self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
     }
 
     /// Set the next server timestamp.
