@@ -207,7 +207,7 @@ async fn test_notification() -> Result<()> {
         NotificationStatus::Event(notification) =
             notification_client.get_notification_with_sliding_sync(&room_id, &event_id).await?
     );
-    check_notification(true, notification);
+    check_notification(true, *notification);
 
     // Check with `/context`.
     let notification_client = NotificationClient::new(bob.clone(), process_setup).await.unwrap();
