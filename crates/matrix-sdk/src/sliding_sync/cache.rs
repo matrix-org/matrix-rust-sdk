@@ -22,6 +22,7 @@ pub(super) fn format_storage_key_prefix(id: &str, user_id: &UserId) -> String {
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
+#[cfg(feature = "e2e-encryption")]
 fn format_storage_key_for_sliding_sync(storage_key: &str) -> String {
     format!("{storage_key}::instance")
 }
@@ -49,7 +50,6 @@ pub(super) async fn store_sliding_sync_state(
     _position: &SlidingSyncPositionMarkers,
 ) -> Result<()> {
     let storage_key = &sliding_sync.inner.storage_key;
-    let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
     trace!(storage_key, "Saving a `SlidingSync` to the state store");
     let storage = sliding_sync.inner.client.state_store();
@@ -57,6 +57,7 @@ pub(super) async fn store_sliding_sync_state(
     #[cfg(feature = "e2e-encryption")]
     {
         let position = _position;
+        let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
         // FIXME (TERRIBLE HACK): we want to save `pos` in a cross-process safe manner,
         // with both processes sharing the same database backend; that needs to
@@ -154,15 +155,16 @@ pub(super) struct RestoredFields {
 /// If one cache is obsolete (corrupted, and cannot be deserialized or
 /// anything), the entire `SlidingSync` cache is removed.
 pub(super) async fn restore_sliding_sync_state(
-    client: &Client,
+    _client: &Client,
     storage_key: &str,
 ) -> Result<Option<RestoredFields>> {
     let _timer = timer!(format!("loading sliding sync {storage_key} state from DB"));
 
+    #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
     let mut restored_fields = RestoredFields::default();
 
     #[cfg(feature = "e2e-encryption")]
-    if let Some(olm_machine) = &*client.olm_machine().await {
+    if let Some(olm_machine) = &*_client.olm_machine().await {
         match olm_machine.store().next_batch_token().await? {
             Some(token) => {
                 restored_fields.to_device_token = Some(token);
@@ -171,11 +173,11 @@ pub(super) async fn restore_sliding_sync_state(
         }
     }
 
-    let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
-
     // Preload the `SlidingSync` object from the cache.
     #[cfg(feature = "e2e-encryption")]
-    if let Some(olm_machine) = &*client.olm_machine().await {
+    if let Some(olm_machine) = &*_client.olm_machine().await {
+        let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
+
         if let Ok(Some(blob)) = olm_machine.store().get_custom_value(&instance_storage_key).await {
             if let Ok(frozen_pos) = serde_json::from_slice::<FrozenSlidingSyncPos>(&blob) {
                 trace!("Successfully read the `Sliding Sync` pos from the crypto store cache");
@@ -193,10 +195,11 @@ mod tests {
 
     use matrix_sdk_test::async_test;
 
+    #[cfg(feature = "e2e-encryption")]
+    use super::format_storage_key_for_sliding_sync;
     use super::{
-        super::SlidingSyncList, format_storage_key_for_sliding_sync,
-        format_storage_key_for_sliding_sync_list, format_storage_key_prefix,
-        restore_sliding_sync_state, store_sliding_sync_state,
+        super::SlidingSyncList, format_storage_key_for_sliding_sync_list,
+        format_storage_key_prefix, restore_sliding_sync_state, store_sliding_sync_state,
     };
     use crate::{test_utils::logged_in_client, Result};
 
