@@ -1050,7 +1050,7 @@ impl_event_cache_store! {
         let values = events.get_all_with_key(&events_key_range)?.await?;
         for value in values {
             let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
-            if event.id == *event_id {
+            if event.content.event_id().is_some_and(|inner| inner == *event_id) {
                 return Ok(Some(event.content))
             }
         }
