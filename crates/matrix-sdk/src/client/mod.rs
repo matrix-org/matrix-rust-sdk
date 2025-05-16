@@ -3027,12 +3027,7 @@ pub(crate) mod tests {
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
 
         // This second call hits the in-memory cache.
-        assert!(client
-            .server_versions()
-            .await
-            .unwrap()
-            .iter()
-            .any(|version| *version == MatrixVersion::V1_0));
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
         drop(client);
 
@@ -3069,12 +3064,7 @@ pub(crate) mod tests {
         // Hits network again.
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
         // Hits in-memory cache again.
-        assert!(client
-            .server_versions()
-            .await
-            .unwrap()
-            .iter()
-            .any(|version| *version == MatrixVersion::V1_0));
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
     }
 
     #[async_test]
