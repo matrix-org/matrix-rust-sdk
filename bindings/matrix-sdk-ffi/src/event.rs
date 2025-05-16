@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use anyhow::{bail, Context};
 use matrix_sdk::IdParseError;
 use matrix_sdk_ui::timeline::TimelineEventItemId;
@@ -22,7 +24,7 @@ use crate::{
 };
 
 #[derive(uniffi::Object)]
-pub struct TimelineEvent(pub(crate) AnySyncTimelineEvent);
+pub struct TimelineEvent(pub(crate) Box<AnySyncTimelineEvent>);
 
 #[matrix_sdk_ffi_macros::export]
 impl TimelineEvent {
@@ -39,7 +41,7 @@ impl TimelineEvent {
     }
 
     pub fn event_type(&self) -> Result<TimelineEventType, ClientError> {
-        let event_type = match &self.0 {
+        let event_type = match self.0.deref() {
             AnySyncTimelineEvent::MessageLike(event) => {
                 TimelineEventType::MessageLike { content: event.clone().try_into()? }
             }
@@ -53,7 +55,7 @@ impl TimelineEvent {
 
 impl From<AnyTimelineEvent> for TimelineEvent {
     fn from(event: AnyTimelineEvent) -> Self {
-        Self(event.into())
+        Self(Box::new(event.into()))
     }
 }
 

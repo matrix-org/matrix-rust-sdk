@@ -183,19 +183,25 @@ async fn test_notification() -> Result<()> {
         assert_matches!(
             notification.event,
             NotificationEvent::Timeline(
-                matrix_sdk::ruma::events::AnySyncTimelineEvent::MessageLike(
-                    matrix_sdk::ruma::events::AnySyncMessageLikeEvent::RoomMessage(
-                        SyncMessageLikeEvent::Original(event)
-                    )
-                )
+                sync_timeline_event
             ) => {
-                assert_matches!(event.content.msgtype,
-                    matrix_sdk::ruma::events::room::message::MessageType::Text(text) => {
-                        assert_eq!(text.body, "Hello world!");
-                    });
-                }
+                assert_matches!(
+                    sync_timeline_event.as_ref(),
+                    matrix_sdk::ruma::events::AnySyncTimelineEvent::MessageLike(
+                        matrix_sdk::ruma::events::AnySyncMessageLikeEvent::RoomMessage(
+                            SyncMessageLikeEvent::Original(event)
+                        )
+                    ) => {
+                        assert_matches!(
+                            &event.content.msgtype,
+                            matrix_sdk::ruma::events::room::message::MessageType::Text(text) => {
+                                assert_eq!(text.body, "Hello world!");
+                            }
+                        );
+                    }
+                );
+            }
         );
-
         assert_eq!(notification.sender_display_name.as_deref(), Some(ALICE_NAME));
         assert_eq!(notification.room_computed_display_name, ROOM_NAME);
     };
