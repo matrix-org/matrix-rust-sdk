@@ -14,7 +14,7 @@
 
 use std::{
     collections::BTreeMap,
-    io::{Error as IoError, ErrorKind, Read},
+    io::{Error as IoError, Read},
 };
 
 use aes::{
@@ -66,7 +66,7 @@ impl<R: Read> Read for AttachmentDecryptor<'_, R> {
             if hash.as_slice() == self.expected_hash.as_slice() {
                 Ok(0)
             } else {
-                Err(IoError::new(ErrorKind::Other, "Hash mismatch while decrypting"))
+                Err(IoError::other("Hash mismatch while decrypting"))
             }
         } else {
             self.sha.update(&buf[0..read_bytes]);
