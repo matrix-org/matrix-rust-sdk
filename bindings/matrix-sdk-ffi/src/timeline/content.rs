@@ -96,6 +96,14 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 }
 
 #[derive(Clone, uniffi::Enum)]
+// A note about this `allow(clippy::large_enum_variant)`.
+// In order to reduce the size of `TimelineItemContent`, we would need to
+// put some parts in a `Box`, or an `Arc`. Sadly, it doesn't play well with
+// UniFFI. We would need to change the `uniffi::Record` of the subtypes into
+// `uniffi::Object`, which is a radical change. It would simplify the memory
+// usage, but it would slow down the performance around the FFI border. Thus,
+// let's consider this is a false-positive lint in this particular case.
+#[allow(clippy::large_enum_variant)]
 pub enum TimelineItemContent {
     MsgLike {
         content: MsgLikeContent,
