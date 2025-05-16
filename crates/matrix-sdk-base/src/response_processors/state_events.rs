@@ -36,7 +36,6 @@ pub mod sync {
 
     /// Collect [`AnySyncStateEvent`] to [`AnySyncStateEvent`].
     pub fn collect(
-        _context: &mut Context,
         raw_events: &[Raw<AnySyncStateEvent>],
     ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
         super::collect(raw_events)
@@ -47,7 +46,6 @@ pub mod sync {
     /// A [`AnySyncTimelineEvent`] can represent either message-like events or
     /// state events. The message-like events are filtered out.
     pub fn collect_from_timeline(
-        _context: &mut Context,
         raw_events: &[Raw<AnySyncTimelineEvent>],
     ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
         super::collect(raw_events.iter().filter_map(|raw_event| {
@@ -125,7 +123,6 @@ pub mod stripped {
 
     /// Collect [`AnyStrippedStateEvent`] to [`AnyStrippedStateEvent`].
     pub fn collect(
-        _context: &mut Context,
         raw_events: &[Raw<AnyStrippedStateEvent>],
     ) -> (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>) {
         super::collect(raw_events)

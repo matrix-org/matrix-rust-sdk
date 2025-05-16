@@ -33,7 +33,6 @@ use crate::{
 /// Dispatch the ephemeral events in the `extensions.typing` part of the
 /// response.
 pub fn dispatch_typing_ephemeral_events(
-    _context: &mut Context,
     typing: &http::response::Typing,
     joined_room_updates: &mut BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
 ) {

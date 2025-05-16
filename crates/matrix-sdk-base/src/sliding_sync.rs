@@ -63,13 +63,8 @@ impl BaseClient {
         let mut context = processors::Context::default();
 
         let processors::e2ee::to_device::Output { decrypted_to_device_events, room_key_updates } =
-            processors::e2ee::to_device::from_msc4186(
-                &mut context,
-                to_device,
-                e2ee,
-                olm_machine.as_ref(),
-            )
-            .await?;
+            processors::e2ee::to_device::from_msc4186(to_device, e2ee, olm_machine.as_ref())
+                .await?;
 
         processors::latest_event::decrypt_from_rooms(
             &mut context,
@@ -197,7 +192,6 @@ impl BaseClient {
         // these both live in a different subsection of the server's response,
         // so they may exist without any update for the associated room.
         processors::room::msc4186::extensions::dispatch_typing_ephemeral_events(
-            &mut context,
             &extensions.typing,
             &mut room_updates.joined,
         );
