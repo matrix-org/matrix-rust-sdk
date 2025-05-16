@@ -140,7 +140,7 @@ impl VerificationCache {
     }
 
     #[cfg(feature = "qrcode")]
-    pub fn get_qr(&self, sender: &UserId, flow_id: &str) -> Option<QrVerification> {
+    pub fn get_qr(&self, sender: &UserId, flow_id: &str) -> Option<Box<QrVerification>> {
         self.get(sender, flow_id).and_then(as_variant!(Verification::QrV1))
     }
 
@@ -177,7 +177,7 @@ impl VerificationCache {
             .collect()
     }
 
-    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Box<Sas>> {
         self.get(user_id, flow_id).and_then(as_variant!(Verification::SasV1))
     }
 

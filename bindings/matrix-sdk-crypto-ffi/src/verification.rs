@@ -88,7 +88,7 @@ impl Verification {
     /// returns `None` if the verification is not a `Sas` verification.
     pub fn as_sas(&self) -> Option<Arc<Sas>> {
         if let InnerVerification::SasV1(sas) = &self.inner {
-            Some(Sas { inner: sas.to_owned(), runtime: self.runtime.to_owned() }.into())
+            Some(Sas { inner: sas.clone(), runtime: self.runtime.to_owned() }.into())
         } else {
             None
         }
@@ -98,7 +98,7 @@ impl Verification {
     /// returns `None` if the verification is not a `QrCode` verification.
     pub fn as_qr(&self) -> Option<Arc<QrCode>> {
         if let InnerVerification::QrV1(qr) = &self.inner {
-            Some(QrCode { inner: qr.to_owned(), runtime: self.runtime.to_owned() }.into())
+            Some(QrCode { inner: qr.clone(), runtime: self.runtime.to_owned() }.into())
         } else {
             None
         }
@@ -108,7 +108,7 @@ impl Verification {
 /// The `m.sas.v1` verification flow.
 #[derive(uniffi::Object)]
 pub struct Sas {
-    pub(crate) inner: InnerSas,
+    pub(crate) inner: Box<InnerSas>,
     pub(crate) runtime: Handle,
 }
 
@@ -324,7 +324,7 @@ impl From<QrVerificationState> for QrCodeState {
 /// verification flow.
 #[derive(uniffi::Object)]
 pub struct QrCode {
-    pub(crate) inner: InnerQr,
+    pub(crate) inner: Box<InnerQr>,
     pub(crate) runtime: Handle,
 }
 
@@ -669,7 +669,7 @@ impl VerificationRequest {
     ///   verification flow.
     pub fn start_sas_verification(&self) -> Result<Option<StartSasResult>, CryptoStoreError> {
         Ok(self.runtime.block_on(self.inner.start_sas())?.map(|(sas, r)| StartSasResult {
-            sas: Arc::new(Sas { inner: sas, runtime: self.runtime.clone() }),
+            sas: Arc::new(Sas { inner: Box::new(sas), runtime: self.runtime.clone() }),
             request: r.into(),
         }))
     }
@@ -690,7 +690,7 @@ impl VerificationRequest {
         Ok(self
             .runtime
             .block_on(self.inner.generate_qr_code())?
-            .map(|qr| QrCode { inner: qr, runtime: self.runtime.clone() }.into()))
+            .map(|qr| QrCode { inner: Box::new(qr), runtime: self.runtime.clone() }.into()))
     }
 
     /// Pass data from a scanned QR code to an active verification request and
@@ -717,7 +717,7 @@ impl VerificationRequest {
             let request = qr.reciprocate()?;
 
             Some(ScanResult {
-                qr: QrCode { inner: qr, runtime: self.runtime.clone() }.into(),
+                qr: QrCode { inner: Box::new(qr), runtime: self.runtime.clone() }.into(),
                 request: request.into(),
             })
         } else {
