@@ -1818,23 +1818,47 @@ impl OlmMachine {
                 // respectively, and those cases may be acceptable if the reason
                 // for the lack of data is that the sessions were established
                 // before we started collecting SenderData.
-                let legacy_session = match &session.sender_data {
+                let legacy_session = match session.sender_data {
                     SenderData::DeviceInfo { legacy_session, .. } => legacy_session,
                     SenderData::UnknownDevice { legacy_session, .. } => legacy_session,
-                    _ => &false,
+                    _ => false,
                 };
 
-                matches!(
-                    (verification_level, legacy_session),
-                    (VerificationLevel::UnverifiedIdentity, _)
-                        | (VerificationLevel::UnsignedDevice, true)
-                        | (VerificationLevel::None(_), true)
-                )
+                // In the CrossSignedOrLegacy case the following rules apply:
+                //
+                // 1. Identities we have not yet verified can be decrypted regardless of the
+                //    legacy state of the session.
+                // 2. Devices that aren't signed by the owning identity of the device can only
+                //    be decrypted if it's a legacy session.
+                // 3. If we have no information about the device, we should only decrypt if it's
+                //    a legacy session.
+                // 4. Anything else, should throw an error.
+                match (verification_level, legacy_session) {
+                    // Case 1
+                    (VerificationLevel::UnverifiedIdentity, _) => true,
+
+                    // Case 2
+                    (VerificationLevel::UnsignedDevice, true) => true,
+
+                    // Case 3
+                    (VerificationLevel::None(_), true) => true,
+
+                    // Case 4
+                    (VerificationLevel::VerificationViolation, _)
+                    | (VerificationLevel::UnsignedDevice, false)
+                    | (VerificationLevel::None(_), false) => false,
+                }
             }
 
-            TrustRequirement::CrossSigned => {
-                matches!(verification_level, VerificationLevel::UnverifiedIdentity)
-            }
+            // If cross-signing of identities is required, the only acceptable unverified case
+            // is when the identity is signed but not yet verified by us.
+            TrustRequirement::CrossSigned => match verification_level {
+                VerificationLevel::UnverifiedIdentity => true,
+
+                VerificationLevel::VerificationViolation
+                | VerificationLevel::UnsignedDevice
+                | VerificationLevel::None(_) => false,
+            },
         };
 
         if ok {
