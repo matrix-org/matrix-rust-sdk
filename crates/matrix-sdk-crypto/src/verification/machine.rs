@@ -204,7 +204,7 @@ impl VerificationMachine {
         self.verifications.get(user_id, flow_id)
     }
 
-    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Box<Sas>> {
         self.verifications.get_sas(user_id, flow_id)
     }
 
