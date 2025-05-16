@@ -233,8 +233,19 @@ struct TimelineEventForCache {
     id: String,
     content: TimelineEvent,
     room_id: String,
+    position: Option<PositionForCache>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PositionForCache {
     chunk_id: u64,
-    position: usize,
+    index: usize,
+}
+
+impl From<PositionForCache> for Position {
+    fn from(value: PositionForCache) -> Self {
+        Self::new(ChunkIdentifier::new(value.chunk_id), value.index)
+    }
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -562,8 +573,10 @@ impl_event_cache_store! {
                             id: id.clone(),
                             content: event,
                             room_id: room_id.to_string(),
-                            chunk_id,
-                            position: index,
+                            position: Some(PositionForCache {
+                                chunk_id,
+                                index
+                            }),
                         };
 
                         let value = self.serialize_value_with_id(&id, &value)?;
@@ -587,8 +600,10 @@ impl_event_cache_store! {
                         id: event_id.clone(),
                         content: item,
                         room_id: room_id.to_string(),
-                        chunk_id,
-                        position: index,
+                        position: Some(PositionForCache {
+                            chunk_id,
+                            index,
+                        }),
                     };
 
                     let value = self.serialize_value_with_id(&event_id, &timeline_event)?;
@@ -634,7 +649,7 @@ impl_event_cache_store! {
 
                     for item in items {
                         let event: TimelineEventForCache = self.deserialize_value_with_id(item)?;
-                        if event.position >= index {
+                        if event.position.is_some_and(|position| position.index >= index) {
                             object_store.delete(&JsValue::from_str(&event.id))?;
                         }
                     }
@@ -994,8 +1009,9 @@ impl_event_cache_store! {
             let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
             if let Some(event_id) = event.content.event_id() {
                 if events.contains(&event_id) {
-                    let position = Position::new(ChunkIdentifier::new(event.chunk_id), event.position);
-                    result.push((event_id, position))
+                    if let Some(position) = event.position {
+                        result.push((event_id, position.into()))
+                    }
                 }
             }
         }
