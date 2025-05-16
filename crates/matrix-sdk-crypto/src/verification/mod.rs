@@ -781,7 +781,7 @@ pub(crate) mod tests {
         let content = if let OutgoingContent::ToDevice(c) = content { c } else { unreachable!() };
         let sender = sender.to_owned();
 
-        match content {
+        match *content {
             AnyToDeviceEventContent::KeyVerificationRequest(c) => {
                 ToDeviceEvents::KeyVerificationRequest(ToDeviceEvent { sender, content: c })
             }

@@ -345,7 +345,7 @@ macro_rules! try_from_outgoing_content {
                         }
                     }
                     OutgoingContent::ToDevice(c) => {
-                        if let AnyToDeviceEventContent::$enum_variant(c) = c {
+                        if let AnyToDeviceEventContent::$enum_variant(c) = c.as_ref() {
                             Ok(Self::ToDevice(c))
                         } else {
                             Err(())
@@ -382,7 +382,7 @@ impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
                 }
             }
             OutgoingContent::ToDevice(c) => {
-                if let AnyToDeviceEventContent::KeyVerificationRequest(c) = c {
+                if let AnyToDeviceEventContent::KeyVerificationRequest(c) = c.as_ref() {
                     Ok(Self::ToDevice(c))
                 } else {
                     Err(())
@@ -651,7 +651,7 @@ impl OwnedAcceptContent {
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
     Room(OwnedRoomId, Box<AnyMessageLikeEventContent>),
-    ToDevice(AnyToDeviceEventContent),
+    ToDevice(Box<AnyToDeviceEventContent>),
 }
 
 impl From<OwnedStartContent> for OutgoingContent {
@@ -669,7 +669,7 @@ impl From<OwnedStartContent> for OutgoingContent {
 
 impl From<AnyToDeviceEventContent> for OutgoingContent {
     fn from(content: AnyToDeviceEventContent) -> Self {
-        OutgoingContent::ToDevice(content)
+        OutgoingContent::ToDevice(Box::new(content))
     }
 }
 
