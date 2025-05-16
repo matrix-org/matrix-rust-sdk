@@ -835,9 +835,9 @@ pub enum RawNotificationEvent {
 #[derive(Debug)]
 pub enum NotificationEvent {
     /// The Notification was for a TimelineEvent
-    Timeline(AnySyncTimelineEvent),
+    Timeline(Box<AnySyncTimelineEvent>),
     /// The Notification is an invite with the given stripped room event data
-    Invite(StrippedRoomMemberEvent),
+    Invite(Box<StrippedRoomMemberEvent>),
 }
 
 impl NotificationEvent {
@@ -851,7 +851,10 @@ impl NotificationEvent {
     /// Returns the root event id of the thread the notification event is in, if
     /// any.
     fn thread_id(&self) -> Option<OwnedEventId> {
-        let NotificationEvent::Timeline(AnySyncTimelineEvent::MessageLike(event)) = &self else {
+        let NotificationEvent::Timeline(sync_timeline_event) = &self else {
+            return None;
+        };
+        let AnySyncTimelineEvent::MessageLike(event) = sync_timeline_event.as_ref() else {
             return None;
         };
         let content = event.original_content()?;
@@ -923,11 +926,11 @@ impl NotificationItem {
                 {
                     ev.content.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::Yes);
                 }
-                NotificationEvent::Timeline(event)
+                NotificationEvent::Timeline(Box::new(event))
             }
-            RawNotificationEvent::Invite(raw_event) => NotificationEvent::Invite(
+            RawNotificationEvent::Invite(raw_event) => NotificationEvent::Invite(Box::new(
                 raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?,
-            ),
+            )),
         };
 
         let sender = match room.state() {
