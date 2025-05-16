@@ -50,6 +50,7 @@ use super::{
 use crate::{client::WeakClient, room::WeakRoom};
 
 pub(super) mod events;
+pub(super) mod threads;
 
 /// A subset of an event cache, for a room.
 ///
